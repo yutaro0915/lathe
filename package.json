@@ -1,0 +1,24 @@
+{
+  "name": "lathe-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lathe — harness engineering platform. Prototype of the harness-improvement loop UI (5 scenes).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "seed": "tsx db/seed.ts"
+  },
+  "dependencies": {
+    "next": "^15.5.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
