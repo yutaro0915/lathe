@@ -52,6 +52,13 @@ function fmtTok(n: number): string {
   return String(n);
 }
 
+// "12.1M" / "12.4K" compaction for the header stat cluster.
+function fmtCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 function fmtCost(c: number | null): string {
   if (c == null) return "—";
   return `$${c.toFixed(2)}`;
@@ -491,88 +498,42 @@ export default function SessionViewer({
   return (
     <>
       {/* ===================== Band 2 — metrics ===================== */}
-      <div className="metrics">
-        <div className="metric metric-branch">
-          <span className="label">Branch</span>
-          <span className="value mono">
-            <span aria-hidden>⎇</span> {branch}
-            <button
-              type="button"
-              className="icon-btn"
-              title="Copy branch"
-              aria-label="Copy branch"
-              onClick={() => copy("branch", branch)}
-            >
-              {copied === "branch" ? "✓" : "⧉"}
-            </button>
+      <div className="sessbar">
+        <div className="sessbar-id">
+          <span className={`runner-dot ${primary.runner}`} aria-hidden />
+          <span className="sessbar-title" title={primary.title}>
+            {primary.title}
+          </span>
+          <span className={`badge ${primary.status}`}>{primary.status}</span>
+          <span className="sessbar-meta">
+            {primary.model ?? "—"} · <span className="mono">⎇ {branch}</span> · {commitLabel} ·{" "}
+            {sessionDate} {parseStamp(primary.startedAt).time}
           </span>
         </div>
-        <span className="metric-sep" />
-
-        <div className="metric metric-commit">
-          <span className="label">Commit</span>
-          <span className="value mono">
-            {commitLabel}
-            <button
-              type="button"
-              className="icon-btn"
-              title="Copy commit count"
-              aria-label="Copy commit count"
-              onClick={() => copy("commit", commitLabel)}
-            >
-              {copied === "commit" ? "✓" : "⧉"}
-            </button>
-          </span>
-        </div>
-        <span className="metric-sep" />
-
-        <div className="metric">
-          <span className="label">Model</span>
-          <span className="value">
-            <span className={`runner-dot ${primary.runner}`} />
-            {primary.model ?? "—"}
-          </span>
-        </div>
-        <span className="metric-sep" />
-
-        <div className="metric">
-          <span className="label">Duration</span>
-          <span className="value">{humanizeDuration(primary.durationMs)}</span>
-        </div>
-        <span className="metric-sep" />
-
-        <div className="metric">
-          <span className="label">Turns</span>
-          <span className="value">{primary.turnCount}</span>
-        </div>
-        <span className="metric-sep" />
-
-        <div className="metric">
-          <span className="label">Tools</span>
-          <span className="value">{primary.toolCount}</span>
-        </div>
-        <span className="metric-sep" />
-
-        <div className="metric">
-          <span className="label">Edits</span>
-          <span className="value">{primary.editCount}</span>
-        </div>
-        <span className="metric-sep" />
-
-        <div className="metric">
-          <span className="label">Tokens</span>
-          <span className="value">
-            {fmtInt(primary.tokenUsage)}
-            <span className="sub">
-              ({fmtTok(primary.tokenIn)} in / {fmtTok(primary.tokenOut)} out)
-            </span>
-          </span>
-        </div>
-        <span className="metric-sep" />
-
-        <div className="metric">
-          <span className="label">Cost</span>
-          <span className="value">{fmtCost(primary.costUsd)}</span>
+        <div className="sessbar-stats">
+          <div className="kstat">
+            <b>{humanizeDuration(primary.durationMs)}</b>
+            <span>duration</span>
+          </div>
+          <div className="kstat">
+            <b>{fmtInt(primary.turnCount)}</b>
+            <span>turns</span>
+          </div>
+          <div className="kstat">
+            <b>{fmtInt(primary.toolCount)}</b>
+            <span>tools</span>
+          </div>
+          <div className="kstat">
+            <b>{fmtInt(primary.editCount)}</b>
+            <span>edits</span>
+          </div>
+          <div
+            className="kstat"
+            title={`${fmtInt(primary.tokenIn)} in · ${fmtInt(primary.tokenOut)} out`}
+          >
+            <b>{fmtCompact(primary.tokenUsage)}</b>
+            <span>tokens</span>
+          </div>
         </div>
       </div>
 

@@ -5,11 +5,12 @@ import { test, expect } from "@playwright/test";
 // transcripts grow.
 
 test.describe("Session viewer (/)", () => {
-  test("loads with sessions, metrics and a timeline", async ({ page }) => {
+  test("loads with sessions, a named header and a timeline", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator(".session-item").first()).toBeVisible();
-    await expect(page.locator(".metrics")).toContainText("Branch");
-    await expect(page.locator(".metrics")).toContainText("Tokens");
+    // refined header: session is named + a compact stat cluster
+    await expect(page.locator(".sessbar .sessbar-title")).toBeVisible();
+    await expect(page.locator(".sessbar .sessbar-stats")).toContainText("tokens");
     expect(await page.locator(".event-row").count()).toBeGreaterThan(0);
   });
 

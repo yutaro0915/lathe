@@ -175,6 +175,13 @@ function fmtInt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+// "12.1M" / "12.4K" compaction for the header stat cluster.
+function fmtCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 // "12.4K" style compaction for big token counts in the metric .sub line.
 function fmtTok(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
@@ -555,84 +562,38 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
   return (
     <>
       {/* metrics band */}
-      <div className="metrics">
-        <div className="metric">
-          <span className="label">Branch</span>
-          <span className="value">
-            <span className="metric-branch">⎇ {branch}</span>
+      <div className="sessbar">
+        <div className="sessbar-id">
+          <span className={`runner-dot ${runnerClass}`} aria-hidden />
+          <span className="sessbar-title" title={s.title}>
+            {s.title}
+          </span>
+          <span className={`badge ${s.status}`}>{s.status}</span>
+          <span className="sessbar-meta">
+            Git diff · {runnerLabel} · <span className="mono">⎇ {branch}</span> · {commitText} ·{" "}
+            {s.startedAt.replace("T", " ").slice(0, 16)}
           </span>
         </div>
-        <div className="metric-sep" />
-        <div className="metric">
-          <span className="label">Commits</span>
-          <span className="value mono">
-            <span className="metric-commit">{commitText}</span>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="Copy commit count"
-              title={copied === "commits" ? "Copied" : "Copy"}
-              onClick={() => copyValue(commitText, "commits")}
-            >
-              ⧉
-            </button>
-          </span>
-        </div>
-        <div className="metric-sep" />
-        <div className="metric">
-          <span className="label">Model</span>
-          <span className="value">
-            <span className="runner-pill">
-              <span className={`runner-dot ${runnerClass}`} />
-              {runnerLabel}
-            </span>
-          </span>
-        </div>
-        <div className="metric-sep" />
-        <div className="metric">
-          <span className="label">Duration</span>
-          <span className="value">{fmtDuration(s.durationMs)}</span>
-        </div>
-        <div className="metric-sep" />
-        <div className="metric">
-          <span className="label">Turns</span>
-          <span className="value">{fmtInt(s.turnCount)}</span>
-        </div>
-        <div className="metric-sep" />
-        <div className="metric">
-          <span className="label">Tokens</span>
-          <span className="value">{fmtInt(s.tokenIn + s.tokenOut)}</span>
-          <span className="sub">
-            ({fmtTok(s.tokenIn)} in / {fmtTok(s.tokenOut)} out)
-          </span>
-        </div>
-        <div className="metric-sep" />
-        <div className="metric">
-          <span className="label">Cost</span>
-          <span className="value">
-            {s.costUsd != null ? `$${s.costUsd.toFixed(2)}` : "—"}
-          </span>
-        </div>
-        <div className="metric-sep" />
-        <div className="metric">
-          <span className="label">Result</span>
-          <span className="value">
-            <span
-              className={`badge ${
-                s.status === "done"
-                  ? "done"
-                  : s.status === "running"
-                  ? "running"
-                  : "failed"
-              }`}
-            >
-              {s.status === "done"
-                ? "Done ✓"
-                : s.status === "running"
-                ? "Running"
-                : "Failed"}
-            </span>
-          </span>
+        <div className="sessbar-stats">
+          <div className="kstat">
+            <b>{fmtInt(files.length)}</b>
+            <span>files</span>
+          </div>
+          <div className="kstat">
+            <b>{fmtDuration(s.durationMs)}</b>
+            <span>duration</span>
+          </div>
+          <div className="kstat">
+            <b>{fmtInt(s.turnCount)}</b>
+            <span>turns</span>
+          </div>
+          <div
+            className="kstat"
+            title={`${fmtInt(s.tokenIn)} in · ${fmtInt(s.tokenOut)} out`}
+          >
+            <b>{fmtCompact(s.tokenIn + s.tokenOut)}</b>
+            <span>tokens</span>
+          </div>
         </div>
       </div>
 
