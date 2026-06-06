@@ -44,6 +44,10 @@ export interface Session {
   bashCount: number;
   subagentCount: number;
   tokenUsage: number;
+  tokenIn: number;
+  tokenOut: number;
+  gitBranch: string | null;
+  commitCount: number;
   costUsd: number | null;
   summary: string | null;
   seq: number;
@@ -116,4 +120,18 @@ export interface LinkedEvent {
   confidence: Confidence;
   method: AttributionMethod;
   hunkId: string;
+}
+
+// Everything the client needs to render one session interactively, assembled
+// server-side and passed as serializable props (no db access on the client).
+export interface SessionBundle {
+  session: Session;
+  events: TranscriptEvent[];
+  typeCounts: Record<string, number>;
+  annotations: Annotation[];
+  eventFiles: Record<string, EventFile[]>; // keyed by eventId
+  changedFiles: ChangedFile[];
+  hunks: Record<string, DiffHunk[]>; // keyed by fileId
+  attributions: Record<string, Attribution[]>; // keyed by hunkId
+  linkedEvents: Record<string, LinkedEvent[]>; // keyed by fileId
 }

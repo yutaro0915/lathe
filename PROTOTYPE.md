@@ -43,6 +43,19 @@ LATHE_MAX_EVENTS=500          # 1 セッションあたりのイベント上限
 帰属の信頼度: **high（Edit/Write 由来・緑）/ medium（シェル経由の推定・橙）/ unattributed（未コミット変更等・灰）**。
 未帰属を無理にエージェントへ紐付けない、という Phase 1 の方針をそのまま UI に出している。
 
+## 操作（すべて実際に動く）
+
+モックではなく、コントロールはすべてハンドラ付きで動作する（client component + React state、
+セッション切替のみ `?session=<id>` のナビゲーション）。
+
+- セッション一覧クリックで切替（両画面で共有）、検索、Model / Outcome / Has errors 絞り込み、並び替え（Recent / Oldest / Most tokens）
+- タブ切替（Transcript / Tools / Git / Skills / Subagents / Raw JSON）で中央内容が変わる
+- タイムラインのイベントクリックで詳細パネル更新、Event type バッジで絞り込み、タイムライン検索
+- Pin / Add Note は localStorage に永続化、Copy は実クリップボード
+- ミニマップのズーム（−/＋/fit）と目盛りクリックでイベント選択
+- 差分画面: ファイル選択、フォルダ折りたたみ、Unified / Split 切替、Hunk 前後ナビ、Linked Event 選択、Raw JSON
+- 値はすべて実データ（token in/out・branch・commit 数・帰属信頼度）。固定値・擬似乱数・捏造％は不使用
+
 ## 構成
 
 ```

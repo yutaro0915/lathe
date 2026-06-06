@@ -192,6 +192,8 @@ function buildSession(file: string): Built | null {
   let firstTs = '';
   let lastTs = '';
   let tokenUsage = 0;
+  let tokenIn = 0;
+  let tokenOut = 0;
   const counts: Record<string, number> = {};
 
   const addEvent = (e: any) => {
@@ -273,10 +275,12 @@ function buildSession(file: string): Built | null {
         // count real work: input + output + cache creation.
         // EXCLUDE cache_read (the same cached prefix is re-read every step,
         // which balloons the total without reflecting tokens actually produced).
-        tokenUsage +=
-          (usage.input_tokens || 0) +
-          (usage.output_tokens || 0) +
-          (usage.cache_creation_input_tokens || 0);
+        const inTok =
+          (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
+        const outTok = usage.output_tokens || 0;
+        tokenIn += inTok;
+        tokenOut += outTok;
+        tokenUsage += inTok + outTok;
       }
       const content = r.message?.content;
       if (!Array.isArray(content)) continue;
@@ -425,6 +429,10 @@ function buildSession(file: string): Built | null {
     bash_count: counts['bash'] || 0,
     subagent_count: counts['subagent'] || 0,
     token_usage: tokenUsage,
+    token_in: tokenIn,
+    token_out: tokenOut,
+    git_branch: gitBranch || null,
+    commit_count: counts['commit'] || 0,
     cost_usd: null, // not derivable from the transcript — left null rather than faked
     summary: `${gitBranch ? gitBranch + ' · ' : ''}${version ? 'cc ' + version : ''}`.trim() || null,
     seq: 0,
@@ -478,8 +486,8 @@ function main() {
   built.forEach((b, i) => (b.session.seq = i + 1));
 
   const insSession = db.prepare(
-    `INSERT INTO sessions (id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,token_usage,cost_usd,summary,seq)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO sessions (id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,seq)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   const insEvent = db.prepare(
     `INSERT INTO transcript_events (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta)
@@ -508,7 +516,7 @@ function main() {
   db.exec('BEGIN');
   for (const b of built) {
     const s = b.session;
-    insSession.run(s.id, s.project, s.title, s.runner, s.model, s.status, s.started_at, s.ended_at, s.duration_ms, s.turn_count, s.tool_count, s.edit_count, s.bash_count, s.subagent_count, s.token_usage, s.cost_usd, s.summary, s.seq);
+    insSession.run(s.id, s.project, s.title, s.runner, s.model, s.status, s.started_at, s.ended_at, s.duration_ms, s.turn_count, s.tool_count, s.edit_count, s.bash_count, s.subagent_count, s.token_usage, s.token_in, s.token_out, s.git_branch, s.commit_count, s.cost_usd, s.summary, s.seq);
     for (const e of b.events) {
       insEvent.run(e.id, e.session_id, e.seq, e.ts, e.type, e.actor, e.title, e.body, e.file_path, e.command, e.exit_code, e.duration_ms, e.token_usage, e.subagent, e.meta);
       nEvents++;

@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   bash_count     INTEGER NOT NULL DEFAULT 0,
   subagent_count INTEGER NOT NULL DEFAULT 0,
   token_usage    INTEGER NOT NULL DEFAULT 0,
+  token_in       INTEGER NOT NULL DEFAULT 0,   -- real input tokens (sum)
+  token_out      INTEGER NOT NULL DEFAULT 0,   -- real output tokens (sum)
+  git_branch     TEXT,                         -- real gitBranch from the transcript
+  commit_count   INTEGER NOT NULL DEFAULT 0,   -- real count of git-commit events
   cost_usd       REAL,
   summary        TEXT,
   seq            INTEGER NOT NULL DEFAULT 0  -- ordering in the session list

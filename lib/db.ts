@@ -24,6 +24,7 @@ import type {
   AttributionMethod,
   EventFileRole,
   AnnotationKind,
+  SessionBundle,
 } from './types';
 
 // ---- raw row shapes (snake_case, as returned by node:sqlite) --------------
@@ -44,6 +45,10 @@ interface SessionRow {
   bash_count: number;
   subagent_count: number;
   token_usage: number;
+  token_in: number;
+  token_out: number;
+  git_branch: string | null;
+  commit_count: number;
   cost_usd: number | null;
   summary: string | null;
   seq: number;
@@ -136,6 +141,10 @@ function toSession(r: SessionRow): Session {
     bashCount: r.bash_count,
     subagentCount: r.subagent_count,
     tokenUsage: r.token_usage,
+    tokenIn: r.token_in,
+    tokenOut: r.token_out,
+    gitBranch: r.git_branch,
+    commitCount: r.commit_count,
     costUsd: r.cost_usd,
     summary: r.summary,
     seq: r.seq,
@@ -356,4 +365,46 @@ export function countEventsByType(sessionId: string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of rows) out[r.type] = r.n;
   return out;
+}
+
+// ---- full per-session bundle (for the interactive client) ------------------
+
+// Assemble EVERYTHING one session needs on the client in a single serializable
+// object. Called by the server pages; the client never touches the db.
+export function getSessionBundle(id: string): SessionBundle | undefined {
+  const session = getSession(id);
+  if (!session) return undefined;
+
+  const events = getEvents(id);
+  const typeCounts = countEventsByType(id);
+  const annotations = getAnnotations(id);
+  const changedFiles = getChangedFiles(id);
+
+  const eventFiles: Record<string, EventFile[]> = {};
+  for (const e of events) {
+    const ef = getEventFiles(e.id);
+    if (ef.length) eventFiles[e.id] = ef;
+  }
+
+  const hunks: Record<string, DiffHunk[]> = {};
+  const attributions: Record<string, Attribution[]> = {};
+  const linkedEvents: Record<string, LinkedEvent[]> = {};
+  for (const f of changedFiles) {
+    const fh = getHunks(f.id);
+    hunks[f.id] = fh;
+    for (const h of fh) attributions[h.id] = getAttributionsForHunk(h.id);
+    linkedEvents[f.id] = getLinkedEventsForFile(f.id);
+  }
+
+  return {
+    session,
+    events,
+    typeCounts,
+    annotations,
+    eventFiles,
+    changedFiles,
+    hunks,
+    attributions,
+    linkedEvents,
+  };
 }
