@@ -400,3 +400,30 @@ test.describe("Time ribbon & annotations", () => {
     }
   });
 });
+
+test.describe("Stats (/stats)", () => {
+  test("per-project table + usage cards render; a project drills into its sessions", async ({
+    page,
+  }) => {
+    await page.goto("/stats");
+    await expect(page.locator(".sessbar-title")).toHaveText(/Statistics/);
+    await expect(page.locator(".st-head")).toContainText("Cost");
+    const rows = page.locator(".st-data");
+    expect(await rows.count()).toBeGreaterThan(1);
+    // usage observation: models / sub-agent types / skills cards
+    expect(await page.locator(".usage-card").count()).toBe(3);
+    await expect(page.locator(".usage-card .uh").first()).toContainText("Models");
+    // drilling into a project reveals its sessions, each linking to the viewer
+    await rows.first().click();
+    const sref = page.locator(".st-children .st-srow").first();
+    await expect(sref).toBeVisible();
+    await expect(sref).toHaveAttribute("href", /\/\?session=/);
+  });
+
+  test("the header 統計 link opens /stats", async ({ page }) => {
+    await page.goto("/");
+    await page.locator(".appnav a", { hasText: "統計" }).click();
+    await expect(page).toHaveURL(/\/stats/);
+    await expect(page.locator(".sessbar-title")).toHaveText(/Statistics/);
+  });
+});

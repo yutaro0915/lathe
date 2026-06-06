@@ -125,6 +125,51 @@ export interface LinkedEvent {
   hunkId: string;
 }
 
+// ---- cross-session stats (the /stats page) --------------------------------
+// Sessions are grouped by their PRIMARY project — the directory (projects/<slug>
+// or a top-level hub dir like wiki/memory) where the session changed the most
+// files. `sessions.project` is the repo basename (uniformly "LLMWiki" here), so
+// the meaningful per-project split is derived from changed-file paths.
+export interface ProjectSessionRef {
+  id: string;
+  title: string;
+  model: string | null;
+  durationMs: number | null;
+  tokens: number;
+  cost: number | null;
+  errors: number;
+}
+export interface ProjectStat {
+  project: string;
+  sessions: number;
+  durationMs: number;
+  tokens: number;
+  cost: number;
+  costKnown: boolean; // false → no session under this project was priceable ("—")
+  files: number;
+  additions: number;
+  deletions: number;
+  errors: number;
+  sessionRefs: ProjectSessionRef[];
+}
+export interface UsageCount {
+  name: string;
+  count: number;
+}
+export interface ModelStat {
+  name: string;
+  sessions: number;
+  tokens: number;
+  cost: number;
+}
+export interface StatsBundle {
+  totals: { sessions: number; durationMs: number; tokens: number; cost: number };
+  projects: ProjectStat[];
+  skills: UsageCount[];
+  subagentTypes: UsageCount[];
+  models: ModelStat[];
+}
+
 // Everything the client needs to render one session interactively, assembled
 // server-side and passed as serializable props (no db access on the client).
 export interface SessionBundle {

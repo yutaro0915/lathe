@@ -24,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <nav className="appnav">
               <Link href="/">セッション</Link>
               <Link href="/diff">Git差分・帰属</Link>
+              <Link href="/stats">統計</Link>
             </nav>
             <div className="appbar-actions">
               <span className="badge pro">Phase 1</span>

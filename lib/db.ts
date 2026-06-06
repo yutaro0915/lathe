@@ -25,6 +25,9 @@ import type {
   EventFileRole,
   AnnotationKind,
   SessionBundle,
+  StatsBundle,
+  ProjectStat,
+  ProjectSessionRef,
 } from './types';
 
 // ---- raw row shapes (snake_case, as returned by node:sqlite) --------------
@@ -411,4 +414,175 @@ export function getSessionBundle(id: string): SessionBundle | undefined {
     attributions,
     linkedEvents,
   };
+}
+
+// ---- cross-session stats (the /stats page) --------------------------------
+
+// Derive a "project directory" key from an absolute changed-file path, relative
+// to the session's repo basename. projects/<slug> stays a unit; other hub dirs
+// (wiki, memory, raw, …) collapse to their top segment; repo-root files and
+// out-of-repo paths get their own buckets. Keeps the tool repo-agnostic (uses
+// the session's own project name as the marker, not a hard-coded path).
+function deriveProjectKey(path: string, repoBasename: string): string {
+  const marker = `/${repoBasename}/`;
+  const idx = repoBasename ? path.indexOf(marker) : -1;
+  if (idx < 0) {
+    if (path.includes('/.claude/')) return '(.claude config)';
+    return '(external)';
+  }
+  const rel = path.slice(idx + marker.length);
+  const segs = rel.split('/').filter(Boolean);
+  if (segs.length <= 1) return '(repo root)';
+  if (segs[0] === 'projects' && segs.length >= 2) return `projects/${segs[1]}`;
+  return segs[0];
+}
+
+interface StatSessionRow {
+  id: string;
+  title: string;
+  project: string;
+  model: string | null;
+  duration_ms: number | null;
+  token_usage: number;
+  cost_usd: number | null;
+  error_count: number;
+}
+
+export function getStats(): StatsBundle {
+  const db = getDb();
+  const sessions = db
+    .prepare(
+      'SELECT id, title, project, model, duration_ms, token_usage, cost_usd, error_count FROM sessions ORDER BY seq ASC'
+    )
+    .all() as unknown as StatSessionRow[];
+  const fileRows = db
+    .prepare('SELECT session_id, path, additions, deletions FROM changed_files')
+    .all() as unknown as {
+    session_id: string;
+    path: string;
+    additions: number;
+    deletions: number;
+  }[];
+
+  const filesBySession = new Map<string, { path: string; additions: number; deletions: number }[]>();
+  for (const f of fileRows) {
+    const arr = filesBySession.get(f.session_id);
+    if (arr) arr.push(f);
+    else filesBySession.set(f.session_id, [f]);
+  }
+
+  const projects = new Map<string, ProjectStat>();
+  const ensure = (key: string): ProjectStat => {
+    let p = projects.get(key);
+    if (!p) {
+      p = {
+        project: key,
+        sessions: 0,
+        durationMs: 0,
+        tokens: 0,
+        cost: 0,
+        costKnown: false,
+        files: 0,
+        additions: 0,
+        deletions: 0,
+        errors: 0,
+        sessionRefs: [],
+      };
+      projects.set(key, p);
+    }
+    return p;
+  };
+
+  for (const s of sessions) {
+    const files = filesBySession.get(s.id) ?? [];
+    // tally changed files per derived project key for THIS session
+    const tally = new Map<string, { files: number; add: number; del: number }>();
+    for (const f of files) {
+      const k = deriveProjectKey(f.path, s.project);
+      const t = tally.get(k) ?? { files: 0, add: 0, del: 0 };
+      t.files += 1;
+      t.add += f.additions;
+      t.del += f.deletions;
+      tally.set(k, t);
+    }
+    // primary project = where the session changed the most files (ties: alpha)
+    let primary = '(no edits)';
+    let best = -1;
+    for (const [k, t] of [...tally.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (t.files > best) {
+        best = t.files;
+        primary = k;
+      }
+    }
+    const p = ensure(primary);
+    p.sessions += 1;
+    p.durationMs += s.duration_ms ?? 0;
+    p.tokens += s.token_usage ?? 0;
+    if (s.cost_usd != null) {
+      p.cost += s.cost_usd;
+      p.costKnown = true;
+    }
+    p.errors += s.error_count ?? 0;
+    for (const t of tally.values()) {
+      p.files += t.files;
+      p.additions += t.add;
+      p.deletions += t.del;
+    }
+    const ref: ProjectSessionRef = {
+      id: s.id,
+      title: s.title,
+      model: s.model,
+      durationMs: s.duration_ms,
+      tokens: s.token_usage,
+      cost: s.cost_usd,
+      errors: s.error_count,
+    };
+    p.sessionRefs.push(ref);
+  }
+
+  const projectList = [...projects.values()].sort(
+    (a, b) => b.cost - a.cost || b.tokens - a.tokens || b.sessions - a.sessions
+  );
+
+  // ---- light "usage" observation (Phase 1 = counts only, no evaluation) ----
+  const skillRows = db
+    .prepare(
+      "SELECT title, COUNT(*) n FROM transcript_events WHERE type='skill' GROUP BY title ORDER BY n DESC LIMIT 40"
+    )
+    .all() as unknown as { title: string; n: number }[];
+  const skills = skillRows.map((r) => ({
+    name: r.title.replace(/^Skill\s*·\s*/, '').trim() || r.title,
+    count: r.n,
+  }));
+
+  const saRows = db
+    .prepare(
+      "SELECT subagent, COUNT(*) n FROM transcript_events WHERE type='subagent' AND parent_id IS NULL AND subagent IS NOT NULL GROUP BY subagent ORDER BY n DESC LIMIT 40"
+    )
+    .all() as unknown as { subagent: string; n: number }[];
+  const subagentTypes = saRows.map((r) => ({ name: r.subagent, count: r.n }));
+
+  const modelRows = db
+    .prepare(
+      'SELECT COALESCE(model, \'(unknown)\') model, COUNT(*) sessions, SUM(token_usage) tokens, SUM(COALESCE(cost_usd,0)) cost FROM sessions GROUP BY model ORDER BY sessions DESC'
+    )
+    .all() as unknown as { model: string; sessions: number; tokens: number; cost: number }[];
+  const models = modelRows.map((r) => ({
+    name: r.model,
+    sessions: r.sessions,
+    tokens: r.tokens ?? 0,
+    cost: r.cost ?? 0,
+  }));
+
+  const totals = sessions.reduce(
+    (acc, s) => ({
+      sessions: acc.sessions + 1,
+      durationMs: acc.durationMs + (s.duration_ms ?? 0),
+      tokens: acc.tokens + (s.token_usage ?? 0),
+      cost: acc.cost + (s.cost_usd ?? 0),
+    }),
+    { sessions: 0, durationMs: 0, tokens: 0, cost: 0 }
+  );
+
+  return { totals, projects: projectList, skills, subagentTypes, models };
 }
