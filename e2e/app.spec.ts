@@ -484,11 +484,13 @@ test.describe("Codex support", () => {
     ).toBeVisible();
   });
 
-  test("a non-Claude (Codex/GPT) model shows in stats with an unpriceable '—' cost", async ({
+  test("GPT models appear in stats and are priced (Codex cost no longer blank)", async ({
     page,
   }) => {
     await page.goto("/stats");
     const models = page.locator(".usage-card", { hasText: "Models" });
-    await expect(models).toContainText(/gpt|codex/i);
+    await expect(models).toContainText(/gpt-5/i);
+    // a priced GPT model row carries a real $ figure
+    await expect(models.locator(".urow", { hasText: /gpt-5/i }).first()).toContainText("$");
   });
 });

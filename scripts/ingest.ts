@@ -739,6 +739,21 @@ function codexLangOf(p: string): string | null {
   return (ext && m[ext]) || null;
 }
 
+// Pull the read target out of a shell read (`sed -n '1,220p' hot.md`,
+// `cat memory/USER.md`, `head -40 lib/db.ts`) and resolve it against the session
+// cwd so Codex reads carry an absolute path like Claude's file_read events.
+function codexReadPath(cmd: string, cwd: string): string | null {
+  const stripped = cmd.replace(/'[^']*'/g, ' ').replace(/"[^"]*"/g, ' ').trim();
+  const parts = stripped.split(/\s+/);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const t = parts[i];
+    if (t && !t.startsWith('-') && t !== '|' && /[./]/.test(t) && !/^\d/.test(t)) {
+      return path.isAbsolute(t) ? t : path.join(cwd || '', t);
+    }
+  }
+  return null;
+}
+
 function listCodexRollouts(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -808,7 +823,7 @@ function buildCodexSession(file: string, titles: Map<string, string>): Built | n
   const attributions: any[] = [];
   const annotations: any[] = [];
   let seq = 0, firstTs = '', lastTs = '';
-  let tokenIn = 0, tokenOut = 0, tokenUsage = 0;
+  let tokenIn = 0, tokenOut = 0, tokenUsage = 0, cachedInput = 0;
   const counts: Record<string, number> = {};
   const addEvent = (e: any) => {
     seq += 1; e.seq = seq; e.session_id = sessionId; e.id = `${sessionId}_${seq}`;
@@ -833,6 +848,14 @@ function buildCodexSession(file: string, titles: Map<string, string>): Built | n
       const u = p.info.total_token_usage;
       const fresh = Math.max(0, (u.input_tokens || 0) - (u.cached_input_tokens || 0));
       tokenIn = fresh; tokenOut = u.output_tokens || 0; tokenUsage = fresh + (u.output_tokens || 0);
+      cachedInput = u.cached_input_tokens || 0; // billed at the cache-read rate
+      continue;
+    }
+    if (r.type === 'response_item' && p.type === 'reasoning') {
+      // raw reasoning is encrypted; the SUMMARY (when present) is the visible
+      // thinking — emit a thinking event only when there is real summary text.
+      const sum = Array.isArray(p.summary) ? p.summary.map((x: any) => x?.text ?? '').filter(Boolean).join('\n\n') : '';
+      if (sum.trim()) addEvent({ ts, type: 'thinking', actor: 'assistant', title: preview(sum, 90), body: sum.slice(0, 8000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
       continue;
     }
     if (r.type === 'event_msg' && p.type === 'user_message' && typeof p.message === 'string' && p.message.trim()) {
@@ -857,10 +880,17 @@ function buildCodexSession(file: string, titles: Map<string, string>): Built | n
         const oi = outText.indexOf('Output:');
         const stdout = oi >= 0 ? outText.slice(oi + 7).replace(/^\n/, '') : outText;
         let etype = 'bash';
+        let readPath: string | null = null;
         if (isCommit(cmd)) etype = 'commit';
         else if (isTest(cmd)) etype = 'test';
-        else if (/^\s*(cat|sed -n|head|tail|bat|less)\b/.test(cmd)) etype = 'file_read';
-        const ev = addEvent({ ts, type: etype, actor: 'assistant', title: preview(cmd, 80), body: stdout.slice(0, 3000), file_path: null, command: cmd, exit_code: exit, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: 'exec_command' }) });
+        else if (/^\s*(cat|sed -n|head|tail|bat|less)\b/.test(cmd)) {
+          // Codex has no read tool — file reads run as shell (cat/sed/head/…).
+          // Pull the file out so the read is first-class (path + linked files).
+          etype = 'file_read';
+          readPath = codexReadPath(cmd, cwd);
+        }
+        const ev = addEvent({ ts, type: etype, actor: 'assistant', title: preview(cmd, 80), body: stdout.slice(0, 3000), file_path: readPath, command: cmd, exit_code: exit, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: 'exec_command' }) });
+        if (readPath) eventFiles.push({ event_id: ev.id, path: readPath, role: 'read' });
         if (exit != null && exit !== 0) annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'error', note: preview(cmd, 60) });
         else if (etype === 'commit') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'commit', note: preview(cmd, 60) });
         else if (etype === 'test') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'test', note: preview(cmd, 60) });
@@ -904,6 +934,9 @@ function buildCodexSession(file: string, titles: Map<string, string>): Built | n
   const durationMs = firstTs && lastTs ? new Date(lastTs).getTime() - new Date(firstTs).getTime() : null;
   const errorCount = events.filter((e) => (e.exit_code != null && e.exit_code !== 0) || e.type === 'error').length;
   const title = titles.get(sessionId) || events.find((e) => e.type === 'user_message')?.title || '(codex session)';
+  // cost from real GPT pricing: fresh input + cached (at cache-read rate) + output.
+  // null for unpriceable models (e.g. codex-auto-review) -> shown as "—".
+  const costUsd = costForUsage(model, { input: tokenIn, output: tokenOut, cacheWrite: 0, cacheRead: cachedInput });
 
   const session = {
     id: sessionId,
@@ -926,7 +959,7 @@ function buildCodexSession(file: string, titles: Map<string, string>): Built | n
     token_out: tokenOut,
     git_branch: gitBranch || null,
     commit_count: counts['commit'] || 0,
-    cost_usd: null, // GPT/o pricing not bundled (db/pricing.json is Claude-only)
+    cost_usd: costUsd, // priced from bundled GPT rates; null when model unknown
     summary: meta.cli_version ? `codex ${meta.cli_version}` : 'codex',
     seq: 0,
     _startMs: firstTs ? new Date(firstTs).getTime() : 0,

@@ -27,16 +27,21 @@ export interface TierRate {
 }
 
 const TIERS = pricing.tiers as Record<string, TierRate>;
+const OPENAI = pricing.openai as Record<string, TierRate>;
+// longest id first so "gpt-5.5" / "gpt-5.4-mini" win over the "gpt-5" prefix
+const OPENAI_KEYS = Object.keys(OPENAI).sort((a, b) => b.length - a.length);
 
-// Map a transcript model string to a pricing tier by substring. Returns null for
-// models we cannot price (e.g. "claude-code", "<synthetic>") — callers must then
-// show "—" rather than invent a number.
+// Map a transcript model string to a pricing tier. Claude family by substring
+// (opus/sonnet/haiku); OpenAI by longest model-id prefix (gpt-5.5, gpt-5.4, …).
+// Returns null for models we cannot price (e.g. "claude-code", "codex-auto-
+// review", "<synthetic>") — callers must then show "—" rather than invent one.
 export function resolveTier(model: string | null | undefined): TierRate | null {
   if (!model) return null;
   const m = model.toLowerCase();
   if (m.includes("opus")) return TIERS.opus;
   if (m.includes("sonnet")) return TIERS.sonnet;
   if (m.includes("haiku")) return TIERS.haiku;
+  for (const k of OPENAI_KEYS) if (m.startsWith(k)) return OPENAI[k];
   return null;
 }
 
