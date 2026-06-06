@@ -1,0 +1,12 @@
+{
+  "_comment": "Per-MILLION-token USD prices for Claude model tiers, used to derive session cost from real token counts (the transcript has no cost field). Values mirror BerriAI/litellm model_prices_and_context_window.json (MIT-licensed) for the Anthropic Claude tiers; cacheWrite = 1.25x input and cacheRead = 0.1x input per Anthropic prompt-caching pricing. Lathe maps a transcript's model string to a tier by substring (opus/sonnet/haiku); unknown models (e.g. 'claude-code', '<synthetic>') resolve to null so cost is shown as '—' rather than faked. Bundled (not fetched) so the package stays dependency-free and works offline. Re-pin when Anthropic pricing changes.",
+  "source": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
+  "license": "MIT (BerriAI/litellm)",
+  "pinnedAt": "2026-06-06",
+  "unit": "usd_per_million_tokens",
+  "tiers": {
+    "opus":   { "input": 15,  "output": 75, "cacheWrite": 18.75, "cacheRead": 1.5 },
+    "sonnet": { "input": 3,   "output": 15, "cacheWrite": 3.75,  "cacheRead": 0.3 },
+    "haiku":  { "input": 0.8, "output": 4,  "cacheWrite": 1.0,   "cacheRead": 0.08 }
+  }
+}

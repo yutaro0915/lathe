@@ -61,6 +61,7 @@ function fmtCompact(n: number): string {
 
 function fmtCost(c: number | null): string {
   if (c == null) return "—";
+  if (c > 0 && c < 0.01) return "<$0.01";
   return `$${c.toFixed(2)}`;
 }
 
@@ -88,7 +89,7 @@ const TYPE_GLYPH: Record<EventType, string> = {
   thinking: "✲",
   file_read: "◎",
   file_edit: "✎",
-  file_write: "✚",
+  file_write: "＋",
   bash: "›_",
   subagent: "⌥",
   skill: "★",
@@ -586,6 +587,13 @@ export default function SessionViewer({
           >
             <b>{fmtCompact(primary.tokenUsage)}</b>
             <span>tokens</span>
+          </div>
+          <div
+            className="kstat"
+            title="Estimated cost = real token usage × model pricing (input/output/cache-write/cache-read, per db/pricing.json). Sub-agent tokens not included; '—' when the model isn't priceable."
+          >
+            <b>{fmtCost(primary.costUsd)}</b>
+            <span>cost</span>
           </div>
         </div>
       </div>

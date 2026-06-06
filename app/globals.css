@@ -22,7 +22,7 @@
   --amber:#d98a00; --amber-text:#b25e09; --amber-bg:#fdf3e2; --amber-chip:#fbe7c2;
   --gray-chip:#eceef1; --gray-chip-tx:#667085;
   --c-user:#2f6fed; --c-assistant:#7c5cff; --c-read:#5b6573; --c-edit:#d98a00;
-  --c-write:#c2410c; --c-bash:#1f9d57; --c-subagent:#7c5cff; --c-skill:#b8860b;
+  --c-write:#0e9d62; --c-bash:#1f9d57; --c-subagent:#7c5cff; --c-skill:#b8860b;
   --c-commit:#2563eb; --c-test:#0d9488; --c-error:#d64545; --c-todo:#667085;
   --k-message:#2f6fed; --k-tool:#1f9d57; --k-file:#e8932a; --k-skill:#b8860b;
   --k-subagent:#7c5cff; --k-git:#2563eb; --k-error:#d64545;
@@ -194,7 +194,7 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .event-meta .dur{color:var(--muted);} .event-meta .tok{color:var(--muted-2);} .event-meta .ok{color:var(--green);} .event-meta .err{color:var(--red);}
 .event-type-badge{display:inline-flex;align-items:center;height:17px;padding:0 7px;border-radius:999px;font-size:10.5px;font-weight:600;letter-spacing:.2px;white-space:nowrap;}
 .event-type-badge.user_message{background:#e8f0ff;color:#1f5fe0;} .event-type-badge.assistant_message{background:#efeaff;color:#5b3fd6;}
-.event-type-badge.file_read{background:#eef1f4;color:#475467;} .event-type-badge.file_edit{background:#fdf3e2;color:#b25e09;} .event-type-badge.file_write{background:#fdebdd;color:#c2410c;}
+.event-type-badge.file_read{background:#eef1f4;color:#475467;} .event-type-badge.file_edit{background:#fdf3e2;color:#b25e09;} .event-type-badge.file_write{background:#e7f6ec;color:#1a7f43;}
 .event-type-badge.bash{background:#e6f5ec;color:#137a41;} .event-type-badge.subagent{background:#efeaff;color:#5b3fd6;} .event-type-badge.skill{background:#f7eccb;color:#8a6400;}
 .event-type-badge.commit{background:#e8f0ff;color:#1f5fe0;} .event-type-badge.test{background:#defaf4;color:#0b7a6e;} .event-type-badge.error{background:#fdeceb;color:#b42318;} .event-type-badge.todo{background:#eceef1;color:#667085;}
 

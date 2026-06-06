@@ -67,6 +67,17 @@ test.describe("Session viewer (/)", () => {
     const pins = await page.evaluate(() => localStorage.getItem("lathe.pins"));
     expect(pins && pins.length).toBeTruthy();
   });
+
+  test("cost is derived from token usage and shown ($)", async ({ page }) => {
+    await page.goto("/");
+    // header stat cluster has a Cost figure
+    await expect(
+      page.locator(".sessbar-stats .kstat", { hasText: "cost" })
+    ).toBeVisible();
+    // priceable (Opus) sessions show a real dollar amount in the list, not "—"
+    const dollarCosts = page.locator(".session-item .chip.cost", { hasText: "$" });
+    expect(await dollarCosts.count()).toBeGreaterThan(0);
+  });
 });
 
 test.describe("Diff viewer (/diff)", () => {

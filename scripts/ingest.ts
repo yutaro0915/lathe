@@ -21,6 +21,7 @@ import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { costForUsage } from '../lib/cost';
 
 const TRANSCRIPTS_DIR =
   process.argv[2] ||
@@ -320,6 +321,8 @@ function buildSession(file: string): Built | null {
   let tokenUsage = 0;
   let tokenIn = 0;
   let tokenOut = 0;
+  let costUsd = 0; // USD, priced from real per-message token usage (db/pricing.json)
+  let costPriced = false; // did any message resolve to a known price? else cost = null
   const counts: Record<string, number> = {};
 
   const addEvent = (e: any) => {
@@ -407,6 +410,20 @@ function buildSession(file: string): Built | null {
         tokenIn += inTok;
         tokenOut += outTok;
         tokenUsage += inTok + outTok;
+        // Cost: price ALL FOUR token categories (incl. cache_read, which the
+        // token totals above intentionally omit but which IS billed) by THIS
+        // message's model — per-message pricing matches ccusage and is correct
+        // when sub-agents use a different model than the main one.
+        const c = costForUsage(r.message?.model, {
+          input: usage.input_tokens || 0,
+          output: usage.output_tokens || 0,
+          cacheWrite: usage.cache_creation_input_tokens || 0,
+          cacheRead: usage.cache_read_input_tokens || 0,
+        });
+        if (c != null) {
+          costUsd += c;
+          costPriced = true;
+        }
       }
       const content = r.message?.content;
       if (!Array.isArray(content)) continue;
@@ -620,7 +637,7 @@ function buildSession(file: string): Built | null {
     token_out: tokenOut,
     git_branch: gitBranch || null,
     commit_count: counts['commit'] || 0,
-    cost_usd: null, // not derivable from the transcript — left null rather than faked
+    cost_usd: costPriced ? costUsd : null, // priced from real tokens (db/pricing.json); null if model unknown
     summary: `${gitBranch ? gitBranch + ' · ' : ''}${version ? 'cc ' + version : ''}`.trim() || null,
     seq: 0,
     _startMs: firstTs ? new Date(firstTs).getTime() : 0,
