@@ -78,7 +78,9 @@ function main() {
       `SELECT session_id AS id,
               COUNT(*) AS n,
               SUM(CASE WHEN meta LIKE '%truncated%' THEN 1 ELSE 0 END) AS trunc
-         FROM transcript_events GROUP BY session_id`,
+         FROM transcript_events
+        WHERE parent_id IS NULL
+        GROUP BY session_id`,
     )
     .all() as unknown as { id: string; n: number; trunc: number }[]) {
     dbEvents.set(r.id, r.n);
@@ -91,11 +93,19 @@ function main() {
     .filter((f) => f.endsWith('.jsonl'))
     .map((f) => path.join(DIR, f));
 
+  // A transcript modified very recently is "live" (the current session or a
+  // concurrent cron/agent still appending to it). Its snapshot is inherently
+  // behind, so it is reported but NOT counted as an omission — this keeps the
+  // check honest under concurrent writes. Historical sessions are checked strictly.
+  const LIVE_WINDOW_MS = 180_000;
+  const liveCutoff = Date.now() - LIVE_WINDOW_MS;
+
   let ingested = 0,
     empty = 0,
     missing = 0,
     dropped = 0,
     capped = 0,
+    live = 0,
     expEventsTotal = 0,
     expEditWriteTotal = 0;
   const problems: string[] = [];
@@ -108,6 +118,11 @@ function main() {
     if (ev === 0) {
       empty++;
       continue; // legitimately produces no session
+    }
+    if (fs.statSync(file).mtimeMs > liveCutoff) {
+      live++; // actively being written — snapshot is expected to lag
+      problems.push(`LIVE ${sessionId.slice(0, 8)}: transcript still being written (not an omission)`);
+      continue;
     }
     if (!dbEvents.has(sessionId)) {
       missing++;
@@ -134,6 +149,7 @@ function main() {
   console.log(`transcripts on disk : ${files.length}`);
   console.log(`  -> ingested sessions: ${ingested}`);
   console.log(`  -> empty (0 events) : ${empty}`);
+  console.log(`  -> live (post-ingest): ${live}`);
   console.log(`  -> MISSING          : ${missing}`);
   console.log(`expected events (all): ${expEventsTotal}`);
   console.log(`hunks: db ${dbHunksTotal}  vs  expected edit/write ${expEditWriteTotal}`);

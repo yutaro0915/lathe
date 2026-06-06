@@ -348,3 +348,11 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .ribbon-seg.skill{background:var(--k-skill);} .ribbon-seg.subagent{background:var(--k-subagent);} .ribbon-seg.git{background:var(--k-git);} .ribbon-seg.error{background:var(--k-error);}
 .ribbon-axis{display:flex;justify-content:space-between;margin-top:5px;}
 .ribbon-axis .tick{font-size:11px;color:var(--muted);}
+
+/* ---- expandable sub-agent steps in the transcript ---- */
+.tw-expand{border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:11px;line-height:1;padding:3px 4px;border-radius:4px;}
+.tw-expand:hover{background:var(--panel-hover);color:var(--accent);}
+.event-row.child-row{background:var(--bg-sunken);box-shadow:inset 3px 0 0 var(--accent-ring);}
+.event-row.child-row .event-gutter{padding-left:16px;}
+.event-row.child-row .event-title{font-weight:500;}
+.event-meta .chip{font-size:11px;padding:1px 7px;}

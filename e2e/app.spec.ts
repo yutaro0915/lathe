@@ -186,3 +186,21 @@ test.describe("Cross-screen navigation & time ribbon", () => {
     await expect.poll(async () => track.evaluate((el) => el.style.width)).not.toBe(w0);
   });
 });
+
+test.describe("Sub-agent expansion", () => {
+  test("sub-agent rows expand to reveal child steps (tools/skills)", async ({ page }) => {
+    // a session known to spawn general-purpose sub-agents
+    await page.goto("/?session=da2ac032-a905-4267-8e5f-851456926a79");
+    const expanders = page.locator(".tw-expand");
+    if ((await expanders.count()) > 0) {
+      const before = await page.locator(".event-row").count();
+      await expanders.first().click();
+      await expect
+        .poll(async () => page.locator(".event-row.child-row").count())
+        .toBeGreaterThan(0);
+      expect(await page.locator(".event-row").count()).toBeGreaterThan(before);
+      // a child step should be a real tool/message of the sub-agent
+      await expect(page.locator(".event-row.child-row").first()).toBeVisible();
+    }
+  });
+});

@@ -238,6 +238,7 @@ export default function SessionViewer({
   const [activeTab, setActiveTab] = useState<Tab>(initialTab === "git" ? "transcript" : initialTab);
   const [typeFilter, setTypeFilter] = useState<Set<EventType>>(() => new Set(ALL_TYPES));
   const [transcriptSearch, setTranscriptSearch] = useState("");
+  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(() => new Set());
 
   // Selected event seed: the failing build (bash, exit != 0) is most
   // informative; fall back gracefully. Re-seed whenever the session changes.
@@ -333,17 +334,35 @@ export default function SessionViewer({
   }, [sessions, sessionSearch, modelFilter, outcomeFilter, errorsFilter, sortKey]);
 
   // ---- derived: filtered timeline events ----------------------------------
-  const visibleEvents = useMemo(() => {
+  // sub-agent child steps grouped under their launching event id
+  const childrenByParent = useMemo(() => {
+    const m = new Map<string, TranscriptEvent[]>();
+    for (const e of events) {
+      if (e.parentId) {
+        const arr = m.get(e.parentId);
+        if (arr) arr.push(e);
+        else m.set(e.parentId, [e]);
+      }
+    }
+    for (const arr of m.values()) arr.sort((a, b) => a.seq - b.seq);
+    return m;
+  }, [events]);
+
+  const matchEvent = useMemo(() => {
     const q = transcriptSearch.trim().toLowerCase();
-    return events.filter((e) => {
+    return (e: TranscriptEvent) => {
       if (!typeFilter.has(e.type)) return false;
       if (q) {
         const hay = `${e.title} ${e.command ?? ""} ${e.filePath ?? ""} ${e.body ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
-    });
-  }, [events, typeFilter, transcriptSearch]);
+    };
+  }, [typeFilter, transcriptSearch]);
+
+  // top-level events drive the timeline + ribbon; children expand under parents
+  const topEvents = useMemo(() => events.filter((e) => !e.parentId), [events]);
+  const visibleEvents = useMemo(() => topEvents.filter(matchEvent), [topEvents, matchEvent]);
 
   const selected: TranscriptEvent | undefined = useMemo(
     () => events.find((e) => e.id === selectedEventId),
@@ -755,82 +774,110 @@ export default function SessionViewer({
           {/* ===== TRANSCRIPT (timeline) ===== */}
           {activeTab === "transcript" && (
             <div className="timeline">
-              {visibleEvents.map((e) => {
-                const isNested = !!e.subagent;
-                const isSel = selectedEventId === e.id;
-                const glyph = TYPE_GLYPH[e.type] ?? "•";
-                const pinned = pins.has(e.id);
-
-                let subNode: React.ReactNode = null;
-                if (e.filePath) {
-                  subNode = <div className="event-sub path">{e.filePath}</div>;
-                } else if (e.command) {
-                  subNode = <div className="event-sub mono">{e.command}</div>;
-                } else if (e.body) {
-                  const preview = e.body.split("\n")[0];
-                  subNode = <div className="event-sub body">{preview}</div>;
-                }
-
-                const showBadge =
-                  e.type === "subagent" ||
-                  e.type === "skill" ||
-                  e.type === "error" ||
-                  e.type === "commit";
-
-                return (
-                  <div
-                    key={e.id}
-                    className={`event-row${isNested ? " nested" : ""}${isSel ? " selected" : ""}`}
-                    onClick={() => setSelectedEventId(e.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(ev) => {
-                      if (ev.key === "Enter" || ev.key === " ") {
-                        ev.preventDefault();
-                        setSelectedEventId(e.id);
-                      }
-                    }}
-                    style={{ cursor: "pointer" }}
-                  >
-                    <span className="event-seq">{e.seq}</span>
-                    <span className="event-gutter">{e.ts}</span>
-                    <span className={`event-icon ${e.type}`} aria-hidden>
-                      {glyph}
-                    </span>
-                    <div className="event-main">
-                      <div className="event-headline">
-                        <span className="event-title">{e.title}</span>
-                        {pinned && (
-                          <span title="Pinned" aria-label="Pinned">
-                            📌
-                          </span>
-                        )}
-                        {notes[e.id] && (
-                          <span title="Has note" aria-label="Has note">
-                            🗒
-                          </span>
-                        )}
-                        {showBadge && (
-                          <span className={`event-type-badge ${e.type}`}>{TYPE_LABEL[e.type]}</span>
-                        )}
-                        {isNested && <span className="event-type-badge subagent">{e.subagent}</span>}
-                      </div>
-                      {subNode}
-                    </div>
-                    <span className="event-meta">
-                      {e.type === "commit" && <span className="chip hash">{commitLabel}</span>}
-                      {e.tokenUsage != null && <span className="tok">+{fmtInt(e.tokenUsage)} -0</span>}
-                      {e.durationMs != null && <span className="dur">{durLabel(e.durationMs)}</span>}
-                      {e.exitCode != null &&
-                        (e.exitCode === 0 ? (
-                          <span className="ok">✓</span>
+              {(() => {
+                const renderRow = (
+                  e: TranscriptEvent,
+                  depth: number,
+                  childCount: number,
+                ) => {
+                  const isSel = selectedEventId === e.id;
+                  const glyph = TYPE_GLYPH[e.type] ?? "•";
+                  const pinned = pins.has(e.id);
+                  const expanded = expandedAgents.has(e.id);
+                  let subNode: React.ReactNode = null;
+                  if (e.filePath) subNode = <div className="event-sub path">{e.filePath}</div>;
+                  else if (e.command) subNode = <div className="event-sub mono">{e.command}</div>;
+                  else if (e.body)
+                    subNode = <div className="event-sub body">{e.body.split("\n")[0]}</div>;
+                  const showBadge =
+                    e.type === "subagent" ||
+                    e.type === "skill" ||
+                    e.type === "error" ||
+                    e.type === "commit";
+                  return (
+                    <div
+                      key={e.id}
+                      className={`event-row${depth > 0 ? " child-row" : ""}${isSel ? " selected" : ""}`}
+                      onClick={() => setSelectedEventId(e.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter" || ev.key === " ") {
+                          ev.preventDefault();
+                          setSelectedEventId(e.id);
+                        }
+                      }}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <span className="event-seq">
+                        {childCount > 0 ? (
+                          <button
+                            type="button"
+                            className="tw-expand"
+                            aria-label={expanded ? "Collapse sub-agent" : "Expand sub-agent"}
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              setExpandedAgents((prev) => {
+                                const n = new Set(prev);
+                                if (n.has(e.id)) n.delete(e.id);
+                                else n.add(e.id);
+                                return n;
+                              });
+                            }}
+                          >
+                            {expanded ? "▾" : "▸"}
+                          </button>
+                        ) : depth > 0 ? (
+                          ""
                         ) : (
-                          <span className="err">✗</span>
-                        ))}
-                    </span>
-                  </div>
-                );
-              })}
+                          e.seq
+                        )}
+                      </span>
+                      <span className="event-gutter">{e.ts}</span>
+                      <span className={`event-icon ${e.type}`} aria-hidden>
+                        {glyph}
+                      </span>
+                      <div className="event-main">
+                        <div className="event-headline">
+                          <span className="event-title">{e.title}</span>
+                          {pinned && <span title="Pinned" aria-label="Pinned">📌</span>}
+                          {notes[e.id] && <span title="Has note" aria-label="Has note">🗒</span>}
+                          {showBadge && (
+                            <span className={`event-type-badge ${e.type}`}>{TYPE_LABEL[e.type]}</span>
+                          )}
+                          {depth === 0 && e.subagent && (
+                            <span className="event-type-badge subagent">{e.subagent}</span>
+                          )}
+                        </div>
+                        {subNode}
+                      </div>
+                      <span className="event-meta">
+                        {childCount > 0 && (
+                          <span className="chip">{childCount} steps</span>
+                        )}
+                        {e.type === "commit" && <span className="chip hash">{commitLabel}</span>}
+                        {e.tokenUsage != null && <span className="tok">+{fmtInt(e.tokenUsage)} -0</span>}
+                        {e.durationMs != null && <span className="dur">{durLabel(e.durationMs)}</span>}
+                        {e.exitCode != null &&
+                          (e.exitCode === 0 ? (
+                            <span className="ok">✓</span>
+                          ) : (
+                            <span className="err">✗</span>
+                          ))}
+                      </span>
+                    </div>
+                  );
+                };
+                const rows: React.ReactNode[] = [];
+                for (const e of visibleEvents) {
+                  const kids = childrenByParent.get(e.id) ?? [];
+                  rows.push(renderRow(e, 0, kids.length));
+                  if (kids.length && expandedAgents.has(e.id)) {
+                    for (const k of kids) if (matchEvent(k)) rows.push(renderRow(k, 1, 0));
+                  }
+                }
+                return rows;
+              })()}
               {visibleEvents.length === 0 && (
                 <div className="empty" style={{ padding: "16px" }}>
                   No events match the current filters.
@@ -1091,7 +1138,7 @@ export default function SessionViewer({
 
           {/* ---------- bottom strip: real time ribbon (width = elapsed time) ---------- */}
           <TimeRibbon
-            events={events}
+            events={topEvents}
             selectedId={selectedEventId}
             onSelect={setSelectedEventId}
             title="Time spent"

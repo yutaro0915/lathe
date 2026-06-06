@@ -70,6 +70,7 @@ interface TranscriptEventRow {
   token_usage: number | null;
   subagent: string | null;
   meta: string | null;
+  parent_id: string | null;
 }
 
 interface ChangedFileRow {
@@ -168,6 +169,7 @@ function toEvent(r: TranscriptEventRow): TranscriptEvent {
     tokenUsage: r.token_usage,
     subagent: r.subagent,
     meta: r.meta,
+    parentId: r.parent_id,
   };
 }
 
@@ -359,7 +361,7 @@ export function getLinkedEventsForFile(fileId: string): LinkedEvent[] {
 export function countEventsByType(sessionId: string): Record<string, number> {
   const rows = getDb()
     .prepare(
-      'SELECT type, COUNT(*) AS n FROM transcript_events WHERE session_id = ? GROUP BY type'
+      'SELECT type, COUNT(*) AS n FROM transcript_events WHERE session_id = ? AND parent_id IS NULL GROUP BY type'
     )
     .all(sessionId) as unknown as { type: string; n: number }[];
   const out: Record<string, number> = {};

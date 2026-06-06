@@ -57,8 +57,10 @@ CREATE TABLE IF NOT EXISTS transcript_events (
   duration_ms INTEGER,
   token_usage INTEGER,
   subagent    TEXT,                       -- nesting: subagent / thread name
-  meta        TEXT                        -- json blob (extra fields)
+  meta        TEXT,                       -- json blob (extra fields)
+  parent_id   TEXT                        -- launching Agent event id for sub-agent child steps (NULL = top-level)
 );
+CREATE INDEX IF NOT EXISTS idx_events_parent ON transcript_events(parent_id);
 
 -- Files changed in the session's git diff (left tree of screen B).
 CREATE TABLE IF NOT EXISTS changed_files (

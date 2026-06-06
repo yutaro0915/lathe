@@ -69,6 +69,7 @@ export interface TranscriptEvent {
   tokenUsage: number | null;
   subagent: string | null;
   meta: string | null;
+  parentId: string | null; // launching Agent event id for sub-agent child steps
 }
 
 export interface ChangedFile {

@@ -126,6 +126,105 @@ function isTest(cmd: string): boolean {
 
 // ----- parse one transcript file -------------------------------------------
 
+// Parse a sub-agent transcript (<session>/subagents/agent-<id>.jsonl) into CHILD
+// events linked to the launching Agent event. Captures the sub-agent's messages,
+// tools and skills so they can be expanded under the parent in the main view.
+function extractChildEvents(
+  saFile: string,
+  parentEventId: string,
+  sessionId: string,
+  agentLabel: string,
+): any[] {
+  let recs: any[];
+  try {
+    recs = fs
+      .readFileSync(saFile, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+
+  const results = new Map<string, { isError: boolean; text: string }>();
+  for (const r of recs) {
+    const content = r.message?.content;
+    if (Array.isArray(content)) {
+      for (const c of content) {
+        if (c?.type === 'tool_result' && c.tool_use_id) {
+          const text =
+            typeof c.content === 'string'
+              ? c.content
+              : Array.isArray(c.content)
+                ? c.content.map((x: any) => x?.text ?? '').join('\n')
+                : '';
+          results.set(c.tool_use_id, { isError: !!c.is_error, text });
+        }
+      }
+    }
+  }
+
+  const out: any[] = [];
+  let k = 0;
+  const add = (e: any) => {
+    k += 1;
+    out.push({
+      ...e,
+      id: `${parentEventId}_c${k}`,
+      session_id: sessionId,
+      seq: k,
+      parent_id: parentEventId,
+      subagent: agentLabel,
+    });
+  };
+
+  for (const r of recs) {
+    const ts = hhmmss(r.timestamp);
+    if (r.type === 'user') {
+      const c = r.message?.content;
+      let t = '';
+      if (typeof c === 'string') t = c;
+      else if (Array.isArray(c))
+        t = c.filter((x: any) => x?.type === 'text').map((x: any) => x.text).join('\n');
+      const clean = t.replace(/<[^>]+>/g, ' ').trim();
+      if (clean)
+        add({ ts, type: 'user_message', actor: 'user', title: preview(clean, 90), body: t.slice(0, 2000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
+    } else if (r.type === 'assistant') {
+      const c = r.message?.content;
+      if (!Array.isArray(c)) continue;
+      for (const x of c) {
+        if (x.type === 'text' && x.text?.trim()) {
+          add({ ts, type: 'assistant_message', actor: 'subagent', title: preview(x.text, 90), body: x.text.slice(0, 2000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
+        } else if (x.type === 'tool_use') {
+          const name = x.name as string;
+          const input = x.input || {};
+          const res = x.id ? results.get(x.id) : undefined;
+          const exit = res ? (res.isError ? 1 : 0) : null;
+          const cmd = name === 'Bash' ? input.command ?? null : null;
+          const fp =
+            input.file_path ??
+            (name === 'Read' || name === 'Write' || name === 'Edit' ? input.path : null) ??
+            null;
+          let etype = toolType(name);
+          if (name === 'Bash' && cmd) {
+            if (isCommit(cmd)) etype = 'commit';
+            else if (isTest(cmd)) etype = 'test';
+          }
+          add({ ts, type: etype, actor: 'subagent', title: toolTitle(name, input), body: (res?.text || '').slice(0, 2000) || preview(JSON.stringify(input), 200), file_path: fp, command: cmd, exit_code: exit, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: name }) });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 interface Built {
   session: any;
   events: any[];
@@ -189,6 +288,7 @@ function buildSession(file: string): Built | null {
   const hunks: any[] = [];
   const attributions: any[] = [];
   const annotations: any[] = [];
+  const agentLaunchers = new Map<string, string>(); // tool_use id -> launcher event id
 
   let seq = 0;
   let truncated = 0;
@@ -330,6 +430,9 @@ function buildSession(file: string): Built | null {
               : r.isSidechain ? 'sidechain' : null,
             meta: JSON.stringify({ tool: name }),
           });
+          if ((name === 'Agent' || name === 'Task') && c.id) {
+            agentLaunchers.set(c.id, ev.id);
+          }
 
           // event_files + annotations
           if (fp && (etype === 'file_edit' || etype === 'file_write' || etype === 'file_read')) {
@@ -394,6 +497,37 @@ function buildSession(file: string): Built | null {
       continue;
     }
     // other line types (system / attachment / titles / queue) -> metadata only
+  }
+
+  // ---- sub-agent transcripts: <session>/subagents/agent-<id>.jsonl ----------
+  // Each Agent/Task launch writes its own transcript; meta.json.toolUseId links
+  // it back to the launching tool_use. Ingest those as child events so the
+  // sub-agent's tools/skills can be expanded under the parent in the main view.
+  const subDir = path.join(path.dirname(file), path.basename(file, '.jsonl'), 'subagents');
+  if (fs.existsSync(subDir)) {
+    let saFiles: string[] = [];
+    try {
+      saFiles = fs.readdirSync(subDir).filter((f) => /^agent-.*\.jsonl$/.test(f));
+    } catch {
+      saFiles = [];
+    }
+    for (const saName of saFiles) {
+      const metaPath = path.join(subDir, saName.replace(/\.jsonl$/, '.meta.json'));
+      let toolUseId: string | null = null;
+      let agentType = 'sub-agent';
+      try {
+        const m = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        toolUseId = m.toolUseId || null;
+        agentType = m.agentType || agentType;
+      } catch {
+        /* no meta — skip */
+      }
+      if (!toolUseId) continue;
+      const parentEventId = agentLaunchers.get(toolUseId);
+      if (!parentEventId) continue; // launcher not in this session (shouldn't happen)
+      const children = extractChildEvents(path.join(subDir, saName), parentEventId, sessionId, agentType);
+      for (const ce of children) events.push(ce);
+    }
   }
 
   if (truncated) {
@@ -493,8 +627,8 @@ function main() {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   const insEvent = db.prepare(
-    `INSERT INTO transcript_events (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO transcript_events (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta,parent_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   const insFile = db.prepare(
     `INSERT INTO changed_files (id,session_id,path,status,additions,deletions,language,seq) VALUES (?,?,?,?,?,?,?,?)`,
@@ -521,7 +655,7 @@ function main() {
     const s = b.session;
     insSession.run(s.id, s.project, s.title, s.runner, s.model, s.status, s.started_at, s.ended_at, s.duration_ms, s.turn_count, s.tool_count, s.edit_count, s.bash_count, s.subagent_count, s.token_usage, s.token_in, s.token_out, s.git_branch, s.commit_count, s.cost_usd, s.summary, s.seq);
     for (const e of b.events) {
-      insEvent.run(e.id, e.session_id, e.seq, e.ts, e.type, e.actor, e.title, e.body, e.file_path, e.command, e.exit_code, e.duration_ms, e.token_usage, e.subagent, e.meta);
+      insEvent.run(e.id, e.session_id, e.seq, e.ts, e.type, e.actor, e.title, e.body, e.file_path, e.command, e.exit_code, e.duration_ms, e.token_usage, e.subagent, e.meta, e.parent_id ?? null);
       nEvents++;
     }
     for (const f of b.changedFiles) { insFile.run(f.id, f.session_id, f.path, f.status, f.additions, f.deletions, f.language, f.seq); nFiles++; }
