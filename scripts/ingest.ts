@@ -723,6 +723,219 @@ function buildSession(file: string): Built | null {
   return { session, events, eventFiles, changedFiles, hunks, attributions, annotations };
 }
 
+// ----- Codex rollout ingester -----------------------------------------------
+// Codex stores sessions at ~/.codex/sessions/<Y>/<M>/<D>/rollout-*.jsonl (+ an
+// archived_sessions/ dir). Each line is { timestamp, type, payload }. We map the
+// SAME repo's sessions (by cwd) into lathe's schema with runner='codex'. Notes:
+// cost is null (db/pricing.json only covers Claude); `reasoning` is encrypted
+// (no thinking text); there is no read tool (file reads are inferred from cat/sed).
+
+function codexLangOf(p: string): string | null {
+  const ext = p.split('.').pop()?.toLowerCase();
+  const m: Record<string, string> = {
+    ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx', py: 'python',
+    sql: 'sql', css: 'css', md: 'markdown', json: 'json', sh: 'bash', mjs: 'javascript', html: 'html',
+  };
+  return (ext && m[ext]) || null;
+}
+
+function listCodexRollouts(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.isFile() && /^rollout-.*\.jsonl$/.test(e.name)) out.push(full);
+    }
+  };
+  for (const r of [path.join(os.homedir(), '.codex', 'sessions'), path.join(os.homedir(), '.codex', 'archived_sessions')]) {
+    if (fs.existsSync(r)) walk(r);
+  }
+  return out;
+}
+
+// Cheap cwd probe (read only the head) so we can filter 1000+ rollouts without
+// reading every file in full. The session_meta line can be tens of KB (it embeds
+// instructions), so we regex the cwd out of the head bytes rather than JSON.parse
+// a possibly-truncated first line. cwd sits near the start of session_meta.
+function codexHeadCwd(file: string): string | null {
+  try {
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(16384);
+    const n = fs.readSync(fd, buf, 0, 16384, 0);
+    fs.closeSync(fd);
+    const m = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(buf.slice(0, n).toString('utf8'));
+    return m ? m[1].replace(/\\\//g, '/') : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadCodexTitles(): Map<string, string> {
+  const m = new Map<string, string>();
+  try {
+    const lines = fs.readFileSync(path.join(os.homedir(), '.codex', 'session_index.jsonl'), 'utf8').split('\n').filter(Boolean);
+    for (const l of lines) { try { const r = JSON.parse(l); if (r.id && r.thread_name) m.set(r.id, r.thread_name); } catch { /* skip */ } }
+  } catch { /* no index */ }
+  return m;
+}
+
+function buildCodexSession(file: string, titles: Map<string, string>): Built | null {
+  const recs: any[] = [];
+  for (const l of fs.readFileSync(file, 'utf8').split('\n')) { if (!l) continue; try { recs.push(JSON.parse(l)); } catch { /* skip */ } }
+  if (!recs.length) return null;
+  const meta = recs.find((r) => r.type === 'session_meta')?.payload;
+  if (!meta) return null;
+  const cwd = meta.cwd || '';
+  const sessionId = meta.id || path.basename(file, '.jsonl');
+  const model = recs.find((r) => r.type === 'turn_context')?.payload?.model || meta.model || 'codex';
+  const gitBranch = meta.git?.branch || '';
+
+  // join function_call <-> output and apply_patch <-> patch_apply_end by call_id
+  const callOut = new Map<string, any>();
+  const patchEnd = new Map<string, any>();
+  for (const r of recs) {
+    if (r.type === 'response_item' && r.payload?.type === 'function_call_output' && r.payload.call_id) callOut.set(r.payload.call_id, r.payload);
+    if (r.type === 'event_msg' && r.payload?.type === 'patch_apply_end' && r.payload.call_id) patchEnd.set(r.payload.call_id, r.payload);
+  }
+
+  const events: any[] = [];
+  const eventFiles: any[] = [];
+  const filesByPath = new Map<string, any>();
+  const hunks: any[] = [];
+  const attributions: any[] = [];
+  const annotations: any[] = [];
+  let seq = 0, firstTs = '', lastTs = '';
+  let tokenIn = 0, tokenOut = 0, tokenUsage = 0;
+  const counts: Record<string, number> = {};
+  const addEvent = (e: any) => {
+    seq += 1; e.seq = seq; e.session_id = sessionId; e.id = `${sessionId}_${seq}`;
+    e.subagent = e.subagent ?? null; e.parent_id = null;
+    events.push(e); counts[e.type] = (counts[e.type] || 0) + 1; return e;
+  };
+  const ensureFile = (p: string) => {
+    let f = filesByPath.get(p);
+    if (!f) { f = { id: `chf_${sessionId}_${filesByPath.size + 1}`, session_id: sessionId, path: p, status: 'modified', additions: 0, deletions: 0, language: codexLangOf(p), seq: filesByPath.size + 1, _hunkSeq: 0 }; filesByPath.set(p, f); }
+    return f;
+  };
+
+  for (const r of recs) {
+    if (r.timestamp) { if (!firstTs) firstTs = r.timestamp; lastTs = r.timestamp; }
+    const ts = hhmmss(r.timestamp);
+    const p = r.payload;
+    if (!p) continue;
+
+    if (r.type === 'event_msg' && p.type === 'token_count' && p.info?.total_token_usage) {
+      // cumulative across the session — keep the latest as the total. Exclude
+      // cached input (the cache-read analog) to match the Claude token metric.
+      const u = p.info.total_token_usage;
+      const fresh = Math.max(0, (u.input_tokens || 0) - (u.cached_input_tokens || 0));
+      tokenIn = fresh; tokenOut = u.output_tokens || 0; tokenUsage = fresh + (u.output_tokens || 0);
+      continue;
+    }
+    if (r.type === 'event_msg' && p.type === 'user_message' && typeof p.message === 'string' && p.message.trim()) {
+      addEvent({ ts, type: 'user_message', actor: 'user', title: preview(p.message, 90), body: p.message.slice(0, 4000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
+      continue;
+    }
+    if (r.type === 'event_msg' && p.type === 'agent_message' && typeof p.message === 'string' && p.message.trim()) {
+      addEvent({ ts, type: 'assistant_message', actor: 'assistant', title: preview(p.message, 90), body: p.message.slice(0, 4000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
+      continue;
+    }
+    if (r.type === 'response_item' && p.type === 'function_call') {
+      const name = p.name as string;
+      let args: any = {}; try { args = JSON.parse(p.arguments || '{}'); } catch { /* keep {} */ }
+      const out = p.call_id ? callOut.get(p.call_id) : null;
+      // output is usually a string, but image/structured outputs come back as
+      // arrays/objects — coerce to '' so we never bind a non-string body.
+      const outText: string = typeof out?.output === 'string' ? out.output : '';
+      if (name === 'exec_command') {
+        const cmd: string = args.cmd || (Array.isArray(args.command) ? args.command.join(' ') : '') || '';
+        const em = /exited with code (\d+)/.exec(outText);
+        const exit = em ? Number(em[1]) : null;
+        const oi = outText.indexOf('Output:');
+        const stdout = oi >= 0 ? outText.slice(oi + 7).replace(/^\n/, '') : outText;
+        let etype = 'bash';
+        if (isCommit(cmd)) etype = 'commit';
+        else if (isTest(cmd)) etype = 'test';
+        else if (/^\s*(cat|sed -n|head|tail|bat|less)\b/.test(cmd)) etype = 'file_read';
+        const ev = addEvent({ ts, type: etype, actor: 'assistant', title: preview(cmd, 80), body: stdout.slice(0, 3000), file_path: null, command: cmd, exit_code: exit, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: 'exec_command' }) });
+        if (exit != null && exit !== 0) annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'error', note: preview(cmd, 60) });
+        else if (etype === 'commit') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'commit', note: preview(cmd, 60) });
+        else if (etype === 'test') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'test', note: preview(cmd, 60) });
+      } else if (name === 'update_plan') {
+        addEvent({ ts, type: 'todo', actor: 'assistant', title: 'Plan update', body: preview(JSON.stringify(args.plan ?? args), 400), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: 'update_plan' }) });
+      } else if (name === 'spawn_agent') {
+        addEvent({ ts, type: 'subagent', actor: 'assistant', title: `Sub-agent · ${args.agent_type ?? ''}`, body: preview(JSON.stringify(args), 300), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, subagent: args.agent_type || 'sub-agent', meta: JSON.stringify({ tool: 'spawn_agent' }) });
+      } else {
+        addEvent({ ts, type: 'bash', actor: 'assistant', title: name, body: outText.slice(0, 1000) || preview(JSON.stringify(args), 200), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: name }) });
+      }
+      continue;
+    }
+    if (r.type === 'response_item' && p.type === 'custom_tool_call' && p.name === 'apply_patch') {
+      const pe = p.call_id ? patchEnd.get(p.call_id) : null;
+      const changes = pe?.changes || {};
+      for (const fp of Object.keys(changes)) {
+        const ch = changes[fp] || {};
+        const isAdd = ch.type === 'add';
+        const isDel = ch.type === 'delete';
+        const etype = isAdd ? 'file_write' : 'file_edit';
+        const content: string = typeof ch.content === 'string' ? ch.content : '';
+        const adds = lineCount(content);
+        const ev = addEvent({ ts, type: etype, actor: 'assistant', title: `File ${isAdd ? 'write' : isDel ? 'delete' : 'edit'} · ${fp}`, body: content.slice(0, 3000) || (isDel ? '(deleted)' : ''), file_path: fp, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: 'apply_patch', change: ch.type }) });
+        eventFiles.push({ event_id: ev.id, path: fp, role: isAdd ? 'write' : 'edit' });
+        const f = ensureFile(fp);
+        f.additions += adds;
+        if (isAdd) f.status = 'added'; else if (isDel) f.status = 'deleted';
+        f._hunkSeq += 1;
+        const hid = `${f.id}_h${f._hunkSeq}`;
+        hunks.push({ id: hid, file_id: f.id, seq: f._hunkSeq, header: `@@ ${isAdd ? 'Add' : isDel ? 'Delete' : 'Update'} ${fp} (+${adds}) @@`, content: clampLines(content, '+', MAX_HUNK_LINES) });
+        attributions.push({ id: `att_${hid}`, hunk_id: hid, event_id: ev.id, confidence: 'high', method: 'edit_event', note: 'Codex apply_patch' });
+        annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'edit', note: preview(fp, 60) });
+      }
+      continue;
+    }
+    // reasoning (encrypted), response_item message (developer/role), turn_context -> skip
+  }
+
+  if (!events.length) return null;
+
+  const durationMs = firstTs && lastTs ? new Date(lastTs).getTime() - new Date(firstTs).getTime() : null;
+  const errorCount = events.filter((e) => (e.exit_code != null && e.exit_code !== 0) || e.type === 'error').length;
+  const title = titles.get(sessionId) || events.find((e) => e.type === 'user_message')?.title || '(codex session)';
+
+  const session = {
+    id: sessionId,
+    project: cwd ? path.basename(cwd) : 'LLMWiki',
+    title,
+    runner: 'codex',
+    model,
+    status: errorCount > 0 ? 'failed' : 'done',
+    started_at: firstTs ? firstTs.replace('T', ' ').slice(0, 19) : '',
+    ended_at: lastTs ? lastTs.replace('T', ' ').slice(0, 19) : null,
+    duration_ms: durationMs,
+    turn_count: counts['user_message'] || 0,
+    tool_count: events.filter((e) => e.command !== null || (e.meta && e.meta.includes('tool'))).length,
+    edit_count: (counts['file_edit'] || 0) + (counts['file_write'] || 0),
+    bash_count: counts['bash'] || 0,
+    subagent_count: counts['subagent'] || 0,
+    error_count: errorCount,
+    token_usage: tokenUsage,
+    token_in: tokenIn,
+    token_out: tokenOut,
+    git_branch: gitBranch || null,
+    commit_count: counts['commit'] || 0,
+    cost_usd: null, // GPT/o pricing not bundled (db/pricing.json is Claude-only)
+    summary: meta.cli_version ? `codex ${meta.cli_version}` : 'codex',
+    seq: 0,
+    _startMs: firstTs ? new Date(firstTs).getTime() : 0,
+  };
+  const changedFiles = [...filesByPath.values()].slice(0, MAX_FILES).map((f) => { delete f._hunkSeq; return f; });
+
+  return { session, events, eventFiles, changedFiles, hunks, attributions, annotations };
+}
+
 // ----- main -----------------------------------------------------------------
 
 function main() {
@@ -754,6 +967,27 @@ function main() {
       if (b && b.events.length) built.push(b);
     } catch (e) {
       console.error(`[ingest] failed on ${path.basename(f)}: ${(e as Error).message}`);
+    }
+  }
+
+  // ----- Codex sessions (same repo, by cwd). runner='codex', cost=null. -----
+  let codexCount = 0;
+  if (process.env.LATHE_NO_CODEX !== '1') {
+    const codexProject = process.env.LATHE_CODEX_PROJECT || 'LLMWiki';
+    const titles = loadCodexTitles();
+    const codexFiles = listCodexRollouts()
+      .filter((f) => { const c = codexHeadCwd(f); return c != null && path.basename(c) === codexProject; })
+      .map((p) => ({ p, mtime: fs.statSync(p).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, MAX_SESSIONS)
+      .map((x) => x.p);
+    for (const f of codexFiles) {
+      try {
+        const b = buildCodexSession(f, titles);
+        if (b && b.events.length) { built.push(b); codexCount++; }
+      } catch (e) {
+        console.error(`[ingest] codex failed on ${path.basename(f)}: ${(e as Error).message}`);
+      }
     }
   }
 
@@ -811,7 +1045,7 @@ function main() {
   db.exec('COMMIT');
 
   console.log(
-    `[ingest] from ${files.length} transcripts: sessions=${built.length} events=${nEvents} changed_files=${nFiles} hunks=${nHunks} attributions=${nAttr} event_files=${nEvFiles} annotations=${nAnn}`,
+    `[ingest] from ${files.length} claude transcripts + ${codexCount} codex sessions: sessions=${built.length} events=${nEvents} changed_files=${nFiles} hunks=${nHunks} attributions=${nAttr} event_files=${nEvFiles} annotations=${nAnn}`,
   );
 }
 

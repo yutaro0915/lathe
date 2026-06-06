@@ -635,14 +635,16 @@ export function getStats(): StatsBundle {
 
   const modelRows = db
     .prepare(
-      'SELECT COALESCE(model, \'(unknown)\') model, COUNT(*) sessions, SUM(token_usage) tokens, SUM(COALESCE(cost_usd,0)) cost FROM sessions GROUP BY model ORDER BY sessions DESC'
+      // SUM(cost_usd) is NULL-aware: a model whose sessions are all unpriceable
+      // (Codex/GPT) sums to NULL → shown as "—", not a misleading $0.00.
+      "SELECT COALESCE(model, '(unknown)') model, COUNT(*) sessions, SUM(token_usage) tokens, SUM(cost_usd) cost FROM sessions GROUP BY model ORDER BY sessions DESC"
     )
-    .all() as unknown as { model: string; sessions: number; tokens: number; cost: number }[];
+    .all() as unknown as { model: string; sessions: number; tokens: number; cost: number | null }[];
   const models = modelRows.map((r) => ({
     name: r.model,
     sessions: r.sessions,
     tokens: r.tokens ?? 0,
-    cost: r.cost ?? 0,
+    cost: r.cost,
   }));
 
   const totals = sessions.reduce(

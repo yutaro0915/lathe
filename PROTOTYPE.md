@@ -54,7 +54,9 @@ pnpm e2e           # Playwright E2E（22 ケース）
 - Event type フィルタ（thinking 含む）、Pin / Add Note（localStorage 永続）、Copy（クリップボード）
 - **時間リボン**（下部）: 各セグメント幅 = 次ステップまでの実経過時間。**ホバー**でカーソル位置の正確な時刻（秒まで）・step・イベント・所要時間を読み取り、**クリック**でその step を選択＋本体リストを該当行へスクロール（細い 2px セグメントでも掴める）。**ズーム連動の時刻軸**（目盛りがスクロールに追従して増える＝拡大時も時刻が読める）+ 選択 step の playhead
 - **Annotations**（右下）: run 中の節目（error / commit / test）を**種別タグ + step番号 + 内容**で一覧。クリックでその step へジャンプ（説明文付きで何かが分かる）
-- **統計**（`/stats`）: **プロジェクト別集計** + **ファイル別集計（追跡）** + **使われ方観測**（Models / Sub-agent types / Skills 件数）。**左にセッション一覧サイドバー（`SessionSidebar`）を保ち、他画面と同じシェル**（別画面化しない）。プロジェクトは各セッションが変更したファイルパスから導出（`sessions.project` は全 "LLMWiki" なので使えない）→ `deriveProjectKey` が `projects/<slug>` / `wiki` / `memory` / `(external)` 等に分類、セッションは**最多変更ディレクトリ = primary project** に集約。**By file** は変更の多いファイル → 展開で**それを触ったセッション一覧**（ファイル単位で「どこで作業したか」を追跡）。`lib/db.ts` の `getStats()`
+- **ハーネス信号**: skill だけでなく **memory**（nested CLAUDE.md/AGENTS.md 読み込み、❏ cyan）と **hook**（PreToolUse/PostToolUse/Stop 発火、↪ rose）をイベント化。トランスクリプト + フィルタ + `/stats` の Usage に「Memory loaded / Hooks fired」。⚠️ ルート CLAUDE.md は JSONL 非永続のため観測不可（nested のみ）
+- **Codex 対応**: Claude Code と並んで Codex セッション（`runner='codex'`、gpt-* モデル）を同じビューア/一覧/統計に統合（取り込み詳細は「データモデル / 取り込み」、cost は "—"）
+- **統計**（`/stats`）: **プロジェクト別集計** + **ファイル別集計（追跡）** + **使われ方観測**（Models / Sub-agent types / Skills / Memory / Hooks 件数）。**左にセッション一覧サイドバー（`SessionSidebar`）を保ち、他画面と同じシェル**（別画面化しない）。プロジェクトは各セッションが変更したファイルパスから導出（`sessions.project` は全 "LLMWiki" なので使えない）→ `deriveProjectKey` が `projects/<slug>` / `wiki` / `memory` / `(external)` 等に分類、セッションは**最多変更ディレクトリ = primary project** に集約。**By file** は変更の多いファイル → 展開で**それを触ったセッション一覧**（ファイル単位で「どこで作業したか」を追跡）。`lib/db.ts` の `getStats()`
 - 差分: ファイル選択 / フォルダ折りたたみ / Unified⇄Split / Hunk 前後 / Linked Event 選択 / Raw JSON
 - **Changed Files ツリー**: 単一子フォルダのチェーンを 1 行に圧縮（VS Code compact folders）＝深いパスでも「実ファイル数 ≒ 行数」。フォルダ（青フォルダアイコン + 太字 + 末尾 `/`）とファイル（色付き A/M/D/R 状態チップ + ファイル名）を明確に区別
 
@@ -101,9 +103,9 @@ lib/
   types.ts  db.ts       # 型 / read 層（db.ts に getStats = クロスセッション集計）
   cost.ts               # トークン×単価で USD を算出（ingest が使用、依存ゼロ）
 scripts/
-  ingest.ts             # 実トランスクリプト取り込み + cost 算出（pnpm ingest）
+  ingest.ts             # Claude + Codex 取り込み + harness 信号(memory/hook) + cost 算出（pnpm ingest）
   coverage_check.ts     # 網羅性照合（pnpm coverage）
-e2e/app.spec.ts         # Playwright E2E（38 ケース）
+e2e/app.spec.ts         # Playwright E2E（42 ケース）
 playwright.config.ts
 ```
 
@@ -113,12 +115,13 @@ playwright.config.ts
 - **thinking は大半が redacted**（Claude Code が署名のみに）。本文のある分だけ表示。
 - **`node:sqlite` を使用**（`AGENTS.md` は `better-sqlite3` 想定だが Node 24 で prebuilt 不在のため）。接続部のみで差し替え可。
 - **commit SHA など transcript に無い値は出さない**（捏造しない）。Cost は transcript の実トークン × 既知モデル単価から導出（[[#データモデル / 取り込み]] 参照）。未知モデルや 0 トークンは "—"。
-- 取り込み対象は **Claude Code のみ**（Codex / Cursor は別形式で未対応）。
+- 取り込み対象は **Claude Code + Codex**（Cursor は未対応）。**Codex**: `~/.codex/sessions/**/rollout-*.jsonl`（+ archived）から cwd が同 repo（既定 `LLMWiki`、env `LATHE_CODEX_PROJECT` で変更可）のセッションを `runner='codex'` で取り込み。message / `exec_command`→bash・commit・test・file_read（cat/sed から推論）/ `apply_patch`→file_edit・write / `update_plan`→todo / `spawn_agent`→subagent / token は最後の `token_count` の累計から。⚠️ **Codex の cost は null**（`db/pricing.json` は Claude のみ。GPT/o 価格未登録 → "—"）、**reasoning は暗号化**で thinking 本文は取得不可、file_read は read ツールが無く推論。`LATHE_NO_CODEX=1` で無効化。
 - スコープは Phase 1（観測）まで。Phase 2 以降（AI 分析 / ハーネス評価 / 改善ワークベンチ / エージェント実行 / 統合）は未着手。
 
 ## 次の一歩（再開時の候補）
 
 - Phase 2: AI 分析（finding 抽出、MCP ツール経由の根拠リンク）。`README.md` の機能2に対応。
 - 実トランスクリプトの増分取り込み / 監視。
-- Codex・Cursor トランスクリプト形式への対応。
+- Cursor トランスクリプト形式への対応（Codex は対応済み）。Codex の GPT/o 価格を `db/pricing.json` に追加して cost を埋める。
+- ハーネス *評価*（どの memory/hook/skill が効いたか。観測は実装済み、評価は Phase 2）。
 - リモート push + OSS 化検討（提案書提出後）。

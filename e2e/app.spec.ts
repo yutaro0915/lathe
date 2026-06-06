@@ -473,3 +473,22 @@ test.describe("Harness signals", () => {
     await expect(page.locator(".usage-card .uh", { hasText: "Hooks fired" })).toBeVisible();
   });
 });
+
+test.describe("Codex support", () => {
+  test("Codex sessions are ingested and shown alongside Claude (runner badge)", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(
+      page.locator(".session-list .runner-badge", { hasText: "Codex" }).first()
+    ).toBeVisible();
+  });
+
+  test("a non-Claude (Codex/GPT) model shows in stats with an unpriceable '—' cost", async ({
+    page,
+  }) => {
+    await page.goto("/stats");
+    const models = page.locator(".usage-card", { hasText: "Models" });
+    await expect(models).toContainText(/gpt|codex/i);
+  });
+});

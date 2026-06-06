@@ -173,7 +173,7 @@ export interface ModelStat {
   name: string;
   sessions: number;
   tokens: number;
-  cost: number;
+  cost: number | null; // null when the model isn't priceable (e.g. Codex/GPT) — shown as "—", not $0
 }
 export interface StatsBundle {
   totals: { sessions: number; durationMs: number; tokens: number; cost: number };
