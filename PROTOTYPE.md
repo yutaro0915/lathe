@@ -51,7 +51,8 @@ pnpm e2e           # Playwright E2E（22 ケース）
 - **Subagents タブ = run 単位ナビ**: 同型 agent（general-purpose 等）を名前で 1 リストに潰さず、**1 ランチャー = 1 run** として扱う。上部に Overview + run ごとのサブタブ。Overview は各 run を時系列カード（agent 種別 / **実行モデル** / 実行時刻 / 結果要約 / ステップ glyph / steps・tools・duration・tokens・**cost**）で並べ、クリックで当該 run のタブへ。run タブは Model / Cost を含む stat 群 + 内部実行ステップを全件ツリー表示し、各ステップ選択で右詳細が連動。Prev/Next で run 間移動。**モデルとコストは子 transcript（`subagents/agent-*.jsonl`）の per-message model + usage から算出**し launcher の `meta` に格納
 - **thinking 閲覧**: 本文のある extended-thinking を `thinking` イベントとして表示（紫 ✲、フィルタチップ、詳細に全文）
 - Event type フィルタ（thinking 含む）、Pin / Add Note（localStorage 永続）、Copy（クリップボード）
-- **時間リボン**（下部）: 各セグメント幅 = 次ステップまでの実経過時間。全幅・ズーム・ホバーで所要時間・実時刻軸
+- **時間リボン**（下部）: 各セグメント幅 = 次ステップまでの実経過時間。**ホバー**でカーソル位置の正確な時刻（秒まで）・step・イベント・所要時間を読み取り、**クリック**でその step を選択＋本体リストを該当行へスクロール（細い 2px セグメントでも掴める）。**ズーム連動の時刻軸**（目盛りがスクロールに追従して増える＝拡大時も時刻が読める）+ 選択 step の playhead
+- **Annotations**（右下）: run 中の節目（error / commit / test）を**種別タグ + step番号 + 内容**で一覧。クリックでその step へジャンプ（説明文付きで何かが分かる）
 - 差分: ファイル選択 / フォルダ折りたたみ / Unified⇄Split / Hunk 前後 / Linked Event 選択 / Raw JSON
 - **Changed Files ツリー**: 単一子フォルダのチェーンを 1 行に圧縮（VS Code compact folders）＝深いパスでも「実ファイル数 ≒ 行数」。フォルダ（青フォルダアイコン + 太字 + 末尾 `/`）とファイル（色付き A/M/D/R 状態チップ + ファイル名）を明確に区別
 
@@ -97,7 +98,7 @@ lib/
 scripts/
   ingest.ts             # 実トランスクリプト取り込み + cost 算出（pnpm ingest）
   coverage_check.ts     # 網羅性照合（pnpm coverage）
-e2e/app.spec.ts         # Playwright E2E（30 ケース）
+e2e/app.spec.ts         # Playwright E2E（34 ケース）
 playwright.config.ts
 ```
 

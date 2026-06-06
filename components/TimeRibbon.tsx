@@ -3,8 +3,16 @@
 // A real time ribbon for the bottom of both screens. Each event becomes a
 // segment whose WIDTH is the wall-clock time until the next event — so long
 // operations / waits show up as wide bands and you can see *where the time
-// went*. Fills the full width, zooms in/out (scrolls when zoomed), and every
-// segment hovers to reveal its duration. Derived entirely from event timestamps.
+// went*. Fills the full width, zooms in/out (scrolls when zoomed).
+//
+// Legibility (the point of this component):
+//  - HOVER anywhere on the track → a readout shows the exact clock time, the
+//    event under the cursor, and how long it took. This is the reliable way to
+//    read the time even when zoomed and segments are 1px slivers.
+//  - CLICK anywhere → selects the event under the cursor (no need to hit a
+//    2px sliver); the host scrolls its list + detail to that event.
+//  - A scroll-AWARE time axis: tick labels live inside the scroll area and
+//    scale with zoom, so the clock times stay readable when you zoom in.
 
 import { useMemo, useState } from "react";
 import type { TranscriptEvent } from "@/lib/types";
@@ -51,11 +59,14 @@ function fmtDur(sec: number): string {
   return `${h}h ${m % 60}m`;
 }
 
-function clock(absSec: number): string {
+// clock with seconds — "13:08:47" — so zoomed-in reads are precise.
+function clock(absSec: number, withSec = false): string {
   const s = ((absSec % 86400) + 86400) % 86400;
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const sec = Math.floor(s % 60);
+  const base = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  return withSec ? `${base}:${String(sec).padStart(2, "0")}` : base;
 }
 
 const LEGEND: [string, string][] = [
@@ -79,6 +90,7 @@ export default function TimeRibbon({
   title?: string;
 }) {
   const [zoom, setZoom] = useState(1);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
   const model = useMemo(() => {
     // events with a parseable timestamp, in order, with midnight-rollover fixup
@@ -123,11 +135,47 @@ export default function TimeRibbon({
   // the single longest gap — highlighted so the biggest time sink is obvious
   const maxDur = Math.max(...segs.map((s) => s.dur));
 
+  // Which segment is under a pointer at clientX? Walk the SAME widths the track
+  // renders (max(2px, pct%)) so hover/click match what's visually under the
+  // cursor even where tiny events hit the 2px floor.
+  function segIndexAt(clientX: number, trackEl: HTMLElement): number {
+    const rect = trackEl.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const w = rect.width;
+    let acc = 0;
+    for (let i = 0; i < segs.length; i++) {
+      const segW = Math.max(2, (segs[i].pct / 100) * w);
+      if (x < acc + segW) return i;
+      acc += segW;
+    }
+    return segs.length - 1;
+  }
+
+  // scroll-aware time axis: more ticks as you zoom in (≈ one per 90px of track).
+  const tickCount = Math.min(80, Math.max(4, Math.round(8 * zoom)));
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => {
+    const f = i / tickCount;
+    return { f, label: clock(start + f * total) };
+  });
+
+  const hoverSeg = hoverIdx != null ? segs[hoverIdx] : null;
+  const selSeg = selectedId ? segs.find((s) => s.e.id === selectedId) : undefined;
+
   return (
     <div className="ribbon">
       <div className="ribbon-head">
         <span className="mtitle">{title}</span>
         <span className="ribbon-total mono">{fmtDur(total)} total</span>
+        {/* live readout of whatever the cursor is over — the reliable "what time / what step is this" */}
+        {hoverSeg ? (
+          <span className="ribbon-read mono" title={hoverSeg.e.title}>
+            <b>{clock(start + hoverSeg.offset, true)}</b> · #{hoverSeg.e.seq}{" "}
+            {hoverSeg.e.title.length > 44 ? hoverSeg.e.title.slice(0, 44) + "…" : hoverSeg.e.title}
+            {hoverSeg.dur > 0 && <span className="muted"> · {fmtDur(hoverSeg.dur)}</span>}
+          </span>
+        ) : (
+          <span className="ribbon-read muted small">hover to read the time · click to jump</span>
+        )}
         <span className="spacer" />
         <span className="minimap-legend">
           {LEGEND.map(([cls, label]) => (
@@ -144,7 +192,7 @@ export default function TimeRibbon({
           <span className="mono small" style={{ minWidth: 38, textAlign: "center" }}>
             {zoom.toFixed(1)}×
           </span>
-          <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(12, +(z + 0.5).toFixed(2)))}>
+          <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(16, +(z + 0.5).toFixed(2)))}>
             +
           </button>
           <button type="button" aria-label="Fit" onClick={() => setZoom(1)}>
@@ -154,29 +202,55 @@ export default function TimeRibbon({
       </div>
 
       <div className="ribbon-scroll">
-        <div className="ribbon-track" style={{ width: `${100 * zoom}%` }}>
+        <div
+          className="ribbon-track"
+          style={{ width: `${100 * zoom}%` }}
+          onMouseMove={(e) => setHoverIdx(segIndexAt(e.clientX, e.currentTarget))}
+          onMouseLeave={() => setHoverIdx(null)}
+          onClick={
+            onSelect
+              ? (e) => onSelect(segs[segIndexAt(e.clientX, e.currentTarget)].e.id)
+              : undefined
+          }
+          role={onSelect ? "button" : undefined}
+          aria-label={onSelect ? "Click to select the step at the cursor" : undefined}
+        >
           {segs.map((s, i) => {
             const isSel = s.e.id === selectedId;
             const isMax = s.dur === maxDur && s.dur > 0;
+            const isHov = hoverIdx === i;
             return (
-              <button
+              <div
                 key={`${s.e.id}-${i}`}
-                type="button"
-                className={`ribbon-seg ${kindOf(s.e.type)}${isSel ? " active" : ""}${isMax ? " peak" : ""}`}
+                className={`ribbon-seg ${kindOf(s.e.type)}${isSel ? " active" : ""}${isMax ? " peak" : ""}${isHov ? " hover" : ""}`}
                 style={{ width: `max(2px, ${s.pct}%)` }}
-                title={`${clock(start + s.offset)} · Turn ${s.e.seq} · ${s.e.title}\n${fmtDur(s.dur)} until next step`}
-                onClick={onSelect ? () => onSelect(s.e.id) : undefined}
-                tabIndex={onSelect ? 0 : -1}
               />
             );
           })}
+          {/* playhead at the selected step */}
+          {selSeg && (
+            <div
+              className="ribbon-playhead"
+              style={{ left: `${(selSeg.offset / total) * 100}%` }}
+              aria-hidden
+            />
+          )}
         </div>
-      </div>
 
-      <div className="ribbon-axis">
-        <span className="tick mono">{clock(start)}</span>
-        <span className="tick mono">{clock(start + total / 2)}</span>
-        <span className="tick mono">{clock(start + total)}</span>
+        {/* scroll-aware time axis: labels scale with zoom and scroll with the track */}
+        <div className="ribbon-axis" style={{ width: `${100 * zoom}%` }}>
+          {ticks.map((t, i) => {
+            const isLast = i === ticks.length - 1;
+            const style: React.CSSProperties = isLast
+              ? { right: 0 }
+              : { left: `${t.f * 100}%`, transform: i === 0 ? undefined : "translateX(-50%)" };
+            return (
+              <span key={i} className="tick mono" style={style}>
+                {t.label}
+              </span>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

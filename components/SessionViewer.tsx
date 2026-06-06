@@ -149,20 +149,6 @@ function minimapKind(t: EventType): string {
   }
 }
 
-// Confidence label for an annotation kind — real label, no fake percent.
-function annotationConfidenceLabel(kind: AnnotationKind): string {
-  switch (kind) {
-    case "error":
-      return "high";
-    case "commit":
-    case "edit":
-    case "test":
-      return "medium";
-    case "note":
-      return "unattributed";
-  }
-}
-
 // All filterable event types, in legend order.
 const ALL_TYPES: EventType[] = [
   "user_message",
@@ -276,6 +262,20 @@ export default function SessionViewer({
   useEffect(() => {
     setSubAgentTab("overview");
   }, [primary.id]);
+
+  // When an event is selected (from the timeline, the time ribbon, or an
+  // annotation), bring its row into view in the current list — so clicking a
+  // ribbon segment visibly "jumps" to that step, not just updates the aside.
+  useEffect(() => {
+    if (!selectedEventId || typeof document === "undefined") return;
+    const sel =
+      typeof CSS !== "undefined" && CSS.escape
+        ? `[data-eid="${CSS.escape(selectedEventId)}"]`
+        : null;
+    if (!sel) return;
+    const el = document.querySelector(sel);
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [selectedEventId, activeTab]);
 
   // ---- minimap zoom --------------------------------------------------------
   const [zoom, setZoom] = useState(1);
@@ -843,6 +843,7 @@ export default function SessionViewer({
                   return (
                     <div
                       key={e.id}
+                      data-eid={e.id}
                       className={`event-row${depth > 0 ? " child-row" : ""}${isSel ? " selected" : ""}`}
                       onClick={() => setSelectedEventId(e.id)}
                       role="button"
@@ -956,6 +957,7 @@ export default function SessionViewer({
                   return (
                     <div
                       key={e.id}
+                      data-eid={e.id}
                       className={`event-row${isSel ? " selected" : ""}`}
                       onClick={() => setSelectedEventId(e.id)}
                       role="button"
@@ -1014,6 +1016,7 @@ export default function SessionViewer({
                   return (
                     <div
                       key={e.id}
+                      data-eid={e.id}
                       className={`event-row${isSel ? " selected" : ""}`}
                       onClick={() => setSelectedEventId(e.id)}
                       role="button"
@@ -1572,8 +1575,12 @@ export default function SessionViewer({
             <div className="ahead">
               Annotations <span className="count">({annotations.length})</span>
             </div>
+            <div className="asub">
+              Notable moments flagged along the run — errors, commits &amp; tests. Click one to jump
+              to that step.
+            </div>
             {annotations.length === 0 ? (
-              <div className="empty">—</div>
+              <div className="empty">No flagged moments.</div>
             ) : (
               annotations.map((a) => {
                 const target = events.find((e) => e.seq === a.atSeq);
@@ -1590,11 +1597,20 @@ export default function SessionViewer({
                         setSelectedEventId(target.id);
                       }
                     }}
-                    title={`${annotationConfidenceLabel(a.kind)} confidence`}
+                    title={
+                      target
+                        ? `${a.kind} at step ${a.atSeq} — click to jump`
+                        : `${a.kind} at step ${a.atSeq}`
+                    }
                     style={{ cursor: target ? "pointer" : "default" }}
                   >
-                    <span className={`akind ${a.kind as AnnotationKind}`} />
-                    <span>{a.note ?? a.kind}</span>
+                    <span className="amain">
+                      <span className="ameta">
+                        <span className={`akind-tag ${a.kind as AnnotationKind}`}>{a.kind}</span>
+                        <span className="aseq">step {a.atSeq}</span>
+                      </span>
+                      {a.note && <span className="atxt">{a.note}</span>}
+                    </span>
                   </div>
                 );
               })

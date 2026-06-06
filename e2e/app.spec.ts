@@ -355,3 +355,48 @@ test.describe("Changed-files tree (compact folders)", () => {
     expect(await page.locator(".file-row.is-folder .status-chip").count()).toBe(0);
   });
 });
+
+test.describe("Time ribbon & annotations", () => {
+  test("ribbon: hovering reads out the exact time + step", async ({ page }) => {
+    await page.goto("/");
+    const track = page.locator(".ribbon-track");
+    await expect(track).toBeVisible();
+    const box = await track.boundingBox();
+    if (box) {
+      await page.mouse.move(box.x + box.width * 0.4, box.y + box.height / 2);
+      await expect(page.locator(".ribbon-read")).toContainText(/\d{2}:\d{2}:\d{2}/);
+    }
+  });
+
+  test("ribbon: clicking the track selects the step at the cursor", async ({ page }) => {
+    await page.goto("/");
+    const track = page.locator(".ribbon-track");
+    const box = await track.boundingBox();
+    if (box) {
+      await page.mouse.click(box.x + box.width * 0.6, box.y + box.height / 2);
+      await expect(page.locator(".event-row.selected")).toHaveCount(1);
+    }
+  });
+
+  test("ribbon: zooming in adds more time-axis ticks", async ({ page }) => {
+    await page.goto("/");
+    const before = await page.locator(".ribbon-axis .tick").count();
+    await page.locator(".minimap-zoom button", { hasText: "+" }).click();
+    await page.locator(".minimap-zoom button", { hasText: "+" }).click();
+    await expect
+      .poll(async () => page.locator(".ribbon-axis .tick").count())
+      .toBeGreaterThan(before);
+  });
+
+  test("annotations are labelled (kind + step) and jump on click", async ({ page }) => {
+    // a session with errors + commits flagged
+    await page.goto("/?session=4912b75c-6018-427c-b67b-00a583404d21");
+    const ann = page.locator(".annotation").first();
+    if ((await ann.count()) > 0) {
+      await expect(ann.locator(".akind-tag")).toBeVisible();
+      await expect(ann.locator(".aseq")).toContainText(/step/);
+      await ann.click();
+      await expect(page.locator(".event-row.selected")).toHaveCount(1);
+    }
+  });
+});
