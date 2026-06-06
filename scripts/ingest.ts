@@ -579,7 +579,13 @@ function buildSession(file: string): Built | null {
 
   const durationMs =
     firstTs && lastTs ? new Date(lastTs).getTime() - new Date(firstTs).getTime() : null;
-  const status = annotations.some((a) => a.kind === 'error') ? 'failed' : 'done';
+  // grounded signal: how many tool calls actually returned a non-zero exit (or
+  // were error events), across the session + its sub-agents. NOT a vague
+  // "session failed" verdict — there is no such thing in a transcript.
+  const errorCount = events.filter(
+    (e) => (e.exit_code != null && e.exit_code !== 0) || e.type === 'error',
+  ).length;
+  const status = errorCount > 0 ? 'failed' : 'done';
 
   const session = {
     id: sessionId,
@@ -596,6 +602,7 @@ function buildSession(file: string): Built | null {
     edit_count: (counts['file_edit'] || 0) + (counts['file_write'] || 0),
     bash_count: counts['bash'] || 0,
     subagent_count: counts['subagent'] || 0,
+    error_count: errorCount,
     token_usage: tokenUsage,
     token_in: tokenIn,
     token_out: tokenOut,
@@ -654,8 +661,8 @@ function main() {
   built.forEach((b, i) => (b.session.seq = i + 1));
 
   const insSession = db.prepare(
-    `INSERT INTO sessions (id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,seq)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO sessions (id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,seq)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   const insEvent = db.prepare(
     `INSERT INTO transcript_events (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta,parent_id)
@@ -684,7 +691,7 @@ function main() {
   db.exec('BEGIN');
   for (const b of built) {
     const s = b.session;
-    insSession.run(s.id, s.project, s.title, s.runner, s.model, s.status, s.started_at, s.ended_at, s.duration_ms, s.turn_count, s.tool_count, s.edit_count, s.bash_count, s.subagent_count, s.token_usage, s.token_in, s.token_out, s.git_branch, s.commit_count, s.cost_usd, s.summary, s.seq);
+    insSession.run(s.id, s.project, s.title, s.runner, s.model, s.status, s.started_at, s.ended_at, s.duration_ms, s.turn_count, s.tool_count, s.edit_count, s.bash_count, s.subagent_count, s.error_count, s.token_usage, s.token_in, s.token_out, s.git_branch, s.commit_count, s.cost_usd, s.summary, s.seq);
     for (const e of b.events) {
       insEvent.run(e.id, e.session_id, e.seq, e.ts, e.type, e.actor, e.title, e.body, e.file_path, e.command, e.exit_code, e.duration_ms, e.token_usage, e.subagent, e.meta, e.parent_id ?? null);
       nEvents++;

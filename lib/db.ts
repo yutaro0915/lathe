@@ -44,6 +44,7 @@ interface SessionRow {
   edit_count: number;
   bash_count: number;
   subagent_count: number;
+  error_count: number;
   token_usage: number;
   token_in: number;
   token_out: number;
@@ -141,6 +142,7 @@ function toSession(r: SessionRow): Session {
     editCount: r.edit_count,
     bashCount: r.bash_count,
     subagentCount: r.subagent_count,
+    errorCount: r.error_count,
     tokenUsage: r.token_usage,
     tokenIn: r.token_in,
     tokenOut: r.token_out,

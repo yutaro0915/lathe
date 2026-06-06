@@ -568,7 +568,11 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
           <span className="sessbar-title" title={s.title}>
             {s.title}
           </span>
-          <span className={`badge ${s.status}`}>{s.status}</span>
+          {s.errorCount > 0 && (
+            <span className="badge err" title={`${s.errorCount} failed tool call(s) in this session`}>
+              {s.errorCount} error{s.errorCount === 1 ? "" : "s"}
+            </span>
+          )}
           <span className="sessbar-meta">
             Git diff · {runnerLabel} · <span className="mono">⎇ {branch}</span> · {commitText} ·{" "}
             {s.startedAt.replace("T", " ").slice(0, 16)}

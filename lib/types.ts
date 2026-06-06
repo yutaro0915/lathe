@@ -43,6 +43,7 @@ export interface Session {
   editCount: number;
   bashCount: number;
   subagentCount: number;
+  errorCount: number;
   tokenUsage: number;
   tokenIn: number;
   tokenOut: number;

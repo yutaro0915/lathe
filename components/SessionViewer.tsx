@@ -237,7 +237,6 @@ export default function SessionViewer({
   // ---- session-list controls (sidebar) -----------------------------------
   const [sessionSearch, setSessionSearch] = useState("");
   const [modelFilter, setModelFilter] = useState("all");
-  const [outcomeFilter, setOutcomeFilter] = useState("all");
   const [errorsFilter, setErrorsFilter] = useState("any");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
 
@@ -249,13 +248,11 @@ export default function SessionViewer({
 
   // Selected event seed: the failing build (bash, exit != 0) is most
   // informative; fall back gracefully. Re-seed whenever the session changes.
+  // default to the session's first top-level step (usually the opening prompt),
+  // not an arbitrary tool — opening the panel on a random "tool" was confusing.
   const seedId = useMemo(() => {
-    const seed =
-      events.find((e) => e.type === "bash" && e.exitCode != null && e.exitCode !== 0) ??
-      events.find((e) => e.type === "bash") ??
-      events.find((e) => e.type === "file_edit") ??
-      events[0];
-    return seed?.id;
+    const first = events.find((e) => !e.parentId) ?? events[0];
+    return first?.id;
   }, [events]);
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>(seedId);
   useEffect(() => {
@@ -328,9 +325,8 @@ export default function SessionViewer({
     let list = sessions.filter((s) => {
       if (q && !s.title.toLowerCase().includes(q)) return false;
       if (modelFilter !== "all" && s.model !== modelFilter) return false;
-      if (outcomeFilter !== "all" && s.status !== outcomeFilter) return false;
-      if (errorsFilter === "yes" && s.status !== "failed") return false;
-      if (errorsFilter === "no" && s.status === "failed") return false;
+      if (errorsFilter === "yes" && s.errorCount === 0) return false;
+      if (errorsFilter === "no" && s.errorCount > 0) return false;
       return true;
     });
     list = [...list];
@@ -338,7 +334,7 @@ export default function SessionViewer({
     else if (sortKey === "oldest") list.sort((a, b) => b.seq - a.seq);
     else if (sortKey === "tokens") list.sort((a, b) => b.tokenUsage - a.tokenUsage);
     return list;
-  }, [sessions, sessionSearch, modelFilter, outcomeFilter, errorsFilter, sortKey]);
+  }, [sessions, sessionSearch, modelFilter, errorsFilter, sortKey]);
 
   // ---- derived: filtered timeline events ----------------------------------
   // sub-agent child steps grouped under their launching event id
@@ -504,7 +500,14 @@ export default function SessionViewer({
           <span className="sessbar-title" title={primary.title}>
             {primary.title}
           </span>
-          <span className={`badge ${primary.status}`}>{primary.status}</span>
+          {primary.errorCount > 0 && (
+            <span
+              className="badge err"
+              title={`${primary.errorCount} tool call(s) returned a non-zero exit (incl. sub-agents). Not a session-level verdict.`}
+            >
+              {primary.errorCount} error{primary.errorCount === 1 ? "" : "s"}
+            </span>
+          )}
           <span className="sessbar-meta">
             {primary.model ?? "—"} · <span className="mono">⎇ {branch}</span> · {commitLabel} ·{" "}
             {sessionDate} {parseStamp(primary.startedAt).time}
@@ -638,21 +641,11 @@ export default function SessionViewer({
             </div>
 
             <div className="filter-row">
-              <span className="flabel">Outcome</span>
-              <select value={outcomeFilter} onChange={(e) => setOutcomeFilter(e.target.value)}>
-                <option value="all">All outcomes</option>
-                <option value="done">done</option>
-                <option value="failed">failed</option>
-                <option value="running">running</option>
-              </select>
-            </div>
-
-            <div className="filter-row">
-              <span className="flabel">Has errors</span>
+              <span className="flabel">Errors</span>
               <select value={errorsFilter} onChange={(e) => setErrorsFilter(e.target.value)}>
                 <option value="any">Any</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
+                <option value="yes">With errors</option>
+                <option value="no">Clean (0 errors)</option>
               </select>
             </div>
           </div>
@@ -688,7 +681,11 @@ export default function SessionViewer({
                   >
                     <div className="si-top">
                       <span className="si-title">{s.title}</span>
-                      <span className={`badge ${s.status}`}>{s.status}</span>
+                      {s.errorCount > 0 && (
+                        <span className="badge err" title={`${s.errorCount} failed tool call(s)`}>
+                          {s.errorCount} err
+                        </span>
+                      )}
                     </div>
                     <div className="si-meta">
                       <span>
@@ -1127,7 +1124,9 @@ export default function SessionViewer({
                 {selType === "bash" ? "Bash (shell)" : TYPE_LABEL[selType]}
               </span>
               <span className="spacer" />
-              <span className={`badge ${selStatusClass}`}>{selStatusText}</span>
+              {selected?.exitCode != null && (
+                <span className={`badge ${selStatusClass}`}>{selStatusText}</span>
+              )}
             </div>
 
             <div className="detail-actions">

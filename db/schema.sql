@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   edit_count     INTEGER NOT NULL DEFAULT 0,
   bash_count     INTEGER NOT NULL DEFAULT 0,
   subagent_count INTEGER NOT NULL DEFAULT 0,
+  error_count    INTEGER NOT NULL DEFAULT 0,   -- tool calls that returned non-zero / error events
   token_usage    INTEGER NOT NULL DEFAULT 0,
   token_in       INTEGER NOT NULL DEFAULT 0,   -- real input tokens (sum)
   token_out      INTEGER NOT NULL DEFAULT 0,   -- real output tokens (sum)
