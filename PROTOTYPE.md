@@ -37,7 +37,7 @@ pnpm e2e           # Playwright E2E（22 ケース）
 |-------|------|------|
 | `/` | セッションビューア | 上部 sessbar（セッション名 + model/branch/commit/日付 + duration/turns/tools/edits/tokens/**cost**）。左: セッション一覧 + 検索 + Event type フィルタ + Model / Errors 絞り込み + 並び替え。中央: タブ内容（既定 Transcript = 実行タイムライン）。右: 選択イベント詳細。下: 時間リボン。 |
 | `/diff` | （レガシー）| 旧 Git 差分専用ページ。現在は `/?session=<id>&tab=git` へ **redirect**（変更のある最新セッションを既定に）。古いリンク互換のため残置。 |
-| `/stats` | 統計 | クロスセッション分析。上部 totals（sessions / duration / tokens / cost）。**プロジェクト（ディレクトリ）別表**（sessions / duration / tokens / cost / files / ± / errors、行クリックでそのプロジェクトのセッション一覧へ展開＝各セッションへリンク）。下部 **Usage 観測**（Models / Sub-agent types / Skills の件数。ハーネス*評価*は Phase 2、ここは*観測のみ*）。 |
+| `/stats` | 統計 | クロスセッション分析。**他画面と同じシェル**（左にセッション一覧サイドバー = `SessionSidebar`、別画面化しない）。上部 totals。中央 main に: **By project**（プロジェクト別 sessions / duration / tokens / cost / files / ± / errors、行展開でそのプロジェクトのセッション）、**By file**（最多変更ファイル → 展開でそれを触ったセッション＝ファイル単位の追跡）、**Usage 観測**（Models / Sub-agent types / Skills 件数。ハーネス*評価*は Phase 2、ここは*観測のみ*）。 |
 
 タブ（Transcript / Tools / Git / Skills / Subagents / Raw JSON）は**すべて in-page**で中央＋右だけ切り替わる（**左のセッション一覧サイドバーは常に維持**）。Git タブは `DiffViewer` を `embedded` で中央に埋め込み、[変更ファイルツリー｜差分（Unified/Split・追加緑/削除赤）｜Linked Events + 帰属信頼度] を表示。`?tab=` で初期タブ復元、セッション切替時も現在のタブを保持。
 （旧構造では Git だけ別ページ `/diff` へ遷移してサイドバーがファイルツリーに差し替わり、セッション一覧が消える UX だった。2026-06-06 に in-page タブへ統一。）
@@ -54,7 +54,7 @@ pnpm e2e           # Playwright E2E（22 ケース）
 - Event type フィルタ（thinking 含む）、Pin / Add Note（localStorage 永続）、Copy（クリップボード）
 - **時間リボン**（下部）: 各セグメント幅 = 次ステップまでの実経過時間。**ホバー**でカーソル位置の正確な時刻（秒まで）・step・イベント・所要時間を読み取り、**クリック**でその step を選択＋本体リストを該当行へスクロール（細い 2px セグメントでも掴める）。**ズーム連動の時刻軸**（目盛りがスクロールに追従して増える＝拡大時も時刻が読める）+ 選択 step の playhead
 - **Annotations**（右下）: run 中の節目（error / commit / test）を**種別タグ + step番号 + 内容**で一覧。クリックでその step へジャンプ（説明文付きで何かが分かる）
-- **統計**（`/stats`）: **プロジェクト（ディレクトリ）別の集計** + **使われ方観測**（Models / Sub-agent types / Skills の件数）。プロジェクトは各セッションが変更したファイルパスから導出（`sessions.project` は全 "LLMWiki" なので使えない）→ `deriveProjectKey` が `projects/<slug>` / `wiki` / `memory` / `(external)` 等に分類し、セッションは**最多変更ディレクトリ = primary project** に集約。`lib/db.ts` の `getStats()`
+- **統計**（`/stats`）: **プロジェクト別集計** + **ファイル別集計（追跡）** + **使われ方観測**（Models / Sub-agent types / Skills 件数）。**左にセッション一覧サイドバー（`SessionSidebar`）を保ち、他画面と同じシェル**（別画面化しない）。プロジェクトは各セッションが変更したファイルパスから導出（`sessions.project` は全 "LLMWiki" なので使えない）→ `deriveProjectKey` が `projects/<slug>` / `wiki` / `memory` / `(external)` 等に分類、セッションは**最多変更ディレクトリ = primary project** に集約。**By file** は変更の多いファイル → 展開で**それを触ったセッション一覧**（ファイル単位で「どこで作業したか」を追跡）。`lib/db.ts` の `getStats()`
 - 差分: ファイル選択 / フォルダ折りたたみ / Unified⇄Split / Hunk 前後 / Linked Event 選択 / Raw JSON
 - **Changed Files ツリー**: 単一子フォルダのチェーンを 1 行に圧縮（VS Code compact folders）＝深いパスでも「実ファイル数 ≒ 行数」。フォルダ（青フォルダアイコン + 太字 + 末尾 `/`）とファイル（色付き A/M/D/R 状態チップ + ファイル名）を明確に区別
 
@@ -90,7 +90,8 @@ app/
 components/
   SessionViewer.tsx     # セッションビューア（client、全インタラクション）。Git タブで DiffViewer を embedded 描画
   DiffViewer.tsx        # Git 差分・帰属（client、`embedded` で SessionViewer の Git タブに埋め込み）
-  StatsView.tsx         # /stats（client）: プロジェクト別表 + 使われ方観測
+  StatsView.tsx         # /stats（client）: By project + By file + 使われ方観測
+  SessionSidebar.tsx    # 共有の左サイドバー（セッション一覧。/stats 等が同じシェルを保つため）
   TimeRibbon.tsx        # 共有の時間リボン
 db/
   schema.sql            # スキーマ（正本）
@@ -102,7 +103,7 @@ lib/
 scripts/
   ingest.ts             # 実トランスクリプト取り込み + cost 算出（pnpm ingest）
   coverage_check.ts     # 網羅性照合（pnpm coverage）
-e2e/app.spec.ts         # Playwright E2E（36 ケース）
+e2e/app.spec.ts         # Playwright E2E（38 ケース）
 playwright.config.ts
 ```
 

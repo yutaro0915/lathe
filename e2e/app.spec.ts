@@ -407,7 +407,7 @@ test.describe("Stats (/stats)", () => {
   }) => {
     await page.goto("/stats");
     await expect(page.locator(".sessbar-title")).toHaveText(/Statistics/);
-    await expect(page.locator(".st-head")).toContainText("Cost");
+    await expect(page.locator(".st-head").first()).toContainText("Cost");
     const rows = page.locator(".st-data");
     expect(await rows.count()).toBeGreaterThan(1);
     // usage observation: models / sub-agent types / skills cards
@@ -425,5 +425,25 @@ test.describe("Stats (/stats)", () => {
     await page.locator(".appnav a", { hasText: "統計" }).click();
     await expect(page).toHaveURL(/\/stats/);
     await expect(page.locator(".sessbar-title")).toHaveText(/Statistics/);
+  });
+
+  test("stats keeps the session-list sidebar (same shell, not a separate screen)", async ({
+    page,
+  }) => {
+    await page.goto("/stats");
+    await expect(page.locator(".layout3 .sidebar .session-item").first()).toBeVisible();
+    // clicking a session in the sidebar goes to the viewer
+    await page.locator(".layout3 .sidebar .session-item").first().click();
+    await expect(page).toHaveURL(/\?session=/);
+  });
+
+  test("by-file table drills a file into the sessions that touched it", async ({ page }) => {
+    await page.goto("/stats");
+    const fileRow = page.locator(".files-table .st-data").first();
+    await expect(fileRow).toBeVisible();
+    await fileRow.click();
+    const sref = page.locator(".files-table .st-children .st-srow").first();
+    await expect(sref).toBeVisible();
+    await expect(sref).toHaveAttribute("href", /\/\?session=/);
   });
 });

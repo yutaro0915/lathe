@@ -152,6 +152,17 @@ export interface ProjectStat {
   errors: number;
   sessionRefs: ProjectSessionRef[];
 }
+// A single changed file rolled up across the whole corpus — which file was
+// touched, in which project, by how many sessions, and the sessions themselves
+// (so a file is traceable back to where the agent worked on it).
+export interface FileStat {
+  path: string;
+  project: string;
+  sessions: number;
+  additions: number;
+  deletions: number;
+  sessionRefs: ProjectSessionRef[];
+}
 export interface UsageCount {
   name: string;
   count: number;
@@ -165,6 +176,7 @@ export interface ModelStat {
 export interface StatsBundle {
   totals: { sessions: number; durationMs: number; tokens: number; cost: number };
   projects: ProjectStat[];
+  files: FileStat[];
   skills: UsageCount[];
   subagentTypes: UsageCount[];
   models: ModelStat[];

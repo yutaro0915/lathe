@@ -28,6 +28,7 @@ import type {
   StatsBundle,
   ProjectStat,
   ProjectSessionRef,
+  FileStat,
 } from './types';
 
 // ---- raw row shapes (snake_case, as returned by node:sqlite) --------------
@@ -544,6 +545,56 @@ export function getStats(): StatsBundle {
     (a, b) => b.cost - a.cost || b.tokens - a.tokens || b.sessions - a.sessions
   );
 
+  // ---- per-file rollup: which file, in which project, and the sessions that
+  // touched it (so file-level activity is traceable back to where it happened).
+  const refById = new Map<string, ProjectSessionRef>();
+  const projBySession = new Map<string, string>();
+  for (const s of sessions) {
+    refById.set(s.id, {
+      id: s.id,
+      title: s.title,
+      model: s.model,
+      durationMs: s.duration_ms,
+      tokens: s.token_usage,
+      cost: s.cost_usd,
+      errors: s.error_count,
+    });
+    projBySession.set(s.id, s.project);
+  }
+  const fileMap = new Map<
+    string,
+    { path: string; project: string; add: number; del: number; sessionIds: Set<string> }
+  >();
+  for (const f of fileRows) {
+    let fs = fileMap.get(f.path);
+    if (!fs) {
+      fs = {
+        path: f.path,
+        project: deriveProjectKey(f.path, projBySession.get(f.session_id) ?? 'LLMWiki'),
+        add: 0,
+        del: 0,
+        sessionIds: new Set(),
+      };
+      fileMap.set(f.path, fs);
+    }
+    fs.add += f.additions;
+    fs.del += f.deletions;
+    fs.sessionIds.add(f.session_id);
+  }
+  const files: FileStat[] = [...fileMap.values()]
+    .sort((a, b) => b.add + b.del - (a.add + a.del))
+    .slice(0, 60)
+    .map((fs) => ({
+      path: fs.path,
+      project: fs.project,
+      sessions: fs.sessionIds.size,
+      additions: fs.add,
+      deletions: fs.del,
+      sessionRefs: [...fs.sessionIds]
+        .map((id) => refById.get(id))
+        .filter((r): r is ProjectSessionRef => !!r),
+    }));
+
   // ---- light "usage" observation (Phase 1 = counts only, no evaluation) ----
   const skillRows = db
     .prepare(
@@ -584,5 +635,5 @@ export function getStats(): StatsBundle {
     { sessions: 0, durationMs: 0, tokens: 0, cost: 0 }
   );
 
-  return { totals, projects: projectList, skills, subagentTypes, models };
+  return { totals, projects: projectList, files, skills, subagentTypes, models };
 }

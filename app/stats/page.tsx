@@ -6,10 +6,11 @@
 
 export const dynamic = "force-dynamic";
 
-import { getStats } from "@/lib/db";
+import { getStats, listSessions } from "@/lib/db";
 import StatsView from "@/components/StatsView";
 
 export default async function Page() {
   const stats = getStats();
-  return <StatsView stats={stats} />;
+  const sessions = listSessions();
+  return <StatsView stats={stats} sessions={sessions} />;
 }

@@ -12,7 +12,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import type { StatsBundle } from "@/lib/types";
+import SessionSidebar from "@/components/SessionSidebar";
+import type { StatsBundle, Session } from "@/lib/types";
 
 function humanizeDuration(ms: number | null): string {
   if (ms == null || ms <= 0) return "—";
@@ -37,9 +38,21 @@ function fmtCost(c: number | null): string {
   if (c > 0 && c < 0.01) return "<$0.01";
   return `$${c.toFixed(2)}`;
 }
+// show the meaningful tail of an absolute path (the project column carries where)
+function shortPath(p: string): string {
+  const segs = p.split("/").filter(Boolean);
+  if (segs.length <= 3) return p;
+  return "…/" + segs.slice(-3).join("/");
+}
 
-export default function StatsView({ stats }: { stats: StatsBundle }) {
-  const { totals, projects, skills, subagentTypes, models } = stats;
+export default function StatsView({
+  stats,
+  sessions,
+}: {
+  stats: StatsBundle;
+  sessions: Session[];
+}) {
+  const { totals, projects, files, skills, subagentTypes, models } = stats;
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   function toggle(key: string) {
     setOpen((prev) => {
@@ -81,7 +94,13 @@ export default function StatsView({ stats }: { stats: StatsBundle }) {
         </div>
       </div>
 
-      <div className="stats-scroll">
+      <div
+        className="layout3"
+        style={{ gridTemplateColumns: "var(--sidebar-w) minmax(0,1fr)" }}
+      >
+        <SessionSidebar sessions={sessions} />
+        <main className="main">
+          <div className="stats-scroll">
         {/* ---------- per-project ---------- */}
         <section className="stats-section">
           <div className="stats-h">
@@ -163,6 +182,82 @@ export default function StatsView({ stats }: { stats: StatsBundle }) {
           </div>
         </section>
 
+        {/* ---------- by file (which files the agent worked on, traceable) ---------- */}
+        <section className="stats-section">
+          <div className="stats-h">
+            By file{" "}
+            <span className="muted small">
+              — most-changed files; click a row for the sessions that touched it
+            </span>
+          </div>
+          <div className="stats-table files-table">
+            <div className="st-row st-head">
+              <span>File</span>
+              <span>Project</span>
+              <span className="num">Sessions</span>
+              <span className="num">+ / −</span>
+            </div>
+            {files.map((f) => {
+              const key = `file:${f.path}`;
+              const isOpen = open.has(key);
+              return (
+                <div key={f.path} className="st-group">
+                  <div
+                    className={`st-row st-data${isOpen ? " open" : ""}`}
+                    onClick={() => toggle(key)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggle(key);
+                      }
+                    }}
+                  >
+                    <span className="st-proj">
+                      <span className="tw">{isOpen ? "▾" : "▸"}</span>
+                      <span className="mono" title={f.path}>
+                        {shortPath(f.path)}
+                      </span>
+                    </span>
+                    <span className="mono small muted">{f.project}</span>
+                    <span className="num">{fmtInt(f.sessions)}</span>
+                    <span className="num">
+                      <span className="ok">+{fmtInt(f.additions)}</span>{" "}
+                      <span className="err">−{fmtInt(f.deletions)}</span>
+                    </span>
+                  </div>
+                  {isOpen && (
+                    <div className="st-children">
+                      {f.sessionRefs.map((s) => (
+                        <Link
+                          key={s.id}
+                          href={`/?session=${encodeURIComponent(s.id)}`}
+                          className="st-srow"
+                        >
+                          <span className="st-stitle">{s.title}</span>
+                          <span className="muted small mono">{s.model ?? "—"}</span>
+                          <span className="num">{humanizeDuration(s.durationMs)}</span>
+                          <span className="num">{fmtCompact(s.tokens)}</span>
+                          <span className="num cost">{fmtCost(s.cost)}</span>
+                          <span className="num">
+                            {s.errors > 0 ? <span className="badge err">{s.errors} err</span> : ""}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {files.length === 0 && (
+              <div className="empty" style={{ padding: 14 }}>
+                No changed files.
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* ---------- usage observation ---------- */}
         <section className="stats-section">
           <div className="stats-h">
@@ -217,6 +312,8 @@ export default function StatsView({ stats }: { stats: StatsBundle }) {
             </div>
           </div>
         </section>
+          </div>
+        </main>
       </div>
     </div>
   );
