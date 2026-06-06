@@ -407,6 +407,16 @@ export default function SessionViewer({
   const selType = (selected?.type ?? "bash") as EventType;
   const sessionDate = parseStamp(primary.startedAt).date;
   const selTime = selected ? selected.ts.slice(0, 8) : "";
+  // tool-call count (sub-agents) parsed from meta; tool name for the label
+  const selMeta: { tool?: string; toolUses?: number } = (() => {
+    try {
+      return selected?.meta ? JSON.parse(selected.meta) : {};
+    } catch {
+      return {};
+    }
+  })();
+  const fmtDur2 = (ms: number | null): string =>
+    ms == null ? "—" : ms < 1000 ? `${ms}ms` : humanizeDuration(ms);
   const selStatusClass =
     selected?.exitCode == null ? "neutral" : selected.exitCode === 0 ? "success" : "failed";
   const selStatusText =
@@ -1226,61 +1236,83 @@ export default function SessionViewer({
               </div>
             )}
 
-            <dl className="kv">
-              <dt>Type</dt>
-              <dd>{TYPE_LABEL[selType]}</dd>
-              <dt>Actor</dt>
-              <dd>{selected?.actor ?? "—"}</dd>
-              <dt>Time</dt>
-              <dd className="mono">
-                {sessionDate} · {selTime}
-              </dd>
-              <dt>Duration</dt>
-              <dd>{selected ? durLabel(selected.durationMs) || "—" : "—"}</dd>
-              {selected?.filePath && (
-                <>
-                  <dt>Path</dt>
-                  <dd className="mono">{selected.filePath}</dd>
-                </>
+            {/* what matters for a tool: how long, success, cost — as compact stats */}
+            <div className="stat-strip">
+              {selected?.durationMs != null && (
+                <div className="stat">
+                  <span className="stat-k">Duration</span>
+                  <span className="stat-v">{fmtDur2(selected.durationMs)}</span>
+                </div>
               )}
-              <dt>Exit code</dt>
-              <dd className={selected?.exitCode === 0 ? "ok" : selected?.exitCode != null ? "err" : ""}>
-                {selected?.exitCode != null ? selected.exitCode : "—"}
-              </dd>
-              <dt>Tokens</dt>
-              <dd>{selected?.tokenUsage != null ? fmtInt(selected.tokenUsage) : "—"}</dd>
-            </dl>
+              {selected?.exitCode != null && (
+                <div className="stat">
+                  <span className="stat-k">Exit</span>
+                  <span className={`stat-v ${selected.exitCode === 0 ? "ok" : "err"}`}>
+                    {selected.exitCode === 0 ? "0 ✓" : `${selected.exitCode} ✗`}
+                  </span>
+                </div>
+              )}
+              {selected?.tokenUsage != null && (
+                <div className="stat">
+                  <span className="stat-k">Tokens</span>
+                  <span className="stat-v">{fmtInt(selected.tokenUsage)}</span>
+                </div>
+              )}
+              {selMeta.toolUses != null && (
+                <div className="stat">
+                  <span className="stat-k">Tool calls</span>
+                  <span className="stat-v">{selMeta.toolUses}</span>
+                </div>
+              )}
+            </div>
+            <div className="detail-sub">
+              {TYPE_LABEL[selType]} · {selected?.actor ?? "—"} · {sessionDate} {selTime}
+              {selMeta.tool && selMeta.tool !== TYPE_LABEL[selType] ? ` · ${selMeta.tool}` : ""}
+            </div>
+            {selected?.filePath && <div className="detail-path mono">{selected.filePath}</div>}
 
             {selected?.command && (
-              <>
-                <div className="kv" style={{ borderTop: 0, paddingBottom: 0 }}>
-                  <dt>Command</dt>
-                  <dd />
-                </div>
-                <pre className="code-block">
+              <div className="io-block">
+                <div className="io-head">
+                  <span>Command</span>
                   <button
                     type="button"
-                    className="copy"
-                    aria-label="Copy command"
+                    className="io-copy"
                     onClick={() => copy("cmd", selected.command ?? "")}
-                    style={{ background: "transparent", border: 0 }}
                   >
-                    {copied === "cmd" ? "✓" : "⧉"}
+                    {copied === "cmd" ? "✓ copied" : "⧉ copy"}
                   </button>
-                  {selected.command}
-                </pre>
-              </>
+                </div>
+                <pre className="code-block cmd">{selected.command}</pre>
+              </div>
             )}
 
-            {selected?.body && (
-              <>
-                <div className="kv" style={{ borderTop: 0, paddingBottom: 0 }}>
-                  <dt>Output</dt>
-                  <dd />
-                </div>
-                <pre className="code-block">{selected.body}</pre>
-              </>
-            )}
+            {/* return value / side effects — the main content, gets the room */}
+            <div className="io-block io-output">
+              <div className="io-head">
+                <span>
+                  {selType === "bash" || selType === "test"
+                    ? "Output · stdout / stderr"
+                    : selType === "file_read"
+                      ? "File contents"
+                      : selType === "subagent"
+                        ? "Result / summary"
+                        : "Detail"}
+                </span>
+                {selected?.body && (
+                  <button
+                    type="button"
+                    className="io-copy"
+                    onClick={() => copy("out", selected.body ?? "")}
+                  >
+                    {copied === "out" ? "✓ copied" : "⧉ copy"}
+                  </button>
+                )}
+              </div>
+              <pre className="code-block output">
+                {selected?.body ? selected.body : <span className="muted">(no output captured)</span>}
+              </pre>
+            </div>
 
             {/* Linked files */}
             <div className="linked-files">

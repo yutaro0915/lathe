@@ -65,6 +65,27 @@ function preview(s: string, n = 90): string {
   return one.length > n ? one.slice(0, n) + '…' : one;
 }
 
+// real execution time = gap between a tool_use and its tool_result timestamp
+function durationBetween(aIso?: string, bIso?: string): number | null {
+  if (!aIso || !bIso) return null;
+  const a = Date.parse(aIso);
+  const b = Date.parse(bIso);
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  return Math.max(0, b - a);
+}
+
+// sub-agent result text carries "<usage>subagent_tokens: .. tool_uses: .. duration_ms: ..</usage>"
+function parseSubagentUsage(text: string) {
+  const t = /subagent_tokens:\s*(\d+)/.exec(text);
+  const u = /tool_uses:\s*(\d+)/.exec(text);
+  const d = /duration_ms:\s*(\d+)/.exec(text);
+  return {
+    tokens: t ? Number(t[1]) : null,
+    toolUses: u ? Number(u[1]) : null,
+    durationMs: d ? Number(d[1]) : null,
+  };
+}
+
 // tool name -> our event type (kept within the 12 schema types)
 function toolType(name: string): string {
   switch (name) {
@@ -153,7 +174,7 @@ function extractChildEvents(
     return [];
   }
 
-  const results = new Map<string, { isError: boolean; text: string }>();
+  const results = new Map<string, { isError: boolean; text: string; ts?: string }>();
   for (const r of recs) {
     const content = r.message?.content;
     if (Array.isArray(content)) {
@@ -165,7 +186,7 @@ function extractChildEvents(
               : Array.isArray(c.content)
                 ? c.content.map((x: any) => x?.text ?? '').join('\n')
                 : '';
-          results.set(c.tool_use_id, { isError: !!c.is_error, text });
+          results.set(c.tool_use_id, { isError: !!c.is_error, text, ts: r.timestamp });
         }
       }
     }
@@ -217,7 +238,7 @@ function extractChildEvents(
             if (isCommit(cmd)) etype = 'commit';
             else if (isTest(cmd)) etype = 'test';
           }
-          add({ ts, type: etype, actor: 'subagent', title: toolTitle(name, input), body: (res?.text || '').slice(0, 2000) || preview(JSON.stringify(input), 200), file_path: fp, command: cmd, exit_code: exit, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: name }) });
+          add({ ts, type: etype, actor: 'subagent', title: toolTitle(name, input), body: (res?.text || '').slice(0, 2000) || preview(JSON.stringify(input), 200), file_path: fp, command: cmd, exit_code: exit, duration_ms: durationBetween(r.timestamp, res?.ts), token_usage: null, meta: JSON.stringify({ tool: name }) });
         }
       }
     }
@@ -264,7 +285,7 @@ function buildSession(file: string): Built | null {
     titleRec?.customTitle || titleRec?.aiTitle || titleRec?.title || '';
 
   // map tool_use id -> result (exit/error) from tool_result lines + toolUseResult
-  const results = new Map<string, { isError: boolean; text: string }>();
+  const results = new Map<string, { isError: boolean; text: string; ts?: string }>();
   for (const r of recs) {
     const content = r.message?.content;
     if (Array.isArray(content)) {
@@ -276,7 +297,7 @@ function buildSession(file: string): Built | null {
               : Array.isArray(c.content)
                 ? c.content.map((x: any) => x?.text ?? '').join('\n')
                 : '';
-          results.set(c.tool_use_id, { isError: !!c.is_error, text });
+          results.set(c.tool_use_id, { isError: !!c.is_error, text, ts: r.timestamp });
         }
       }
     }
@@ -418,17 +439,27 @@ function buildSession(file: string): Built | null {
             if (isCommit(cmd)) etype = 'commit';
             else if (isTest(cmd)) etype = 'test';
           }
+          // real duration = time from this tool_use to its result
+          let durMs = durationBetween(r.timestamp, res?.ts);
+          let tok: number | null = null;
+          const metaObj: any = { tool: name };
+          if (name === 'Agent' || name === 'Task') {
+            const u = parseSubagentUsage(res?.text || '');
+            if (u.durationMs != null) durMs = u.durationMs; // explicit, more accurate
+            if (u.tokens != null) tok = u.tokens;
+            if (u.toolUses != null) metaObj.toolUses = u.toolUses;
+          }
           const ev = addEvent({
             id: c.id || `tu_${seq}`,
             ts, type: etype, actor: r.isSidechain ? 'subagent' : 'assistant',
             title: toolTitle(name, input),
             body: (res?.text || '').slice(0, 3000) || preview(JSON.stringify(input), 300),
             file_path: fp, command: cmd, exit_code: exit,
-            duration_ms: null, token_usage: null,
+            duration_ms: durMs, token_usage: tok,
             subagent: name === 'Agent' || name === 'Task'
               ? input.subagent_type || input.description || 'sub-agent'
               : r.isSidechain ? 'sidechain' : null,
-            meta: JSON.stringify({ tool: name }),
+            meta: JSON.stringify(metaObj),
           });
           if ((name === 'Agent' || name === 'Task') && c.id) {
             agentLaunchers.set(c.id, ev.id);

@@ -187,6 +187,27 @@ test.describe("Cross-screen navigation & time ribbon", () => {
   });
 });
 
+test.describe("Event detail panel", () => {
+  test("shows compact stats (duration/exit) and a wrapping output", async ({ page }) => {
+    await page.goto("/?session=da2ac032-a905-4267-8e5f-851456926a79");
+    const bashRow = page
+      .locator(".event-row")
+      .filter({ has: page.locator(".event-icon.bash") })
+      .first();
+    if ((await bashRow.count()) > 0) {
+      await bashRow.click();
+      await expect(page.locator(".stat-strip .stat").first()).toBeVisible();
+      await expect(page.locator(".code-block.output")).toBeVisible();
+      const ws = await page
+        .locator(".code-block.output")
+        .evaluate((el) => getComputedStyle(el).whiteSpace);
+      expect(ws).toBe("pre-wrap"); // output wraps, no horizontal cut-off
+      // the old tall key/value table is gone
+      await expect(page.locator(".detail .kv dt")).toHaveCount(0);
+    }
+  });
+});
+
 test.describe("Sub-agent expansion", () => {
   test("sub-agent rows expand to reveal child steps (tools/skills)", async ({ page }) => {
     // a session known to spawn general-purpose sub-agents
