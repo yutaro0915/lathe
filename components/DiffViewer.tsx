@@ -242,8 +242,8 @@ type TreeFolder = {
 type TreeRow = TreeFile | TreeFolder;
 
 // Build a properly-nested, depth-tagged render list of folder + file rows.
-// Real ingested paths are absolute (/Users/.../LLMWiki/wiki/concepts/x.md), so:
-//  1. strip the directory prefix shared by ALL files (no deep Users/cherie/… chain),
+// Real ingested paths are absolute (/Users/<you>/<repo>/wiki/concepts/x.md), so:
+//  1. strip the directory prefix shared by ALL files (no deep /Users/<you>/… chain),
 //  2. nest folders so each folder appears exactly ONCE (not repeated per group),
 //  3. aggregate +/- onto each folder from all its descendants.
 // folder.path / file.dir are the (stripped) directory keys used for collapse.

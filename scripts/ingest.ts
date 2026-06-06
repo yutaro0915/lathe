@@ -51,7 +51,7 @@ function pickDefaultTranscriptsDir(): string {
 }
 
 // The repo/project name = last segment of the Claude project dir name
-// (e.g. "-Users-cherie-LLMWiki" -> "LLMWiki"). Used to scope Codex by cwd.
+// (e.g. "-Users-you-myrepo" -> "myrepo"). Used to scope Codex by cwd.
 function repoBasenameOf(transcriptsDir: string): string {
   const segs = path.basename(transcriptsDir).split('-').filter(Boolean);
   return segs.length ? segs[segs.length - 1] : 'project';

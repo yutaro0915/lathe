@@ -1,6 +1,6 @@
 // db/seed.ts — populate data/lathe.db with realistic Phase 1 data.
 //
-//   pnpm -C /Users/cherie/LLMWiki/projects/lathe seed
+//   pnpm seed
 //
 // Deletes any existing data/lathe.db (+ -wal/-shm), opens a fresh database,
 // executes db/schema.sql, then inserts a richly-detailed primary session
