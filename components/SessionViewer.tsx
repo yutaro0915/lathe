@@ -65,6 +65,12 @@ function fmtCost(c: number | null): string {
   return `$${c.toFixed(2)}`;
 }
 
+// Compact model label for chips: "claude-opus-4-8" -> "opus-4-8".
+function shortModel(m: string | null | undefined): string {
+  if (!m) return "—";
+  return m.replace(/^claude-/, "");
+}
+
 // "2026-06-04 09:12:00" -> { date:"Jun 4", time:"09:12" }
 function parseStamp(s: string): { date: string; time: string } {
   const [datePart, timePart = ""] = s.split(" ");
@@ -377,14 +383,18 @@ export default function SessionViewer({
   function summarizeInvocation(launcher: TranscriptEvent) {
     const kids = childrenByParent.get(launcher.id) ?? [];
     let toolUses: number | undefined;
+    let model: string | undefined;
+    let costUsd: number | undefined;
     try {
       const m = launcher.meta ? JSON.parse(launcher.meta) : {};
       if (typeof m.toolUses === "number") toolUses = m.toolUses;
+      if (typeof m.model === "string") model = m.model; // the model the sub-agent ran on
+      if (typeof m.costUsd === "number") costUsd = m.costUsd; // priced from the sub-agent's own usage
     } catch {
       /* ignore */
     }
     const failed = kids.some((k) => k.exitCode != null && k.exitCode !== 0);
-    return { kids, toolUses, failed };
+    return { kids, toolUses, failed, model, costUsd };
   }
 
   // The agent's own one-line summary of what it did (its result), else its title.
@@ -1089,7 +1099,7 @@ export default function SessionViewer({
                     {subAgentTab === "overview" ? (
                       /* ---------- OVERVIEW: chronological spine of every run ---------- */
                       invocations.map((e, i) => {
-                        const { kids, toolUses, failed } = summarizeInvocation(e);
+                        const { kids, toolUses, failed, model, costUsd } = summarizeInvocation(e);
                         return (
                           <button
                             key={e.id}
@@ -1101,6 +1111,7 @@ export default function SessionViewer({
                             <div className="sa-card-main">
                               <div className="sa-card-top">
                                 <span className="event-type-badge subagent">⌥ {e.subagent ?? "sub-agent"}</span>
+                                {model && <span className="sa-model" title="model the sub-agent ran on">{shortModel(model)}</span>}
                                 <span className="sa-card-time">{e.ts}</span>
                                 {failed && <span className="badge failed">error</span>}
                               </div>
@@ -1125,6 +1136,7 @@ export default function SessionViewer({
                               {toolUses != null && <span className="chip">{toolUses} tools</span>}
                               {e.durationMs != null && <span className="dur">{durLabel(e.durationMs)}</span>}
                               {e.tokenUsage != null && <span className="tok">{fmtTok(e.tokenUsage)} tok</span>}
+                              {costUsd != null && <span className="sa-cost">{fmtCost(costUsd)}</span>}
                               <span className="sa-go">Open →</span>
                             </span>
                           </button>
@@ -1136,7 +1148,7 @@ export default function SessionViewer({
                         const e = invocations.find((x) => x.id === subAgentTab);
                         if (!e) return null;
                         const idx = invocations.findIndex((x) => x.id === subAgentTab);
-                        const { kids, toolUses, failed } = summarizeInvocation(e);
+                        const { kids, toolUses, failed, model, costUsd } = summarizeInvocation(e);
                         return (
                           <div className="sa-detail">
                             <div className="sa-detail-head">
@@ -1148,6 +1160,7 @@ export default function SessionViewer({
                                 ← Overview
                               </button>
                               <span className="event-type-badge subagent">⌥ {e.subagent ?? "sub-agent"}</span>
+                              {model && <span className="sa-model" title="model the sub-agent ran on">{shortModel(model)}</span>}
                               <span className="sa-detail-which">
                                 Agent {idx + 1} of {invocations.length}
                               </span>
@@ -1181,6 +1194,14 @@ export default function SessionViewer({
                                   <span className="stat-v">{toolUses}</span>
                                 </div>
                               )}
+                              {model && (
+                                <div className="stat">
+                                  <span className="stat-k">Model</span>
+                                  <span className="stat-v" style={{ fontSize: "12.5px" }}>
+                                    {shortModel(model)}
+                                  </span>
+                                </div>
+                              )}
                               {e.durationMs != null && (
                                 <div className="stat">
                                   <span className="stat-k">Duration</span>
@@ -1191,6 +1212,12 @@ export default function SessionViewer({
                                 <div className="stat">
                                   <span className="stat-k">Tokens</span>
                                   <span className="stat-v">{fmtInt(e.tokenUsage)}</span>
+                                </div>
+                              )}
+                              {costUsd != null && (
+                                <div className="stat">
+                                  <span className="stat-k">Cost</span>
+                                  <span className="stat-v">{fmtCost(costUsd)}</span>
                                 </div>
                               )}
                               <div className="stat">

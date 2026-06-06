@@ -450,6 +450,10 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
   white-space:nowrap;padding-top:2px;}
 .sa-card-meta .dur{color:var(--muted);} .sa-card-meta .tok{color:var(--muted-2);}
 .sa-go{color:var(--accent);font-weight:600;}
+/* model the sub-agent ran on (compact mono chip) + its run cost */
+.sa-model{font-family:var(--mono);font-size:10.5px;color:var(--text-soft);background:var(--bg-sunken);
+  border:1px solid var(--border);border-radius:4px;padding:1px 6px;white-space:nowrap;flex:0 0 auto;}
+.sa-cost{color:var(--text);font-weight:650;}
 
 /* run detail: header + stats + result summary, then the internal execution rows */
 .sa-detail-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap;}

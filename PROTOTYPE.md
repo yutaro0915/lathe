@@ -48,7 +48,7 @@ pnpm e2e           # Playwright E2E（22 ケース）
 - タイムラインのイベント選択 → 右に**所要時間 / Exit / Tokens / Tool calls** のチップ + **出力（stdout/stderr）/ Result / Thinking 全文**（折返し・copy）
 - **Cost 表示**: sessbar の `cost` スタット + セッション一覧の cost チップ。実トークン × モデル単価から ingest 時に算出（下記「データモデル / 取り込み」）。`ccusage` と同方式だが依存ゼロ・オフライン
 - **サブエージェント展開**（Transcript）: ランチャー行の「N steps」を展開すると内部のツール・スキルがインデント表示。ランチャー行の「⌥ open →」で Subagents タブの当該 run 詳細へジャンプ
-- **Subagents タブ = run 単位ナビ**: 同型 agent（general-purpose 等）を名前で 1 リストに潰さず、**1 ランチャー = 1 run** として扱う。上部に Overview + run ごとのサブタブ。Overview は各 run を時系列カード（agent 種別 / 実行時刻 / 結果要約 / ステップ glyph / steps・tools・duration・tokens）で並べ、クリックで当該 run のタブへ。run タブは内部実行ステップを全件ツリー表示し、各ステップ選択で右詳細が連動。Prev/Next で run 間移動
+- **Subagents タブ = run 単位ナビ**: 同型 agent（general-purpose 等）を名前で 1 リストに潰さず、**1 ランチャー = 1 run** として扱う。上部に Overview + run ごとのサブタブ。Overview は各 run を時系列カード（agent 種別 / **実行モデル** / 実行時刻 / 結果要約 / ステップ glyph / steps・tools・duration・tokens・**cost**）で並べ、クリックで当該 run のタブへ。run タブは Model / Cost を含む stat 群 + 内部実行ステップを全件ツリー表示し、各ステップ選択で右詳細が連動。Prev/Next で run 間移動。**モデルとコストは子 transcript（`subagents/agent-*.jsonl`）の per-message model + usage から算出**し launcher の `meta` に格納
 - **thinking 閲覧**: 本文のある extended-thinking を `thinking` イベントとして表示（紫 ✲、フィルタチップ、詳細に全文）
 - Event type フィルタ（thinking 含む）、Pin / Add Note（localStorage 永続）、Copy（クリップボード）
 - **時間リボン**（下部）: 各セグメント幅 = 次ステップまでの実経過時間。全幅・ズーム・ホバーで所要時間・実時刻軸
@@ -70,7 +70,7 @@ attributions / event_files / annotations`。型は `lib/types.ts`、read 層は 
 - `error_count` = 非ゼロ終了のツール呼び出し + error イベント数（**セッションの成否判定ではない**。バッジは `N errors`、0 なら非表示）。
 - **Cost = 実トークン × モデル単価**（`lib/cost.ts` + バンドル価格表 `db/pricing.json`）。transcript に cost フィールドは無いが per-message usage はあるので、ccusage と同じく **input / output / cache_creation / cache_read の4分類を単価別に合算**して ingest 時に `cost_usd` 確定。価格表は LiteLLM `model_prices_and_context_window.json`（MIT）の Claude tier をピン留め（依存ゼロ・オフライン）。モデル文字列→tier は部分一致（opus/sonnet/haiku）、未知モデルは null（"—" 表示で捏造しない）。
   - ⚠️ **cache_read は cost に含むが tokens 表示には含めない**（cache_read は最安単価だが最大バケット。tokens 列は「実作業量」指標として cache_read を除外、cost は課金対象として全4分類を計上）→ cost は tokens の数字に対し大きく見えることがある（正常）。
-  - ⚠️ サブエージェントのトークンは cost に未計上（session tokens と同じ範囲＝メイン transcript のみ）。`ccusage` 厳密一致には子 transcript の usage も要計上（将来拡張）。
+  - ⚠️ **session 合計 cost はメイン transcript のみ**（session tokens と同じ範囲。サブエージェント分は未加算）。ただし**各サブエージェントの個別 cost は子 transcript から算出済みで Subagents タブに表示**（model 別、4分類で正確）。session 合計に子コストを合算するのは将来拡張（合算すると headline cost と tokens の意味が変わるため現状は分離表示）。
 
 `scripts/coverage_check.ts`（`pnpm coverage`）= 正本(JSONL) ⇄ DB の機械照合。MISSING/DROPPED が無ければ GREEN。
 直近3分以内に更新中の transcript は「live」として除外し明示（並行書き込み対策）。
@@ -97,7 +97,7 @@ lib/
 scripts/
   ingest.ts             # 実トランスクリプト取り込み + cost 算出（pnpm ingest）
   coverage_check.ts     # 網羅性照合（pnpm coverage）
-e2e/app.spec.ts         # Playwright E2E（29 ケース）
+e2e/app.spec.ts         # Playwright E2E（30 ケース）
 playwright.config.ts
 ```
 

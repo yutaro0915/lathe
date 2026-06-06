@@ -308,6 +308,21 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
       await expect(page.locator(".sa-detail-head")).toContainText(/Agent 1 of/);
     }
   });
+
+  test("each run shows which model ran and its cost", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    // overview cards carry a model chip + a $ cost
+    await expect(page.locator(".sa-card .sa-model").first()).toBeVisible();
+    await expect(page.locator(".sa-card .sa-cost").first()).toContainText("$");
+    // the detail view exposes Model + Cost stats
+    await page.locator(".sa-tab", { hasText: "general-purpose" }).first().click();
+    await expect(
+      page.locator(".sa-detail-stats .stat", { hasText: "Model" })
+    ).toBeVisible();
+    await expect(
+      page.locator(".sa-detail-stats .stat", { hasText: "Cost" })
+    ).toBeVisible();
+  });
 });
 
 test.describe("Changed-files tree (compact folders)", () => {

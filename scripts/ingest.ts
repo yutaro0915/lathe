@@ -156,7 +156,7 @@ function extractChildEvents(
   parentEventId: string,
   sessionId: string,
   agentLabel: string,
-): any[] {
+): { children: any[]; model: string | null; costUsd: number | null } {
   let recs: any[];
   try {
     recs = fs
@@ -172,7 +172,7 @@ function extractChildEvents(
       })
       .filter(Boolean);
   } catch {
-    return [];
+    return { children: [], model: null, costUsd: null };
   }
 
   const results = new Map<string, { isError: boolean; text: string; ts?: string }>();
@@ -194,6 +194,14 @@ function extractChildEvents(
   }
 
   const out: any[] = [];
+  // roll up the sub-agent's own model + token usage so we can show which model
+  // ran and what the run cost (the sub-agent transcript carries per-message
+  // model + usage; the launcher event in the parent does not).
+  let saModel: string | null = null;
+  let saIn = 0,
+    saOut = 0,
+    saCacheWrite = 0,
+    saCacheRead = 0;
   let k = 0;
   const add = (e: any) => {
     k += 1;
@@ -219,6 +227,14 @@ function extractChildEvents(
       if (clean)
         add({ ts, type: 'user_message', actor: 'user', title: preview(clean, 90), body: t.slice(0, 2000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
     } else if (r.type === 'assistant') {
+      if (!saModel && r.message?.model) saModel = r.message.model;
+      const su = r.message?.usage;
+      if (su) {
+        saIn += su.input_tokens || 0;
+        saOut += su.output_tokens || 0;
+        saCacheWrite += su.cache_creation_input_tokens || 0;
+        saCacheRead += su.cache_read_input_tokens || 0;
+      }
       const c = r.message?.content;
       if (!Array.isArray(c)) continue;
       for (const x of c) {
@@ -246,7 +262,13 @@ function extractChildEvents(
       }
     }
   }
-  return out;
+  const costUsd = costForUsage(saModel, {
+    input: saIn,
+    output: saOut,
+    cacheWrite: saCacheWrite,
+    cacheRead: saCacheRead,
+  });
+  return { children: out, model: saModel, costUsd };
 }
 
 interface Built {
@@ -585,8 +607,22 @@ function buildSession(file: string): Built | null {
       if (!toolUseId) continue;
       const parentEventId = agentLaunchers.get(toolUseId);
       if (!parentEventId) continue; // launcher not in this session (shouldn't happen)
-      const children = extractChildEvents(path.join(subDir, saName), parentEventId, sessionId, agentType);
-      for (const ce of children) events.push(ce);
+      const sa = extractChildEvents(path.join(subDir, saName), parentEventId, sessionId, agentType);
+      for (const ce of sa.children) events.push(ce);
+      // stamp the launcher event with the sub-agent's model + cost so the
+      // Subagents tab can show which model ran and what the run cost.
+      const launcher = events.find((e) => e.id === parentEventId);
+      if (launcher) {
+        let lm: any = {};
+        try {
+          lm = launcher.meta ? JSON.parse(launcher.meta) : {};
+        } catch {
+          lm = {};
+        }
+        if (sa.model) lm.model = sa.model;
+        if (sa.costUsd != null) lm.costUsd = sa.costUsd;
+        launcher.meta = JSON.stringify(lm);
+      }
     }
   }
 
