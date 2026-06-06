@@ -35,21 +35,24 @@ pnpm e2e           # Playwright E2E（22 ケース）
 
 | route | 画面 | 内容 |
 |-------|------|------|
-| `/` | セッションビューア | 上部 sessbar（セッション名 + model/branch/commit/日付 + duration/turns/tools/edits/tokens）。左: セッション一覧 + 検索 + Event type フィルタ + Model / Errors 絞り込み + 並び替え。中央: 実行タイムライン（既定で最初の発話を選択）。右: 選択イベント詳細。下: 時間リボン。 |
-| `/diff` | Git 差分・帰属 | 左: 変更ファイルツリー。中央: 差分（追加緑/削除赤、Unified/Split）。右: Linked Events + 帰属信頼度（high/medium/unattributed）。上部に Session ドロップダウン。 |
+| `/` | セッションビューア | 上部 sessbar（セッション名 + model/branch/commit/日付 + duration/turns/tools/edits/tokens）。左: セッション一覧 + 検索 + Event type フィルタ + Model / Errors 絞り込み + 並び替え。中央: タブ内容（既定 Transcript = 実行タイムライン）。右: 選択イベント詳細。下: 時間リボン。 |
+| `/diff` | （レガシー）| 旧 Git 差分専用ページ。現在は `/?session=<id>&tab=git` へ **redirect**（変更のある最新セッションを既定に）。古いリンク互換のため残置。 |
 
-タブ（Transcript / Tools / Git / Skills / Subagents / Raw JSON）は**画面遷移**: viewer の Git → `/diff`、diff の他タブ → `/?session=&tab=`。
+タブ（Transcript / Tools / Git / Skills / Subagents / Raw JSON）は**すべて in-page**で中央＋右だけ切り替わる（**左のセッション一覧サイドバーは常に維持**）。Git タブは `DiffViewer` を `embedded` で中央に埋め込み、[変更ファイルツリー｜差分（Unified/Split・追加緑/削除赤）｜Linked Events + 帰属信頼度] を表示。`?tab=` で初期タブ復元、セッション切替時も現在のタブを保持。
+（旧構造では Git だけ別ページ `/diff` へ遷移してサイドバーがファイルツリーに差し替わり、セッション一覧が消える UX だった。2026-06-06 に in-page タブへ統一。）
 
 ## できること（すべて動作・E2E 済み）
 
 - セッション切替（一覧クリック / `?session=`、両画面共有）、検索、Model / Errors 絞り込み、並び替え
 - タブ切替（中身が変わる / 画面遷移）、`?tab=` で初期タブ復元
 - タイムラインのイベント選択 → 右に**所要時間 / Exit / Tokens / Tool calls** のチップ + **出力（stdout/stderr）/ Result / Thinking 全文**（折返し・copy）
-- **サブエージェント展開**: ランチャー行の「N steps」を展開すると内部のツール・スキルがインデント表示
+- **サブエージェント展開**（Transcript）: ランチャー行の「N steps」を展開すると内部のツール・スキルがインデント表示。ランチャー行の「⌥ open →」で Subagents タブの当該 run 詳細へジャンプ
+- **Subagents タブ = run 単位ナビ**: 同型 agent（general-purpose 等）を名前で 1 リストに潰さず、**1 ランチャー = 1 run** として扱う。上部に Overview + run ごとのサブタブ。Overview は各 run を時系列カード（agent 種別 / 実行時刻 / 結果要約 / ステップ glyph / steps・tools・duration・tokens）で並べ、クリックで当該 run のタブへ。run タブは内部実行ステップを全件ツリー表示し、各ステップ選択で右詳細が連動。Prev/Next で run 間移動
 - **thinking 閲覧**: 本文のある extended-thinking を `thinking` イベントとして表示（紫 ✲、フィルタチップ、詳細に全文）
 - Event type フィルタ（thinking 含む）、Pin / Add Note（localStorage 永続）、Copy（クリップボード）
 - **時間リボン**（下部）: 各セグメント幅 = 次ステップまでの実経過時間。全幅・ズーム・ホバーで所要時間・実時刻軸
 - 差分: ファイル選択 / フォルダ折りたたみ / Unified⇄Split / Hunk 前後 / Linked Event 選択 / Raw JSON
+- **Changed Files ツリー**: 単一子フォルダのチェーンを 1 行に圧縮（VS Code compact folders）＝深いパスでも「実ファイル数 ≒ 行数」。フォルダ（青フォルダアイコン + 太字 + 末尾 `/`）とファイル（色付き A/M/D/R 状態チップ + ファイル名）を明確に区別
 
 ## データモデル / 取り込み
 

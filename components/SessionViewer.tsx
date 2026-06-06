@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import TimeRibbon from "@/components/TimeRibbon";
-import Link from "next/link";
+import DiffViewer from "@/components/DiffViewer";
 import type {
   Session,
   SessionBundle,
@@ -245,10 +245,13 @@ export default function SessionViewer({
   const [sortKey, setSortKey] = useState<SortKey>("recent");
 
   // ---- timeline / tab / selection state -----------------------------------
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab === "git" ? "transcript" : initialTab);
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [typeFilter, setTypeFilter] = useState<Set<EventType>>(() => new Set(ALL_TYPES));
   const [transcriptSearch, setTranscriptSearch] = useState("");
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(() => new Set());
+
+  // ---- Subagents tab: which run is open ("overview" or a launcher event id) --
+  const [subAgentTab, setSubAgentTab] = useState<string>("overview");
 
   // Selected event seed: the failing build (bash, exit != 0) is most
   // informative; fall back gracefully. Re-seed whenever the session changes.
@@ -262,6 +265,10 @@ export default function SessionViewer({
   useEffect(() => {
     setSelectedEventId(seedId);
   }, [seedId]);
+  // re-seed the Subagents tab back to the overview when the session changes
+  useEffect(() => {
+    setSubAgentTab("overview");
+  }, [primary.id]);
 
   // ---- minimap zoom --------------------------------------------------------
   const [zoom, setZoom] = useState(1);
@@ -355,6 +362,37 @@ export default function SessionViewer({
     return m;
   }, [events]);
 
+  // ---- sub-agent invocations -----------------------------------------------
+  // One top-level `subagent` launcher = one distinct sub-agent RUN. The old tab
+  // grouped by agent *type name* ("general-purpose"), mashing many separate runs
+  // into one flat list. Group by the launcher instead so each run is its own unit.
+  const invocations = useMemo(
+    () => events.filter((e) => e.type === "subagent" && !e.parentId),
+    [events]
+  );
+
+  // Roll up one invocation: its child steps, declared tool-call count, and whether
+  // any step failed. Cheap enough to call inline while rendering.
+  function summarizeInvocation(launcher: TranscriptEvent) {
+    const kids = childrenByParent.get(launcher.id) ?? [];
+    let toolUses: number | undefined;
+    try {
+      const m = launcher.meta ? JSON.parse(launcher.meta) : {};
+      if (typeof m.toolUses === "number") toolUses = m.toolUses;
+    } catch {
+      /* ignore */
+    }
+    const failed = kids.some((k) => k.exitCode != null && k.exitCode !== 0);
+    return { kids, toolUses, failed };
+  }
+
+  // The agent's own one-line summary of what it did (its result), else its title.
+  function invocationSummaryLine(e: TranscriptEvent): string {
+    const body = (e.body ?? "").trim();
+    if (body) return body.split("\n").find((l) => l.trim()) ?? e.title;
+    return e.title;
+  }
+
   const matchEvent = useMemo(() => {
     const q = transcriptSearch.trim().toLowerCase();
     return (e: TranscriptEvent) => {
@@ -447,7 +485,15 @@ export default function SessionViewer({
   // ---- handlers ------------------------------------------------------------
   function switchSession(id: string) {
     if (id === currentId) return;
-    router.push(`/?session=${encodeURIComponent(id)}`);
+    // preserve the current tab so switching sessions from the sidebar keeps you
+    // where you are (e.g. stay on the Git tab while comparing sessions).
+    router.push(`/?session=${encodeURIComponent(id)}&tab=${activeTab}`);
+  }
+
+  // Open one sub-agent run's detail tab and surface its summary on the right.
+  function openAgent(launcherId: string) {
+    setSubAgentTab(launcherId);
+    setSelectedEventId(launcherId);
   }
 
   function toggleType(t: EventType) {
@@ -560,11 +606,7 @@ export default function SessionViewer({
             key={key}
             type="button"
             className={`tab${activeTab === key ? " active" : ""}`}
-            onClick={() =>
-              key === "git"
-                ? router.push(`/diff?session=${encodeURIComponent(currentId)}`)
-                : setActiveTab(key)
-            }
+            onClick={() => setActiveTab(key)}
           >
             {label}
           </button>
@@ -729,6 +771,19 @@ export default function SessionViewer({
           </div>
         </aside>
 
+        {/* The "Git" tab is an in-page tab like every other one: the session
+            list above stays put, and only the centre+right swap to the diff.
+            (It used to navigate to a separate /diff page that replaced the whole
+            sidebar — losing session navigation. Now the diff is embedded here.) */}
+        {activeTab === "git" ? (
+          <DiffViewer
+            embedded
+            sessions={sessions}
+            bundle={bundle}
+            currentId={currentId}
+          />
+        ) : (
+          <>
         {/* ---------- COLUMN 2: main / timeline ---------- */}
         <main className="main">
           {/* transcript search lives above the timeline (only for transcript tab) */}
@@ -827,6 +882,20 @@ export default function SessionViewer({
                       <span className="event-meta">
                         {childCount > 0 && (
                           <span className="chip">{childCount} steps</span>
+                        )}
+                        {depth === 0 && e.type === "subagent" && (
+                          <button
+                            type="button"
+                            className="sa-jump"
+                            title="Open this run in the Subagents tab"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              setActiveTab("subagents");
+                              openAgent(e.id);
+                            }}
+                          >
+                            ⌥ open →
+                          </button>
                         )}
                         {e.type === "commit" && <span className="chip hash">{commitLabel}</span>}
                         {e.tokenUsage != null && <span className="tok">+{fmtInt(e.tokenUsage)} -0</span>}
@@ -965,125 +1034,266 @@ export default function SessionViewer({
             </div>
           )}
 
-          {/* ===== SUBAGENTS (grouped by name) ===== */}
+          {/* ===== SUBAGENTS (per-run tabs + overview spine) ===== */}
           {activeTab === "subagents" && (
-            <div className="timeline">
-              {(() => {
-                const subs = events.filter((e) => e.subagent || e.type === "subagent");
-                const groups = new Map<string, TranscriptEvent[]>();
-                for (const e of subs) {
-                  const name = e.subagent ?? e.title;
-                  const arr = groups.get(name);
-                  if (arr) arr.push(e);
-                  else groups.set(name, [e]);
-                }
-                if (groups.size === 0) {
-                  return (
-                    <div className="empty" style={{ padding: "16px" }}>
-                      No sub-agent events.
-                    </div>
-                  );
-                }
-                return Array.from(groups.entries()).map(([name, evs]) => (
-                  <div key={name} style={{ padding: "8px 14px" }}>
-                    <div
-                      className="panel-title"
-                      style={{ display: "flex", alignItems: "center", gap: "6px" }}
+            <div className="sa-wrap">
+              {invocations.length === 0 ? (
+                <div className="timeline">
+                  <div className="empty" style={{ padding: "16px" }}>
+                    No sub-agent runs in this session.
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* sub-tab bar: Overview + one tab per distinct run */}
+                  <div className="sa-tabbar" role="tablist" aria-label="Sub-agent runs">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={subAgentTab === "overview"}
+                      className={`sa-tab${subAgentTab === "overview" ? " active" : ""}`}
+                      onClick={() => setSubAgentTab("overview")}
                     >
-                      <span className="event-type-badge subagent">{name}</span>
-                      <span className="count">({evs.length})</span>
-                    </div>
-                    {evs.map((e) => {
-                      const isSel = selectedEventId === e.id;
+                      ◇ Overview
+                      <span className="sa-tab-count">{invocations.length}</span>
+                    </button>
+                    {invocations.map((inv, i) => {
+                      const on = subAgentTab === inv.id;
+                      const label = inv.subagent ?? "sub-agent";
                       return (
-                        <div
-                          key={e.id}
-                          className={`event-row nested${isSel ? " selected" : ""}`}
-                          onClick={() => setSelectedEventId(e.id)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(ev) => {
-                            if (ev.key === "Enter" || ev.key === " ") {
-                              ev.preventDefault();
-                              setSelectedEventId(e.id);
-                            }
-                          }}
-                          style={{ cursor: "pointer" }}
+                        <button
+                          key={inv.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={on}
+                          className={`sa-tab${on ? " active" : ""}`}
+                          onClick={() => openAgent(inv.id)}
+                          title={`Agent ${i + 1} · ${label}`}
                         >
-                          <span className="event-seq">{e.seq}</span>
-                          <span className="event-gutter">{e.ts}</span>
-                          <span className={`event-icon ${e.type}`} aria-hidden>
-                            {TYPE_GLYPH[e.type] ?? "•"}
-                          </span>
-                          <div className="event-main">
-                            <div className="event-headline">
-                              <span className="event-title">{e.title}</span>
-                            </div>
-                            {e.command && <div className="event-sub mono">{e.command}</div>}
-                          </div>
-                          <span className="event-meta">
-                            {e.durationMs != null && (
-                              <span className="dur">{durLabel(e.durationMs)}</span>
-                            )}
-                          </span>
-                        </div>
+                          <span className="sa-tab-idx">{i + 1}</span>
+                          {label}
+                        </button>
                       );
                     })}
                   </div>
-                ));
-              })()}
-            </div>
-          )}
 
-          {/* ===== GIT (changed files) ===== */}
-          {activeTab === "git" && (
-            <div className="timeline">
-              <div
-                className="diff-toolbar"
-                style={{ display: "flex", alignItems: "center", padding: "10px 14px" }}
-              >
-                <span className="fstats">
-                  {bundle.changedFiles.length} file
-                  {bundle.changedFiles.length === 1 ? "" : "s"} changed
-                </span>
-                <span className="spacer" style={{ flex: "1 1 auto" }} />
-                <Link href={`/diff?session=${encodeURIComponent(currentId)}`} className="btn btn-sm">
-                  Open diff &amp; attribution →
-                </Link>
-              </div>
-              {bundle.changedFiles.map((f) => (
-                <Link
-                  key={f.id}
-                  href={`/diff?session=${encodeURIComponent(currentId)}`}
-                  className="event-row"
-                  style={{ cursor: "pointer", textDecoration: "none" }}
-                >
-                  <span className="event-seq">{f.seq}</span>
-                  <span className="event-gutter" />
-                  <span className="event-icon file_edit" aria-hidden>
-                    {f.status.charAt(0).toUpperCase()}
-                  </span>
-                  <div className="event-main">
-                    <div className="event-headline">
-                      <span className="event-title mono" style={{ fontFamily: "var(--mono)" }}>
-                        {f.path}
-                      </span>
-                    </div>
-                    <div className="event-sub">{f.language ?? f.status}</div>
+                  <div className="timeline">
+                    {subAgentTab === "overview" ? (
+                      /* ---------- OVERVIEW: chronological spine of every run ---------- */
+                      invocations.map((e, i) => {
+                        const { kids, toolUses, failed } = summarizeInvocation(e);
+                        return (
+                          <button
+                            key={e.id}
+                            type="button"
+                            className="sa-card"
+                            onClick={() => openAgent(e.id)}
+                          >
+                            <span className="sa-card-idx">{i + 1}</span>
+                            <div className="sa-card-main">
+                              <div className="sa-card-top">
+                                <span className="event-type-badge subagent">⌥ {e.subagent ?? "sub-agent"}</span>
+                                <span className="sa-card-time">{e.ts}</span>
+                                {failed && <span className="badge failed">error</span>}
+                              </div>
+                              <div className="sa-card-task">{invocationSummaryLine(e)}</div>
+                              {kids.length > 0 && (
+                                <div className="sa-card-steps" aria-hidden>
+                                  {kids.slice(0, 16).map((k) => (
+                                    <span
+                                      key={k.id}
+                                      className={`sa-glyph ${k.type}`}
+                                      title={`${TYPE_LABEL[k.type]} · ${k.title}`}
+                                    >
+                                      {TYPE_GLYPH[k.type] ?? "•"}
+                                    </span>
+                                  ))}
+                                  {kids.length > 16 && <span className="sa-more">+{kids.length - 16}</span>}
+                                </div>
+                              )}
+                            </div>
+                            <span className="sa-card-meta">
+                              <span className="chip">{kids.length} steps</span>
+                              {toolUses != null && <span className="chip">{toolUses} tools</span>}
+                              {e.durationMs != null && <span className="dur">{durLabel(e.durationMs)}</span>}
+                              {e.tokenUsage != null && <span className="tok">{fmtTok(e.tokenUsage)} tok</span>}
+                              <span className="sa-go">Open →</span>
+                            </span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      /* ---------- DETAIL: one run's full execution ---------- */
+                      (() => {
+                        const e = invocations.find((x) => x.id === subAgentTab);
+                        if (!e) return null;
+                        const idx = invocations.findIndex((x) => x.id === subAgentTab);
+                        const { kids, toolUses, failed } = summarizeInvocation(e);
+                        return (
+                          <div className="sa-detail">
+                            <div className="sa-detail-head">
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() => setSubAgentTab("overview")}
+                              >
+                                ← Overview
+                              </button>
+                              <span className="event-type-badge subagent">⌥ {e.subagent ?? "sub-agent"}</span>
+                              <span className="sa-detail-which">
+                                Agent {idx + 1} of {invocations.length}
+                              </span>
+                              <span style={{ flex: "1 1 auto" }} />
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() => openAgent(invocations[idx - 1].id)}
+                                disabled={idx <= 0}
+                              >
+                                ‹ Prev
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() => openAgent(invocations[idx + 1].id)}
+                                disabled={idx >= invocations.length - 1}
+                              >
+                                Next ›
+                              </button>
+                            </div>
+
+                            <div className="sa-detail-stats">
+                              <div className="stat">
+                                <span className="stat-k">Steps</span>
+                                <span className="stat-v">{kids.length}</span>
+                              </div>
+                              {toolUses != null && (
+                                <div className="stat">
+                                  <span className="stat-k">Tool calls</span>
+                                  <span className="stat-v">{toolUses}</span>
+                                </div>
+                              )}
+                              {e.durationMs != null && (
+                                <div className="stat">
+                                  <span className="stat-k">Duration</span>
+                                  <span className="stat-v">{fmtDur2(e.durationMs)}</span>
+                                </div>
+                              )}
+                              {e.tokenUsage != null && (
+                                <div className="stat">
+                                  <span className="stat-k">Tokens</span>
+                                  <span className="stat-v">{fmtInt(e.tokenUsage)}</span>
+                                </div>
+                              )}
+                              <div className="stat">
+                                <span className="stat-k">Result</span>
+                                <span className={`stat-v ${failed ? "err" : "ok"}`}>
+                                  {failed ? "error" : "ok"}
+                                </span>
+                              </div>
+                            </div>
+
+                            {e.body && (
+                              <div className="sa-detail-summary">
+                                <div className="io-head">
+                                  <span>Result · summary</span>
+                                  <button
+                                    type="button"
+                                    className="io-copy"
+                                    onClick={() => copy(`sa-${e.id}`, e.body ?? "")}
+                                  >
+                                    {copied === `sa-${e.id}` ? "✓ copied" : "⧉ copy"}
+                                  </button>
+                                </div>
+                                <div
+                                  className="sa-summary-body"
+                                  onClick={() => setSelectedEventId(e.id)}
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(ev) => {
+                                    if (ev.key === "Enter" || ev.key === " ") {
+                                      ev.preventDefault();
+                                      setSelectedEventId(e.id);
+                                    }
+                                  }}
+                                >
+                                  {invocationSummaryLine(e)}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="panel-title" style={{ padding: "10px 14px 0" }}>
+                              Execution <span className="count">({kids.length} steps)</span>
+                            </div>
+                            {kids.length === 0 ? (
+                              <div className="empty" style={{ padding: "8px 16px 16px" }}>
+                                No internal steps were captured for this run.
+                              </div>
+                            ) : (
+                              kids.map((k) => {
+                                const isSel = selectedEventId === k.id;
+                                return (
+                                  <div
+                                    key={k.id}
+                                    className={`event-row child-row${isSel ? " selected" : ""}`}
+                                    onClick={() => setSelectedEventId(k.id)}
+                                    role="button"
+                                    tabIndex={0}
+                                    onKeyDown={(ev) => {
+                                      if (ev.key === "Enter" || ev.key === " ") {
+                                        ev.preventDefault();
+                                        setSelectedEventId(k.id);
+                                      }
+                                    }}
+                                    style={{ cursor: "pointer" }}
+                                  >
+                                    <span className="event-seq">{k.seq}</span>
+                                    <span className="event-gutter">{k.ts}</span>
+                                    <span className={`event-icon ${k.type}`} aria-hidden>
+                                      {TYPE_GLYPH[k.type] ?? "•"}
+                                    </span>
+                                    <div className="event-main">
+                                      <div className="event-headline">
+                                        <span className="event-title">{k.title}</span>
+                                        <span className={`event-type-badge ${k.type}`}>
+                                          {TYPE_LABEL[k.type]}
+                                        </span>
+                                      </div>
+                                      {k.command ? (
+                                        <div className="event-sub mono">{k.command}</div>
+                                      ) : k.filePath ? (
+                                        <div className="event-sub path">{k.filePath}</div>
+                                      ) : k.body ? (
+                                        <div className="event-sub body">{k.body.split("\n")[0]}</div>
+                                      ) : null}
+                                    </div>
+                                    <span className="event-meta">
+                                      {k.durationMs != null && (
+                                        <span className="dur">{durLabel(k.durationMs)}</span>
+                                      )}
+                                      {k.exitCode != null &&
+                                        (k.exitCode === 0 ? (
+                                          <span className="ok">✓</span>
+                                        ) : (
+                                          <span className="err">✗</span>
+                                        ))}
+                                    </span>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        );
+                      })()
+                    )}
                   </div>
-                  <span className="event-meta">
-                    <span className="ok">+{f.additions}</span>
-                    <span className="err">-{f.deletions}</span>
-                  </span>
-                </Link>
-              ))}
-              {bundle.changedFiles.length === 0 && (
-                <div className="empty" style={{ padding: "16px" }}>
-                  No changed files.
-                </div>
+                </>
               )}
             </div>
           )}
+
+          {/* Git is handled above as an embedded DiffViewer (in-page tab),
+              so there is no changed-files block inside <main> anymore. */}
 
           {/* ===== RAW JSON ===== */}
           {activeTab === "raw" && (
@@ -1356,6 +1566,8 @@ export default function SessionViewer({
             )}
           </div>
         </aside>
+          </>
+        )}
       </div>
     </>
   );

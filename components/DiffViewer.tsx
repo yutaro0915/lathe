@@ -86,6 +86,19 @@ function confidenceLabel(c: Confidence): string {
   }
 }
 
+// A small filled folder mark so directory rows read as folders at a glance
+// (files carry a colored A/M/D status chip instead).
+function FolderIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden focusable="false">
+      <path
+        d="M1.6 4.3c0-.62.5-1.12 1.12-1.12h2.9c.3 0 .58.12.79.33l.84.84h6.04c.62 0 1.12.5 1.12 1.12v6.1c0 .62-.5 1.12-1.12 1.12H2.72c-.62 0-1.12-.5-1.12-1.12V4.3z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 // FileStatus -> single-glyph file icon used in the tree.
 function statusGlyph(status: FileStatus): string {
   switch (status) {
@@ -204,7 +217,9 @@ function indentClass(depth: number): string {
   if (depth <= 0) return "";
   if (depth === 1) return "indent-1";
   if (depth === 2) return "indent-2";
-  return "indent-3";
+  if (depth === 3) return "indent-3";
+  if (depth === 4) return "indent-4";
+  return "indent-5";
 }
 
 /* ---- file-tree assembly --------------------------------------------------- */
@@ -291,8 +306,28 @@ function buildTree(files: ChangedFile[]): TreeRow[] {
   const rows: TreeRow[] = [];
   function walk(n: Node, depth: number) {
     for (const c of [...n.folders.values()].sort((a, b) => a.name.localeCompare(b.name))) {
-      rows.push({ kind: "folder", name: c.name, path: c.path, depth, additions: c.add, deletions: c.del });
-      walk(c, depth + 1);
+      // Compact single-child folder chains into ONE row (VS Code "compact
+      // folders"): projects > university-course > lectures > work  becomes a
+      // single "projects/university-course/lectures/work" row — so a file nested
+      // 8 levels deep no longer emits 8 directory rows (which made 1 file look
+      // like a dozen changes). Stop merging at a fork (>1 subfolder) or a folder
+      // that holds files of its own.
+      let node = c;
+      let label = c.name;
+      while (node.folders.size === 1 && node.files.length === 0) {
+        const only = [...node.folders.values()][0];
+        label = `${label}/${only.name}`;
+        node = only;
+      }
+      rows.push({
+        kind: "folder",
+        name: label,
+        path: node.path,
+        depth,
+        additions: node.add,
+        deletions: node.del,
+      });
+      walk(node, depth + 1);
     }
     for (const f of [...n.files].sort((a, b) => a.path.localeCompare(b.path))) {
       rows.push({ kind: "file", file: f, depth, dir: strippedDir(f).join("/") });
@@ -359,6 +394,12 @@ interface Props {
   sessions: Session[];
   bundle: SessionBundle;
   currentId: string;
+  // When embedded inside the SessionViewer "Git" tab, render ONLY the
+  // [file-tree | diff | attribution] working area — the surrounding chrome
+  // (session bar, tab strip + session picker, time ribbon) belongs to the host
+  // shell, and the session list stays in the host's sidebar. Standalone /diff
+  // (embedded=false) still renders the full page.
+  embedded?: boolean;
 }
 
 const RUNNER_LABEL: Record<string, string> = {
@@ -367,7 +408,7 @@ const RUNNER_LABEL: Record<string, string> = {
   cursor: "Cursor",
 };
 
-export default function DiffViewer({ sessions, bundle, currentId }: Props) {
+export default function DiffViewer({ sessions, bundle, currentId, embedded = false }: Props) {
   const router = useRouter();
   const s = bundle.session;
   const files = bundle.changedFiles;
@@ -561,6 +602,8 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
 
   return (
     <>
+      {!embedded && (
+        <>
       {/* metrics band */}
       <div className="sessbar">
         <div className="sessbar-id">
@@ -664,11 +707,13 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
           </label>
         </span>
       </div>
+        </>
+      )}
 
-      {/* 3-col diff working area */}
+      {/* 3-col diff working area (the only part shown when embedded in a host shell) */}
       <div
-        className="layout3 diffview"
-        style={{ gridTemplateColumns: "280px minmax(0,1fr) 340px" }}
+        className={embedded ? "diff-embed" : "layout3 diffview"}
+        style={embedded ? undefined : { gridTemplateColumns: "280px minmax(0,1fr) 340px" }}
       >
         {/* COLUMN 1 — changed-files tree */}
         <div className="sidebar">
@@ -695,8 +740,12 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
                     }}
                   >
                     <span className="twisty">{collapsed ? "▸" : "▾"}</span>
-                    <span className="ficon">{collapsed ? "▸" : "▸"}</span>
-                    <span className="fname">{row.name}</span>
+                    <span className="ficon folder" aria-hidden>
+                      <FolderIcon />
+                    </span>
+                    <span className="fname" title={row.path}>
+                      {row.name}
+                    </span>
                     <span className="counts">
                       <span className="add">+{row.additions}</span>
                       <span className="del">-{row.deletions}</span>
@@ -709,7 +758,7 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
               return (
                 <div
                   key={f.id}
-                  className={`file-row ${indentClass(row.depth)}${
+                  className={`file-row is-file ${indentClass(row.depth)}${
                     isActive ? " active" : ""
                   }`}
                   role="button"
@@ -723,10 +772,12 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
                   }}
                 >
                   <span className="twisty" />
-                  <span className="ficon" title={f.status}>
+                  <span className={`status-chip ${f.status}`} title={f.status} aria-hidden>
                     {statusGlyph(f.status)}
                   </span>
-                  <span className="fname">{basename(f.path)}</span>
+                  <span className="fname" title={f.path}>
+                    {basename(f.path)}
+                  </span>
                   <span className="counts">
                     <span className="add">+{f.additions}</span>
                     <span className="del">-{f.deletions}</span>
@@ -1203,11 +1254,13 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
 
       {/* bottom: real time ribbon — each segment's width is the wall-clock time
           until the next step, so long operations/waits are visibly wide. */}
-      <TimeRibbon
-        events={bundle.events}
-        selectedId={selectedEvent?.id}
-        title="Time spent (session)"
-      />
+      {!embedded && (
+        <TimeRibbon
+          events={bundle.events}
+          selectedId={selectedEvent?.id}
+          title="Time spent (session)"
+        />
+      )}
     </>
   );
 }

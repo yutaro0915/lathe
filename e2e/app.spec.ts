@@ -134,35 +134,40 @@ test.describe("Diff viewer (/diff)", () => {
     }
   });
 
-  test("session dropdown switches the session", async ({ page }) => {
-    await page.goto("/diff");
-    const sel = page.locator("select");
-    const cur = await sel.inputValue();
-    // pick an option that is NOT the current one (selecting the current value
-    // would not fire onChange).
-    const values = await sel.locator("option").evaluateAll((opts) =>
-      opts.map((o) => (o as HTMLOptionElement).value),
-    );
-    const target = values.find((v) => v && v !== cur);
-    if (target) {
-      await sel.selectOption(target);
-      await expect(page).toHaveURL(new RegExp(`session=${target}`));
+  test("the session list stays on the Git tab (can switch sessions)", async ({ page }) => {
+    await page.goto("/diff"); // redirects to /?session=…&tab=git
+    // the diff is embedded; the host session list is still in the sidebar
+    await expect(page.locator(".diff-embed")).toBeVisible();
+    const items = page.locator(".session-list .session-item");
+    await expect(items.first()).toBeVisible();
+    if ((await items.count()) > 1) {
+      await items.nth(1).click();
+      await expect(page).toHaveURL(/session=/);
     }
   });
 });
 
 test.describe("Cross-screen navigation & time ribbon", () => {
-  test("viewer Git tab navigates to /diff", async ({ page }) => {
+  test("Git is an in-page tab: diff shows, session list stays, no navigation", async ({
+    page,
+  }) => {
     await page.goto("/");
     await page.locator(".tabs .tab", { hasText: "Git" }).click();
-    await expect(page).toHaveURL(/\/diff/);
+    // does NOT navigate away to /diff…
+    await expect(page).not.toHaveURL(/\/diff/);
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Git/);
+    // …the diff working area is embedded in place…
+    await expect(page.locator(".diff-embed")).toBeVisible();
+    // …and the session list sidebar is still there to switch sessions.
+    await expect(page.locator(".session-list .session-item").first()).toBeVisible();
   });
 
-  test("diff non-Git tab navigates back to the viewer", async ({ page }) => {
-    await page.goto("/diff");
-    await page.locator(".tabs .tab", { hasText: "Transcript" }).click();
-    await expect(page).toHaveURL(/\/\?session=/);
+  test("from the Git tab, other tabs switch in-page (no /diff page)", async ({ page }) => {
+    await page.goto("/diff"); // redirects to /?session=…&tab=git
     await expect(page).not.toHaveURL(/\/diff/);
+    await page.locator(".tabs .tab", { hasText: "Transcript" }).click();
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
+    await expect(page.locator(".timeline .event-row").first()).toBeVisible();
   });
 
   test("?tab opens the viewer on that tab", async ({ page }) => {
@@ -170,11 +175,8 @@ test.describe("Cross-screen navigation & time ribbon", () => {
     await expect(page.locator(".tabs .tab.active")).toHaveText(/Subagents/);
   });
 
-  test("time ribbon renders on both screens with segments", async ({ page }) => {
+  test("time ribbon renders with segments on the session viewer", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator(".ribbon-track")).toBeVisible();
-    expect(await page.locator(".ribbon-seg").count()).toBeGreaterThan(0);
-    await page.goto("/diff");
     await expect(page.locator(".ribbon-track")).toBeVisible();
     expect(await page.locator(".ribbon-seg").count()).toBeGreaterThan(0);
   });
@@ -241,5 +243,89 @@ test.describe("Sub-agent expansion", () => {
       // a child step should be a real tool/message of the sub-agent
       await expect(page.locator(".event-row.child-row").first()).toBeVisible();
     }
+  });
+});
+
+test.describe("Sub-agent runs (Subagents tab)", () => {
+  // session known to spawn 3 distinct general-purpose runs
+  const SID = "da2ac032-a905-4267-8e5f-851456926a79";
+
+  test("overview lists one card per distinct run, not one flat list per name", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    // a tab bar with Overview + one tab per run
+    await expect(page.locator(".sa-tab").first()).toContainText(/Overview/);
+    const runTabs = page.locator(".sa-tab").filter({ hasText: "general-purpose" });
+    expect(await runTabs.count()).toBeGreaterThan(1); // distinct runs, not merged
+    // overview shows a card per run with a step count
+    const cards = page.locator(".sa-card");
+    expect(await cards.count()).toBe(await runTabs.count());
+    await expect(cards.first().locator(".sa-card-meta")).toContainText(/steps/);
+  });
+
+  test("clicking a run opens its detail tab with the internal execution", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    await page.locator(".sa-card").first().click();
+    // detail header + per-run execution rows appear
+    await expect(page.locator(".sa-detail-head")).toContainText(/Agent 1 of/);
+    await expect
+      .poll(async () => page.locator(".sa-detail .event-row.child-row").count())
+      .toBeGreaterThan(0);
+    // selecting an internal step drives the right detail panel
+    await page.locator(".sa-detail .event-row.child-row").first().click();
+    await expect(page.locator(".sa-detail .event-row.child-row.selected")).toHaveCount(1);
+    await expect(page.locator(".detail .detail-head .dtitle")).toBeVisible();
+  });
+
+  test("Prev/Next steps between runs", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    await page.locator(".sa-card").first().click();
+    const nextBtn = page.locator(".sa-detail-head button", { hasText: "Next" });
+    await nextBtn.click();
+    await expect(page.locator(".sa-detail-head")).toContainText(/Agent 2 of/);
+  });
+
+  test("a launcher row in the transcript jumps to its run detail", async ({ page }) => {
+    await page.goto(`/?session=${SID}`);
+    const jump = page.locator(".sa-jump").first();
+    if ((await jump.count()) > 0) {
+      await jump.click();
+      await expect(page.locator(".tabs .tab.active")).toHaveText(/Subagents/);
+      await expect(page.locator(".sa-detail-head")).toContainText(/Agent 1 of/);
+    }
+  });
+});
+
+test.describe("Changed-files tree (compact folders)", () => {
+  // session with files nested 8+ levels deep down single-child chains
+  const SID = "78a6e038-3829-43bb-98c8-404e8afa8ccc";
+
+  test("single-child folder chains collapse; rows ≈ files, not a row per dir level", async ({
+    page,
+  }) => {
+    await page.goto(`/diff?session=${SID}`);
+    await expect(page.locator(".filetree-head .sub")).toHaveText(/5 files changed/);
+    // exactly the 5 real files appear as file rows...
+    await expect(page.locator(".file-row.is-file")).toHaveCount(5);
+    // ...and the whole tree stays compact (no per-directory-level explosion)
+    expect(await page.locator(".file-row").count()).toBeLessThanOrEqual(10);
+    // a deep chain is merged into ONE folder row whose name carries the "/"-joined path
+    const merged = page
+      .locator(".file-row.is-folder .fname")
+      .filter({ hasText: "/" });
+    expect(await merged.count()).toBeGreaterThan(0);
+  });
+
+  test("files and folders are visually distinct (status chip vs folder icon)", async ({
+    page,
+  }) => {
+    await page.goto(`/diff?session=${SID}`);
+    // files carry a colored A/M/D status chip; folders carry a folder icon, no chip
+    await expect(page.locator(".file-row.is-file .status-chip").first()).toBeVisible();
+    expect(await page.locator(".file-row.is-folder .ficon.folder svg").count()).toBeGreaterThan(0);
+    expect(await page.locator(".file-row.is-folder .status-chip").count()).toBe(0);
   });
 });

@@ -1,19 +1,21 @@
-// app/diff/page.tsx — Screen B route: thin SERVER wrapper.
+// app/diff/page.tsx — legacy Git-diff route, now a thin REDIRECT.
 //
-// Loads the session list + the requested session's full bundle (read-only,
-// server-side) and hands them to the interactive client component. Session
-// switching is driven by ?session=<id> on this route (DiffViewer router.push).
+// The diff used to be its own page with its own (file-tree) sidebar, which
+// replaced the session list and stranded you with no way to switch sessions.
+// The diff is now an in-page "Git" tab inside the session viewer (the session
+// list stays put), so this route just forwards to that tab. Any old /diff or
+// /diff?session=<id> link keeps working.
 // node:sqlite logs an ExperimentalWarning at runtime — harmless.
 
 export const dynamic = "force-dynamic";
 
+import { redirect } from "next/navigation";
 import {
   getSessionBundle,
   getPrimarySession,
   listSessions,
   getChangedFiles,
 } from "@/lib/db";
-import DiffViewer from "@/components/DiffViewer";
 
 export default async function Page({
   searchParams,
@@ -23,8 +25,8 @@ export default async function Page({
   const sp = await searchParams;
   const sessions = listSessions();
   // Honor an explicit ?session. Otherwise default to the most recent session
-  // that actually has file changes (the diff screen is about changes, so an
-  // empty default would look broken); fall back to the primary session.
+  // that actually has file changes (the diff tab is about changes, so an empty
+  // default would look broken); fall back to the primary session.
   const req =
     typeof sp.session === "string" && getSessionBundle(sp.session)
       ? sp.session
@@ -33,6 +35,5 @@ export default async function Page({
     req ??
     sessions.find((s) => getChangedFiles(s.id).length > 0)?.id ??
     getPrimarySession().id;
-  const bundle = getSessionBundle(id)!;
-  return <DiffViewer sessions={sessions} bundle={bundle} currentId={id} />;
+  redirect(`/?session=${encodeURIComponent(id)}&tab=git`);
 }
