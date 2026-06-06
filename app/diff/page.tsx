@@ -49,6 +49,23 @@ function toolForMethod(method: AttributionMethod): string {
   }
 }
 
+// Prefer the REAL tool recorded on the event (meta.tool, e.g. "Write"/"Edit");
+// fall back to a label derived from the attribution method.
+function toolName(
+  ev: { meta: string | null } | undefined,
+  method: AttributionMethod,
+): string {
+  if (ev?.meta) {
+    try {
+      const m = JSON.parse(ev.meta);
+      if (m && typeof m.tool === "string") return m.tool;
+    } catch {
+      /* ignore */
+    }
+  }
+  return toolForMethod(method);
+}
+
 // Confidence -> a percent label for the linked-event row (display only).
 function confidencePct(c: Confidence): string {
   switch (c) {
@@ -559,7 +576,7 @@ export default function DiffPage() {
                 <dt>Time</dt>
                 <dd className="v mono">{selectedEvent.ts}</dd>
                 <dt>Tool</dt>
-                <dd className="v mono">{toolForMethod(selected.method)}</dd>
+                <dd className="v mono">{toolName(selectedEvent, selected.method)}</dd>
                 <dt>Path</dt>
                 <dd className="v mono">
                   {selectedEvent.filePath ?? active?.path ?? "—"}
