@@ -1,111 +1,110 @@
-# Lathe prototype — Phase 1（トランスクリプト / Git 差分ビューア）
+# Lathe — Phase 1 prototype（引き継ぎドキュメント）
 
-ブランチ `prototype/harness-loop-ui` 専用。`main` は計画ドキュメントのみで変更しない。
+ブランチ **`prototype/harness-loop-ui`** 専用。`main`（= `56b6846` 計画ドキュメント）は変更しない。
+このファイルだけ読めば次の担当者が再開できる状態を目標にする。
 
-提案書の **白い実装イメージ（`phase-1-*.png`）** を正本に、Phase 1 の 2 画面を
-Next.js + SQLite で動く read-only ビューアとして実装したもの。
-コーディングエージェントの実行過程を「会話ログ」ではなく、会話・ツール実行・
-サブエージェント・スキル・ファイル変更が結びついた実行記録として読める状態にする。
+## これは何か
 
-> 仕様の正本: `projects/fukuoka-mitou-2026/work/phase-implementation-image-addendum.md`
-> 画像: `projects/fukuoka-mitou-2026/submit/images/phase-1-session-viewer.png` /
+ハーネスエンジニアリング基盤 Lathe の **機能1（観測 = トランスクリプト / Git 差分ビューア）** の動くプロトタイプ。
+**このマシンの実際の Claude Code セッション**（`~/.claude/projects/`）を取り込み、
+Next.js + SQLite の Web UI で観測する。提案書の白い実装イメージ `phase-1-*.png` を正本にしている。
+
+> 正本・参照: `../fukuoka-mitou-2026/work/phase-implementation-image-addendum.md`、
+> 画像 `../fukuoka-mitou-2026/submit/images/phase-1-session-viewer.png` /
 > `phase-1-git-diff-attribution.png`
 
-## 起動
+## 起動 / 検証（Node 24 前提）
 
 ```
 pnpm install
-pnpm ingest   # 実際の Claude Code トランスクリプト（~/.claude/projects/...）を取り込む
-pnpm dev      # http://localhost:3210
+pnpm ingest        # ~/.claude/projects/-Users-cherie-LLMWiki/*.jsonl を取り込み data/lathe.db を生成
+pnpm dev           # http://localhost:3210
+
+pnpm build         # 本番ビルド（型チェック込み）
+pnpm coverage      # 正本(JSONL) ⇄ DB の機械照合（GREEN を確認）
+pnpm e2e           # Playwright E2E（22 ケース）
 ```
 
-`data/lathe.db` は **実トランスクリプト**から生成される（mock ではない）。
-取り込み元・件数は env で調整可能:
-
-```
-LATHE_TRANSCRIPTS_DIR=<dir>   # 既定: ~/.claude/projects/-Users-cherie-LLMWiki
-LATHE_MAX_SESSIONS=12         # 取り込む直近セッション数
-LATHE_MAX_EVENTS=500          # 1 セッションあたりのイベント上限
-```
-
-`pnpm seed` は実データが無い環境向けの合成デモデータ（オフライン用フォールバック）。
-`pnpm build` で本番ビルド、`pnpm start -p <port>` で本番起動。
-取り込み後に dev サーバを起動中なら、新 DB を読ませるため**再起動**する
-（`node:sqlite` 接続が起動時の DB ファイルを掴むため）。
+注意:
+- **DB は再生成物**（`data/lathe.db` は gitignore）。clone 後は必ず `pnpm ingest`。
+- **dev 稼働中に `pnpm build` / `pnpm e2e` を走らせない**（同じ `.next` を壊す）。E2E/ビルド前に dev を止める。
+- `pnpm ingest` 後に dev が起動済みなら**再起動**する（`node:sqlite` 接続が起動時の DB を掴むため）。
+- env: `LATHE_TRANSCRIPTS_DIR`（既定 `~/.claude/projects/-Users-cherie-LLMWiki`）。
 
 ## 画面（route）
 
 | route | 画面 | 内容 |
 |-------|------|------|
-| `/` | セッションビューア | 左: セッション一覧 + Event type フィルタ。中央: 実行タイムライン（会話/ツール/編集/Bash/サブエージェント/スキル/コミット/テストを色分け）。右: 選択イベント詳細 + Linked files + Run JSON。下: タイムライン密度ミニマップ。 |
-| `/diff` | Git 差分・帰属 | 左: 変更ファイルツリー（+/- 数）。中央: 差分（追加緑/削除赤）。右: その差分を生んだイベント（Linked Events）と帰属の信頼度。下: セッション変更ミニマップ。 |
+| `/` | セッションビューア | 上部 sessbar（セッション名 + model/branch/commit/日付 + duration/turns/tools/edits/tokens）。左: セッション一覧 + 検索 + Event type フィルタ + Model / Errors 絞り込み + 並び替え。中央: 実行タイムライン（既定で最初の発話を選択）。右: 選択イベント詳細。下: 時間リボン。 |
+| `/diff` | Git 差分・帰属 | 左: 変更ファイルツリー。中央: 差分（追加緑/削除赤、Unified/Split）。右: Linked Events + 帰属信頼度（high/medium/unattributed）。上部に Session ドロップダウン。 |
 
-帰属の信頼度: **high（Edit/Write 由来・緑）/ medium（シェル経由の推定・橙）/ unattributed（未コミット変更等・灰）**。
-未帰属を無理にエージェントへ紐付けない、という Phase 1 の方針をそのまま UI に出している。
+タブ（Transcript / Tools / Git / Skills / Subagents / Raw JSON）は**画面遷移**: viewer の Git → `/diff`、diff の他タブ → `/?session=&tab=`。
 
-## 操作（すべて実際に動く）
+## できること（すべて動作・E2E 済み）
 
-モックではなく、コントロールはすべてハンドラ付きで動作する（client component + React state、
-セッション切替のみ `?session=<id>` のナビゲーション）。
+- セッション切替（一覧クリック / `?session=`、両画面共有）、検索、Model / Errors 絞り込み、並び替え
+- タブ切替（中身が変わる / 画面遷移）、`?tab=` で初期タブ復元
+- タイムラインのイベント選択 → 右に**所要時間 / Exit / Tokens / Tool calls** のチップ + **出力（stdout/stderr）/ Result / Thinking 全文**（折返し・copy）
+- **サブエージェント展開**: ランチャー行の「N steps」を展開すると内部のツール・スキルがインデント表示
+- **thinking 閲覧**: 本文のある extended-thinking を `thinking` イベントとして表示（紫 ✲、フィルタチップ、詳細に全文）
+- Event type フィルタ（thinking 含む）、Pin / Add Note（localStorage 永続）、Copy（クリップボード）
+- **時間リボン**（下部）: 各セグメント幅 = 次ステップまでの実経過時間。全幅・ズーム・ホバーで所要時間・実時刻軸
+- 差分: ファイル選択 / フォルダ折りたたみ / Unified⇄Split / Hunk 前後 / Linked Event 選択 / Raw JSON
 
-- セッション一覧クリックで切替（両画面で共有）、検索、Model / Outcome / Has errors 絞り込み、並び替え（Recent / Oldest / Most tokens）
-- タブ切替（Transcript / Tools / Git / Skills / Subagents / Raw JSON）で中央内容が変わる
-- タイムラインのイベントクリックで詳細パネル更新、Event type バッジで絞り込み、タイムライン検索
-- Pin / Add Note は localStorage に永続化、Copy は実クリップボード
-- ミニマップのズーム（−/＋/fit）と目盛りクリックでイベント選択
-- 差分画面: ファイル選択、フォルダ折りたたみ、Unified / Split 切替、Hunk 前後ナビ、Linked Event 選択、Raw JSON
-- 値はすべて実データ（token in/out・branch・commit 数・帰属信頼度）。固定値・擬似乱数・捏造％は不使用
+## データモデル / 取り込み
 
-## 構成
+`db/schema.sql`（SQLite, `node:sqlite`）:
+`sessions / transcript_events(parent_id で sub-agent 子ステップ) / changed_files / diff_hunks /
+attributions / event_files / annotations`。型は `lib/types.ts`、read 層は `lib/db.ts`（`getSessionBundle`）。
+
+`scripts/ingest.ts`（`pnpm ingest`）が実 JSONL を取り込む:
+- 1 transcript = 1 session（最近の全セッション、上限は実質撤廃）。
+- イベント: user/assistant テキスト・**thinking（本文ありのみ）**・tool_use（Bash/Edit/Write/Read/Skill/MCP/…）。
+- **所要時間** = tool_use → tool_result のタイムスタンプ差。サブエージェントは結果の `<usage>` から duration / tokens / tool_uses を抽出。
+- **差分と帰属**は実ツール呼び出しから復元（`Edit` の old→new / `Write` の content を hunk 化し、その tool_use イベントに high 帰属）。
+- **サブエージェント**: `<session>/subagents/agent-<id>.jsonl` を `meta.json.toolUseId` で親に紐付け、子イベント（`parent_id`）として取り込む。
+- `error_count` = 非ゼロ終了のツール呼び出し + error イベント数（**セッションの成否判定ではない**。バッジは `N errors`、0 なら非表示）。
+- Cost は transcript から導けないため空。
+
+`scripts/coverage_check.ts`（`pnpm coverage`）= 正本(JSONL) ⇄ DB の機械照合。MISSING/DROPPED が無ければ GREEN。
+直近3分以内に更新中の transcript は「live」として除外し明示（並行書き込み対策）。
+
+## ファイル構成
 
 ```
-db/schema.sql     # Phase 1 entities（sessions / transcript_events /
-                  #   changed_files / diff_hunks / attributions /
-                  #   event_files / annotations）
-scripts/ingest.ts # 実 Claude Code トランスクリプト（JSONL）を読んで DB を生成。
-                  #   Edit の old_string→new_string / Write の content から
-                  #   実際の diff hunk を復元し、それを生成したツールイベントに帰属する。
-db/seed.ts        # 合成デモデータ（オフライン用フォールバック）
-lib/types.ts      # ドメイン型（schema と 1:1）
-lib/db.ts         # node:sqlite 接続（singleton）+ 型付き read ヘルパー
-app/globals.css   # 白（light）デザインシステム — IDE / devtools 風
-app/layout.tsx    # 共通シェル + 上部ナビ
-app/page.tsx      # セッションビューア（Server Component, DB 駆動）
-app/diff/page.tsx # Git 差分・帰属（同上）
+app/
+  layout.tsx            # 共通シェル + 上部ナビ
+  page.tsx              # / : サーバラッパー → components/SessionViewer
+  diff/page.tsx         # /diff : サーバラッパー → components/DiffViewer
+  globals.css           # 白(light)デザインシステム
+components/
+  SessionViewer.tsx     # セッションビューア（client、全インタラクション）
+  DiffViewer.tsx        # Git 差分・帰属（client）
+  TimeRibbon.tsx        # 共有の時間リボン
+db/
+  schema.sql            # スキーマ（正本）
+  seed.ts               # 合成デモデータ（pnpm seed、オフライン用フォールバック）
+lib/
+  types.ts  db.ts       # 型 / read 層
+scripts/
+  ingest.ts             # 実トランスクリプト取り込み（pnpm ingest）
+  coverage_check.ts     # 網羅性照合（pnpm coverage）
+e2e/app.spec.ts         # Playwright E2E（22 ケース）
+playwright.config.ts
 ```
 
-ページはすべて Server Component（`export const dynamic = 'force-dynamic'`）で、
-リクエスト時に SQLite を読んで描画する。
+## 既知の制約 / 申し送り
 
-## データは実トランスクリプト（mock ではない）
+- **未 push**: コミットはローカルのみ（`prototype/harness-loop-ui`、origin/main より先行）。リモート反映はユーザー判断。
+- **thinking は大半が redacted**（Claude Code が署名のみに）。本文のある分だけ表示。
+- **`node:sqlite` を使用**（`AGENTS.md` は `better-sqlite3` 想定だが Node 24 で prebuilt 不在のため）。接続部のみで差し替え可。
+- **Cost / commit SHA など transcript に無い値は出さない**（捏造しない）。
+- 取り込み対象は **Claude Code のみ**（Codex / Cursor は別形式で未対応）。
+- スコープは Phase 1（観測）まで。Phase 2 以降（AI 分析 / ハーネス評価 / 改善ワークベンチ / エージェント実行 / 統合）は未着手。
 
-`pnpm ingest` が `~/.claude/projects/.../*.jsonl`（このマシンの実 Claude Code セッション）を読み、
-セッション・イベント・変更ファイル・差分・帰属を生成する。
+## 次の一歩（再開時の候補）
 
-- **差分と帰属は実ツール呼び出しから復元**: `Edit` の `old_string`→`new_string`、`Write` の
-  `content` を hunk 化し、その hunk を生成した実イベント（tool_use）に帰属させる。
-  「Direct edit（high）」はその場でファイルを書いた Edit/Write イベント由来。
-- **イベント種別・出力・exit code・トークン**は JSONL の `tool_use` / `toolUseResult` /
-  `usage` から取得。Cost は transcript から導けないため捏造せず空（`—`）。
-- **取り込み量の上限（silent cap を避けるため明記）**: 直近 `LATHE_MAX_SESSIONS`（既定 12）
-  セッション、各 `LATHE_MAX_EVENTS`（既定 500）イベント、変更ファイル 60 / hunk 60 行で打ち切り、
-  打ち切り時はタイムライン末尾に明示する。トークンは cache_read（同一プレフィクスの再読込）を
-  除外し input+output+cache_creation を集計。
-
-## スコープ
-
-- 範囲内: Phase 1 の 2 画面、DB スキーマ、**実トランスクリプト取り込み**、差分→イベント帰属の信頼度表示。
-- 範囲外: Phase 2 以降（AI 分析 / ハーネス評価 / 改善ワークベンチ / エージェント実行 / 統合運用）。
-  README.md の 6 機能を順に積む際の Phase 1 土台として使う。
-
-## DB について（better-sqlite3 → node:sqlite）
-
-`AGENTS.md` は `better-sqlite3` 想定だが、検証環境の Node 24 で prebuilt が無く
-native build がスキップされたため、Node 24 同梱の `node:sqlite`（`DatabaseSync`）を使う。
-同期 API がほぼ同型で、`lib/db.ts` の接続部だけで差し替え可能。
-実行時の `ExperimentalWarning: SQLite` は無害。
-
-## 旧版について
-
-初回は誤って提案書のネイビーの概念図（`lathe-scene-render` の 5 シーン）で作ってしまい破棄した。
-正しい正本は白い `phase-1-*.png`。本ブランチは白版で作り直したもの。
+- Phase 2: AI 分析（finding 抽出、MCP ツール経由の根拠リンク）。`README.md` の機能2に対応。
+- 実トランスクリプトの増分取り込み / 監視。
+- Codex・Cursor トランスクリプト形式への対応。
+- リモート push + OSS 化検討（提案書提出後）。

@@ -2,13 +2,14 @@
   "name": "lathe-prototype",
   "version": "0.1.0",
   "private": true,
-  "description": "Lathe — harness engineering platform. Prototype of the harness-improvement loop UI (5 scenes).",
+  "description": "Lathe — harness engineering platform. Phase 1 prototype: transcript / Git-diff viewer over real Claude Code sessions.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "ingest": "tsx scripts/ingest.ts",
     "coverage": "tsx scripts/coverage_check.ts",
+    "e2e": "playwright test",
     "seed": "tsx db/seed.ts"
   },
   "dependencies": {
