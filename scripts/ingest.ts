@@ -23,10 +23,44 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { costForUsage } from '../lib/cost';
 
+// Default to the user's most-recently-active Claude project (no hard-coded
+// username/path, so the tool works for anyone). Claude Code stores one dir per
+// project at ~/.claude/projects/<cwd-with-slashes-as-dashes>. Override with
+// argv[2] or LATHE_TRANSCRIPTS_DIR.
+function pickDefaultTranscriptsDir(): string {
+  const base = path.join(os.homedir(), '.claude', 'projects');
+  try {
+    const dirs = fs
+      .readdirSync(base, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => {
+        const full = path.join(base, d.name);
+        let mtime = 0;
+        try {
+          for (const f of fs.readdirSync(full)) {
+            if (f.endsWith('.jsonl')) { const m = fs.statSync(path.join(full, f)).mtimeMs; if (m > mtime) mtime = m; }
+          }
+        } catch { /* ignore */ }
+        return { full, mtime };
+      })
+      .filter((x) => x.mtime > 0)
+      .sort((a, b) => b.mtime - a.mtime);
+    if (dirs.length) return dirs[0].full;
+  } catch { /* ignore */ }
+  return base;
+}
+
+// The repo/project name = last segment of the Claude project dir name
+// (e.g. "-Users-cherie-LLMWiki" -> "LLMWiki"). Used to scope Codex by cwd.
+function repoBasenameOf(transcriptsDir: string): string {
+  const segs = path.basename(transcriptsDir).split('-').filter(Boolean);
+  return segs.length ? segs[segs.length - 1] : 'project';
+}
+
 const TRANSCRIPTS_DIR =
   process.argv[2] ||
   process.env.LATHE_TRANSCRIPTS_DIR ||
-  path.join(os.homedir(), '.claude', 'projects', '-Users-cherie-LLMWiki');
+  pickDefaultTranscriptsDir();
 // Ingest ALL sessions and ALL events by default (no silent omissions). The caps
 // remain as high safety bounds; if ever exceeded, truncation is made VISIBLE in
 // the UI (a trailing marker event / "+N 行" on hunks). Override via env.
@@ -1006,7 +1040,7 @@ function main() {
   // ----- Codex sessions (same repo, by cwd). runner='codex', cost=null. -----
   let codexCount = 0;
   if (process.env.LATHE_NO_CODEX !== '1') {
-    const codexProject = process.env.LATHE_CODEX_PROJECT || 'LLMWiki';
+    const codexProject = process.env.LATHE_CODEX_PROJECT || repoBasenameOf(TRANSCRIPTS_DIR);
     const titles = loadCodexTitles();
     const codexFiles = listCodexRollouts()
       .filter((f) => { const c = codexHeadCwd(f); return c != null && path.basename(c) === codexProject; })

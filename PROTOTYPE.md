@@ -29,7 +29,7 @@ pnpm e2e           # Playwright E2E（22 ケース）
 - **DB は再生成物**（`data/lathe.db` は gitignore）。clone 後は必ず `pnpm ingest`。
 - **dev 稼働中に `pnpm build` / `pnpm e2e` を走らせない**（同じ `.next` を壊す）。E2E/ビルド前に dev を止める。
 - `pnpm ingest` 後に dev が起動済みなら**再起動**する（`node:sqlite` 接続が起動時の DB を掴むため）。
-- env: `LATHE_TRANSCRIPTS_DIR`（既定 `~/.claude/projects/-Users-cherie-LLMWiki`）。
+- env: `LATHE_TRANSCRIPTS_DIR`（**既定は最も最近活動した Claude プロジェクト dir を自動選択**＝ハードコードなし、誰の環境でも動く）/ `LATHE_CODEX_PROJECT`（Codex を cwd basename で絞り込み、既定は上記 dir から導出）/ `LATHE_NO_CODEX=1`（Codex 無効化）。
 
 ## 画面（route）
 
@@ -115,7 +115,7 @@ playwright.config.ts
 - **thinking は大半が redacted**（Claude Code が署名のみに）。本文のある分だけ表示。
 - **`node:sqlite` を使用**（`AGENTS.md` は `better-sqlite3` 想定だが Node 24 で prebuilt 不在のため）。接続部のみで差し替え可。
 - **commit SHA など transcript に無い値は出さない**（捏造しない）。Cost は transcript の実トークン × 既知モデル単価から導出（[[#データモデル / 取り込み]] 参照）。未知モデルや 0 トークンは "—"。
-- 取り込み対象は **Claude Code + Codex**（Cursor は未対応）。**Codex**: `~/.codex/sessions/**/rollout-*.jsonl`（+ archived）から cwd が同 repo（既定 `LLMWiki`、env `LATHE_CODEX_PROJECT` で変更可）のセッションを `runner='codex'` で取り込み。message / `exec_command`→bash・commit・test・file_read（cat/sed から推論）/ `apply_patch`→file_edit・write / `update_plan`→todo / `spawn_agent`→subagent / token は最後の `token_count` の累計から。⚠️ **Codex の cost は null**（`db/pricing.json` は Claude のみ。GPT/o 価格未登録 → "—"）、**reasoning は暗号化**で thinking 本文は取得不可、file_read は read ツールが無く推論。`LATHE_NO_CODEX=1` で無効化。
+- 取り込み対象は **Claude Code + Codex**（Cursor は未対応）。**Codex**: `~/.codex/sessions/**/rollout-*.jsonl`（+ archived）から cwd が同 repo のセッションを `runner='codex'` で取り込み。message / `exec_command`→bash・commit・test・file_read / `apply_patch`→file_edit・write / `update_plan`→todo / `spawn_agent`→subagent。**cost は実 GPT 価格で算出**（`db/pricing.json` の `openai` tier、gpt-5.5/5.4 等。`codex-auto-review` 等の不明モデルのみ "—"）。**thinking は reasoning summary を抽出**（raw 推論は暗号化なのでスキップ）。**file_read は read ツールが無いため `cat`/`sed` 等のシェルから検出 + ファイルパスを抽出**（cwd で絶対化、Claude の read と同格・追跡可能）。token は最後の `token_count` の累計（cached input は cache-read 単価で課金）。`LATHE_NO_CODEX=1` で無効化。
 - スコープは Phase 1（観測）まで。Phase 2 以降（AI 分析 / ハーネス評価 / 改善ワークベンチ / エージェント実行 / 統合）は未着手。
 
 ## 次の一歩（再開時の候補）

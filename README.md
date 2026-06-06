@@ -1,55 +1,89 @@
 # Lathe
 
-ハーネスエンジニアリングのプラットフォーム。
+**Observe, analyze and cost your coding-agent sessions.** A local viewer over your
+*real* Claude Code and Codex runs — transcript timeline, Git-diff attribution,
+per-session & per-project stats, token **cost**, sub-agent and **harness**
+(memory / hook) visibility.
 
-コーディング agent（Claude Code / Codex / Cursor / Devin 等）を自前で作るのではなく、
-既存の agent を**観測・分析・改善・評価**する側のツール。
+> This is **Phase 1 (observation)** of a larger harness-engineering platform — see [Roadmap](#roadmap).
 
-## 機能構成
+## Requirements
 
-段階的に構築する。v7 で全部を一度に作って混乱した反省から、1 つずつ順に実装する。
+- **Node ≥ 24** (uses the built-in `node:sqlite`)
+- Your own transcripts on this machine: Claude Code (`~/.claude/projects/**`)
+  and/or Codex (`~/.codex/sessions/**`)
 
-### 1. トランスクリプト表示・分析（Web UI + DB）
+## Quickstart
 
-任意の LLM 対話ログを取り込み、Web UI で表示・分析する。
-スタック: Next.js + SQLite（better-sqlite3）。
+```bash
+pnpm install
+pnpm ingest     # read your transcripts → data/lathe.db (gitignored; regenerate anytime)
+pnpm dev        # http://localhost:3000
+```
 
-### 2. ハーネス改善
+By default `ingest` picks your **most-recently-active Claude project** and the
+Codex sessions whose `cwd` matches it. Override via env:
 
-トランスクリプト分析をもとに、ユーザーと agent が協力してハーネスの改善案を作成し、
-既存の agent（プラグイン提供済み）を通じて適用する。
+- `LATHE_TRANSCRIPTS_DIR=~/.claude/projects/<dir>` — a specific Claude project
+- `LATHE_CODEX_PROJECT=<repo-basename>` — which Codex sessions to include (by cwd)
+- `LATHE_NO_CODEX=1` — skip Codex entirely
 
-対象となるハーネス要素:
-- 指示ファイル（CLAUDE.md / .cursorrules / AGENTS.md / devin.md）
-- Hooks（pre/post の自動処理）
-- Skills（再利用可能な能力パック）
-- MCP サーバー（外部ツール接続）
-- 設定（settings.json / モデル選択 / permission）
-- プロンプトパターン（agent への指示の書き方）
+> `data/lathe.db` is a regenerable artifact (gitignored). Re-run `pnpm ingest`
+> after new sessions; restart `pnpm dev` so it picks up the fresh DB.
 
-ドメイン固有のハーネス改善（特定技術領域やプロダクトに特化した改善提案）も扱う。
+## What you get (Phase 1)
 
-ハーネスのレベル:
-- **レベル 1: 設定層** — 既存 provider のパラメータ（ファイル書き換え）
-- **レベル 2: カスタムハーネス** — Agents SDK / OSS で自前の agent ループを組む
-- **レベル 3: ワークフロー** — multi-step 実行制御、分岐、並列、状態管理
+- **Transcript** — the full run timeline (messages, tools, file edits, thinking),
+  a time ribbon (hover = exact time/step, click = jump), per-event detail.
+- **Sub-agents** — each distinct run as its own tab: model, cost, tool calls, and
+  the full internal execution; an overview spine of "who did what".
+- **Git diff & attribution** — reconstructed changed-files tree (compact folders)
+  with each hunk linked back to the event that produced it.
+- **Stats** (`/stats`) — per-**project** (directory) and per-**file** rollups
+  (sessions / duration / tokens / cost / ± / errors, drill into the sessions),
+  plus a usage panel: models, sub-agent types, skills, **memory loads**, **hooks**.
+- **Cost** — derived from real token usage × bundled model pricing
+  (Claude + GPT/Codex, cache-aware; `db/pricing.json`, sourced from LiteLLM, MIT).
+- **Harness signals** — which nested `CLAUDE.md` / `AGENTS.md` were loaded and
+  which hooks fired (PreToolUse / PostToolUse / Stop).
 
-データモデルはレベル 3 を意識し、実装はレベル 1 から始める。
+Both **Claude Code** and **Codex** runs land in the same viewer/stats, tagged by runner.
 
-### 3. 対照実験基盤
+## Honest limitations
 
-Docker / git で隔離された実験環境を構築する。再現可能な実験の土台。
+- The **root** `CLAUDE.md` / `AGENTS.md` isn't persisted to the Claude JSONL, so
+  only **nested** memory loads are observable.
+- **Codex** raw reasoning is encrypted — only the visible reasoning *summary* is
+  shown; Codex has no read tool, so file reads are detected from shell `cat`/`sed`.
+- **Cursor** isn't supported yet (different format).
 
-### 4. Evals / LLM-as-judge
+## Publishing
 
-3 の基盤の上で eval を設計し、rubric を定義し、LLM-as-judge で評価する。
+This package is `private: true` while it stabilizes. To publish: pick an
+available npm name, remove `"private"`, optionally add a `bin`/CLI for `npx`,
+then `npm publish`.
 
-### 5. Agent 接続
+## License
 
-既存の agent サービスとの統合。agent は作らない。
-git / chat 経由で agent の実装を観測し、プラグインで各 provider を操作する。
+MIT © Yutaro Ono — see [LICENSE](./LICENSE). Bundled pricing in `db/pricing.json`
+mirrors [BerriAI/litellm](https://github.com/BerriAI/litellm) (MIT).
 
-### 6. 統合
+---
 
-1〜5 を繋ぎ、ハーネス改善ループを一本通す:
-観測(1) → 分析(1) → 改善案作成(2) → 実験環境構築(3) → 評価(4) → agent 適用(5)
+## Roadmap
+
+A platform to **observe, analyze, improve and evaluate** existing coding agents
+(Claude Code / Codex / Cursor / Devin …) rather than build one. Built in stages:
+
+1. **Transcript display & analysis** (Web UI + DB) — *this release*.
+2. **Harness improvement** — propose & apply changes to instruction files
+   (CLAUDE.md / AGENTS.md / .cursorrules), hooks, skills, MCP servers, settings,
+   prompt patterns. Levels: 1 config layer → 2 custom harness (Agents SDK / OSS)
+   → 3 workflow (multi-step control, branching, parallel, state). Data model
+   anticipates level 3; implementation starts at level 1.
+3. **Controlled-experiment substrate** — Docker / git-isolated, reproducible runs.
+4. **Evals / LLM-as-judge** — rubric-defined evaluation on top of (3).
+5. **Agent connection** — integrate existing agent services (no agent built here);
+   observe via git / chat, operate each provider via plugins.
+6. **Integration** — one loop: observe(1) → analyze(1) → improve(2) →
+   experiment(3) → evaluate(4) → apply(5).

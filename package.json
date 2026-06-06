@@ -1,8 +1,46 @@
 {
-  "name": "lathe-prototype",
+  "name": "lathe",
   "version": "0.1.0",
   "private": true,
-  "description": "Lathe — harness engineering platform. Phase 1 prototype: transcript / Git-diff viewer over real Claude Code sessions.",
+  "description": "Observe, analyze and cost your coding-agent sessions. A local transcript / Git-diff viewer over real Claude Code and Codex runs — per-session & per-project stats, token cost, sub-agent + harness (memory / hook) visibility.",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "coding-agent",
+    "observability",
+    "transcript-viewer",
+    "agent-analytics",
+    "token-cost",
+    "harness",
+    "llm",
+    "developer-tools"
+  ],
+  "license": "MIT",
+  "author": "Yutaro Ono",
+  "homepage": "https://github.com/yutaro0915/lathe#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yutaro0915/lathe.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yutaro0915/lathe/issues"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "app",
+    "components",
+    "lib",
+    "db/schema.sql",
+    "db/pricing.json",
+    "db/seed.ts",
+    "scripts",
+    "next.config.mjs",
+    "tsconfig.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",

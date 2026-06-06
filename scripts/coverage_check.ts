@@ -12,10 +12,32 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-const DIR =
-  process.argv[2] ||
-  process.env.LATHE_TRANSCRIPTS_DIR ||
-  path.join(os.homedir(), '.claude', 'projects', '-Users-cherie-LLMWiki');
+// Default to the most-recently-active Claude project (matches ingest's default;
+// no hard-coded username). Override with argv[2] or LATHE_TRANSCRIPTS_DIR.
+function pickDefaultDir(): string {
+  const base = path.join(os.homedir(), '.claude', 'projects');
+  try {
+    const dirs = fs
+      .readdirSync(base, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => {
+        const full = path.join(base, d.name);
+        let mtime = 0;
+        try {
+          for (const f of fs.readdirSync(full)) {
+            if (f.endsWith('.jsonl')) { const m = fs.statSync(path.join(full, f)).mtimeMs; if (m > mtime) mtime = m; }
+          }
+        } catch { /* ignore */ }
+        return { full, mtime };
+      })
+      .filter((x) => x.mtime > 0)
+      .sort((a, b) => b.mtime - a.mtime);
+    if (dirs.length) return dirs[0].full;
+  } catch { /* ignore */ }
+  return base;
+}
+
+const DIR = process.argv[2] || process.env.LATHE_TRANSCRIPTS_DIR || pickDefaultDir();
 const DB_PATH = path.join(process.cwd(), 'data', 'lathe.db');
 
 // Replicate the ingester's event-counting rules EXACTLY so the comparison is
