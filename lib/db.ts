@@ -613,6 +613,26 @@ export function getStats(): StatsBundle {
     .all() as unknown as { subagent: string; n: number }[];
   const subagentTypes = saRows.map((r) => ({ name: r.subagent, count: r.n }));
 
+  // harness: which nested CLAUDE.md/AGENTS.md were loaded, and which hooks fired
+  const memRows = db
+    .prepare(
+      "SELECT file_path, COUNT(*) n FROM transcript_events WHERE type='memory' AND file_path IS NOT NULL GROUP BY file_path ORDER BY n DESC LIMIT 40"
+    )
+    .all() as unknown as { file_path: string; n: number }[];
+  const memory = memRows.map((r) => {
+    const segs = r.file_path.split('/').filter(Boolean);
+    return { name: segs.length <= 2 ? r.file_path : segs.slice(-2).join('/'), count: r.n };
+  });
+  const hookRows = db
+    .prepare(
+      "SELECT json_extract(meta,'$.hookEvent') ev, json_extract(meta,'$.hookName') nm, COUNT(*) n FROM transcript_events WHERE type='hook' GROUP BY ev, nm ORDER BY n DESC LIMIT 40"
+    )
+    .all() as unknown as { ev: string | null; nm: string | null; n: number }[];
+  const hooks = hookRows.map((r) => ({
+    name: r.ev ? (r.nm && r.nm !== r.ev ? `${r.ev} (${r.nm})` : r.ev) : r.nm ?? 'hook',
+    count: r.n,
+  }));
+
   const modelRows = db
     .prepare(
       'SELECT COALESCE(model, \'(unknown)\') model, COUNT(*) sessions, SUM(token_usage) tokens, SUM(COALESCE(cost_usd,0)) cost FROM sessions GROUP BY model ORDER BY sessions DESC'
@@ -635,5 +655,5 @@ export function getStats(): StatsBundle {
     { sessions: 0, durationMs: 0, tokens: 0, cost: 0 }
   );
 
-  return { totals, projects: projectList, files, skills, subagentTypes, models };
+  return { totals, projects: projectList, files, skills, subagentTypes, memory, hooks, models };
 }

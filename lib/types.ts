@@ -17,7 +17,9 @@ export type EventType =
   | 'commit'
   | 'test'
   | 'error'
-  | 'todo';
+  | 'todo'
+  | 'memory' // a CLAUDE.md / AGENTS.md context file was loaded (harness)
+  | 'hook'; // a hook fired (PreToolUse / PostToolUse / Stop … harness)
 
 export type FileStatus = 'modified' | 'added' | 'deleted' | 'renamed';
 export type Confidence = 'high' | 'medium' | 'unattributed';
@@ -179,6 +181,8 @@ export interface StatsBundle {
   files: FileStat[];
   skills: UsageCount[];
   subagentTypes: UsageCount[];
+  memory: UsageCount[]; // which CLAUDE.md/AGENTS.md context files were loaded (nested)
+  hooks: UsageCount[]; // which hooks fired (by event/name)
   models: ModelStat[];
 }
 

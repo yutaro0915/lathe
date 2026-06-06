@@ -346,6 +346,7 @@ function buildSession(file: string): Built | null {
   let costUsd = 0; // USD, priced from real per-message token usage (db/pricing.json)
   let costPriced = false; // did any message resolve to a known price? else cost = null
   const counts: Record<string, number> = {};
+  const loadedMemory = new Set<string>(); // de-dupe nested CLAUDE.md/AGENTS.md re-attached every turn
 
   const addEvent = (e: any) => {
     seq += 1;
@@ -578,7 +579,42 @@ function buildSession(file: string): Built | null {
       }
       continue;
     }
-    // other line types (system / attachment / titles / queue) -> metadata only
+
+    // ----- harness signals (attachment records the loop used to drop) -----
+    // nested CLAUDE.md/AGENTS.md context loads + hook firings. NOTE: the ROOT
+    // CLAUDE.md/AGENTS.md is injected at runtime and NOT persisted to the JSONL,
+    // so only *nested* memory files are observable here.
+    if (r.type === 'attachment' && r.attachment) {
+      const a = r.attachment;
+      if (a.type === 'nested_memory' && a.path) {
+        if (!loadedMemory.has(a.path)) {
+          loadedMemory.add(a.path);
+          addEvent({
+            ts, type: 'memory', actor: 'system',
+            title: `Memory · ${a.displayPath ?? a.path}`,
+            body: typeof a.content?.content === 'string' ? a.content.content.slice(0, 4000) : null,
+            file_path: a.path, command: null, exit_code: null,
+            duration_ms: null, token_usage: null, subagent: null,
+            meta: JSON.stringify({ kind: 'nested_memory', tier: a.content?.type ?? null, displayPath: a.displayPath ?? null }),
+          });
+        }
+      } else if (a.type === 'hook_success' || a.type === 'hook_additional_context') {
+        const content = Array.isArray(a.content) ? a.content.join('\n') : (a.content ?? '');
+        const extra = a.hookName && a.hookName !== a.hookEvent ? ` (${a.hookName})` : '';
+        addEvent({
+          ts, type: 'hook', actor: 'system',
+          title: `Hook · ${a.hookEvent ?? 'hook'}${extra}`,
+          body: ((a.stdout || content) ?? '').slice(0, 3000) || null,
+          file_path: null, command: a.command ?? null,
+          exit_code: typeof a.exitCode === 'number' ? a.exitCode : null,
+          duration_ms: typeof a.durationMs === 'number' ? a.durationMs : null,
+          token_usage: null, subagent: null,
+          meta: JSON.stringify({ kind: 'hook', hookEvent: a.hookEvent ?? null, hookName: a.hookName ?? null, toolUseID: a.toolUseID ?? null }),
+        });
+      }
+      continue;
+    }
+    // other line types (system / titles / queue) -> metadata only
   }
 
   // ---- sub-agent transcripts: <session>/subagents/agent-<id>.jsonl ----------

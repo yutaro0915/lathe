@@ -103,6 +103,8 @@ const TYPE_GLYPH: Record<EventType, string> = {
   test: "✓",
   error: "!",
   todo: "☐",
+  memory: "❏",
+  hook: "↪",
 };
 
 // Short human label per type (for the .event-type-badge pill).
@@ -120,6 +122,8 @@ const TYPE_LABEL: Record<EventType, string> = {
   test: "Test",
   error: "Error",
   todo: "Todo",
+  memory: "Memory",
+  hook: "Hook",
 };
 
 // Map an event type onto a minimap "kind" class (legend buckets).
@@ -131,10 +135,12 @@ function minimapKind(t: EventType): string {
       return "message";
     case "bash":
     case "test":
+    case "hook":
       return "tool";
     case "file_read":
     case "file_edit":
     case "file_write":
+    case "memory":
       return "file";
     case "skill":
       return "skill";
@@ -160,6 +166,8 @@ const ALL_TYPES: EventType[] = [
   "bash",
   "subagent",
   "skill",
+  "memory",
+  "hook",
   "commit",
   "test",
   "todo",
@@ -839,7 +847,9 @@ export default function SessionViewer({
                     e.type === "skill" ||
                     e.type === "error" ||
                     e.type === "commit" ||
-                    e.type === "thinking";
+                    e.type === "thinking" ||
+                    e.type === "memory" ||
+                    e.type === "hook";
                   return (
                     <div
                       key={e.id}

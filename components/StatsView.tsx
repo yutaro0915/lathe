@@ -52,7 +52,7 @@ export default function StatsView({
   stats: StatsBundle;
   sessions: Session[];
 }) {
-  const { totals, projects, files, skills, subagentTypes, models } = stats;
+  const { totals, projects, files, skills, subagentTypes, memory, hooks, models } = stats;
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   function toggle(key: string) {
     setOpen((prev) => {
@@ -306,6 +306,36 @@ export default function StatsView({
                   <div key={s.name} className="urow">
                     <span className="uname">{s.name}</span>
                     <span className="num">{fmtInt(s.count)}×</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="usage-card">
+              <div className="uh">
+                Memory loaded <span className="count">({memory.length})</span>
+              </div>
+              {memory.length === 0 ? (
+                <div className="empty">No nested memory.</div>
+              ) : (
+                memory.map((m) => (
+                  <div key={m.name} className="urow">
+                    <span className="uname mono">{m.name}</span>
+                    <span className="num">{fmtInt(m.count)}×</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="usage-card">
+              <div className="uh">
+                Hooks fired <span className="count">({hooks.length})</span>
+              </div>
+              {hooks.length === 0 ? (
+                <div className="empty">No hooks.</div>
+              ) : (
+                hooks.map((h) => (
+                  <div key={h.name} className="urow">
+                    <span className="uname mono">{h.name}</span>
+                    <span className="num">{fmtInt(h.count)}×</span>
                   </div>
                 ))
               )}

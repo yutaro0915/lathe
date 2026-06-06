@@ -410,9 +410,12 @@ test.describe("Stats (/stats)", () => {
     await expect(page.locator(".st-head").first()).toContainText("Cost");
     const rows = page.locator(".st-data");
     expect(await rows.count()).toBeGreaterThan(1);
-    // usage observation: models / sub-agent types / skills cards
-    expect(await page.locator(".usage-card").count()).toBe(3);
+    // usage observation cards: models / sub-agent types / skills / memory / hooks
+    expect(await page.locator(".usage-card").count()).toBeGreaterThanOrEqual(5);
     await expect(page.locator(".usage-card .uh").first()).toContainText("Models");
+    await expect(
+      page.locator(".usage-card .uh", { hasText: "Hooks fired" })
+    ).toBeVisible();
     // drilling into a project reveals its sessions, each linking to the viewer
     await rows.first().click();
     const sref = page.locator(".st-children .st-srow").first();
@@ -445,5 +448,28 @@ test.describe("Stats (/stats)", () => {
     const sref = page.locator(".files-table .st-children .st-srow").first();
     await expect(sref).toBeVisible();
     await expect(sref).toHaveAttribute("href", /\/\?session=/);
+  });
+});
+
+test.describe("Harness signals", () => {
+  test("nested memory loads & hook firings appear in the transcript + filters", async ({
+    page,
+  }) => {
+    await page.goto("/?session=da2ac032-a905-4267-8e5f-851456926a79");
+    // event-type filter exposes Memory + Hook
+    await expect(
+      page.locator(".filters .event-type-badge", { hasText: "Memory" })
+    ).toBeVisible();
+    await expect(
+      page.locator(".filters .event-type-badge", { hasText: "Hook" })
+    ).toBeVisible();
+    // and at least one memory event renders in the timeline with its own icon
+    await expect(page.locator(".timeline .event-icon.memory").first()).toBeVisible();
+  });
+
+  test("stats surfaces which memory files loaded and which hooks fired", async ({ page }) => {
+    await page.goto("/stats");
+    await expect(page.locator(".usage-card .uh", { hasText: "Memory loaded" })).toBeVisible();
+    await expect(page.locator(".usage-card .uh", { hasText: "Hooks fired" })).toBeVisible();
   });
 });
