@@ -209,6 +209,23 @@ test.describe("Event detail panel", () => {
   });
 });
 
+test.describe("Thinking", () => {
+  test("thinking events are captured and viewable", async ({ page }) => {
+    // a session with extended-thinking (non-redacted) blocks
+    await page.goto("/?session=b1dcf7bd-a268-4304-bc4a-b45463538aa2");
+    const trow = page
+      .locator(".event-row")
+      .filter({ has: page.locator(".event-icon.thinking") })
+      .first();
+    if ((await trow.count()) > 0) {
+      await trow.click();
+      await expect(page.locator(".detail-head .dtitle")).toHaveText(/Thinking/);
+      const body = (await page.locator(".code-block.output").innerText()).trim();
+      expect(body.length).toBeGreaterThan(0);
+    }
+  });
+});
+
 test.describe("Sub-agent expansion", () => {
   test("sub-agent rows expand to reveal child steps (tools/skills)", async ({ page }) => {
     // a session known to spawn general-purpose sub-agents

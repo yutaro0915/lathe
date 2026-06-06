@@ -19,6 +19,7 @@ function kindOf(type: string): string {
   switch (type) {
     case "user_message":
     case "assistant_message":
+    case "thinking":
       return "message";
     case "bash":
     case "test":

@@ -52,6 +52,7 @@ function expectedOf(file: string) {
       if (Array.isArray(c)) {
         for (const x of c) {
           if (x.type === 'text' && x.text?.trim()) ev++;
+          else if (x.type === 'thinking' && x.thinking?.trim()) ev++;
           else if (x.type === 'tool_use') {
             ev++;
             if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(x.name)) editWrite++;

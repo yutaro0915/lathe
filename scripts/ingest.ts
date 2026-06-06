@@ -223,6 +223,8 @@ function extractChildEvents(
       for (const x of c) {
         if (x.type === 'text' && x.text?.trim()) {
           add({ ts, type: 'assistant_message', actor: 'subagent', title: preview(x.text, 90), body: x.text.slice(0, 2000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
+        } else if (x.type === 'thinking' && x.thinking?.trim()) {
+          add({ ts, type: 'thinking', actor: 'subagent', title: preview(x.thinking, 90), body: x.thinking.slice(0, 8000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
         } else if (x.type === 'tool_use') {
           const name = x.name as string;
           const input = x.input || {};
@@ -418,6 +420,16 @@ function buildSession(file: string): Built | null {
             file_path: null, command: null, exit_code: null,
             duration_ms: null,
             token_usage: usage?.output_tokens ?? null,
+            subagent: r.isSidechain ? 'sidechain' : null, meta: null,
+          });
+        } else if (c.type === 'thinking' && c.thinking?.trim()) {
+          // extended-thinking text (when not redacted to a signature-only block)
+          addEvent({
+            id: (r.uuid || `a_${seq}`) + ':k',
+            ts, type: 'thinking', actor: 'assistant',
+            title: preview(c.thinking, 90), body: c.thinking.slice(0, 8000),
+            file_path: null, command: null, exit_code: null,
+            duration_ms: null, token_usage: null,
             subagent: r.isSidechain ? 'sidechain' : null, meta: null,
           });
         } else if (c.type === 'tool_use') {

@@ -382,3 +382,8 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .kstat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;}
 .kstat b{font-size:15px;font-weight:680;color:var(--text);font-variant-numeric:tabular-nums;}
 .kstat span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+
+/* thinking (extended reasoning) events */
+.event-icon.thinking{background:#8b8fc4;}
+.event-type-badge.thinking{background:#ecebf7;color:#564f93;}
+.event-row .event-icon.thinking{font-style:normal;}

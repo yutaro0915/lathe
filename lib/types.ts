@@ -7,6 +7,7 @@ export type SessionStatus = 'done' | 'running' | 'failed';
 export type EventType =
   | 'user_message'
   | 'assistant_message'
+  | 'thinking'
   | 'file_read'
   | 'file_edit'
   | 'file_write'

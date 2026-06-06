@@ -85,6 +85,7 @@ const RUNNER_LABEL: Record<Runner, string> = {
 const TYPE_GLYPH: Record<EventType, string> = {
   user_message: "◍",
   assistant_message: "✦",
+  thinking: "✲",
   file_read: "◎",
   file_edit: "✎",
   file_write: "✚",
@@ -101,6 +102,7 @@ const TYPE_GLYPH: Record<EventType, string> = {
 const TYPE_LABEL: Record<EventType, string> = {
   user_message: "User",
   assistant_message: "Assistant",
+  thinking: "Thinking",
   file_read: "Read",
   file_edit: "Edit",
   file_write: "Write",
@@ -118,6 +120,7 @@ function minimapKind(t: EventType): string {
   switch (t) {
     case "user_message":
     case "assistant_message":
+    case "thinking":
       return "message";
     case "bash":
     case "test":
@@ -157,6 +160,7 @@ function annotationConfidenceLabel(kind: AnnotationKind): string {
 const ALL_TYPES: EventType[] = [
   "user_message",
   "assistant_message",
+  "thinking",
   "file_read",
   "file_edit",
   "file_write",
@@ -761,7 +765,8 @@ export default function SessionViewer({
                     e.type === "subagent" ||
                     e.type === "skill" ||
                     e.type === "error" ||
-                    e.type === "commit";
+                    e.type === "commit" ||
+                    e.type === "thinking";
                   return (
                     <div
                       key={e.id}
@@ -1257,7 +1262,11 @@ export default function SessionViewer({
                       ? "File contents"
                       : selType === "subagent"
                         ? "Result / summary"
-                        : "Detail"}
+                        : selType === "thinking"
+                          ? "Thinking · reasoning"
+                          : selType === "assistant_message" || selType === "user_message"
+                            ? "Message"
+                            : "Detail"}
                 </span>
                 {selected?.body && (
                   <button
