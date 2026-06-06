@@ -26,10 +26,13 @@ const TRANSCRIPTS_DIR =
   process.argv[2] ||
   process.env.LATHE_TRANSCRIPTS_DIR ||
   path.join(os.homedir(), '.claude', 'projects', '-Users-cherie-LLMWiki');
-const MAX_SESSIONS = Number(process.env.LATHE_MAX_SESSIONS || 12);
-const MAX_EVENTS = Number(process.env.LATHE_MAX_EVENTS || 500);
-const MAX_FILES = 60; // changed files per session
-const MAX_HUNK_LINES = 60; // truncate very large hunks
+// Ingest ALL sessions and ALL events by default (no silent omissions). The caps
+// remain as high safety bounds; if ever exceeded, truncation is made VISIBLE in
+// the UI (a trailing marker event / "+N 行" on hunks). Override via env.
+const MAX_SESSIONS = Number(process.env.LATHE_MAX_SESSIONS || 100000);
+const MAX_EVENTS = Number(process.env.LATHE_MAX_EVENTS || 100000);
+const MAX_FILES = Number(process.env.LATHE_MAX_FILES || 100000); // changed files per session
+const MAX_HUNK_LINES = Number(process.env.LATHE_MAX_HUNK_LINES || 200); // truncate very large hunks (visible)
 
 const ROOT = process.cwd();
 const DB_PATH = path.join(ROOT, 'data', 'lathe.db');

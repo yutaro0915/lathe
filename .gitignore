@@ -11,6 +11,11 @@ next-env.d.ts
 /data/*.db
 /data/*.db-*
 
+# playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
 # misc
 .DS_Store
 *.log
