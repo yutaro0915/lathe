@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import TimeRibbon from "@/components/TimeRibbon";
 import Link from "next/link";
 import type {
   Session,
@@ -212,10 +213,12 @@ export default function SessionViewer({
   sessions,
   bundle,
   currentId,
+  initialTab = "transcript",
 }: {
   sessions: Session[];
   bundle: SessionBundle;
   currentId: string;
+  initialTab?: Tab;
 }) {
   const router = useRouter();
 
@@ -232,7 +235,7 @@ export default function SessionViewer({
   const [sortKey, setSortKey] = useState<SortKey>("recent");
 
   // ---- timeline / tab / selection state -----------------------------------
-  const [activeTab, setActiveTab] = useState<Tab>("transcript");
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab === "git" ? "transcript" : initialTab);
   const [typeFilter, setTypeFilter] = useState<Set<EventType>>(() => new Set(ALL_TYPES));
   const [transcriptSearch, setTranscriptSearch] = useState("");
 
@@ -560,7 +563,11 @@ export default function SessionViewer({
             key={key}
             type="button"
             className={`tab${activeTab === key ? " active" : ""}`}
-            onClick={() => setActiveTab(key)}
+            onClick={() =>
+              key === "git"
+                ? router.push(`/diff?session=${encodeURIComponent(currentId)}`)
+                : setActiveTab(key)
+            }
           >
             {label}
           </button>
@@ -1082,84 +1089,13 @@ export default function SessionViewer({
             </div>
           )}
 
-          {/* ---------- bottom strip: minimap (under timeline column) ---------- */}
-          <div className="minimap">
-            <div className="minimap-head">
-              <span className="mtitle">Timeline density</span>
-              <div className="minimap-legend">
-                {(
-                  [
-                    ["message", "Message"],
-                    ["tool", "Tool"],
-                    ["file", "File"],
-                    ["skill", "Skill"],
-                    ["subagent", "Sub-agent"],
-                    ["git", "Git"],
-                    ["error", "Error"],
-                  ] as const
-                ).map(([cls, label]) => (
-                  <span key={cls} className="legend-item">
-                    <span className={`legend-swatch ${cls}`} />
-                    {label}
-                  </span>
-                ))}
-              </div>
-              <span className="spacer" />
-              <div className="minimap-zoom">
-                <button
-                  type="button"
-                  aria-label="Zoom out"
-                  onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)))}
-                >
-                  −
-                </button>
-                <button
-                  type="button"
-                  aria-label="Zoom in"
-                  onClick={() => setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2)))}
-                >
-                  +
-                </button>
-                <button type="button" aria-label="Fit" onClick={() => setZoom(1)}>
-                  ⤢
-                </button>
-              </div>
-            </div>
-
-            <div
-              className="minimap-track"
-              onClick={(e) => selectNearestTick(e.clientX, e.currentTarget)}
-              style={{ cursor: "pointer" }}
-            >
-              {minimapTicks.map((t) => (
-                <span
-                  key={t.id}
-                  className={`minimap-tick ${t.kind}${t.id === selectedEventId ? " active" : ""}`}
-                  style={{
-                    height: `${Math.round(t.h * zoom)}px`,
-                    width: `${Math.max(2, Math.round(3 * zoom))}px`,
-                    outline: t.id === selectedEventId ? "1px solid var(--accent)" : "none",
-                  }}
-                  title={`${t.ts} · ${t.title}`}
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    setSelectedEventId(t.id);
-                  }}
-                />
-              ))}
-              <span
-                className="minimap-window"
-                style={{ left: `${Math.max(0, playPct - 4)}%`, width: "8%" }}
-              />
-              <span className="minimap-playhead" style={{ left: `${playPct}%` }} />
-            </div>
-
-            <div className="minimap-axis">
-              <span className="tick">{events[0]?.ts.slice(0, 5) ?? ""}</span>
-              <span className="tick">zoom {zoom.toFixed(2)}×</span>
-              <span className="tick">{events[events.length - 1]?.ts.slice(0, 5) ?? ""}</span>
-            </div>
-          </div>
+          {/* ---------- bottom strip: real time ribbon (width = elapsed time) ---------- */}
+          <TimeRibbon
+            events={events}
+            selectedId={selectedEventId}
+            onSelect={setSelectedEventId}
+            title="Time spent"
+          />
         </main>
 
         {/* ---------- COLUMN 3: aside / detail ---------- */}

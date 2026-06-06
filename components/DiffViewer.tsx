@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import TimeRibbon from "@/components/TimeRibbon";
 import type {
   Session,
   SessionBundle,
@@ -638,25 +639,55 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
       {/* tab strip — active = Git. Session picker lives at the right so session
           switching stays reachable from this screen (the only navigation). */}
       <div className="tabs">
-        <span className="tab">Transcript</span>
-        <span className="tab">Tools</span>
+        {(
+          [
+            ["transcript", "Transcript"],
+            ["tools", "Tools"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className="tab"
+            onClick={() => router.push(`/?session=${encodeURIComponent(currentId)}&tab=${key}`)}
+          >
+            {label}
+          </button>
+        ))}
         <span className="tab active">Git</span>
-        <span className="tab">Subagents</span>
-        <span className="tab">Raw JSON</span>
+        {(
+          [
+            ["skills", "Skills"],
+            ["subagents", "Subagents"],
+            ["raw", "Raw JSON"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className="tab"
+            onClick={() => router.push(`/?session=${encodeURIComponent(currentId)}&tab=${key}`)}
+          >
+            {label}
+          </button>
+        ))}
         <span className="tabs-spacer" />
         <span className="tabs-tool">
-          <label className="sort-select" style={{ display: "inline-flex", gap: 6 }}>
-            Session
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+            <span className="muted small">Session</span>
             <select
               value={currentId}
               onChange={(e) => switchSession(e.target.value)}
               style={{
-                background: "transparent",
-                border: 0,
-                color: "inherit",
+                background: "var(--panel)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                padding: "5px 9px",
+                color: "var(--text)",
                 font: "inherit",
+                fontSize: 12.5,
                 cursor: "pointer",
-                maxWidth: 220,
+                maxWidth: 260,
               }}
             >
               {sessions.map((sess) => (
@@ -1021,17 +1052,17 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
                   }}
                 >
                   <span className="le-idx">{i + 1}</span>
-                  <span className="le-body">
-                    <span className="le-turn">
+                  <div className="le-body">
+                    <div className="le-turn">
                       <b>Turn {le.event.seq}:</b> {le.event.title}
-                    </span>
-                  </span>
-                  <span className="le-right">
-                    <span className={`confidence ${le.confidence}`}>
-                      {methodLabel(le.method)}
-                    </span>
-                    <span className="le-pct">{confidenceLabel(le.confidence)}</span>
-                  </span>
+                    </div>
+                    <div className="le-meta">
+                      <span className={`confidence ${le.confidence}`}>
+                        {methodLabel(le.method)}
+                      </span>
+                      <span className="le-conf">{confidenceLabel(le.confidence)}</span>
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -1205,58 +1236,13 @@ export default function DiffViewer({ sessions, bundle, currentId }: Props) {
         </div>
       </div>
 
-      {/* bottom: session change minimap */}
-      <div className="minimap">
-        <div className="minimap-head">
-          <span className="mtitle">Session change minimap</span>
-          <span className="spacer" />
-          <span className="minimap-legend">
-            <span className="legend-item">
-              <span className="legend-swatch edit" />
-              edit
-            </span>
-            <span className="legend-item">
-              <span className="legend-swatch command" />
-              command
-            </span>
-            <span className="legend-item">
-              <span className="legend-swatch commit" />
-              commit
-            </span>
-            <span className="legend-item">
-              <span className="legend-swatch test" />
-              test
-            </span>
-            <span className="legend-item">
-              <span className="legend-swatch uncertain" />
-              uncertain
-            </span>
-          </span>
-          <span className="icon-btn" aria-label="more">
-            ⋯
-          </span>
-        </div>
-        <div className="minimap-track">
-          {buckets.map((b, i) => {
-            // deterministic height: 30%..100% scaled by the bucket's event count
-            const h = b.count === 0 ? 8 : 30 + Math.round((b.count / maxCount) * 70);
-            return (
-              <span
-                key={`tick-${i}`}
-                className={`minimap-tick${b.kind ? " " + b.kind : ""}`}
-                style={{ height: `${h}%` }}
-                title={`~turn ${Math.round(b.seqMid)} · ${b.count} events`}
-              />
-            );
-          })}
-          <span className="minimap-playhead" style={{ left: `${playPct}%` }} />
-        </div>
-        <div className="minimap-axis">
-          <span className="tick">turn 0</span>
-          <span className="tick">{selectedEvent ? `turn ${selectedEvent.seq}` : ""}</span>
-          <span className="tick">turn {lastSeq}</span>
-        </div>
-      </div>
+      {/* bottom: real time ribbon — each segment's width is the wall-clock time
+          until the next step, so long operations/waits are visibly wide. */}
+      <TimeRibbon
+        events={bundle.events}
+        selectedId={selectedEvent?.id}
+        title="Time spent (session)"
+      />
     </>
   );
 }

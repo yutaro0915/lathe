@@ -10,6 +10,9 @@ export const dynamic = "force-dynamic";
 import { getSessionBundle, getPrimarySession, listSessions } from "@/lib/db";
 import SessionViewer from "@/components/SessionViewer";
 
+const TABS = ["transcript", "tools", "git", "skills", "subagents", "raw"] as const;
+type Tab = (typeof TABS)[number];
+
 export default async function Page({
   searchParams,
 }: {
@@ -20,5 +23,16 @@ export default async function Page({
   const req = typeof sp.session === "string" ? sp.session : undefined;
   const id = req && getSessionBundle(req) ? req : getPrimarySession().id;
   const bundle = getSessionBundle(id)!;
-  return <SessionViewer sessions={sessions} bundle={bundle} currentId={id} />;
+  const initialTab: Tab =
+    typeof sp.tab === "string" && (TABS as readonly string[]).includes(sp.tab)
+      ? (sp.tab as Tab)
+      : "transcript";
+  return (
+    <SessionViewer
+      sessions={sessions}
+      bundle={bundle}
+      currentId={id}
+      initialTab={initialTab}
+    />
+  );
 }

@@ -121,4 +121,68 @@ test.describe("Diff viewer (/diff)", () => {
       await expect.poll(async () => page.locator("pre").count()).toBeGreaterThan(preBefore);
     }
   });
+
+  test("linked events stack (meta below title, no le-right overlap)", async ({ page }) => {
+    await page.goto("/diff");
+    const le = page.locator(".linked-event").first();
+    if ((await le.count()) > 0) {
+      await expect(le.locator(".le-turn")).toHaveCount(1);
+      await expect(le.locator(".le-meta")).toHaveCount(1);
+      // old overlapping layout used .le-right; it must be gone
+      await expect(le.locator(".le-right")).toHaveCount(0);
+    }
+  });
+
+  test("session dropdown switches the session", async ({ page }) => {
+    await page.goto("/diff");
+    const sel = page.locator("select");
+    const cur = await sel.inputValue();
+    // pick an option that is NOT the current one (selecting the current value
+    // would not fire onChange).
+    const values = await sel.locator("option").evaluateAll((opts) =>
+      opts.map((o) => (o as HTMLOptionElement).value),
+    );
+    const target = values.find((v) => v && v !== cur);
+    if (target) {
+      await sel.selectOption(target);
+      await expect(page).toHaveURL(new RegExp(`session=${target}`));
+    }
+  });
+});
+
+test.describe("Cross-screen navigation & time ribbon", () => {
+  test("viewer Git tab navigates to /diff", async ({ page }) => {
+    await page.goto("/");
+    await page.locator(".tabs .tab", { hasText: "Git" }).click();
+    await expect(page).toHaveURL(/\/diff/);
+  });
+
+  test("diff non-Git tab navigates back to the viewer", async ({ page }) => {
+    await page.goto("/diff");
+    await page.locator(".tabs .tab", { hasText: "Transcript" }).click();
+    await expect(page).toHaveURL(/\/\?session=/);
+    await expect(page).not.toHaveURL(/\/diff/);
+  });
+
+  test("?tab opens the viewer on that tab", async ({ page }) => {
+    await page.goto("/?tab=subagents");
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Subagents/);
+  });
+
+  test("time ribbon renders on both screens with segments", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator(".ribbon-track")).toBeVisible();
+    expect(await page.locator(".ribbon-seg").count()).toBeGreaterThan(0);
+    await page.goto("/diff");
+    await expect(page.locator(".ribbon-track")).toBeVisible();
+    expect(await page.locator(".ribbon-seg").count()).toBeGreaterThan(0);
+  });
+
+  test("time ribbon zoom widens the track", async ({ page }) => {
+    await page.goto("/");
+    const track = page.locator(".ribbon-track");
+    const w0 = await track.evaluate((el) => el.style.width);
+    await page.locator(".ribbon .minimap-zoom button", { hasText: "+" }).click();
+    await expect.poll(async () => track.evaluate((el) => el.style.width)).not.toBe(w0);
+  });
 });
