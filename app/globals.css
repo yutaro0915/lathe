@@ -281,6 +281,9 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .diff-gutter{position:relative;}
 .diff-attr-node{position:absolute;right:-5px;top:50%;transform:translateY(-50%);width:10px;height:10px;border-radius:50%;background:var(--panel);border:2px solid var(--accent);z-index:2;}
 .diff-line.linked{box-shadow:inset 3px 0 0 var(--accent);}
+/* pagination controls for very large diffs (keeps the Git tab from freezing) */
+.diff-more{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border);background:var(--panel-2);position:sticky;bottom:0;}
+.diff-more-lines{display:flex;justify-content:center;padding:6px;background:var(--panel-2);border-top:1px dashed var(--border);}
 
 /* ---- attribution aside (screen B) ----------------------------------------*/
 .attr-banner{display:flex;align-items:flex-start;gap:8px;margin:12px 14px 4px;padding:9px 11px;background:var(--amber-bg);
