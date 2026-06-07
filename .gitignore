@@ -7,7 +7,7 @@
 next-env.d.ts
 *.tsbuildinfo
 
-# generated sqlite database (regenerate with `pnpm seed`)
+# generated sqlite database (regenerate with `pnpm seed` or `pnpm ingest`)
 /data/*.db
 /data/*.db-*
 
@@ -16,7 +16,34 @@ next-env.d.ts
 /playwright-report/
 /playwright/.cache/
 
-# misc
+# coverage / test artifacts
+/coverage/
+
+# editor & agent-tool settings (these are personal; don't ship them in a public repo)
+.claude/
+.cursor/
+.codex/
+.vscode/
+.idea/
+.zed/
+
+# os / editor cruft
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# logs
 *.log
-.env*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# secrets / env (be aggressive — public repo)
+.env
+.env.*
+!.env.example
+*.pem
+*.key

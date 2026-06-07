@@ -132,5 +132,5 @@ playwright.config.ts
 - **npm 公開の仕上げ**（やるなら）: `private:true` を外す / 利用可能な npm 名（`lathe` は埋まり気味 → `@yutaro0915/lathe` 等）/ `npx lathe` 用 CLI 化（Next ビルドの同梱）/ 履歴の `cherie` スクラブ。
 - Phase 2: AI 分析（finding 抽出、MCP ツール経由の根拠リンク）。`README.md` の機能2に対応。
 - ハーネス *評価*（どの memory/hook/skill が効いたか。**観測は実装済み**、評価は Phase 2）。
-- Cursor トランスクリプト形式への対応（Claude/Codex は対応済み）。実トランスクリプトの増分取り込み / 監視。
+- **Cursor トランスクリプト対応** ＋ **provider 抽象の先出しリファクタ**（Claude/Codex は対応済み）。現状 `scripts/ingest.ts`（1134 行）は `buildSession`（Claude）と `buildCodexSession`（Codex）を**1 ファイルに並列に書いただけ**で、`Provider` / `TranscriptIngester` のような interface はゼロ。UI 側も `Runner` 型と `RUNNER_LABEL` / `runner-dot` CSS が 3 コンポーネントに独立コピー。3 プロバイダ目（Cursor）を A 流儀（並列追加）で足すと負債が決壊するので、先に `providers/{claude,codex,cursor}.ts` に分解（共通 `interface TranscriptProvider { discover(): string[]; build(file): Built }` / `Built` の `any` を実型に / UI 側の `RUNNER_LABEL` 集約）してから Cursor 形式の調査・実装へ。実トランスクリプトの増分取り込み / 監視はその後。
 - session 合計 cost への子サブエージェント cost 合算（現状は分離表示）。
