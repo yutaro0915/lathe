@@ -34,7 +34,6 @@
     "lib",
     "db/schema.sql",
     "db/pricing.json",
-    "db/seed.ts",
     "scripts",
     "next.config.mjs",
     "tsconfig.json",
@@ -47,8 +46,7 @@
     "start": "next start",
     "ingest": "tsx scripts/ingest.ts",
     "coverage": "tsx scripts/coverage_check.ts",
-    "e2e": "playwright test",
-    "seed": "tsx db/seed.ts"
+    "e2e": "playwright test"
   },
   "dependencies": {
     "next": "^15.5.4",

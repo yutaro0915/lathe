@@ -63,7 +63,7 @@ pnpm e2e           # Playwright E2E（42 ケース。build+start を内部で回
 - **Annotations**（右下）: run 中の節目（error / commit / test）を**種別タグ + step番号 + 内容**で一覧。クリックでその step へジャンプ（説明文付きで何かが分かる）
 - **ハーネス信号**: skill だけでなく **memory**（nested CLAUDE.md/AGENTS.md 読み込み、❏ cyan）と **hook**（PreToolUse/PostToolUse/Stop 発火、↪ rose）をイベント化。トランスクリプト + フィルタ + `/stats` の Usage に「Memory loaded / Hooks fired」。⚠️ ルート CLAUDE.md は JSONL 非永続のため観測不可（nested のみ）
 - **Codex 対応**: Claude Code と並んで Codex セッション（`runner='codex'`、gpt-5.x モデル）を同じビューア/一覧/統計に統合（取り込み詳細は「データモデル / 取り込み」。**cost は実 GPT 価格で算出**、thinking は reasoning summary を抽出、file_read はシェルから検出＋パス抽出、skill は SKILL.md 読み込みから検出）
-- **統計**（`/stats`）: **プロジェクト別集計** + **ファイル別集計（追跡）** + **使われ方観測**（Models / Sub-agent types / Skills / Memory / Hooks 件数）。**左にセッション一覧サイドバー（`SessionSidebar`）を保ち、他画面と同じシェル**（別画面化しない）。プロジェクトは各セッションが変更したファイルパスから導出（`sessions.project` は全 "LLMWiki" なので使えない）→ `deriveProjectKey` が `projects/<slug>` / `wiki` / `memory` / `(external)` 等に分類、セッションは**最多変更ディレクトリ = primary project** に集約。**By file** は変更の多いファイル → 展開で**それを触ったセッション一覧**（ファイル単位で「どこで作業したか」を追跡）。`lib/db.ts` の `getStats()`
+- **統計**（`/stats`）: **プロジェクト別集計** + **ファイル別集計（追跡）** + **使われ方観測**（Models / Sub-agent types / Skills / Memory / Hooks 件数）。**左にセッション一覧サイドバーを保ち、他画面と同じシェル**（別画面化しない）。プロジェクトは各セッションが変更したファイルパスから導出（`sessions.project` は全 "LLMWiki" なので使えない）→ `deriveProjectKey` が `projects/<slug>` / `wiki` / `memory` / `(external)` 等に分類、セッションは**最多変更ディレクトリ = primary project** に集約。**By file** は変更の多いファイル → 展開で**それを触ったセッション一覧**（ファイル単位で「どこで作業したか」を追跡）。`lib/db.ts` の `getStats()`
 - 差分: ファイル選択 / フォルダ折りたたみ / Unified⇄Split / Hunk 前後 / Linked Event 選択 / Raw JSON
 - **Changed Files ツリー**: 単一子フォルダのチェーンを 1 行に圧縮（VS Code compact folders）＝深いパスでも「実ファイル数 ≒ 行数」。フォルダ（青フォルダアイコン + 太字 + 末尾 `/`）とファイル（色付き A/M/D/R 状態チップ + ファイル名）を明確に区別
 - **Transcript ⇄ Git 双方向リンク**（attribution = hunk⇄event を両向きに辿る）: トランスクリプトの編集イベント詳細の「⎇ Diff →」で、その編集が生んだ差分（該当ファイル + hunk）に Git タブでフォーカス（`SessionViewer.gitFocusEvent` → `DiffViewer.focusEventId`）。逆に Git の Linked Event の「↩ step N」で、その hunk を生んだトランスクリプトのステップ（時点）へ戻る（`DiffViewer.onJumpToEvent` → Transcript タブ + 該当 event 選択）。「この時どう変更したか」と「この差分はどの時のものか」を相互参照できる
@@ -102,12 +102,10 @@ components/
   SessionViewer.tsx     # セッションビューア（client、全インタラクション）。Git タブで DiffViewer を、Stats タブで StatsView を embedded 描画
   DiffViewer.tsx        # Git 差分・帰属（client、`embedded` で SessionViewer の Git タブに埋め込み）
   StatsView.tsx         # Stats タブ（client）: 現在のスコープの4グラフ（コスト/トークン推移・モデル別・イベント構成・最大セッション）を依存ゼロ SVG で描画
-  SessionSidebar.tsx    # 共有の左サイドバー（セッション一覧。/stats 等が同じシェルを保つため）
   TimeRibbon.tsx        # 共有の時間リボン
 db/
   schema.sql            # スキーマ（正本）
   pricing.json          # バンドル価格表（LiteLLM Claude tier, MIT。cost 算出用）
-  seed.ts               # 合成デモデータ（pnpm seed、オフライン用フォールバック）
 lib/
   types.ts  db.ts       # 型 / read 層（db.ts に getStats = クロスセッション集計）
   cost.ts               # トークン×単価で USD を算出（ingest が使用、依存ゼロ）
