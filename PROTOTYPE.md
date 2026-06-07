@@ -7,6 +7,7 @@
 - 取り込みは **Claude Code + Codex** 両対応。cost は実モデル単価（Claude + GPT/Codex）で算出
 - npm は**未公開**（`package.json` `private:true` のまま。公開はユーザー判断で後日）
 - `main` と `prototype/harness-loop-ui` は同一コミット（`prototype` ブランチは不要なら削除可）
+- **UI（2026-06-07）**: グローバル上部ナビ（セッション / Git差分 / 統計）を廃止。Git に続き統計も `Stats` タブとして in-page 化（全 7 タブ）。`/diff` `/stats` は redirect で残置
 - Phase 2 以降（AI 分析 / ハーネス評価 / 実験基盤 / Evals / agent 接続 / 統合）は**未着手**
 
 ## これは何か
@@ -41,12 +42,12 @@ pnpm e2e           # Playwright E2E（42 ケース。build+start を内部で回
 
 | route | 画面 | 内容 |
 |-------|------|------|
-| `/` | セッションビューア | 上部 sessbar（セッション名 + model/branch/commit/日付 + duration/turns/tools/edits/tokens/**cost**）。左: セッション一覧 + 検索 + Event type フィルタ + Model / Errors 絞り込み + 並び替え。中央: タブ内容（既定 Transcript = 実行タイムライン）。右: 選択イベント詳細。下: 時間リボン。 |
+| `/` | セッションビューア | 上部 sessbar（セッション名 + model/branch/commit/日付 + duration/turns/tools/edits/tokens/**cost**）。左: セッション一覧 + 検索 + Event type フィルタ + Model / Errors 絞り込み + 並び替え。中央: タブ内容（既定 Transcript = 実行タイムライン）。右: 選択イベント詳細。下: 時間リボン。**左上のプロジェクトセレクタでセッション一覧と Stats をプロジェクトに絞り込む**（各プロジェクトの sessions/cost 付き）。**統計も `Stats` タブとして in-page**（下記）。グローバルな上部ナビは廃止し、画面遷移は全てタブ。 |
 | `/diff` | （レガシー）| 旧 Git 差分専用ページ。現在は `/?session=<id>&tab=git` へ **redirect**（変更のある最新セッションを既定に）。古いリンク互換のため残置。 |
-| `/stats` | 統計 | クロスセッション分析。**他画面と同じシェル**（左にセッション一覧サイドバー = `SessionSidebar`、別画面化しない）。上部 totals。中央 main に: **By project**（プロジェクト別 sessions / duration / tokens / cost / files / ± / errors、行展開でそのプロジェクトのセッション）、**By file**（最多変更ファイル → 展開でそれを触ったセッション＝ファイル単位の追跡）、**Usage 観測**（Models / Sub-agent types / Skills 件数。ハーネス*評価*は Phase 2、ここは*観測のみ*）。 |
+| `/stats` | （レガシー）| 旧 統計専用ページ。現在は `/?tab=stats` へ **redirect**。統計は `Stats` タブ（in-page）へ統合済み。古いリンク互換のため残置。 |
 
-タブ（Transcript / Tools / Git / Skills / Subagents / Raw JSON）は**すべて in-page**で中央＋右だけ切り替わる（**左のセッション一覧サイドバーは常に維持**）。Git タブは `DiffViewer` を `embedded` で中央に埋め込み、[変更ファイルツリー｜差分（Unified/Split・追加緑/削除赤）｜Linked Events + 帰属信頼度] を表示。`?tab=` で初期タブ復元、セッション切替時も現在のタブを保持。
-（旧構造では Git だけ別ページ `/diff` へ遷移してサイドバーがファイルツリーに差し替わり、セッション一覧が消える UX だった。2026-06-06 に in-page タブへ統一。）
+タブ（Transcript / Tools / Git / Skills / Subagents / Raw JSON / Stats）は**すべて in-page**で中央＋右だけ切り替わる（**左のセッション一覧サイドバーは常に維持**）。Git タブは `DiffViewer` を、Stats タブは `StatsView` を `embedded`（`grid-column:2/4` = main+aside 幅）で中央に埋め込む。Git タブは [変更ファイルツリー｜差分（Unified/Split・追加緑/削除赤）｜Linked Events + 帰属信頼度]、Stats タブは**現在のスコープ**（左上プロジェクトセレクタ + 検索/モデル/エラーフィルタで絞った visible session 集合）の**4グラフ**（コスト&トークン推移 / モデル別コスト / イベント構成 / 最大セッション）を依存ゼロの SVG で表示する。**Stats タブのときだけ上部 sessbar がそのスコープの totals（Statistics）に切り替わる**。プロジェクト別の比較は左上のプロジェクトセレクタ（各プロジェクトの sessions/cost 付き）が担い、Stats タブに横断テーブルは置かない。`?tab=` で初期タブ復元、セッション切替時も現在のタブを保持。
+（旧構造では Git / 統計が別ページ `/diff` `/stats` へ遷移してサイドバーが差し替わり、上部にグローバルナビ（セッション / Git差分 / 統計）があった。2026-06-06 に Git を、2026-06-07 に統計を in-page タブへ統一し、グローバルナビを廃止。`/diff` `/stats` は redirect で残置。）
 
 ## できること（すべて動作・E2E 済み）
 
@@ -61,16 +62,17 @@ pnpm e2e           # Playwright E2E（42 ケース。build+start を内部で回
 - **時間リボン**（下部）: 各セグメント幅 = 次ステップまでの実経過時間。**ホバー**でカーソル位置の正確な時刻（秒まで）・step・イベント・所要時間を読み取り、**クリック**でその step を選択＋本体リストを該当行へスクロール（細い 2px セグメントでも掴める）。**ズーム連動の時刻軸**（目盛りがスクロールに追従して増える＝拡大時も時刻が読める）+ 選択 step の playhead
 - **Annotations**（右下）: run 中の節目（error / commit / test）を**種別タグ + step番号 + 内容**で一覧。クリックでその step へジャンプ（説明文付きで何かが分かる）
 - **ハーネス信号**: skill だけでなく **memory**（nested CLAUDE.md/AGENTS.md 読み込み、❏ cyan）と **hook**（PreToolUse/PostToolUse/Stop 発火、↪ rose）をイベント化。トランスクリプト + フィルタ + `/stats` の Usage に「Memory loaded / Hooks fired」。⚠️ ルート CLAUDE.md は JSONL 非永続のため観測不可（nested のみ）
-- **Codex 対応**: Claude Code と並んで Codex セッション（`runner='codex'`、gpt-5.x モデル）を同じビューア/一覧/統計に統合（取り込み詳細は「データモデル / 取り込み」。**cost は実 GPT 価格で算出**、thinking は reasoning summary を抽出、file_read はシェルから検出＋パス抽出）
+- **Codex 対応**: Claude Code と並んで Codex セッション（`runner='codex'`、gpt-5.x モデル）を同じビューア/一覧/統計に統合（取り込み詳細は「データモデル / 取り込み」。**cost は実 GPT 価格で算出**、thinking は reasoning summary を抽出、file_read はシェルから検出＋パス抽出、skill は SKILL.md 読み込みから検出）
 - **統計**（`/stats`）: **プロジェクト別集計** + **ファイル別集計（追跡）** + **使われ方観測**（Models / Sub-agent types / Skills / Memory / Hooks 件数）。**左にセッション一覧サイドバー（`SessionSidebar`）を保ち、他画面と同じシェル**（別画面化しない）。プロジェクトは各セッションが変更したファイルパスから導出（`sessions.project` は全 "LLMWiki" なので使えない）→ `deriveProjectKey` が `projects/<slug>` / `wiki` / `memory` / `(external)` 等に分類、セッションは**最多変更ディレクトリ = primary project** に集約。**By file** は変更の多いファイル → 展開で**それを触ったセッション一覧**（ファイル単位で「どこで作業したか」を追跡）。`lib/db.ts` の `getStats()`
 - 差分: ファイル選択 / フォルダ折りたたみ / Unified⇄Split / Hunk 前後 / Linked Event 選択 / Raw JSON
 - **Changed Files ツリー**: 単一子フォルダのチェーンを 1 行に圧縮（VS Code compact folders）＝深いパスでも「実ファイル数 ≒ 行数」。フォルダ（青フォルダアイコン + 太字 + 末尾 `/`）とファイル（色付き A/M/D/R 状態チップ + ファイル名）を明確に区別
+- **Transcript ⇄ Git 双方向リンク**（attribution = hunk⇄event を両向きに辿る）: トランスクリプトの編集イベント詳細の「⎇ Diff →」で、その編集が生んだ差分（該当ファイル + hunk）に Git タブでフォーカス（`SessionViewer.gitFocusEvent` → `DiffViewer.focusEventId`）。逆に Git の Linked Event の「↩ step N」で、その hunk を生んだトランスクリプトのステップ（時点）へ戻る（`DiffViewer.onJumpToEvent` → Transcript タブ + 該当 event 選択）。「この時どう変更したか」と「この差分はどの時のものか」を相互参照できる
 
 ## データモデル / 取り込み
 
 `db/schema.sql`（SQLite, `node:sqlite`）:
 `sessions / transcript_events(parent_id で sub-agent 子ステップ) / changed_files / diff_hunks /
-attributions / event_files / annotations`。型は `lib/types.ts`、read 層は `lib/db.ts`（`getSessionBundle`）。
+attributions / event_files / annotations`。型は `lib/types.ts`、read 層は `lib/db.ts`（`getSessionBundle` / `getStats` / per-session イベント数の `getSessionEventCounts`）。
 
 `scripts/ingest.ts`（`pnpm ingest`）が実 JSONL を取り込む:
 - 1 transcript = 1 session（最近の全セッション、上限は実質撤廃）。
@@ -90,15 +92,15 @@ attributions / event_files / annotations`。型は `lib/types.ts`、read 層は 
 
 ```
 app/
-  layout.tsx            # 共通シェル + 上部ナビ（セッション / Git差分 / 統計）
-  page.tsx              # / : サーバラッパー → components/SessionViewer
+  layout.tsx            # 共通シェル（上部バー = ブランド + パンくずのみ。グローバルナビは廃止）
+  page.tsx              # / : サーバラッパー → components/SessionViewer（getSessionBundle + getStats を渡す）
   diff/page.tsx         # /diff : `/?session=&tab=git` への redirect（レガシー互換）
-  stats/page.tsx        # /stats : サーバラッパー → components/StatsView（getStats）
+  stats/page.tsx        # /stats : `/?tab=stats` への redirect（レガシー互換）
   globals.css           # 白(light)デザインシステム
 components/
-  SessionViewer.tsx     # セッションビューア（client、全インタラクション）。Git タブで DiffViewer を embedded 描画
+  SessionViewer.tsx     # セッションビューア（client、全インタラクション）。Git タブで DiffViewer を、Stats タブで StatsView を embedded 描画
   DiffViewer.tsx        # Git 差分・帰属（client、`embedded` で SessionViewer の Git タブに埋め込み）
-  StatsView.tsx         # /stats（client）: By project + By file + 使われ方観測
+  StatsView.tsx         # Stats タブ（client）: 現在のスコープの4グラフ（コスト/トークン推移・モデル別・イベント構成・最大セッション）を依存ゼロ SVG で描画
   SessionSidebar.tsx    # 共有の左サイドバー（セッション一覧。/stats 等が同じシェルを保つため）
   TimeRibbon.tsx        # 共有の時間リボン
 db/
@@ -121,7 +123,7 @@ playwright.config.ts
 - **thinking は大半が redacted**（Claude Code が署名のみに）。本文のある分だけ表示。
 - **`node:sqlite` を使用**（`AGENTS.md` は `better-sqlite3` 想定だが Node 24 で prebuilt 不在のため）。接続部のみで差し替え可。
 - **commit SHA など transcript に無い値は出さない**（捏造しない）。Cost は transcript の実トークン × 既知モデル単価から導出（[[#データモデル / 取り込み]] 参照）。未知モデルや 0 トークンは "—"。
-- 取り込み対象は **Claude Code + Codex**（Cursor は未対応）。**Codex**: `~/.codex/sessions/**/rollout-*.jsonl`（+ archived）から cwd が同 repo のセッションを `runner='codex'` で取り込み。message / `exec_command`→bash・commit・test・file_read / `apply_patch`→file_edit・write / `update_plan`→todo / `spawn_agent`→subagent。**cost は実 GPT 価格で算出**（`db/pricing.json` の `openai` tier、gpt-5.5/5.4 等。`codex-auto-review` 等の不明モデルのみ "—"）。**thinking は reasoning summary を抽出**（raw 推論は暗号化なのでスキップ）。**file_read は read ツールが無いため `cat`/`sed` 等のシェルから検出 + ファイルパスを抽出**（cwd で絶対化、Claude の read と同格・追跡可能）。token は最後の `token_count` の累計（cached input は cache-read 単価で課金）。`LATHE_NO_CODEX=1` で無効化。
+- 取り込み対象は **Claude Code + Codex**（Cursor は未対応）。**Codex**: `~/.codex/sessions/**/rollout-*.jsonl`（+ archived）から cwd が同 repo のセッションを `runner='codex'` で取り込み。message / `exec_command`→bash・commit・test・file_read・skill / `apply_patch`→file_edit・write / `update_plan`→todo / `spawn_agent`→subagent。**cost は実 GPT 価格で算出**（`db/pricing.json` の `openai` tier、gpt-5.5/5.4 等。`codex-auto-review` 等の不明モデルのみ "—"）。**thinking は reasoning summary を抽出**（raw 推論は暗号化なのでスキップ）。**file_read は read ツールが無いため `cat`/`sed` 等のシェルから検出 + ファイルパスを抽出**（cwd で絶対化、Claude の read と同格・追跡可能）。**skill は専用ツールが無いため `~/.codex/skills/<name>/SKILL.md` の読み込みから検出して `skill` イベント化**（Claude の Skill ツールと同格、Skills タブ/フィルタ/`/stats` に出る。`codexSkillName()`）。token は最後の `token_count` の累計（cached input は cache-read 単価で課金）。`LATHE_NO_CODEX=1` で無効化。
 - スコープは Phase 1（観測）まで。Phase 2 以降（AI 分析 / ハーネス評価 / 改善ワークベンチ / エージェント実行 / 統合）は未着手。
 
 ## 次の一歩（再開時の候補）

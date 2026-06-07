@@ -1,349 +1,229 @@
 "use client";
 
-// components/StatsView.tsx — the /stats page: cross-session analytics.
+// components/StatsView.tsx — the Stats tab: charts for the CURRENT SCOPE.
 //
-// Two things, both Phase-1 observation (no AI / harness *evaluation* — that's
-// Phase 2):
-//  1. Per-project (directory) stats. Sessions are grouped by their PRIMARY
-//     project — the dir (projects/<slug> or a top hub dir) where the session
-//     changed the most files. Click a row to drill into that project's sessions.
-//  2. Light "usage" observation — which models / sub-agent types / skills ran,
-//     as counts. (How well a harness works is Phase 2; this is just what ran.)
+// Rendered embedded in the SessionViewer "Stats" tab. It charts the *visible
+// session set* — the project the sidebar selector scoped to, plus any
+// search/model/error filters — NOT a cross-project table. Project-to-project
+// comparison is the job of the project selector; this tab answers, for the
+// sessions you're looking at: where did the time / tokens / cost / actions go?
+//
+// Four dependency-free charts (inline SVG + CSS bars), all derived from the
+// in-scope sessions (+ per-session event-type counts):
+//   1. Cost & tokens over time (sessions in chronological order)
+//   2. Cost by model
+//   3. Event-type composition (Bash / Edit / Read / Sub-agent / Skill / …)
+//   4. Biggest sessions by cost
+// Phase-1 observation only (no AI / harness evaluation — that's Phase 2).
 
-import Link from "next/link";
-import { useState } from "react";
-import SessionSidebar from "@/components/SessionSidebar";
-import type { StatsBundle, Session } from "@/lib/types";
+import type { Session } from "@/lib/types";
 
-function humanizeDuration(ms: number | null): string {
-  if (ms == null || ms <= 0) return "—";
-  const totalSec = Math.round(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-function fmtInt(n: number): string {
-  return n.toLocaleString("en-US");
-}
+function fmtInt(n: number): string { return n.toLocaleString("en-US"); }
 function fmtCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
+  return String(Math.round(n));
 }
 function fmtCost(c: number | null): string {
   if (c == null) return "—";
   if (c > 0 && c < 0.01) return "<$0.01";
   return `$${c.toFixed(2)}`;
 }
-// show the meaningful tail of an absolute path (the project column carries where)
-function shortPath(p: string): string {
-  const segs = p.split("/").filter(Boolean);
-  if (segs.length <= 3) return p;
-  return "…/" + segs.slice(-3).join("/");
+function shortModel(m: string | null): string {
+  return m ? m.replace(/^claude-/, "") : "(unknown)";
+}
+function parseDate(s: string): string {
+  // "2026-06-04 09:12:00" -> "Jun 4"
+  const [d] = s.split(" ");
+  const [, mo, da] = d.split("-");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${months[Number(mo) - 1] ?? mo} ${Number(da)}`;
 }
 
-export default function StatsView({
-  stats,
-  sessions,
-}: {
-  stats: StatsBundle;
-  sessions: Session[];
-}) {
-  const { totals, projects, files, skills, subagentTypes, memory, hooks, models } = stats;
-  const [open, setOpen] = useState<Set<string>>(() => new Set());
-  function toggle(key: string) {
-    setOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
+// event-type → color (same intent as the timeline palette)
+const EVENT_COLOR: Record<string, string> = {
+  user_message: "#64748b", assistant_message: "#6366f1", thinking: "#a855f7",
+  file_read: "#0ea5e9", file_edit: "#f59e0b", file_write: "#10b981", bash: "#475569",
+  subagent: "#8b5cf6", skill: "#eab308", commit: "#22c55e", test: "#14b8a6",
+  error: "#ef4444", todo: "#94a3b8", memory: "#06b6d4", hook: "#f43f5e",
+};
+const EVENT_LABEL: Record<string, string> = {
+  user_message: "User", assistant_message: "Assistant", thinking: "Thinking",
+  file_read: "Read", file_edit: "Edit", file_write: "Write", bash: "Bash",
+  subagent: "Sub-agent", skill: "Skill", commit: "Commit", test: "Test",
+  error: "Error", todo: "Todo", memory: "Memory", hook: "Hook",
+};
 
-  return (
-    <div className="stats-page">
-      {/* header band (matches the session-viewer sessbar) */}
-      <div className="sessbar">
-        <div className="sessbar-id">
-          <span className="sessbar-title">Statistics</span>
-          <span className="sessbar-meta">
-            {projects.length} project{projects.length === 1 ? "" : "s"} · sessions grouped by the
-            directory each one changed most
-          </span>
-        </div>
-        <div className="sessbar-stats">
-          <div className="kstat">
-            <b>{fmtInt(totals.sessions)}</b>
-            <span>sessions</span>
-          </div>
-          <div className="kstat">
-            <b>{humanizeDuration(totals.durationMs)}</b>
-            <span>duration</span>
-          </div>
-          <div className="kstat">
-            <b>{fmtCompact(totals.tokens)}</b>
-            <span>tokens</span>
-          </div>
-          <div className="kstat">
-            <b>{fmtCost(totals.cost)}</b>
-            <span>cost</span>
+export default function StatsView({
+  scopeSessions,
+  eventCounts,
+  scopeLabel,
+}: {
+  scopeSessions: Session[];
+  eventCounts: Record<string, Record<string, number>>;
+  scopeLabel: string;
+}) {
+  // chronological order for the time axis: oldest → newest. seq is assigned with
+  // the most-recent session = smallest seq, so oldest-first is DESCENDING seq.
+  const chrono = [...scopeSessions].sort((a, b) => b.seq - a.seq);
+
+  // 2. cost by model
+  const byModel = new Map<string, { cost: number; costKnown: boolean; tokens: number; sessions: number }>();
+  for (const s of scopeSessions) {
+    const k = s.model ?? "(unknown)";
+    const m = byModel.get(k) ?? { cost: 0, costKnown: false, tokens: 0, sessions: 0 };
+    if (s.costUsd != null) { m.cost += s.costUsd; m.costKnown = true; }
+    m.tokens += s.tokenUsage ?? 0;
+    m.sessions += 1;
+    byModel.set(k, m);
+  }
+  const models = [...byModel.entries()]
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => b.cost - a.cost || b.tokens - a.tokens);
+
+  // 3. event composition (sum per-session top-level counts across the scope)
+  const evAgg = new Map<string, number>();
+  for (const s of scopeSessions) {
+    const c = eventCounts[s.id];
+    if (!c) continue;
+    for (const [t, n] of Object.entries(c)) evAgg.set(t, (evAgg.get(t) ?? 0) + n);
+  }
+  const events = [...evAgg.entries()].map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count);
+  const evTotal = events.reduce((a, e) => a + e.count, 0);
+
+  // 4. biggest sessions by cost
+  const biggest = [...scopeSessions]
+    .filter((s) => s.costUsd != null)
+    .sort((a, b) => (b.costUsd ?? 0) - (a.costUsd ?? 0))
+    .slice(0, 14);
+
+  const maxCost = Math.max(1e-6, ...chrono.map((s) => s.costUsd ?? 0));
+  const maxTok = Math.max(1, ...chrono.map((s) => s.tokenUsage ?? 0));
+  const maxModelCost = Math.max(1e-6, ...models.map((m) => m.cost));
+  const maxEv = Math.max(1, ...events.map((e) => e.count));
+  const maxBig = Math.max(1e-6, ...biggest.map((s) => s.costUsd ?? 0));
+
+  if (scopeSessions.length === 0) {
+    return (
+      <div className="stats-embed">
+        <div className="stats-scroll">
+          <div className="empty" style={{ padding: 24 }}>
+            No sessions in this scope. Pick a different project (top-left) or clear the filters.
           </div>
         </div>
       </div>
+    );
+  }
 
-      <div
-        className="layout3"
-        style={{ gridTemplateColumns: "var(--sidebar-w) minmax(0,1fr)" }}
-      >
-        <SessionSidebar sessions={sessions} />
-        <main className="main">
-          <div className="stats-scroll">
-        {/* ---------- per-project ---------- */}
-        <section className="stats-section">
-          <div className="stats-h">
-            By project{" "}
-            <span className="muted small">— directory; click a row for its sessions</span>
-          </div>
-          <div className="stats-table">
-            <div className="st-row st-head">
-              <span>Project</span>
-              <span className="num">Sessions</span>
-              <span className="num">Duration</span>
-              <span className="num">Tokens</span>
-              <span className="num">Cost</span>
-              <span className="num">Files</span>
-              <span className="num">+ / −</span>
-              <span className="num">Errors</span>
+  // cost-over-time SVG geometry
+  const W = 760, H = 150, pad = 4;
+  const n = chrono.length;
+  const bw = (W - pad * 2) / n;
+  const tokLine = chrono
+    .map((s, i) => {
+      const x = pad + i * bw + bw / 2;
+      const y = H - ((s.tokenUsage ?? 0) / maxTok) * (H - 16);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+
+  return (
+    <div className="stats-embed">
+      <div className="stats-scroll">
+        <div className="chart-grid">
+          {/* 1. cost & tokens over time */}
+          <section className="chart-card chart-wide">
+            <div className="chart-h">
+              Cost &amp; tokens over time{" "}
+              <span className="muted small">— {scopeLabel}, {n} session{n === 1 ? "" : "s"} in order</span>
             </div>
-            {projects.map((p) => {
-              const isOpen = open.has(p.project);
-              return (
-                <div key={p.project} className="st-group">
-                  <div
-                    className={`st-row st-data${isOpen ? " open" : ""}`}
-                    onClick={() => toggle(p.project)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        toggle(p.project);
-                      }
-                    }}
-                  >
-                    <span className="st-proj">
-                      <span className="tw">{isOpen ? "▾" : "▸"}</span>
-                      <span className="mono">{p.project}</span>
-                    </span>
-                    <span className="num">{fmtInt(p.sessions)}</span>
-                    <span className="num">{humanizeDuration(p.durationMs)}</span>
-                    <span className="num">{fmtCompact(p.tokens)}</span>
-                    <span className="num cost">{p.costKnown ? fmtCost(p.cost) : "—"}</span>
-                    <span className="num">{fmtInt(p.files)}</span>
-                    <span className="num">
-                      <span className="ok">+{fmtInt(p.additions)}</span>{" "}
-                      <span className="err">−{fmtInt(p.deletions)}</span>
-                    </span>
-                    <span className="num">
-                      {p.errors > 0 ? <span className="err">{fmtInt(p.errors)}</span> : "0"}
-                    </span>
-                  </div>
-                  {isOpen && (
-                    <div className="st-children">
-                      {p.sessionRefs.map((s) => (
-                        <Link
-                          key={s.id}
-                          href={`/?session=${encodeURIComponent(s.id)}`}
-                          className="st-srow"
-                        >
-                          <span className="st-stitle">{s.title}</span>
-                          <span className="muted small mono">{s.model ?? "—"}</span>
-                          <span className="num">{humanizeDuration(s.durationMs)}</span>
-                          <span className="num">{fmtCompact(s.tokens)}</span>
-                          <span className="num cost">{fmtCost(s.cost)}</span>
-                          <span className="num">
-                            {s.errors > 0 ? (
-                              <span className="badge err">{s.errors} err</span>
-                            ) : (
-                              ""
-                            )}
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {projects.length === 0 && <div className="empty" style={{ padding: 14 }}>No sessions.</div>}
-          </div>
-        </section>
-
-        {/* ---------- by file (which files the agent worked on, traceable) ---------- */}
-        <section className="stats-section">
-          <div className="stats-h">
-            By file{" "}
-            <span className="muted small">
-              — most-changed files; click a row for the sessions that touched it
-            </span>
-          </div>
-          <div className="stats-table files-table">
-            <div className="st-row st-head">
-              <span>File</span>
-              <span>Project</span>
-              <span className="num">Sessions</span>
-              <span className="num">+ / −</span>
+            <div className="chart-body">
+              <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="none">
+                {chrono.map((s, i) => {
+                  const h = ((s.costUsd ?? 0) / maxCost) * (H - 16);
+                  return (
+                    <rect
+                      key={s.id}
+                      x={pad + i * bw}
+                      y={H - h}
+                      width={Math.max(0.6, bw - 0.6)}
+                      height={h}
+                      fill="var(--accent)"
+                      opacity={0.85}
+                    >
+                      <title>{`${s.title}\n${parseDate(s.startedAt)} · ${fmtCost(s.costUsd)} · ${fmtCompact(s.tokenUsage)} tok`}</title>
+                    </rect>
+                  );
+                })}
+                {n > 1 && (
+                  <polyline points={tokLine} fill="none" stroke="#10b981" strokeWidth={1.3} opacity={0.8} />
+                )}
+              </svg>
             </div>
-            {files.map((f) => {
-              const key = `file:${f.path}`;
-              const isOpen = open.has(key);
-              return (
-                <div key={f.path} className="st-group">
-                  <div
-                    className={`st-row st-data${isOpen ? " open" : ""}`}
-                    onClick={() => toggle(key)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        toggle(key);
-                      }
-                    }}
-                  >
-                    <span className="st-proj">
-                      <span className="tw">{isOpen ? "▾" : "▸"}</span>
-                      <span className="mono" title={f.path}>
-                        {shortPath(f.path)}
-                      </span>
-                    </span>
-                    <span className="mono small muted">{f.project}</span>
-                    <span className="num">{fmtInt(f.sessions)}</span>
-                    <span className="num">
-                      <span className="ok">+{fmtInt(f.additions)}</span>{" "}
-                      <span className="err">−{fmtInt(f.deletions)}</span>
-                    </span>
-                  </div>
-                  {isOpen && (
-                    <div className="st-children">
-                      {f.sessionRefs.map((s) => (
-                        <Link
-                          key={s.id}
-                          href={`/?session=${encodeURIComponent(s.id)}`}
-                          className="st-srow"
-                        >
-                          <span className="st-stitle">{s.title}</span>
-                          <span className="muted small mono">{s.model ?? "—"}</span>
-                          <span className="num">{humanizeDuration(s.durationMs)}</span>
-                          <span className="num">{fmtCompact(s.tokens)}</span>
-                          <span className="num cost">{fmtCost(s.cost)}</span>
-                          <span className="num">
-                            {s.errors > 0 ? <span className="badge err">{s.errors} err</span> : ""}
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {files.length === 0 && (
-              <div className="empty" style={{ padding: 14 }}>
-                No changed files.
-              </div>
-            )}
-          </div>
-        </section>
+            <div className="chart-legend">
+              <span><i style={{ background: "var(--accent)" }} />cost (bars)</span>
+              <span><i style={{ background: "#10b981" }} />tokens (line)</span>
+              <span className="spacer" style={{ flex: 1 }} />
+              <span>{parseDate(chrono[0].startedAt)} → {parseDate(chrono[n - 1].startedAt)} · peak {fmtCost(maxCost)} / {fmtCompact(maxTok)} tok</span>
+            </div>
+          </section>
 
-        {/* ---------- usage observation ---------- */}
-        <section className="stats-section">
-          <div className="stats-h">
-            Usage{" "}
-            <span className="muted small">
-              — observation only: what scaffolding ran (harness evaluation is Phase 2)
-            </span>
-          </div>
-          <div className="usage-grid">
-            <div className="usage-card">
-              <div className="uh">
-                Models <span className="count">({models.length})</span>
-              </div>
+          {/* 2. cost by model */}
+          <section className="chart-card">
+            <div className="chart-h">Cost by model</div>
+            <div className="chart-body bars">
               {models.map((m) => (
-                <div key={m.name} className="urow">
-                  <span className="uname mono">{m.name}</span>
-                  <span className="num">{fmtInt(m.sessions)} ses</span>
-                  <span className="num">{fmtCompact(m.tokens)}</span>
-                  <span className="num cost">{fmtCost(m.cost)}</span>
+                <div className="hbar-row" key={m.name}>
+                  <span className="hbar-label mono" title={`${m.name} · ${m.sessions} ses · ${fmtCompact(m.tokens)} tok`}>
+                    {shortModel(m.name)}
+                  </span>
+                  <span className="hbar-track">
+                    <span className="hbar-fill" style={{ width: `${(m.cost / maxModelCost) * 100}%`, background: "var(--accent)" }} />
+                  </span>
+                  <span className="hbar-val">{m.costKnown ? fmtCost(m.cost) : "—"}</span>
                 </div>
               ))}
             </div>
-            <div className="usage-card">
-              <div className="uh">
-                Sub-agent types <span className="count">({subagentTypes.length})</span>
-              </div>
-              {subagentTypes.length === 0 ? (
-                <div className="empty">No sub-agents.</div>
-              ) : (
-                subagentTypes.map((s) => (
-                  <div key={s.name} className="urow">
-                    <span className="uname">{s.name}</span>
-                    <span className="num">{fmtInt(s.count)} runs</span>
-                  </div>
-                ))
-              )}
+          </section>
+
+          {/* 3. event composition */}
+          <section className="chart-card">
+            <div className="chart-h">
+              Where the actions went <span className="muted small">— {fmtInt(evTotal)} steps</span>
             </div>
-            <div className="usage-card">
-              <div className="uh">
-                Skills <span className="count">({skills.length})</span>
-              </div>
-              {skills.length === 0 ? (
-                <div className="empty">No skills used.</div>
-              ) : (
-                skills.map((s) => (
-                  <div key={s.name} className="urow">
-                    <span className="uname">{s.name}</span>
-                    <span className="num">{fmtInt(s.count)}×</span>
-                  </div>
-                ))
-              )}
+            <div className="chart-body bars">
+              {events.map((e) => (
+                <div className="hbar-row" key={e.type}>
+                  <span className="hbar-label">{EVENT_LABEL[e.type] ?? e.type}</span>
+                  <span className="hbar-track">
+                    <span className="hbar-fill" style={{ width: `${(e.count / maxEv) * 100}%`, background: EVENT_COLOR[e.type] ?? "#94a3b8" }} />
+                  </span>
+                  <span className="hbar-val">{fmtInt(e.count)}</span>
+                </div>
+              ))}
+              {events.length === 0 && <div className="empty">No events in scope.</div>}
             </div>
-            <div className="usage-card">
-              <div className="uh">
-                Memory loaded <span className="count">({memory.length})</span>
-              </div>
-              {memory.length === 0 ? (
-                <div className="empty">No nested memory.</div>
-              ) : (
-                memory.map((m) => (
-                  <div key={m.name} className="urow">
-                    <span className="uname mono">{m.name}</span>
-                    <span className="num">{fmtInt(m.count)}×</span>
-                  </div>
-                ))
-              )}
+          </section>
+
+          {/* 4. biggest sessions by cost */}
+          <section className="chart-card chart-wide">
+            <div className="chart-h">
+              Biggest sessions by cost <span className="muted small">— top {biggest.length}</span>
             </div>
-            <div className="usage-card">
-              <div className="uh">
-                Hooks fired <span className="count">({hooks.length})</span>
-              </div>
-              {hooks.length === 0 ? (
-                <div className="empty">No hooks.</div>
-              ) : (
-                hooks.map((h) => (
-                  <div key={h.name} className="urow">
-                    <span className="uname mono">{h.name}</span>
-                    <span className="num">{fmtInt(h.count)}×</span>
-                  </div>
-                ))
-              )}
+            <div className="chart-body bars">
+              {biggest.map((s) => (
+                <div className="hbar-row" key={s.id}>
+                  <span className="hbar-label ttl" title={s.title}>{s.title}</span>
+                  <span className="hbar-track">
+                    <span className="hbar-fill" style={{ width: `${((s.costUsd ?? 0) / maxBig) * 100}%`, background: "var(--accent)" }} />
+                  </span>
+                  <span className="hbar-val">{fmtCost(s.costUsd)}</span>
+                </div>
+              ))}
+              {biggest.length === 0 && <div className="empty">No priceable sessions in scope.</div>}
             </div>
-          </div>
-        </section>
-          </div>
-        </main>
+          </section>
+        </div>
       </div>
     </div>
   );

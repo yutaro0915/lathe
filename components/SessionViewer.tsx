@@ -14,9 +14,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import TimeRibbon from "@/components/TimeRibbon";
 import DiffViewer from "@/components/DiffViewer";
+import StatsView from "@/components/StatsView";
 import type {
   Session,
   SessionBundle,
+  StatsBundle,
   TranscriptEvent,
   EventType,
   AnnotationKind,
@@ -177,7 +179,7 @@ const ALL_TYPES: EventType[] = [
 // Tools tab shows these "tool-ish" event types.
 const TOOL_TYPES: EventType[] = ["bash", "file_read", "file_edit", "file_write", "test", "commit"];
 
-type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "raw";
+type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "raw" | "stats";
 type SortKey = "recent" | "oldest" | "tokens";
 
 const LS_PINS = "lathe.pins";
@@ -225,11 +227,17 @@ export default function SessionViewer({
   sessions,
   bundle,
   currentId,
+  stats,
+  eventCounts,
+  sessionProject,
   initialTab = "transcript",
 }: {
   sessions: Session[];
   bundle: SessionBundle;
   currentId: string;
+  stats: StatsBundle;
+  eventCounts: Record<string, Record<string, number>>;
+  sessionProject: Record<string, string>;
   initialTab?: Tab;
 }) {
   const router = useRouter();
@@ -243,6 +251,7 @@ export default function SessionViewer({
   const [sessionSearch, setSessionSearch] = useState("");
   const [modelFilter, setModelFilter] = useState("all");
   const [errorsFilter, setErrorsFilter] = useState("any");
+  const [projectFilter, setProjectFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
 
   // ---- timeline / tab / selection state -----------------------------------
@@ -253,6 +262,9 @@ export default function SessionViewer({
 
   // ---- Subagents tab: which run is open ("overview" or a launcher event id) --
   const [subAgentTab, setSubAgentTab] = useState<string>("overview");
+  // transcript → Git jump target (the edit whose diff to focus). Set only via the
+  // "see this edit's diff" action; cleared when Git is opened from the tab bar.
+  const [gitFocusEvent, setGitFocusEvent] = useState<string | undefined>(undefined);
 
   // Selected event seed: the failing build (bash, exit != 0) is most
   // informative; fall back gracefully. Re-seed whenever the session changes.
@@ -353,6 +365,8 @@ export default function SessionViewer({
       if (modelFilter !== "all" && s.model !== modelFilter) return false;
       if (errorsFilter === "yes" && s.errorCount === 0) return false;
       if (errorsFilter === "no" && s.errorCount > 0) return false;
+      if (projectFilter !== "all" && (sessionProject[s.id] ?? "(no edits)") !== projectFilter)
+        return false;
       return true;
     });
     list = [...list];
@@ -360,7 +374,19 @@ export default function SessionViewer({
     else if (sortKey === "oldest") list.sort((a, b) => b.seq - a.seq);
     else if (sortKey === "tokens") list.sort((a, b) => b.tokenUsage - a.tokenUsage);
     return list;
-  }, [sessions, sessionSearch, modelFilter, errorsFilter, sortKey]);
+  }, [sessions, sessionSearch, modelFilter, errorsFilter, projectFilter, sortKey, sessionProject]);
+
+  // Totals for the CURRENT SCOPE (the visible session set = project selector +
+  // filters). Drives the Stats tab's header bar and grounds the Stats charts.
+  const scopeTotals = useMemo(() => {
+    let durationMs = 0, tokens = 0, cost = 0, costKnown = false;
+    for (const s of visibleSessions) {
+      durationMs += s.durationMs ?? 0;
+      tokens += s.tokenUsage ?? 0;
+      if (s.costUsd != null) { cost += s.costUsd; costKnown = true; }
+    }
+    return { sessions: visibleSessions.length, durationMs, tokens, cost, costKnown };
+  }, [visibleSessions]);
 
   // ---- derived: filtered timeline events ----------------------------------
   // sub-agent child steps grouped under their launching event id
@@ -385,6 +411,18 @@ export default function SessionViewer({
     () => events.filter((e) => e.type === "subagent" && !e.parentId),
     [events]
   );
+
+  // which transcript events produced a Git hunk (via attribution) — these offer a
+  // "see this edit's diff" jump into the Git tab (the reverse link lives there).
+  const eventsWithDiff = useMemo(() => {
+    const s = new Set<string>();
+    for (const hunkList of Object.values(bundle.hunks)) {
+      for (const h of hunkList) {
+        for (const a of bundle.attributions[h.id] ?? []) if (a.eventId) s.add(a.eventId);
+      }
+    }
+    return s;
+  }, [bundle.hunks, bundle.attributions]);
 
   // Roll up one invocation: its child steps, declared tool-call count, and whether
   // any step failed. Cheap enough to call inline while rendering.
@@ -563,6 +601,37 @@ export default function SessionViewer({
   return (
     <>
       {/* ===================== Band 2 — metrics ===================== */}
+      {activeTab === "stats" ? (
+        /* Stats tab: the bar reports the CURRENT SCOPE's totals (the visible
+           session set = project selector + filters), not one session. */
+        <div className="sessbar">
+          <div className="sessbar-id">
+            <span className="sessbar-title">Statistics</span>
+            <span className="sessbar-meta">
+              {projectFilter === "all" ? "All projects" : projectFilter} · {scopeTotals.sessions}{" "}
+              session{scopeTotals.sessions === 1 ? "" : "s"} in scope
+            </span>
+          </div>
+          <div className="sessbar-stats">
+            <div className="kstat">
+              <b>{fmtInt(scopeTotals.sessions)}</b>
+              <span>sessions</span>
+            </div>
+            <div className="kstat">
+              <b>{humanizeDuration(scopeTotals.durationMs)}</b>
+              <span>duration</span>
+            </div>
+            <div className="kstat">
+              <b>{fmtCompact(scopeTotals.tokens)}</b>
+              <span>tokens</span>
+            </div>
+            <div className="kstat">
+              <b>{scopeTotals.costKnown ? fmtCost(scopeTotals.cost) : "—"}</b>
+              <span>cost</span>
+            </div>
+          </div>
+        </div>
+      ) : (
       <div className="sessbar">
         <div className="sessbar-id">
           <span className={`runner-dot ${primary.runner}`} aria-hidden />
@@ -615,6 +684,7 @@ export default function SessionViewer({
           </div>
         </div>
       </div>
+      )}
 
       {/* ===================== Band 3 — tabs ===================== */}
       <div className="tabs">
@@ -626,13 +696,17 @@ export default function SessionViewer({
             ["skills", "Skills"],
             ["subagents", "Subagents"],
             ["raw", "Raw JSON"],
+            ["stats", "Stats"],
           ] as const
         ).map(([key, label]) => (
           <button
             key={key}
             type="button"
             className={`tab${activeTab === key ? " active" : ""}`}
-            onClick={() => setActiveTab(key)}
+            onClick={() => {
+              setActiveTab(key);
+              if (key === "git") setGitFocusEvent(undefined);
+            }}
           >
             {label}
           </button>
@@ -652,8 +726,19 @@ export default function SessionViewer({
         <aside className="sidebar">
           <div className="project-select">
             <span aria-hidden>⊞</span>
-            <span>{primary.project}</span>
-            <span className="caret">⌄</span>
+            <select
+              className="project-picker"
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+              title="Scope the session list & Stats to one project"
+            >
+              <option value="all">All projects · {sessions.length} sessions</option>
+              {stats.projects.map((p) => (
+                <option key={p.project} value={p.project}>
+                  {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="search">
@@ -807,6 +892,18 @@ export default function SessionViewer({
             sessions={sessions}
             bundle={bundle}
             currentId={currentId}
+            focusEventId={gitFocusEvent}
+            onJumpToEvent={(eid) => {
+              setActiveTab("transcript");
+              setSelectedEventId(eid);
+              setGitFocusEvent(undefined);
+            }}
+          />
+        ) : activeTab === "stats" ? (
+          <StatsView
+            scopeSessions={visibleSessions}
+            eventCounts={eventCounts}
+            scopeLabel={projectFilter === "all" ? "All projects" : projectFilter}
           />
         ) : (
           <>
@@ -1409,6 +1506,19 @@ export default function SessionViewer({
               >
                 🗒 {selNote ? "Edit Note" : "Add Note"}
               </button>
+              {selected && eventsWithDiff.has(selected.id) && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setGitFocusEvent(selected.id);
+                    setActiveTab("git");
+                  }}
+                  title="See the Git diff this edit produced (jump to the Git tab)"
+                >
+                  ⎇ Diff →
+                </button>
+              )}
             </div>
 
             {/* note editor (inline) */}

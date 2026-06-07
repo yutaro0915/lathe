@@ -788,6 +788,15 @@ function codexReadPath(cmd: string, cwd: string): string | null {
   return null;
 }
 
+// Codex has no dedicated skill tool: a skill is invoked by reading its SKILL.md
+// (e.g. `sed -n '1,220p' ~/.codex/skills/.system/openai-docs/SKILL.md`). Pull the
+// skill name (the SKILL.md's parent dir) so that read surfaces as a first-class
+// `skill` event, like Claude's Skill tool.
+function codexSkillName(cmd: string): string | null {
+  const m = cmd.match(/\.codex\/skills\/(?:[^\s'"]*\/)?([^/\s'"]+)\/SKILL\.md/);
+  return m ? m[1] : null;
+}
+
 function listCodexRollouts(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -915,6 +924,7 @@ function buildCodexSession(file: string, titles: Map<string, string>): Built | n
         const stdout = oi >= 0 ? outText.slice(oi + 7).replace(/^\n/, '') : outText;
         let etype = 'bash';
         let readPath: string | null = null;
+        let skillName: string | null = null;
         if (isCommit(cmd)) etype = 'commit';
         else if (isTest(cmd)) etype = 'test';
         else if (/^\s*(cat|sed -n|head|tail|bat|less)\b/.test(cmd)) {
@@ -922,8 +932,13 @@ function buildCodexSession(file: string, titles: Map<string, string>): Built | n
           // Pull the file out so the read is first-class (path + linked files).
           etype = 'file_read';
           readPath = codexReadPath(cmd, cwd);
+          // ...and reading a skill's SKILL.md IS how Codex invokes a skill —
+          // promote it to a `skill` event (keep the path) so it shows up in the
+          // Skills tab and /stats, like Claude's Skill tool.
+          skillName = codexSkillName(cmd);
+          if (skillName) etype = 'skill';
         }
-        const ev = addEvent({ ts, type: etype, actor: 'assistant', title: preview(cmd, 80), body: stdout.slice(0, 3000), file_path: readPath, command: cmd, exit_code: exit, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: 'exec_command' }) });
+        const ev = addEvent({ ts, type: etype, actor: 'assistant', title: skillName ? `Skill · ${skillName}` : preview(cmd, 80), body: stdout.slice(0, 3000), file_path: readPath, command: cmd, exit_code: exit, duration_ms: null, token_usage: null, meta: JSON.stringify(skillName ? { tool: 'exec_command', skill: skillName } : { tool: 'exec_command' }) });
         if (readPath) eventFiles.push({ event_id: ev.id, path: readPath, role: 'read' });
         if (exit != null && exit !== 0) annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'error', note: preview(cmd, 60) });
         else if (etype === 'commit') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'commit', note: preview(cmd, 60) });

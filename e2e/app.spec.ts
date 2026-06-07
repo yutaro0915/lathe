@@ -402,52 +402,49 @@ test.describe("Time ribbon & annotations", () => {
 });
 
 test.describe("Stats (/stats)", () => {
-  test("per-project table + usage cards render; a project drills into its sessions", async ({
-    page,
-  }) => {
-    await page.goto("/stats");
+  test("the Stats tab opens scoped charts in-page (no separate screen)", async ({ page }) => {
+    await page.goto("/?tab=stats");
     await expect(page.locator(".sessbar-title")).toHaveText(/Statistics/);
-    await expect(page.locator(".st-head").first()).toContainText("Cost");
-    const rows = page.locator(".st-data");
-    expect(await rows.count()).toBeGreaterThan(1);
-    // usage observation cards: models / sub-agent types / skills / memory / hooks
-    expect(await page.locator(".usage-card").count()).toBeGreaterThanOrEqual(5);
-    await expect(page.locator(".usage-card .uh").first()).toContainText("Models");
-    await expect(
-      page.locator(".usage-card .uh", { hasText: "Hooks fired" })
-    ).toBeVisible();
-    // drilling into a project reveals its sessions, each linking to the viewer
-    await rows.first().click();
-    const sref = page.locator(".st-children .st-srow").first();
-    await expect(sref).toBeVisible();
-    await expect(sref).toHaveAttribute("href", /\/\?session=/);
+    // in-page tab — it must NOT be a separate /stats screen
+    await expect(page).not.toHaveURL(/\/stats/);
+    await expect(page.locator(".stats-embed")).toBeVisible();
+    // four charts: cost-over-time + cost-by-model + event composition + biggest
+    expect(await page.locator(".chart-card").count()).toBeGreaterThanOrEqual(4);
+    // the time chart is a real SVG with bars; the CSS-bar charts render rows
+    expect(await page.locator(".chart-svg rect").count()).toBeGreaterThan(0);
+    expect(await page.locator(".hbar-row").count()).toBeGreaterThan(0);
   });
 
-  test("the header 統計 link opens /stats", async ({ page }) => {
-    await page.goto("/");
-    await page.locator(".appnav a", { hasText: "統計" }).click();
-    await expect(page).toHaveURL(/\/stats/);
+  test("legacy /stats redirects into the in-page Stats tab", async ({ page }) => {
+    await page.goto("/stats"); // 307 → /?tab=stats
+    await expect(page).not.toHaveURL(/\/stats$/);
     await expect(page.locator(".sessbar-title")).toHaveText(/Statistics/);
+    await expect(page.locator(".chart-card").first()).toBeVisible();
+  });
+
+  test("the project selector scopes the session list & charts", async ({ page }) => {
+    await page.goto("/?tab=stats");
+    const picker = page.locator(".project-picker");
+    const values = await picker
+      .locator("option")
+      .evaluateAll((opts) =>
+        (opts as HTMLOptionElement[]).map((o) => o.value).filter((v) => v !== "all")
+      );
+    expect(values.length).toBeGreaterThan(0);
+    await picker.selectOption(values[0]);
+    // the scope header drops "All projects" and the charts re-render for the scope
+    await expect(page.locator(".sessbar-meta")).not.toContainText("All projects");
+    await expect(page.locator(".chart-card").first()).toBeVisible();
   });
 
   test("stats keeps the session-list sidebar (same shell, not a separate screen)", async ({
     page,
   }) => {
-    await page.goto("/stats");
+    await page.goto("/?tab=stats");
     await expect(page.locator(".layout3 .sidebar .session-item").first()).toBeVisible();
-    // clicking a session in the sidebar goes to the viewer
-    await page.locator(".layout3 .sidebar .session-item").first().click();
+    // clicking a (non-active) session in the sidebar navigates the viewer
+    await page.locator(".layout3 .sidebar .session-item:not(.active)").first().click();
     await expect(page).toHaveURL(/\?session=/);
-  });
-
-  test("by-file table drills a file into the sessions that touched it", async ({ page }) => {
-    await page.goto("/stats");
-    const fileRow = page.locator(".files-table .st-data").first();
-    await expect(fileRow).toBeVisible();
-    await fileRow.click();
-    const sref = page.locator(".files-table .st-children .st-srow").first();
-    await expect(sref).toBeVisible();
-    await expect(sref).toHaveAttribute("href", /\/\?session=/);
   });
 });
 
@@ -467,10 +464,14 @@ test.describe("Harness signals", () => {
     await expect(page.locator(".timeline .event-icon.memory").first()).toBeVisible();
   });
 
-  test("stats surfaces which memory files loaded and which hooks fired", async ({ page }) => {
-    await page.goto("/stats");
-    await expect(page.locator(".usage-card .uh", { hasText: "Memory loaded" })).toBeVisible();
-    await expect(page.locator(".usage-card .uh", { hasText: "Hooks fired" })).toBeVisible();
+  test("stats charts break down where the actions went", async ({ page }) => {
+    await page.goto("/?tab=stats");
+    // memory loads / hook firings are first-class event types — they roll up into
+    // the Stats event-composition chart (and stay filterable in the transcript).
+    await expect(
+      page.locator(".chart-card", { hasText: "Where the actions went" })
+    ).toBeVisible();
+    await expect(page.locator(".chart-card .hbar-row").first()).toBeVisible();
   });
 });
 
@@ -484,13 +485,53 @@ test.describe("Codex support", () => {
     ).toBeVisible();
   });
 
-  test("GPT models appear in stats and are priced (Codex cost no longer blank)", async ({
+  test("the model chart includes Codex GPT models", async ({ page }) => {
+    await page.goto("/?tab=stats");
+    // Codex GPT models land in the same per-model cost breakdown as Claude
+    const modelChart = page.locator(".chart-card", { hasText: "Cost by model" });
+    await expect(modelChart).toBeVisible();
+    await expect(modelChart).toContainText(/gpt-5/i);
+  });
+
+  test("Codex skill use (reading a SKILL.md) is surfaced as a skill event", async ({
     page,
   }) => {
-    await page.goto("/stats");
-    const models = page.locator(".usage-card", { hasText: "Models" });
-    await expect(models).toContainText(/gpt-5/i);
-    // a priced GPT model row carries a real $ figure
-    await expect(models.locator(".urow", { hasText: /gpt-5/i }).first()).toContainText("$");
+    // a Codex session that used the openai-docs skill by reading its SKILL.md.
+    // Codex has no skill tool, so this is detected from the shell read — it must
+    // still show up as a first-class skill (it was previously lost as a file_read).
+    await page.goto("/?session=019e9d30-e0a9-7752-b11c-70aa8644e17f&tab=skills");
+    await expect(page.locator(".timeline .event-icon.skill").first()).toBeVisible();
+    await expect(page.locator(".timeline")).toContainText(/openai-docs/);
+  });
+});
+
+test.describe("Transcript ⇄ Git cross-links", () => {
+  // an edit-heavy Claude session, so attributed hunks definitely exist
+  const SID = "144d8b23-cb28-4208-9b0c-98dfa585a741";
+
+  test("an edit jumps to its diff, and the diff jumps back to the producing step", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SID}`);
+    // select a file-edit step in the transcript
+    const editRow = page
+      .locator(".event-row")
+      .filter({ has: page.locator(".event-icon.file_edit") })
+      .first();
+    await expect(editRow).toBeVisible();
+    await editRow.click();
+    // its detail panel offers a jump to the Git diff this edit produced
+    const diffBtn = page.locator(".detail-actions .btn", { hasText: /Diff/ });
+    await expect(diffBtn).toBeVisible();
+    await diffBtn.click();
+    // now on the Git tab, diff embedded, with a linked-event back-link
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Git/);
+    await expect(page.locator(".diff-embed")).toBeVisible();
+    const back = page.locator(".le-jump").first();
+    await expect(back).toBeVisible();
+    // the back-link returns to the transcript with an event selected
+    await back.click();
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
+    await expect(page.locator(".event-row.selected")).toHaveCount(1);
   });
 });

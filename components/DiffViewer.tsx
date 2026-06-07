@@ -400,6 +400,13 @@ interface Props {
   // shell, and the session list stays in the host's sidebar. Standalone /diff
   // (embedded=false) still renders the full page.
   embedded?: boolean;
+  // Bidirectional transcript↔diff link:
+  //  • focusEventId — when the user jumps in from the transcript ("see this
+  //    edit's diff"), open the file + hunk that this event produced.
+  //  • onJumpToEvent — jump back out ("which step produced this diff"): the host
+  //    switches to the Transcript tab and selects the given event.
+  focusEventId?: string;
+  onJumpToEvent?: (eventId: string) => void;
 }
 
 const RUNNER_LABEL: Record<string, string> = {
@@ -408,24 +415,40 @@ const RUNNER_LABEL: Record<string, string> = {
   cursor: "Cursor",
 };
 
-export default function DiffViewer({ sessions, bundle, currentId, embedded = false }: Props) {
+export default function DiffViewer({ sessions, bundle, currentId, embedded = false, focusEventId, onJumpToEvent }: Props) {
   const router = useRouter();
   const s = bundle.session;
   const files = bundle.changedFiles;
 
   /* ---- state -------------------------------------------------------------- */
 
-  // Active file: prefer one whose hunks carry a mix of confidences; else first.
+  // The file + hunk a given event produced (via attribution) — powers the
+  // transcript→diff jump (focusEventId) and the diff→transcript back-link.
+  const focusHit = useMemo(() => {
+    if (!focusEventId) return null;
+    for (const f of files) {
+      const hs = bundle.hunks[f.id] ?? [];
+      const hi = hs.findIndex((h) =>
+        (bundle.attributions[h.id] ?? []).some((a) => a.eventId === focusEventId)
+      );
+      if (hi >= 0) return { fileId: f.id, hunkIndex: hi };
+    }
+    return null;
+  }, [focusEventId, files, bundle.hunks, bundle.attributions]);
+
+  // Active file: the focused event's file if we jumped in; else a mixed-confidence
+  // file; else the first.
   const initialFileId = useMemo(() => {
+    if (focusHit) return focusHit.fileId;
     const mixed = files.find((f) => f.path.endsWith("globals.css"));
     return (mixed ?? files[0])?.id ?? "";
-  }, [files]);
+  }, [files, focusHit]);
 
   const [activeFileId, setActiveFileId] = useState<string>(initialFileId);
   const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
-  const [hunkIndex, setHunkIndex] = useState<number>(0);
+  const [hunkIndex, setHunkIndex] = useState<number>(focusHit?.hunkIndex ?? 0);
   const [selectedLinkedEventId, setSelectedLinkedEventId] =
-    useState<string | null>(null);
+    useState<string | null>(focusEventId ?? null);
   const [showRawJson, setShowRawJson] = useState<boolean>(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
     () => new Set()
@@ -435,11 +458,11 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
   // When the session (props) changes, reset per-session UI state.
   useEffect(() => {
     setActiveFileId(initialFileId);
-    setHunkIndex(0);
-    setSelectedLinkedEventId(null);
+    setHunkIndex(focusHit?.hunkIndex ?? 0);
+    setSelectedLinkedEventId(focusEventId ?? null);
     setShowRawJson(false);
     setCollapsedFolders(new Set());
-  }, [currentId, initialFileId]);
+  }, [currentId, initialFileId, focusHit, focusEventId]);
 
   /* ---- derived: active file + its hunks / attributions / events ---------- */
 
@@ -1079,6 +1102,19 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
                       <span className="le-conf">{confidenceLabel(le.confidence)}</span>
                     </div>
                   </div>
+                  {onJumpToEvent && (
+                    <button
+                      type="button"
+                      className="le-jump"
+                      title="Jump to the transcript step that produced this hunk"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onJumpToEvent(le.event.id);
+                      }}
+                    >
+                      ↩ step {le.event.seq}
+                    </button>
+                  )}
                 </div>
               );
             })}

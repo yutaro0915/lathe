@@ -659,3 +659,19 @@ export function getStats(): StatsBundle {
 
   return { totals, projects: projectList, files, skills, subagentTypes, memory, hooks, models };
 }
+
+// Per-session top-level event-type counts (parent_id IS NULL = the main spine,
+// matching the transcript timeline). Lets the Stats tab chart event composition
+// for ANY scope (a project / a filtered set) by summing the in-scope sessions
+// client-side — without shipping every event to the client.
+export function getSessionEventCounts(): Record<string, Record<string, number>> {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      "SELECT session_id, type, COUNT(*) n FROM transcript_events WHERE parent_id IS NULL GROUP BY session_id, type"
+    )
+    .all() as unknown as { session_id: string; type: string; n: number }[];
+  const out: Record<string, Record<string, number>> = {};
+  for (const r of rows) (out[r.session_id] ??= {})[r.type] = r.n;
+  return out;
+}
