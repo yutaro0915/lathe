@@ -13,25 +13,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import StatsView from "@/components/StatsView";
+import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@/lib/format";
 import type { Session, StatsBundle } from "@/lib/types";
-
-function fmtInt(n: number): string { return n.toLocaleString("en-US"); }
-function fmtCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-function fmtCost(c: number): string {
-  if (!isFinite(c) || c <= 0) return "—";
-  return `$${c.toFixed(2)}`;
-}
-function humanizeDuration(ms: number | null): string {
-  if (ms == null || ms <= 0) return "—";
-  const totalMin = Math.round(ms / 60_000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
 
 export default function OverviewView({
   sessions,
@@ -80,7 +63,7 @@ export default function OverviewView({
             <span>sessions</span>
           </div>
           <div className="kstat">
-            <b>{humanizeDuration(scopeTotals.durationMs)}</b>
+            <b>{scopeTotals.durationMs > 0 ? humanizeDuration(scopeTotals.durationMs) : "—"}</b>
             <span>duration</span>
           </div>
           <div className="kstat">
@@ -88,7 +71,7 @@ export default function OverviewView({
             <span>tokens</span>
           </div>
           <div className="kstat">
-            <b>{fmtCost(scopeTotals.cost)}</b>
+            <b>{scopeTotals.cost > 0 ? fmtCost(scopeTotals.cost) : "—"}</b>
             <span>cost</span>
           </div>
         </div>
@@ -143,7 +126,7 @@ export default function OverviewView({
                     )}
                   </div>
                   <div className="si-meta">
-                    <span>{humanizeDuration(s.durationMs)}</span>
+                    <span>{s.durationMs != null && s.durationMs > 0 ? humanizeDuration(s.durationMs) : "—"}</span>
                     <span className="dot">·</span>
                     <span>{s.model ?? "—"}</span>
                   </div>

@@ -17,6 +17,15 @@ import DiffViewer from "@/components/DiffViewer";
 import SessionStatsView from "@/components/SessionStatsView";
 import Link from "next/link";
 import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
+import {
+  fmtCompact,
+  fmtCost,
+  fmtInt,
+  fmtTok,
+  humanizeDuration,
+  parseStamp,
+  shortModel,
+} from "@/lib/format";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import type {
   Session,
@@ -26,63 +35,10 @@ import type {
   AnnotationKind,
 } from "@/lib/types";
 
-// ---- small formatting helpers (copied from the original page) --------------
-
-function humanizeDuration(ms: number | null): string {
-  if (ms == null) return "—";
-  const totalSec = Math.round(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
 function durLabel(ms: number | null): string {
   if (ms == null) return "";
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function fmtInt(n: number): string {
-  return n.toLocaleString("en-US");
-}
-
-// "12.4K" style compaction for big token counts in chips.
-function fmtTok(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return String(n);
-}
-
-// "12.1M" / "12.4K" compaction for the header stat cluster.
-function fmtCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function fmtCost(c: number | null): string {
-  if (c == null) return "—";
-  if (c > 0 && c < 0.01) return "<$0.01";
-  return `$${c.toFixed(2)}`;
-}
-
-// Compact model label for chips: "claude-opus-4-8" -> "opus-4-8".
-function shortModel(m: string | null | undefined): string {
-  if (!m) return "—";
-  return m.replace(/^claude-/, "");
-}
-
-// "2026-06-04 09:12:00" -> { date:"Jun 4", time:"09:12" }
-function parseStamp(s: string): { date: string; time: string } {
-  const [datePart, timePart = ""] = s.split(" ");
-  const [, mo, da] = datePart.split("-");
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const moName = months[Number(mo) - 1] ?? mo;
-  const date = `${moName} ${Number(da)}`;
-  const time = timePart.slice(0, 5);
-  return { date, time };
 }
 
 // Map an event type onto a minimap "kind" class (legend buckets).

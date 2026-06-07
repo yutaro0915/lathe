@@ -17,22 +17,8 @@
 // Phase-1 observation only (no AI / harness evaluation — that's Phase 2).
 
 import { EVENT_COLOR, EVENT_LABEL } from "@/lib/event-display";
+import { fmtCompact, fmtCost, fmtInt, shortModel } from "@/lib/format";
 import type { EventType, Session } from "@/lib/types";
-
-function fmtInt(n: number): string { return n.toLocaleString("en-US"); }
-function fmtCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(Math.round(n));
-}
-function fmtCost(c: number | null): string {
-  if (c == null) return "—";
-  if (c > 0 && c < 0.01) return "<$0.01";
-  return `$${c.toFixed(2)}`;
-}
-function shortModel(m: string | null): string {
-  return m ? m.replace(/^claude-/, "") : "(unknown)";
-}
 function parseDate(s: string): string {
   // "2026-06-04 09:12:00" -> "Jun 4"
   const [d] = s.split(" ");

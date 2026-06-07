@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import TimeRibbon from "@/components/TimeRibbon";
+import { basename, fmtCompact, fmtDuration, fmtInt, fmtLatency, fmtTok } from "@/lib/format";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import type {
   Session,
@@ -113,50 +114,11 @@ function statusGlyph(status: FileStatus): string {
   }
 }
 
-// Format a duration (ms) like "1.23s" for small values.
-function fmtLatency(ms: number | null): string {
-  if (ms == null) return "—";
-  if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`;
-  return fmtDuration(ms);
-}
-
-// Format a duration (ms) like "2h 47m" / "31m".
-function fmtDuration(ms: number | null): string {
-  if (ms == null) return "—";
-  const totalMin = Math.round(ms / 60_000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-// "1,243,000" style grouping.
-function fmtInt(n: number): string {
-  return n.toLocaleString("en-US");
-}
-
-// "12.1M" / "12.4K" compaction for the header stat cluster.
-function fmtCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-// "12.4K" style compaction for big token counts in the metric .sub line.
-function fmtTok(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return String(n);
-}
-
 // A diff line's class from its leading character.
 function lineClass(line: string): "" | "add" | "del" {
   if (line.startsWith("+")) return "add";
   if (line.startsWith("-")) return "del";
   return "";
-}
-
-function basename(p: string): string {
-  const slash = p.lastIndexOf("/");
-  return slash === -1 ? p : p.slice(slash + 1);
 }
 
 function indentClass(depth: number): string {

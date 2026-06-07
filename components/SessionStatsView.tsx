@@ -15,34 +15,8 @@
 
 import { useMemo } from "react";
 import { EVENT_COLOR, EVENT_LABEL } from "@/lib/event-display";
+import { basename, fmtCompact, fmtCost, fmtDuration, fmtInt, shortModel } from "@/lib/format";
 import type { EventType, SessionBundle } from "@/lib/types";
-
-function fmtInt(n: number): string { return n.toLocaleString("en-US"); }
-function fmtCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(Math.round(n));
-}
-function fmtCost(c: number | null): string {
-  if (c == null) return "—";
-  if (c > 0 && c < 0.01) return "<$0.01";
-  return `$${c.toFixed(2)}`;
-}
-function fmtDuration(ms: number | null): string {
-  if (ms == null || ms <= 0) return "—";
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const totalMin = Math.round(ms / 60_000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-function shortModel(m: string | null | undefined): string {
-  return m ? m.replace(/^claude-/, "") : "(unknown)";
-}
-function basename(p: string): string {
-  const slash = p.lastIndexOf("/");
-  return slash === -1 ? p : p.slice(slash + 1);
-}
 
 export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) {
   const { session, events, changedFiles } = bundle;
@@ -291,7 +265,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                     {s.name}
                     {s.model && (
                       <span className="muted small mono" style={{ marginLeft: 6 }}>
-                        {shortModel(s.model)}
+                        {shortModel(s.model, "(unknown)")}
                       </span>
                     )}
                   </span>

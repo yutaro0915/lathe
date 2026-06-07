@@ -15,6 +15,7 @@
 //    scale with zoom, so the clock times stay readable when you zoom in.
 
 import { useMemo, useState } from "react";
+import { fmtDurationSec } from "@/lib/format";
 import type { TranscriptEvent } from "@/lib/types";
 
 function tsToSec(ts: string): number | null {
@@ -47,16 +48,6 @@ function kindOf(type: string): string {
     default:
       return "tool";
   }
-}
-
-function fmtDur(sec: number): string {
-  if (sec <= 0) return "0s";
-  if (sec < 60) return `${Math.round(sec)}s`;
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
 }
 
 // clock with seconds — "13:08:47" — so zoomed-in reads are precise.
@@ -165,13 +156,13 @@ export default function TimeRibbon({
     <div className="ribbon">
       <div className="ribbon-head">
         <span className="mtitle">{title}</span>
-        <span className="ribbon-total mono">{fmtDur(total)} total</span>
+        <span className="ribbon-total mono">{fmtDurationSec(total)} total</span>
         {/* live readout of whatever the cursor is over — the reliable "what time / what step is this" */}
         {hoverSeg ? (
           <span className="ribbon-read mono" title={hoverSeg.e.title}>
             <b>{clock(start + hoverSeg.offset, true)}</b> · #{hoverSeg.e.seq}{" "}
             {hoverSeg.e.title.length > 44 ? hoverSeg.e.title.slice(0, 44) + "…" : hoverSeg.e.title}
-            {hoverSeg.dur > 0 && <span className="muted"> · {fmtDur(hoverSeg.dur)}</span>}
+            {hoverSeg.dur > 0 && <span className="muted"> · {fmtDurationSec(hoverSeg.dur)}</span>}
           </span>
         ) : (
           <span className="ribbon-read muted small">hover to read the time · click to jump</span>
