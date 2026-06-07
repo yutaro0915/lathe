@@ -107,8 +107,10 @@ test.describe("Diff viewer (/diff)", () => {
     await page.goto("/diff");
     const diff = page.locator(".diff");
     const before = await diff.innerHTML();
-    await page.locator(".segmented button", { hasText: "Split" }).click();
-    await expect(page.locator(".segmented button.active")).toHaveText(/Split/);
+    // scope to the view-mode toggle (a separate .segmented.step-filter may exist)
+    const viewToggle = page.locator(".segmented:not(.step-filter)");
+    await viewToggle.locator("button", { hasText: "Split" }).click();
+    await expect(viewToggle.locator("button.active")).toHaveText(/Split/);
     await expect.poll(async () => diff.innerHTML()).not.toBe(before);
   });
 
@@ -533,5 +535,26 @@ test.describe("Transcript ⇄ Git cross-links", () => {
     await back.click();
     await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
     await expect(page.locator(".event-row.selected")).toHaveCount(1);
+  });
+});
+
+test.describe("Git diff: step focus", () => {
+  // a session whose primary changed file has hunks from multiple turns
+  const SID = "33a47290-fc24-47bc-b624-e7fbc4412ade";
+
+  test("other turns' hunks collapse; All changes expands; This step re-collapses", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SID}&tab=git`);
+    // by default the selected step's hunk is expanded; other turns collapse
+    await expect(page.locator(".diff-hunk.collapsed").first()).toBeVisible();
+    expect(await page.locator(".diff-hunk.collapsed").count()).toBeGreaterThan(0);
+    await expect(page.locator(".step-filter")).toBeVisible();
+    // "All changes" expands every hunk
+    await page.locator(".step-filter button", { hasText: "All changes" }).click();
+    await expect.poll(async () => page.locator(".diff-hunk.collapsed").count()).toBe(0);
+    // "This step" collapses other turns again
+    await page.locator(".step-filter button", { hasText: "This step" }).click();
+    await expect.poll(async () => page.locator(".diff-hunk.collapsed").count()).toBeGreaterThan(0);
   });
 });

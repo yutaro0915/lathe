@@ -67,6 +67,7 @@ pnpm e2e           # Playwright E2E（42 ケース。build+start を内部で回
 - 差分: ファイル選択 / フォルダ折りたたみ / Unified⇄Split / Hunk 前後 / Linked Event 選択 / Raw JSON
 - **Changed Files ツリー**: 単一子フォルダのチェーンを 1 行に圧縮（VS Code compact folders）＝深いパスでも「実ファイル数 ≒ 行数」。フォルダ（青フォルダアイコン + 太字 + 末尾 `/`）とファイル（色付き A/M/D/R 状態チップ + ファイル名）を明確に区別
 - **Transcript ⇄ Git 双方向リンク**（attribution = hunk⇄event を両向きに辿る）: トランスクリプトの編集イベント詳細の「⎇ Diff →」で、その編集が生んだ差分（該当ファイル + hunk）に Git タブでフォーカス（`SessionViewer.gitFocusEvent` → `DiffViewer.focusEventId`）。逆に Git の Linked Event の「↩ step N」で、その hunk を生んだトランスクリプトのステップ（時点）へ戻る（`DiffViewer.onJumpToEvent` → Transcript タブ + 該当 event 選択）。「この時どう変更したか」と「この差分はどの時のものか」を相互参照できる
+- **Git 差分の step focus**（turn と hunk の対応を視認しやすく）: Git タブで turn（Linked Event）を選ぶと、その turn が生んだ hunk のみ展開し、**他 turn の hunk は1行に折り畳む**（`+a −b · another step's change` 表示、クリックでその turn にフォーカス切替）。ツールバーの **「This step / All changes」トグル**で全体差分にも戻せる（`DiffViewer.showAllHunks`、判定は表示中の `selected.event.id` 基準）。複数 turn が同じファイルを触ったとき「どの差分がどのステップの産物か」を分離できる
 
 ## データモデル / 取り込み
 

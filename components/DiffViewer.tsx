@@ -23,7 +23,6 @@ import type {
   AttributionMethod,
   FileStatus,
   Annotation,
-  AnnotationKind,
   LinkedEvent,
   TranscriptEvent,
 } from "@/lib/types";
@@ -110,60 +109,6 @@ function statusGlyph(status: FileStatus): string {
       return "D";
     case "renamed":
       return "R";
-  }
-}
-
-// AnnotationKind -> minimap / attr-timeline color class.
-function annotationKindClass(kind: AnnotationKind): string {
-  switch (kind) {
-    case "edit":
-      return "edit";
-    case "commit":
-      return "commit";
-    case "test":
-      return "test";
-    case "error":
-      return "uncertain";
-    case "note":
-      return "uncertain";
-  }
-}
-
-// EventType -> attr-timeline chip kind (edit / command / commit / test / uncertain).
-function eventKindClass(
-  type: string
-): "edit" | "command" | "commit" | "test" | "uncertain" {
-  switch (type) {
-    case "file_edit":
-    case "file_write":
-      return "edit";
-    case "bash":
-      return "command";
-    case "commit":
-      return "commit";
-    case "test":
-      return "test";
-    default:
-      return "uncertain";
-  }
-}
-
-// EventType -> minimap tick "kind" class (legend buckets shared with screen A).
-function minimapKind(type: string): string {
-  switch (type) {
-    case "file_edit":
-    case "file_write":
-      return "edit";
-    case "bash":
-      return "command";
-    case "commit":
-      return "commit";
-    case "test":
-      return "test";
-    case "error":
-      return "uncertain";
-    default:
-      return "edit";
   }
 }
 
@@ -346,48 +291,6 @@ function hunkStart(header: string): { oldNo: number; newNo: number } {
   };
 }
 
-/* ---- minimap (deterministic from event stream) --------------------------- */
-
-type MiniBucket = { count: number; kind: string; seqMid: number };
-
-// Bucket the run's events into TICKS bins along their seq, sizing each bar by
-// the bin's event count and coloring it by the most "interesting" event kind in
-// the bin (errors/commits win over edits). Deterministic — no random heights.
-function buildMinimap(
-  events: TranscriptEvent[],
-  annotations: Annotation[],
-  ticks: number
-): { buckets: MiniBucket[]; lastSeq: number } {
-  const lastSeq = Math.max(
-    1,
-    ...events.map((e) => e.seq),
-    ...annotations.map((a) => a.atSeq)
-  );
-  const buckets: MiniBucket[] = Array.from({ length: ticks }, (_, i) => ({
-    count: 0,
-    kind: "",
-    seqMid: ((i + 0.5) / ticks) * lastSeq,
-  }));
-  // priority for choosing a bucket's dominant color
-  const rank: Record<string, number> = {
-    uncertain: 4,
-    commit: 3,
-    test: 2,
-    command: 1,
-    edit: 0,
-  };
-  const place = (seq: number, kind: string) => {
-    const idx = Math.min(ticks - 1, Math.floor((seq / lastSeq) * ticks));
-    const b = buckets[idx];
-    b.count += 1;
-    if (!b.kind || (rank[kind] ?? 0) > (rank[b.kind] ?? 0)) b.kind = kind;
-  };
-  for (const e of events) place(e.seq, minimapKind(e.type));
-  // annotations (errors/commits) bump their bucket's color even if sparse
-  for (const a of annotations) place(a.atSeq, annotationKindClass(a.kind));
-  return { buckets, lastSeq };
-}
-
 /* ---- props ---------------------------------------------------------------- */
 
 interface Props {
@@ -447,6 +350,9 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
   const [activeFileId, setActiveFileId] = useState<string>(initialFileId);
   const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
   const [hunkIndex, setHunkIndex] = useState<number>(focusHit?.hunkIndex ?? 0);
+  // step focus: when a turn (linked event) is selected, collapse hunks from
+  // OTHER turns so the selected step's change stands alone. Toggle to All.
+  const [showAllHunks, setShowAllHunks] = useState<boolean>(false);
   const [selectedLinkedEventId, setSelectedLinkedEventId] =
     useState<string | null>(focusEventId ?? null);
   const [showRawJson, setShowRawJson] = useState<boolean>(false);
@@ -461,6 +367,7 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
     setHunkIndex(focusHit?.hunkIndex ?? 0);
     setSelectedLinkedEventId(focusEventId ?? null);
     setShowRawJson(false);
+    setShowAllHunks(false);
     setCollapsedFolders(new Set());
   }, [currentId, initialFileId, focusHit, focusEventId]);
 
@@ -527,18 +434,6 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
       return true;
     });
   }, [tree, collapsedFolders]);
-
-  /* ---- minimap ------------------------------------------------------------ */
-
-  const TICKS = 64;
-  const { buckets, lastSeq } = useMemo(
-    () => buildMinimap(bundle.events, annotations, TICKS),
-    [bundle.events, annotations]
-  );
-  const maxCount = Math.max(1, ...buckets.map((b) => b.count));
-  // playhead at the selected event's position along the run.
-  const playSeq = selectedEvent ? selectedEvent.seq : lastSeq * 0.5;
-  const playPct = Math.min(98, Math.max(2, (playSeq / lastSeq) * 100));
 
   /* ---- metrics band derived values --------------------------------------- */
 
@@ -827,6 +722,27 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
                 <span className="del">{active ? active.deletions : 0} deletions</span>
               </span>
               <span className="spacer" />
+              {selected && hunks.length > 1 && (
+                <span
+                  className="segmented step-filter"
+                  title="Focus the selected step's change, or show the whole file"
+                >
+                  <button
+                    type="button"
+                    className={!showAllHunks ? "active" : ""}
+                    onClick={() => setShowAllHunks(false)}
+                  >
+                    This step
+                  </button>
+                  <button
+                    type="button"
+                    className={showAllHunks ? "active" : ""}
+                    onClick={() => setShowAllHunks(true)}
+                  >
+                    All changes
+                  </button>
+                </span>
+              )}
               <span className="segmented">
                 <button
                   type="button"
@@ -884,6 +800,39 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
                 const { oldNo: oldStart, newNo: newStart } = hunkStart(h.header);
                 const lines = h.content.split("\n");
                 const isCurrent = hi === hunkIndex;
+
+                // step focus: collapse hunks attributed to OTHER turns so the
+                // selected step's change stands alone (toggle via "All changes").
+                const hunkEventId = attr?.eventId ?? null;
+                if (
+                  !showAllHunks &&
+                  selected != null &&
+                  hunkEventId !== selected.event.id
+                ) {
+                  const adds = lines.filter((l) => l.startsWith("+")).length;
+                  const dels = lines.filter((l) => l.startsWith("-")).length;
+                  return (
+                    <div
+                      key={h.id}
+                      className="diff-hunk collapsed"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => hunkEventId && setSelectedLinkedEventId(hunkEventId)}
+                      onKeyDown={(e) => {
+                        if ((e.key === "Enter" || e.key === " ") && hunkEventId) {
+                          e.preventDefault();
+                          setSelectedLinkedEventId(hunkEventId);
+                        }
+                      }}
+                      title="Change from another step — click to focus it (or use All changes)"
+                    >
+                      <span className="htext">{h.header}</span>
+                      <span className="collapsed-note">
+                        +{adds} −{dels} · another step&apos;s change — click to view
+                      </span>
+                    </div>
+                  );
+                }
 
                 return (
                   <div
@@ -1068,6 +1017,9 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
           <div className="linked-events">
             <div className="panel-title">
               Linked Events <span className="count">({linkedEvents.length})</span>
+              {hunks.length > 0 && (
+                <span className="muted small"> · {coveredCount}/{hunks.length} hunks linked</span>
+              )}
             </div>
             {linkedEvents.map((le, i) => {
               const isActive =
@@ -1176,99 +1128,6 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
               )}
             </>
           )}
-
-          {/* attr-timeline: which events touched this file over time */}
-          <div className="attr-timeline">
-            <div className="attr-timeline-head">
-              <span className="title">{active ? basename(active.path) : "—"}</span>
-              <span className="count">{linkedEvents.length} events</span>
-            </div>
-            <div className="attr-track">
-              {linkedEvents.map((le, i) => {
-                const isSel = !!selected && le.event.id === selected.event.id;
-                return (
-                  <span
-                    key={`node-${le.event.id}-${i}`}
-                    className={`attr-node ${eventKindClass(le.event.type)}`}
-                    title={le.event.title}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
-                      setSelectedLinkedEventId(le.event.id);
-                      setShowRawJson(false);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setSelectedLinkedEventId(le.event.id);
-                        setShowRawJson(false);
-                      }
-                    }}
-                    style={{
-                      cursor: "pointer",
-                      outline: isSel ? "2px solid var(--accent)" : undefined,
-                      outlineOffset: 1,
-                    }}
-                  >
-                    {le.event.seq}
-                  </span>
-                );
-              })}
-              {/* unattributed hunks carry no event — surface them as gray nodes */}
-              {hunks
-                .filter((h) => {
-                  const a = hunkAttr.get(h.id);
-                  return a == null || a.eventId == null;
-                })
-                .map((h, i) => (
-                  <span
-                    key={`uncertain-${h.id}-${i}`}
-                    className="attr-node uncertain"
-                    title="Unattributed hunk (no event)"
-                  >
-                    ?
-                  </span>
-                ))}
-            </div>
-          </div>
-
-          {/* hunk coverage */}
-          <div className="hunk-coverage">
-            <div className="hunk-coverage-head">
-              <span>Hunk coverage</span>
-              <span className="frac">
-                {coveredCount} / {hunks.length} hunks
-              </span>
-            </div>
-            <div className="hunk-segs">
-              {hunks.map((h, i) => {
-                const a = hunkAttr.get(h.id);
-                const conf: Confidence = a ? a.confidence : "unattributed";
-                const covered = a != null && a.eventId != null;
-                let cls = "uncovered";
-                if (conf === "medium") cls = "medium";
-                else if (covered) cls = "covered";
-                const isCurrent = i === hunkIndex;
-                return (
-                  <span
-                    key={`seg-${h.id}`}
-                    className={`hunk-seg ${cls}${isCurrent ? " active" : ""}`}
-                    title={`Hunk ${i + 1}: ${conf}`}
-                    role="button"
-                    tabIndex={0}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => gotoHunk(i)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        gotoHunk(i);
-                      }
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </div>
 
           {/* attribution notes (annotations) */}
           {annotations.length > 0 && (
