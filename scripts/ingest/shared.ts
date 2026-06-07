@@ -1,0 +1,138 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+export type LooseRecord = Record<string, any>;
+
+// Default to the user's most-recently-active Claude project.
+export function pickDefaultTranscriptsDir(): string {
+  const base = path.join(os.homedir(), '.claude', 'projects');
+  try {
+    const dirs = fs
+      .readdirSync(base, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => {
+        const full = path.join(base, d.name);
+        let mtime = 0;
+        try {
+          for (const f of fs.readdirSync(full)) {
+            if (f.endsWith('.jsonl')) {
+              const m = fs.statSync(path.join(full, f)).mtimeMs;
+              if (m > mtime) mtime = m;
+            }
+          }
+        } catch { /* ignore */ }
+        return { full, mtime };
+      })
+      .filter((x) => x.mtime > 0)
+      .sort((a, b) => b.mtime - a.mtime);
+    if (dirs.length) return dirs[0].full;
+  } catch { /* ignore */ }
+  return base;
+}
+
+export function repoBasenameOf(transcriptsDir: string): string {
+  const segs = path.basename(transcriptsDir).split('-').filter(Boolean);
+  return segs.length ? segs[segs.length - 1] : 'project';
+}
+
+export function hhmmss(iso: string | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+export function lineCount(s: string): number {
+  if (!s) return 0;
+  return s.replace(/\n$/, '').split('\n').length;
+}
+
+export function clampLines(s: string, prefix: string, max: number): string {
+  const lines = (s ?? '').replace(/\n$/, '').split('\n');
+  const shown = lines.slice(0, max).map((l) => prefix + l);
+  if (lines.length > max) shown.push(`${prefix}… (+${lines.length - max} 行)`);
+  return shown.join('\n');
+}
+
+export function preview(s: string, n = 90): string {
+  const one = (s ?? '').replace(/\s+/g, ' ').trim();
+  return one.length > n ? one.slice(0, n) + '…' : one;
+}
+
+export function durationBetween(aIso?: string, bIso?: string): number | null {
+  if (!aIso || !bIso) return null;
+  const a = Date.parse(aIso);
+  const b = Date.parse(bIso);
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  return Math.max(0, b - a);
+}
+
+export function parseSubagentUsage(text: string) {
+  const t = /subagent_tokens:\s*(\d+)/.exec(text);
+  const u = /tool_uses:\s*(\d+)/.exec(text);
+  const d = /duration_ms:\s*(\d+)/.exec(text);
+  return {
+    tokens: t ? Number(t[1]) : null,
+    toolUses: u ? Number(u[1]) : null,
+    durationMs: d ? Number(d[1]) : null,
+  };
+}
+
+export function toolType(name: string): string {
+  switch (name) {
+    case 'Edit':
+    case 'MultiEdit':
+    case 'NotebookEdit':
+      return 'file_edit';
+    case 'Write':
+      return 'file_write';
+    case 'Read':
+      return 'file_read';
+    case 'Bash':
+      return 'bash';
+    case 'Agent':
+    case 'Task':
+      return 'subagent';
+    case 'Skill':
+      return 'skill';
+    case 'TodoWrite':
+    case 'TaskCreate':
+    case 'TaskUpdate':
+      return 'todo';
+    default:
+      return 'bash';
+  }
+}
+
+export function toolTitle(name: string, input: LooseRecord): string {
+  switch (name) {
+    case 'Edit':
+    case 'MultiEdit':
+      return `File edit · ${input?.file_path ?? ''}`;
+    case 'Write':
+      return `File write · ${input?.file_path ?? ''}`;
+    case 'Read':
+      return `File read · ${input?.file_path ?? ''}`;
+    case 'Bash':
+      return preview(input?.command ?? 'bash', 80);
+    case 'Agent':
+    case 'Task':
+      return `Sub-agent · ${input?.subagent_type ?? input?.description ?? ''}`;
+    case 'Skill':
+      return `Skill · ${input?.command ?? input?.name ?? ''}`;
+    case 'TodoWrite':
+      return 'Todo update';
+    default:
+      return name;
+  }
+}
+
+export function isCommit(cmd: string): boolean {
+  return /\bgit\s+commit\b/.test(cmd || '');
+}
+
+export function isTest(cmd: string): boolean {
+  return /\b(pytest|jest|vitest|go test|cargo test|npm test|pnpm (run )?test|yarn test|tsc --noEmit)\b/.test(cmd || '');
+}
