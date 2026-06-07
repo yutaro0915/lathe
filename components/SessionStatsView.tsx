@@ -14,7 +14,8 @@
 //   5. Harness signals (memory loads / hooks that fired)
 
 import { useMemo } from "react";
-import type { SessionBundle } from "@/lib/types";
+import { EVENT_COLOR, EVENT_LABEL } from "@/lib/event-display";
+import type { EventType, SessionBundle } from "@/lib/types";
 
 function fmtInt(n: number): string { return n.toLocaleString("en-US"); }
 function fmtCompact(n: number): string {
@@ -42,19 +43,6 @@ function basename(p: string): string {
   const slash = p.lastIndexOf("/");
   return slash === -1 ? p : p.slice(slash + 1);
 }
-
-const EVENT_COLOR: Record<string, string> = {
-  user_message: "#64748b", assistant_message: "#6366f1", thinking: "#a855f7",
-  file_read: "#0ea5e9", file_edit: "#f59e0b", file_write: "#10b981", bash: "#475569",
-  subagent: "#8b5cf6", skill: "#eab308", commit: "#22c55e", test: "#14b8a6",
-  error: "#ef4444", todo: "#94a3b8", memory: "#06b6d4", hook: "#f43f5e",
-};
-const EVENT_LABEL: Record<string, string> = {
-  user_message: "User", assistant_message: "Assistant", thinking: "Thinking",
-  file_read: "Read", file_edit: "Edit", file_write: "Write", bash: "Bash",
-  subagent: "Sub-agent", skill: "Skill", commit: "Commit", test: "Test",
-  error: "Error", todo: "Todo", memory: "Memory", hook: "Hook",
-};
 
 export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) {
   const { session, events, changedFiles } = bundle;
@@ -245,13 +233,13 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
             <div className="chart-body bars">
               {eventTypes.map((e) => (
                 <div className="hbar-row" key={e.type}>
-                  <span className="hbar-label">{EVENT_LABEL[e.type] ?? e.type}</span>
+                  <span className="hbar-label">{EVENT_LABEL[e.type as EventType] ?? e.type}</span>
                   <span className="hbar-track">
                     <span
                       className="hbar-fill"
                       style={{
                         width: `${(e.count / maxEv) * 100}%`,
-                        background: EVENT_COLOR[e.type] ?? "#94a3b8",
+                        background: EVENT_COLOR[e.type as EventType] ?? "#94a3b8",
                       }}
                     />
                   </span>

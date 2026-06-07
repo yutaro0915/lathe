@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import TimeRibbon from "@/components/TimeRibbon";
+import { RUNNER_LABEL } from "@/lib/runner-display";
 import type {
   Session,
   SessionBundle,
@@ -311,12 +312,6 @@ interface Props {
   focusEventId?: string;
   onJumpToEvent?: (eventId: string) => void;
 }
-
-const RUNNER_LABEL: Record<string, string> = {
-  "claude-code": "Claude Code",
-  codex: "Codex",
-  cursor: "Cursor",
-};
 
 // Big diffs are paginated so a 280-edit session no longer mounts thousands of
 // <div> rows at once (which froze the Git tab). We render the active file's

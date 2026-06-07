@@ -16,7 +16,8 @@
 //   4. Biggest sessions by cost
 // Phase-1 observation only (no AI / harness evaluation — that's Phase 2).
 
-import type { Session } from "@/lib/types";
+import { EVENT_COLOR, EVENT_LABEL } from "@/lib/event-display";
+import type { EventType, Session } from "@/lib/types";
 
 function fmtInt(n: number): string { return n.toLocaleString("en-US"); }
 function fmtCompact(n: number): string {
@@ -39,20 +40,6 @@ function parseDate(s: string): string {
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${months[Number(mo) - 1] ?? mo} ${Number(da)}`;
 }
-
-// event-type → color (same intent as the timeline palette)
-const EVENT_COLOR: Record<string, string> = {
-  user_message: "#64748b", assistant_message: "#6366f1", thinking: "#a855f7",
-  file_read: "#0ea5e9", file_edit: "#f59e0b", file_write: "#10b981", bash: "#475569",
-  subagent: "#8b5cf6", skill: "#eab308", commit: "#22c55e", test: "#14b8a6",
-  error: "#ef4444", todo: "#94a3b8", memory: "#06b6d4", hook: "#f43f5e",
-};
-const EVENT_LABEL: Record<string, string> = {
-  user_message: "User", assistant_message: "Assistant", thinking: "Thinking",
-  file_read: "Read", file_edit: "Edit", file_write: "Write", bash: "Bash",
-  subagent: "Sub-agent", skill: "Skill", commit: "Commit", test: "Test",
-  error: "Error", todo: "Todo", memory: "Memory", hook: "Hook",
-};
 
 // One bar of the "cost & tokens over time" chart — either a single session or,
 // for large scopes, a calendar bucket aggregating several (so the SVG stays a
@@ -270,9 +257,9 @@ export default function StatsView({
             <div className="chart-body bars">
               {events.map((e) => (
                 <div className="hbar-row" key={e.type}>
-                  <span className="hbar-label">{EVENT_LABEL[e.type] ?? e.type}</span>
+                  <span className="hbar-label">{EVENT_LABEL[e.type as EventType] ?? e.type}</span>
                   <span className="hbar-track">
-                    <span className="hbar-fill" style={{ width: `${(e.count / maxEv) * 100}%`, background: EVENT_COLOR[e.type] ?? "#94a3b8" }} />
+                    <span className="hbar-fill" style={{ width: `${(e.count / maxEv) * 100}%`, background: EVENT_COLOR[e.type as EventType] ?? "#94a3b8" }} />
                   </span>
                   <span className="hbar-val">{fmtInt(e.count)}</span>
                 </div>

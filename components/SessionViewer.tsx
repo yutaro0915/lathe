@@ -16,13 +16,14 @@ import TimeRibbon from "@/components/TimeRibbon";
 import DiffViewer from "@/components/DiffViewer";
 import SessionStatsView from "@/components/SessionStatsView";
 import Link from "next/link";
+import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
+import { RUNNER_LABEL } from "@/lib/runner-display";
 import type {
   Session,
   SessionBundle,
   TranscriptEvent,
   EventType,
   AnnotationKind,
-  Runner,
 } from "@/lib/types";
 
 // ---- small formatting helpers (copied from the original page) --------------
@@ -83,50 +84,6 @@ function parseStamp(s: string): { date: string; time: string } {
   const time = timePart.slice(0, 5);
   return { date, time };
 }
-
-const RUNNER_LABEL: Record<Runner, string> = {
-  "claude-code": "Claude Code",
-  codex: "Codex",
-  cursor: "Cursor",
-};
-
-// Single-character glyph per event type for the colored .event-icon square.
-const TYPE_GLYPH: Record<EventType, string> = {
-  user_message: "◍",
-  assistant_message: "✦",
-  thinking: "✲",
-  file_read: "◎",
-  file_edit: "✎",
-  file_write: "＋",
-  bash: "›_",
-  subagent: "⌥",
-  skill: "★",
-  commit: "⎇",
-  test: "✓",
-  error: "!",
-  todo: "☐",
-  memory: "❏",
-  hook: "↪",
-};
-
-// Short human label per type (for the .event-type-badge pill).
-const TYPE_LABEL: Record<EventType, string> = {
-  user_message: "User",
-  assistant_message: "Assistant",
-  thinking: "Thinking",
-  file_read: "Read",
-  file_edit: "Edit",
-  file_write: "Write",
-  bash: "Bash",
-  subagent: "Sub-agent",
-  skill: "Skill",
-  commit: "Commit",
-  test: "Test",
-  error: "Error",
-  todo: "Todo",
-  memory: "Memory",
-  hook: "Hook",
-};
 
 // Map an event type onto a minimap "kind" class (legend buckets).
 function minimapKind(t: EventType): string {
@@ -771,7 +728,7 @@ export default function SessionViewer({
                       key={t}
                       type="button"
                       className={`event-type-badge ${t}`}
-                      title={`${TYPE_LABEL[t]} — click to ${on ? "hide" : "show"}`}
+                      title={`${EVENT_LABEL[t]} — click to ${on ? "hide" : "show"}`}
                       onClick={() => toggleType(t)}
                       style={{
                         border: "1px solid transparent",
@@ -780,7 +737,7 @@ export default function SessionViewer({
                         filter: on ? "none" : "grayscale(0.6)",
                       }}
                     >
-                      {TYPE_LABEL[t]} {typeCounts[t] ?? 0}
+                      {EVENT_LABEL[t]} {typeCounts[t] ?? 0}
                     </button>
                   );
                 })}
@@ -1033,7 +990,7 @@ export default function SessionViewer({
                           {pinned && <span title="Pinned" aria-label="Pinned">📌</span>}
                           {notes[e.id] && <span title="Has note" aria-label="Has note">🗒</span>}
                           {showBadge && (
-                            <span className={`event-type-badge ${e.type}`}>{TYPE_LABEL[e.type]}</span>
+                            <span className={`event-type-badge ${e.type}`}>{EVENT_LABEL[e.type]}</span>
                           )}
                           {depth === 0 && e.subagent && (
                             <span className="event-type-badge subagent">{e.subagent}</span>
@@ -1147,7 +1104,7 @@ export default function SessionViewer({
                       <div className="event-main">
                         <div className="event-headline">
                           <span className="event-title">{e.title}</span>
-                          <span className={`event-type-badge ${e.type}`}>{TYPE_LABEL[e.type]}</span>
+                          <span className={`event-type-badge ${e.type}`}>{EVENT_LABEL[e.type]}</span>
                         </div>
                         {(e.command || e.filePath) && (
                           <div className={`event-sub ${e.filePath ? "path" : "mono"}`}>
@@ -1294,7 +1251,7 @@ export default function SessionViewer({
                                     <span
                                       key={k.id}
                                       className={`sa-glyph ${k.type}`}
-                                      title={`${TYPE_LABEL[k.type]} · ${k.title}`}
+                                      title={`${EVENT_LABEL[k.type]} · ${k.title}`}
                                     >
                                       {TYPE_GLYPH[k.type] ?? "•"}
                                     </span>
@@ -1463,7 +1420,7 @@ export default function SessionViewer({
                                       <div className="event-headline">
                                         <span className="event-title">{k.title}</span>
                                         <span className={`event-type-badge ${k.type}`}>
-                                          {TYPE_LABEL[k.type]}
+                                          {EVENT_LABEL[k.type]}
                                         </span>
                                       </div>
                                       {k.command ? (
@@ -1543,7 +1500,7 @@ export default function SessionViewer({
                 {TYPE_GLYPH[selType] ?? "•"}
               </span>
               <span className="dtitle">
-                {selType === "bash" ? "Bash (shell)" : TYPE_LABEL[selType]}
+                {selType === "bash" ? "Bash (shell)" : EVENT_LABEL[selType]}
               </span>
               <span className="spacer" />
               {selected?.exitCode != null && (
@@ -1661,8 +1618,8 @@ export default function SessionViewer({
               )}
             </div>
             <div className="detail-sub">
-              {TYPE_LABEL[selType]} · {selected?.actor ?? "—"} · {sessionDate} {selTime}
-              {selMeta.tool && selMeta.tool !== TYPE_LABEL[selType] ? ` · ${selMeta.tool}` : ""}
+              {EVENT_LABEL[selType]} · {selected?.actor ?? "—"} · {sessionDate} {selTime}
+              {selMeta.tool && selMeta.tool !== EVENT_LABEL[selType] ? ` · ${selMeta.tool}` : ""}
             </div>
             {selected?.filePath && <div className="detail-path mono">{selected.filePath}</div>}
 
