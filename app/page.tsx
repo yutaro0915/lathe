@@ -12,7 +12,6 @@ import {
   getPrimarySession,
   listSessions,
   getStats,
-  getSessionEventCounts,
 } from "@/lib/db";
 import SessionViewer from "@/components/SessionViewer";
 
@@ -29,10 +28,16 @@ export default async function Page({
   const req = typeof sp.session === "string" ? sp.session : undefined;
   const id = req && getSessionBundle(req) ? req : getPrimarySession().id;
   const bundle = getSessionBundle(id)!;
+  // Project list is only used by the sidebar's session-list scope selector here.
+  // Cross-session ANALYTICS (charts) live on /overview, not in the viewer — the
+  // viewer is per-session, and cross-session aggregates would be off-topic in it.
   const stats = getStats();
-  const eventCounts = getSessionEventCounts();
-  // session -> primary project, reusing getStats' grouping (the dir each session
-  // changed most). Lets the sidebar's project selector scope the session list.
+  const projects = stats.projects.map((p) => ({
+    project: p.project,
+    sessions: p.sessions,
+    cost: p.cost,
+    costKnown: p.costKnown,
+  }));
   const sessionProject: Record<string, string> = {};
   for (const p of stats.projects) for (const r of p.sessionRefs) sessionProject[r.id] = p.project;
   const initialTab: Tab =
@@ -44,8 +49,7 @@ export default async function Page({
       sessions={sessions}
       bundle={bundle}
       currentId={id}
-      stats={stats}
-      eventCounts={eventCounts}
+      projects={projects}
       sessionProject={sessionProject}
       initialTab={initialTab}
     />

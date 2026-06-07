@@ -502,6 +502,14 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .stats-page{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;background:var(--bg);}
 /* embedded in the SessionViewer "Stats" tab — occupy the main+aside columns */
 .stats-embed{grid-column:2 / 4;min-height:0;display:flex;flex-direction:column;background:var(--bg);}
+/* sidebar Overview link — entry to project-/all-projects-level analytics */
+.overview-link{display:flex;align-items:center;gap:8px;margin:12px 12px 0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);color:var(--text);font-size:12.5px;font-weight:650;text-decoration:none;}
+.overview-link:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);text-decoration:none;}
+/* Overview screen shell + back-link */
+.overview-page{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;background:var(--bg);}
+.overview-shell{flex:1 1 auto;}
+.overview-back{display:flex;align-items:center;gap:6px;margin:12px 12px 0;padding:6px 10px;font-size:12px;color:var(--muted);border-radius:var(--radius-sm);text-decoration:none;}
+.overview-back:hover{color:var(--accent);background:var(--panel-hover);text-decoration:none;}
 /* sidebar project selector (project-select now wraps a real <select>) */
 .project-picker{flex:1 1 auto;min-width:0;background:transparent;border:none;color:var(--text);font:inherit;font-size:12.5px;font-weight:650;cursor:pointer;padding:2px 0;}
 .project-picker:focus{outline:none;}

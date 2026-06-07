@@ -14,11 +14,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import TimeRibbon from "@/components/TimeRibbon";
 import DiffViewer from "@/components/DiffViewer";
-import StatsView from "@/components/StatsView";
+import SessionStatsView from "@/components/SessionStatsView";
+import Link from "next/link";
 import type {
   Session,
   SessionBundle,
-  StatsBundle,
   TranscriptEvent,
   EventType,
   AnnotationKind,
@@ -227,16 +227,17 @@ export default function SessionViewer({
   sessions,
   bundle,
   currentId,
-  stats,
-  eventCounts,
+  projects,
   sessionProject,
   initialTab = "transcript",
 }: {
   sessions: Session[];
   bundle: SessionBundle;
   currentId: string;
-  stats: StatsBundle;
-  eventCounts: Record<string, Record<string, number>>;
+  // (project, sessions, cost) tuples just for the sidebar's project picker —
+  // scoping the session LIST. Cross-session ANALYTICS live on /overview, not
+  // inside the SessionViewer (which is per-session).
+  projects: { project: string; sessions: number; cost: number; costKnown: boolean }[];
   sessionProject: Record<string, string>;
   initialTab?: Tab;
 }) {
@@ -380,18 +381,6 @@ export default function SessionViewer({
     else if (sortKey === "tokens") list.sort((a, b) => b.tokenUsage - a.tokenUsage);
     return list;
   }, [sessions, sessionSearch, modelFilter, errorsFilter, projectFilter, sortKey, sessionProject]);
-
-  // Totals for the CURRENT SCOPE (the visible session set = project selector +
-  // filters). Drives the Stats tab's header bar and grounds the Stats charts.
-  const scopeTotals = useMemo(() => {
-    let durationMs = 0, tokens = 0, cost = 0, costKnown = false;
-    for (const s of visibleSessions) {
-      durationMs += s.durationMs ?? 0;
-      tokens += s.tokenUsage ?? 0;
-      if (s.costUsd != null) { cost += s.costUsd; costKnown = true; }
-    }
-    return { sessions: visibleSessions.length, durationMs, tokens, cost, costKnown };
-  }, [visibleSessions]);
 
   // ---- derived: filtered timeline events ----------------------------------
   // sub-agent child steps grouped under their launching event id
@@ -642,37 +631,6 @@ export default function SessionViewer({
   return (
     <>
       {/* ===================== Band 2 — metrics ===================== */}
-      {activeTab === "stats" ? (
-        /* Stats tab: the bar reports the CURRENT SCOPE's totals (the visible
-           session set = project selector + filters), not one session. */
-        <div className="sessbar">
-          <div className="sessbar-id">
-            <span className="sessbar-title">Statistics</span>
-            <span className="sessbar-meta">
-              {projectFilter === "all" ? "All projects" : projectFilter} · {scopeTotals.sessions}{" "}
-              session{scopeTotals.sessions === 1 ? "" : "s"} in scope
-            </span>
-          </div>
-          <div className="sessbar-stats">
-            <div className="kstat">
-              <b>{fmtInt(scopeTotals.sessions)}</b>
-              <span>sessions</span>
-            </div>
-            <div className="kstat">
-              <b>{humanizeDuration(scopeTotals.durationMs)}</b>
-              <span>duration</span>
-            </div>
-            <div className="kstat">
-              <b>{fmtCompact(scopeTotals.tokens)}</b>
-              <span>tokens</span>
-            </div>
-            <div className="kstat">
-              <b>{scopeTotals.costKnown ? fmtCost(scopeTotals.cost) : "—"}</b>
-              <span>cost</span>
-            </div>
-          </div>
-        </div>
-      ) : (
       <div className="sessbar">
         <div className="sessbar-id">
           <span className={`runner-dot ${primary.runner}`} aria-hidden />
@@ -725,7 +683,6 @@ export default function SessionViewer({
           </div>
         </div>
       </div>
-      )}
 
       {/* ===================== Band 3 — tabs ===================== */}
       <div className="tabs">
@@ -765,16 +722,20 @@ export default function SessionViewer({
       >
         {/* ---------- COLUMN 1: sidebar ---------- */}
         <aside className="sidebar">
+          <Link href="/overview" className="overview-link" title="Project-/all-projects-level analytics">
+            <span>Overview</span>
+            <span className="muted small" style={{ marginLeft: "auto" }}>cross-session →</span>
+          </Link>
           <div className="project-select">
             <span aria-hidden>⊞</span>
             <select
               className="project-picker"
               value={projectFilter}
               onChange={(e) => setProjectFilter(e.target.value)}
-              title="Scope the session list & Stats to one project"
+              title="Scope the session list to one project"
             >
               <option value="all">All projects · {sessions.length} sessions</option>
-              {stats.projects.map((p) => (
+              {projects.map((p) => (
                 <option key={p.project} value={p.project}>
                   {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
                 </option>
@@ -941,11 +902,7 @@ export default function SessionViewer({
             }}
           />
         ) : activeTab === "stats" ? (
-          <StatsView
-            scopeSessions={visibleSessions}
-            eventCounts={eventCounts}
-            scopeLabel={projectFilter === "all" ? "All projects" : projectFilter}
-          />
+          <SessionStatsView bundle={bundle} />
         ) : (
           <>
         {/* ---------- COLUMN 2: main / timeline ---------- */}

@@ -409,29 +409,54 @@ test.describe("Time ribbon & annotations", () => {
   });
 });
 
-test.describe("Stats (/stats)", () => {
-  test("the Stats tab opens scoped charts in-page (no separate screen)", async ({ page }) => {
+test.describe("Stats tab (in-session)", () => {
+  test("the Stats tab shows charts for THIS session only (not cross-session)", async ({
+    page,
+  }) => {
     await page.goto("/?tab=stats");
-    await expect(page.locator(".sessbar-title")).toHaveText(/Statistics/);
-    // in-page tab — it must NOT be a separate /stats screen
-    await expect(page).not.toHaveURL(/\/stats/);
+    // sessbar still names the SESSION (not 'Overview'/'Statistics'): the tab is
+    // per-session by design — cross-session analytics live at /overview.
+    await expect(page.locator(".sessbar-title")).not.toHaveText(/^(Overview|Statistics)/);
     await expect(page.locator(".stats-embed")).toBeVisible();
-    // four charts: cost-over-time + cost-by-model + event composition + biggest
-    expect(await page.locator(".chart-card").count()).toBeGreaterThanOrEqual(4);
-    // the time chart is a real SVG with bars; the CSS-bar charts render rows
+    // the headline chart is per-turn for this run
+    await expect(
+      page.locator(".chart-card", { hasText: "Where this session went" })
+    ).toBeVisible();
+    // per-turn SVG + event composition / files / sub-agent bars
     expect(await page.locator(".chart-svg rect").count()).toBeGreaterThan(0);
     expect(await page.locator(".hbar-row").count()).toBeGreaterThan(0);
   });
 
-  test("legacy /stats redirects into the in-page Stats tab", async ({ page }) => {
-    await page.goto("/stats"); // 307 → /?tab=stats
-    await expect(page).not.toHaveURL(/\/stats$/);
-    await expect(page.locator(".sessbar-title")).toHaveText(/Statistics/);
-    await expect(page.locator(".chart-card").first()).toBeVisible();
+  test("the in-session Stats sidebar exposes an Overview link to cross-session analytics", async ({
+    page,
+  }) => {
+    await page.goto("/?tab=stats");
+    const link = page.locator(".overview-link");
+    await expect(link).toBeVisible();
+    await link.click();
+    await expect(page).toHaveURL(/\/overview/);
+  });
+});
+
+test.describe("Overview (/overview) — cross-session analytics", () => {
+  test("/overview renders the four cross-session charts", async ({ page }) => {
+    await page.goto("/overview");
+    await expect(page.locator(".sessbar-title")).toHaveText(/Overview/);
+    await expect(page.locator(".stats-embed")).toBeVisible();
+    // four charts: cost-over-time + cost-by-model + event composition + biggest
+    expect(await page.locator(".chart-card").count()).toBeGreaterThanOrEqual(4);
+    expect(await page.locator(".chart-svg rect").count()).toBeGreaterThan(0);
+    expect(await page.locator(".hbar-row").count()).toBeGreaterThan(0);
   });
 
-  test("the project selector scopes the session list & charts", async ({ page }) => {
-    await page.goto("/?tab=stats");
+  test("legacy /stats redirects to /overview", async ({ page }) => {
+    await page.goto("/stats");
+    await expect(page).toHaveURL(/\/overview$/);
+    await expect(page.locator(".sessbar-title")).toHaveText(/Overview/);
+  });
+
+  test("the project selector scopes the cross-session charts", async ({ page }) => {
+    await page.goto("/overview");
     const picker = page.locator(".project-picker");
     const values = await picker
       .locator("option")
@@ -440,18 +465,15 @@ test.describe("Stats (/stats)", () => {
       );
     expect(values.length).toBeGreaterThan(0);
     await picker.selectOption(values[0]);
-    // the scope header drops "All projects" and the charts re-render for the scope
     await expect(page.locator(".sessbar-meta")).not.toContainText("All projects");
     await expect(page.locator(".chart-card").first()).toBeVisible();
   });
 
-  test("stats keeps the session-list sidebar (same shell, not a separate screen)", async ({
+  test("a session in the overview sidebar jumps into the session viewer", async ({
     page,
   }) => {
-    await page.goto("/?tab=stats");
-    await expect(page.locator(".layout3 .sidebar .session-item").first()).toBeVisible();
-    // clicking a (non-active) session in the sidebar navigates the viewer
-    await page.locator(".layout3 .sidebar .session-item:not(.active)").first().click();
+    await page.goto("/overview");
+    await page.locator(".overview-shell .session-list .session-item").first().click();
     await expect(page).toHaveURL(/\?session=/);
   });
 });
@@ -472,10 +494,12 @@ test.describe("Harness signals", () => {
     await expect(page.locator(".timeline .event-icon.memory").first()).toBeVisible();
   });
 
-  test("stats charts break down where the actions went", async ({ page }) => {
-    await page.goto("/?tab=stats");
+  test("the overview charts break down where the actions went across sessions", async ({
+    page,
+  }) => {
+    await page.goto("/overview");
     // memory loads / hook firings are first-class event types — they roll up into
-    // the Stats event-composition chart (and stay filterable in the transcript).
+    // the cross-session event-composition chart (and stay filterable in transcripts).
     await expect(
       page.locator(".chart-card", { hasText: "Where the actions went" })
     ).toBeVisible();
@@ -493,8 +517,8 @@ test.describe("Codex support", () => {
     ).toBeVisible();
   });
 
-  test("the model chart includes Codex GPT models", async ({ page }) => {
-    await page.goto("/?tab=stats");
+  test("the overview model chart includes Codex GPT models", async ({ page }) => {
+    await page.goto("/overview");
     // Codex GPT models land in the same per-model cost breakdown as Claude
     const modelChart = page.locator(".chart-card", { hasText: "Cost by model" });
     await expect(modelChart).toBeVisible();
