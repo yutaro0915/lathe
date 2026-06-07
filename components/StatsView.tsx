@@ -54,6 +54,19 @@ const EVENT_LABEL: Record<string, string> = {
   error: "Error", todo: "Todo", memory: "Memory", hook: "Hook",
 };
 
+// One bar of the "cost & tokens over time" chart — either a single session or,
+// for large scopes, a calendar bucket aggregating several (so the SVG stays a
+// few dozen <rect>s instead of one per session, which froze "All projects").
+type TimeBar = {
+  key: string;
+  label: string;
+  cost: number;
+  costKnown: boolean;
+  tokens: number;
+  sessions: number;
+  title: string;
+};
+
 export default function StatsView({
   scopeSessions,
   eventCounts,
@@ -97,8 +110,6 @@ export default function StatsView({
     .sort((a, b) => (b.costUsd ?? 0) - (a.costUsd ?? 0))
     .slice(0, 14);
 
-  const maxCost = Math.max(1e-6, ...chrono.map((s) => s.costUsd ?? 0));
-  const maxTok = Math.max(1, ...chrono.map((s) => s.tokenUsage ?? 0));
   const maxModelCost = Math.max(1e-6, ...models.map((m) => m.cost));
   const maxEv = Math.max(1, ...events.map((e) => e.count));
   const maxBig = Math.max(1e-6, ...biggest.map((s) => s.costUsd ?? 0));
@@ -115,14 +126,73 @@ export default function StatsView({
     );
   }
 
-  // cost-over-time SVG geometry
+  // Build the time-chart bars. Few sessions → one bar each (unchanged). Many →
+  // aggregate into equal calendar buckets sized so the bar count stays ≤ a
+  // target, keeping the SVG light no matter how big "All projects" gets.
+  const BAR_TARGET = 60;
+  const dayOf = (s: string) => s.slice(0, 10); // YYYY-MM-DD from ISO or space form
+  const DAY_MS = 86_400_000;
+  let bucketDays = 1;
+  let timeBars: TimeBar[];
+  if (chrono.length <= BAR_TARGET) {
+    timeBars = chrono.map((s) => ({
+      key: s.id,
+      label: parseDate(s.startedAt),
+      cost: s.costUsd ?? 0,
+      costKnown: s.costUsd != null,
+      tokens: s.tokenUsage ?? 0,
+      sessions: 1,
+      title: `${s.title}\n${parseDate(s.startedAt)} · ${fmtCost(s.costUsd)} · ${fmtCompact(s.tokenUsage)} tok`,
+    }));
+  } else {
+    // True min/max day across the scope (don't assume seq order == date order),
+    // so the bucket count stays bounded by BAR_TARGET no matter the data.
+    const times = chrono
+      .map((s) => Date.parse(dayOf(s.startedAt)))
+      .filter((t) => !Number.isNaN(t));
+    const firstMs = times.length ? Math.min(...times) : 0;
+    const lastMs = times.length ? Math.max(...times) : 0;
+    const spanDays = Math.max(1, Math.round((lastMs - firstMs) / DAY_MS) + 1);
+    bucketDays = Math.max(1, Math.ceil(spanDays / BAR_TARGET));
+    const step = bucketDays * DAY_MS;
+    const buckets = new Map<number, TimeBar & { startMs: number }>();
+    for (const s of chrono) {
+      const ms = Date.parse(dayOf(s.startedAt));
+      const idx = Number.isNaN(ms) ? 0 : Math.floor((ms - firstMs) / step);
+      let b = buckets.get(idx);
+      if (!b) {
+        b = { key: `b${idx}`, label: "", cost: 0, costKnown: false, tokens: 0, sessions: 0, title: "", startMs: firstMs + idx * step };
+        buckets.set(idx, b);
+      }
+      if (s.costUsd != null) { b.cost += s.costUsd; b.costKnown = true; }
+      b.tokens += s.tokenUsage ?? 0;
+      b.sessions += 1;
+    }
+    timeBars = [...buckets.values()]
+      .sort((a, b) => a.startMs - b.startMs)
+      .map(({ startMs, ...b }) => {
+        const start = parseDate(new Date(startMs).toISOString().slice(0, 10));
+        const end = parseDate(new Date(startMs + (bucketDays - 1) * DAY_MS).toISOString().slice(0, 10));
+        const range = bucketDays === 1 ? start : `${start}–${end}`;
+        return {
+          ...b,
+          label: start,
+          title: `${range}\n${b.sessions} session${b.sessions === 1 ? "" : "s"} · ${b.costKnown ? fmtCost(b.cost) : "—"} · ${fmtCompact(b.tokens)} tok`,
+        };
+      });
+  }
+
+  const maxCost = Math.max(1e-6, ...timeBars.map((b) => b.cost));
+  const maxTok = Math.max(1, ...timeBars.map((b) => b.tokens));
+
+  // cost-over-time SVG geometry (one bar per TimeBar, not per session)
   const W = 760, H = 150, pad = 4;
-  const n = chrono.length;
+  const n = timeBars.length;
   const bw = (W - pad * 2) / n;
-  const tokLine = chrono
-    .map((s, i) => {
+  const tokLine = timeBars
+    .map((b, i) => {
       const x = pad + i * bw + bw / 2;
-      const y = H - ((s.tokenUsage ?? 0) / maxTok) * (H - 16);
+      const y = H - (b.tokens / maxTok) * (H - 16);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
@@ -135,15 +205,21 @@ export default function StatsView({
           <section className="chart-card chart-wide">
             <div className="chart-h">
               Cost &amp; tokens over time{" "}
-              <span className="muted small">— {scopeLabel}, {n} session{n === 1 ? "" : "s"} in order</span>
+              <span className="muted small">
+                — {scopeLabel}, {fmtInt(chrono.length)} session
+                {chrono.length === 1 ? "" : "s"}
+                {bucketDays > 1
+                  ? `, grouped into ${n} buckets (~${bucketDays}d each)`
+                  : " in order"}
+              </span>
             </div>
             <div className="chart-body">
               <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="none">
-                {chrono.map((s, i) => {
-                  const h = ((s.costUsd ?? 0) / maxCost) * (H - 16);
+                {timeBars.map((b, i) => {
+                  const h = (b.cost / maxCost) * (H - 16);
                   return (
                     <rect
-                      key={s.id}
+                      key={b.key}
                       x={pad + i * bw}
                       y={H - h}
                       width={Math.max(0.6, bw - 0.6)}
@@ -151,7 +227,7 @@ export default function StatsView({
                       fill="var(--accent)"
                       opacity={0.85}
                     >
-                      <title>{`${s.title}\n${parseDate(s.startedAt)} · ${fmtCost(s.costUsd)} · ${fmtCompact(s.tokenUsage)} tok`}</title>
+                      <title>{b.title}</title>
                     </rect>
                   );
                 })}
@@ -164,7 +240,7 @@ export default function StatsView({
               <span><i style={{ background: "var(--accent)" }} />cost (bars)</span>
               <span><i style={{ background: "#10b981" }} />tokens (line)</span>
               <span className="spacer" style={{ flex: 1 }} />
-              <span>{parseDate(chrono[0].startedAt)} → {parseDate(chrono[n - 1].startedAt)} · peak {fmtCost(maxCost)} / {fmtCompact(maxTok)} tok</span>
+              <span>{parseDate(chrono[0].startedAt)} → {parseDate(chrono[chrono.length - 1].startedAt)} · peak {fmtCost(maxCost)} / {fmtCompact(maxTok)} tok</span>
             </div>
           </section>
 
