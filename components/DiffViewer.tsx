@@ -318,6 +318,13 @@ const RUNNER_LABEL: Record<string, string> = {
   cursor: "Cursor",
 };
 
+// Big diffs are paginated so a 280-edit session no longer mounts thousands of
+// <div> rows at once (which froze the Git tab). We render the active file's
+// hunks one page at a time and cap the line count of any single very long hunk;
+// hunk navigation and the "show more" controls expand the window on demand.
+const HUNK_PAGE = 40; // hunks rendered per page
+const HUNK_LINE_CAP = 500; // lines rendered for one hunk before "show more lines"
+
 export default function DiffViewer({ sessions, bundle, currentId, embedded = false, focusEventId, onJumpToEvent }: Props) {
   const router = useRouter();
   const s = bundle.session;
@@ -360,6 +367,12 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
     () => new Set()
   );
   const [copied, setCopied] = useState<string | null>(null);
+  // How many of the active file's hunks are currently mounted (pagination), and
+  // which individually-capped long hunks the user expanded to full length.
+  const [hunkWindow, setHunkWindow] = useState<number>(HUNK_PAGE);
+  const [expandedHunks, setExpandedHunks] = useState<Set<string>>(() => new Set());
+  // Hunk index to scroll to once the render window has grown to include it.
+  const pendingScrollRef = useRef<number | null>(null);
 
   // When the session (props) changes, reset per-session UI state.
   useEffect(() => {
@@ -379,6 +392,23 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
   );
 
   const hunks: DiffHunk[] = active ? bundle.hunks[active.id] ?? [] : [];
+
+  // Only the first `hunkWindow` hunks are mounted; the rest load via "show more"
+  // (or automatically when navigation/coverage jumps past the window).
+  const renderedHunks = hunks.slice(0, hunkWindow);
+  const moreHunks = hunks.length - renderedHunks.length;
+
+  // Reset diff pagination whenever the active file changes (new file/session) so
+  // a previously expanded window doesn't carry into a fresh, possibly huge file.
+  // When we jumped in from the transcript (focusEventId) and the target hunk is
+  // past the first page, grow the window to include it and scroll there.
+  useEffect(() => {
+    const focusIdx =
+      focusHit && focusHit.fileId === active?.id ? focusHit.hunkIndex : 0;
+    setHunkWindow(Math.max(HUNK_PAGE, focusIdx + 1));
+    setExpandedHunks(new Set());
+    pendingScrollRef.current = focusIdx > 0 ? focusIdx : null;
+  }, [active?.id, focusHit]);
 
   // per-hunk attribution (first attribution row drives the hunk's confidence).
   const hunkAttr = useMemo(() => {
@@ -451,10 +481,27 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
     setHunkIndex((i) => Math.min(Math.max(0, i), Math.max(0, hunks.length - 1)));
   }, [hunks.length]);
 
+  // After the window grows to include a navigated-to hunk, scroll it into view.
+  useEffect(() => {
+    const idx = pendingScrollRef.current;
+    if (idx == null) return;
+    const el = hunkRefs.current[idx];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      pendingScrollRef.current = null;
+    }
+  }, [hunkWindow]);
+
   function gotoHunk(next: number) {
     if (hunks.length === 0) return;
     const clamped = Math.min(Math.max(0, next), hunks.length - 1);
     setHunkIndex(clamped);
+    if (clamped >= hunkWindow) {
+      // Grow the render window to include the target, then scroll once mounted.
+      setHunkWindow(clamped + 1);
+      pendingScrollRef.current = clamped;
+      return;
+    }
     const el = hunkRefs.current[clamped];
     if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
@@ -473,6 +520,15 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
       else next.add(path);
+      return next;
+    });
+  }
+
+  // Reveal the rest of a single very long hunk that was line-capped for perf.
+  function expandHunk(id: string) {
+    setExpandedHunks((prev) => {
+      const next = new Set(prev);
+      next.add(id);
       return next;
     });
   }
@@ -790,7 +846,7 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
             </div>
 
             <div className="diff">
-              {hunks.map((h, hi) => {
+              {renderedHunks.map((h, hi) => {
                 const attr = hunkAttr.get(h.id);
                 const conf: Confidence = attr ? attr.confidence : "unattributed";
                 const method: AttributionMethod = attr
@@ -798,7 +854,13 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
                   : "dirty_worktree";
                 const linked = attr != null && attr.eventId != null;
                 const { oldNo: oldStart, newNo: newStart } = hunkStart(h.header);
-                const lines = h.content.split("\n");
+                // Cap a single very long hunk (e.g. a whole-file Write) so it
+                // doesn't mount thousands of rows; the tail loads on demand.
+                const allLines = h.content.split("\n");
+                const lines = expandedHunks.has(h.id)
+                  ? allLines
+                  : allLines.slice(0, HUNK_LINE_CAP);
+                const moreLines = allLines.length - lines.length;
                 const isCurrent = hi === hunkIndex;
 
                 // step focus: collapse hunks attributed to OTHER turns so the
@@ -990,9 +1052,46 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
                         );
                       })()
                     )}
+                    {moreLines > 0 && (
+                      <div className="diff-more-lines">
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => expandHunk(h.id)}
+                        >
+                          Show {fmtInt(moreLines)} more line
+                          {moreLines === 1 ? "" : "s"} in this hunk
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
+              {moreHunks > 0 && (
+                <div className="diff-more">
+                  <span className="muted small">
+                    Showing {fmtInt(renderedHunks.length)} of {fmtInt(hunks.length)}{" "}
+                    hunks
+                  </span>
+                  <span style={{ flex: "1 1 auto" }} />
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() =>
+                      setHunkWindow((w) => Math.min(hunks.length, w + HUNK_PAGE))
+                    }
+                  >
+                    Show {Math.min(HUNK_PAGE, moreHunks)} more
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => setHunkWindow(hunks.length)}
+                  >
+                    Show all ({fmtInt(hunks.length)})
+                  </button>
+                </div>
+              )}
               {hunks.length === 0 && (
                 <div className="empty" style={{ padding: 16 }}>
                   No hunks.
