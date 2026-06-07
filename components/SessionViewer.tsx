@@ -259,6 +259,11 @@ export default function SessionViewer({
   const [typeFilter, setTypeFilter] = useState<Set<EventType>>(() => new Set(ALL_TYPES));
   const [transcriptSearch, setTranscriptSearch] = useState("");
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(() => new Set());
+  // turn groups: each top-level user_message starts a "Turn N" (matches Linked
+  // Events numbering). Collapsing a turn hides the assistant/tool steps until
+  // the NEXT user_message — so a long run can be scanned at the turn level and
+  // then drilled into. Default = all open.
+  const [collapsedTurns, setCollapsedTurns] = useState<Set<string>>(() => new Set());
 
   // ---- Subagents tab: which run is open ("overview" or a launcher event id) --
   const [subAgentTab, setSubAgentTab] = useState<string>("overview");
@@ -465,6 +470,42 @@ export default function SessionViewer({
   // top-level events drive the timeline + ribbon; children expand under parents
   const topEvents = useMemo(() => events.filter((e) => !e.parentId), [events]);
   const visibleEvents = useMemo(() => topEvents.filter(matchEvent), [topEvents, matchEvent]);
+
+  // turn numbering: each top-level user_message starts a new turn. A row's
+  // owning turn = the most recent user_message at or before it. The user_message
+  // event itself IS the turn header; everything after it (assistant/tool/…)
+  // belongs to that turn until the NEXT user_message.
+  const { turnNumberByEventId, turnHeaderIds } = useMemo(() => {
+    const turnNumberByEventId = new Map<string, number>();
+    const turnHeaderIds = new Map<string, string>(); // event id -> header (user_message) id
+    let n = 0;
+    let header: string | null = null;
+    for (const e of topEvents) {
+      if (e.type === "user_message") {
+        n += 1;
+        header = e.id;
+        turnNumberByEventId.set(e.id, n);
+      }
+      if (header) turnHeaderIds.set(e.id, header);
+    }
+    return { turnNumberByEventId, turnHeaderIds };
+  }, [topEvents]);
+  const turnCount = turnNumberByEventId.size;
+
+  function toggleTurn(headerId: string) {
+    setCollapsedTurns((prev) => {
+      const next = new Set(prev);
+      if (next.has(headerId)) next.delete(headerId);
+      else next.add(headerId);
+      return next;
+    });
+  }
+  function collapseAllTurns() {
+    setCollapsedTurns(new Set(turnNumberByEventId.keys()));
+  }
+  function expandAllTurns() {
+    setCollapsedTurns(new Set());
+  }
 
   const selected: TranscriptEvent | undefined = useMemo(
     () => events.find((e) => e.id === selectedEventId),
@@ -911,13 +952,36 @@ export default function SessionViewer({
         <main className="main">
           {/* transcript search lives above the timeline (only for transcript tab) */}
           {activeTab === "transcript" && (
-            <div className="search" style={{ margin: "10px 12px 6px" }}>
-              <span aria-hidden>⌕</span>
-              <input
-                placeholder="Filter timeline…"
-                value={transcriptSearch}
-                onChange={(e) => setTranscriptSearch(e.target.value)}
-              />
+            <div
+              className="transcript-toolbar"
+              style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 12px 6px" }}
+            >
+              <div className="search" style={{ flex: "1 1 auto" }}>
+                <span aria-hidden>⌕</span>
+                <input
+                  placeholder="Filter timeline…"
+                  value={transcriptSearch}
+                  onChange={(e) => setTranscriptSearch(e.target.value)}
+                />
+              </div>
+              {turnCount > 1 && (
+                <span className="segmented turn-filter" title="Show/hide every turn in this session">
+                  <button
+                    type="button"
+                    className={collapsedTurns.size === 0 ? "active" : ""}
+                    onClick={expandAllTurns}
+                  >
+                    Expand turns
+                  </button>
+                  <button
+                    type="button"
+                    className={collapsedTurns.size === turnCount ? "active" : ""}
+                    onClick={collapseAllTurns}
+                  >
+                    Collapse turns
+                  </button>
+                </span>
+              )}
             </div>
           )}
 
@@ -929,11 +993,13 @@ export default function SessionViewer({
                   e: TranscriptEvent,
                   depth: number,
                   childCount: number,
+                  turnStats?: { turn: number; steps: number; collapsed: boolean },
                 ) => {
                   const isSel = selectedEventId === e.id;
                   const glyph = TYPE_GLYPH[e.type] ?? "•";
                   const pinned = pins.has(e.id);
                   const expanded = expandedAgents.has(e.id);
+                  const isTurnHeader = turnStats != null;
                   let subNode: React.ReactNode = null;
                   if (e.filePath) subNode = <div className="event-sub path">{e.filePath}</div>;
                   else if (e.command) subNode = <div className="event-sub mono">{e.command}</div>;
@@ -951,7 +1017,7 @@ export default function SessionViewer({
                     <div
                       key={e.id}
                       data-eid={e.id}
-                      className={`event-row${depth > 0 ? " child-row" : ""}${isSel ? " selected" : ""}`}
+                      className={`event-row${depth > 0 ? " child-row" : ""}${isSel ? " selected" : ""}${isTurnHeader ? " turn-header" : ""}`}
                       onClick={() => setSelectedEventId(e.id)}
                       role="button"
                       tabIndex={0}
@@ -964,7 +1030,20 @@ export default function SessionViewer({
                       style={{ cursor: "pointer" }}
                     >
                       <span className="event-seq">
-                        {childCount > 0 ? (
+                        {isTurnHeader ? (
+                          <button
+                            type="button"
+                            className="tw-expand"
+                            aria-label={turnStats.collapsed ? "Expand turn" : "Collapse turn"}
+                            title={turnStats.collapsed ? "Expand this turn" : "Collapse this turn"}
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              toggleTurn(e.id);
+                            }}
+                          >
+                            {turnStats.collapsed ? "▸" : "▾"}
+                          </button>
+                        ) : childCount > 0 ? (
                           <button
                             type="button"
                             className="tw-expand"
@@ -1006,6 +1085,11 @@ export default function SessionViewer({
                         {subNode}
                       </div>
                       <span className="event-meta">
+                        {isTurnHeader && (
+                          <span className="chip turn-chip" title={`Turn ${turnStats.turn} of ${turnCount}`}>
+                            Turn {turnStats.turn} · {turnStats.steps} step{turnStats.steps === 1 ? "" : "s"}
+                          </span>
+                        )}
                         {childCount > 0 && (
                           <span className="chip">{childCount} steps</span>
                         )}
@@ -1036,11 +1120,32 @@ export default function SessionViewer({
                     </div>
                   );
                 };
+                // pre-compute steps-per-turn over UNFILTERED top events so the
+                // header chip reads "N steps" of the actual turn, not of what
+                // happens to be filtered in right now.
+                const stepsPerTurn = new Map<string, number>();
+                for (const e of topEvents) {
+                  const h = turnHeaderIds.get(e.id);
+                  if (!h || h === e.id) continue;
+                  stepsPerTurn.set(h, (stepsPerTurn.get(h) ?? 0) + 1);
+                }
                 const rows: React.ReactNode[] = [];
                 for (const e of visibleEvents) {
+                  const header = turnHeaderIds.get(e.id);
+                  const isHeader = e.type === "user_message" && turnNumberByEventId.has(e.id);
+                  const collapsed = header != null && collapsedTurns.has(header);
+                  // hide non-header rows whose owning turn is collapsed
+                  if (collapsed && !isHeader) continue;
                   const kids = childrenByParent.get(e.id) ?? [];
-                  rows.push(renderRow(e, 0, kids.length));
-                  if (kids.length && expandedAgents.has(e.id)) {
+                  const turnStats = isHeader
+                    ? {
+                        turn: turnNumberByEventId.get(e.id) ?? 0,
+                        steps: stepsPerTurn.get(e.id) ?? 0,
+                        collapsed,
+                      }
+                    : undefined;
+                  rows.push(renderRow(e, 0, kids.length, turnStats));
+                  if (!isHeader && kids.length && expandedAgents.has(e.id)) {
                     for (const k of kids) if (matchEvent(k)) rows.push(renderRow(k, 1, 0));
                   }
                 }

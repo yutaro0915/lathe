@@ -245,10 +245,16 @@ test.describe("Sub-agent expansion", () => {
   test("sub-agent rows expand to reveal child steps (tools/skills)", async ({ page }) => {
     // a session known to spawn general-purpose sub-agents
     await page.goto("/?session=da2ac032-a905-4267-8e5f-851456926a79");
-    const expanders = page.locator(".tw-expand");
-    if ((await expanders.count()) > 0) {
+    // pick the expander on a SUB-AGENT row (not a turn-header user_message —
+    // they now share the .tw-expand class for ▾/▸ toggles).
+    const saExpander = page
+      .locator(".event-row:not(.turn-header)")
+      .filter({ has: page.locator(".event-icon.subagent") })
+      .first()
+      .locator(".tw-expand");
+    if ((await saExpander.count()) > 0) {
       const before = await page.locator(".event-row").count();
-      await expanders.first().click();
+      await saExpander.click();
       await expect
         .poll(async () => page.locator(".event-row.child-row").count())
         .toBeGreaterThan(0);
@@ -535,6 +541,31 @@ test.describe("Transcript ⇄ Git cross-links", () => {
     await back.click();
     await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
     await expect(page.locator(".event-row.selected")).toHaveCount(1);
+  });
+});
+
+test.describe("Transcript: turn grouping", () => {
+  // multi-turn Claude session (41 turns) — Collapse turns must reduce the row
+  // count to exactly the turn-header count, Expand turns must restore them.
+  const SID = "33a47290-fc24-47bc-b624-e7fbc4412ade";
+
+  test("turn headers carry the Turn N · M steps chip", async ({ page }) => {
+    await page.goto(`/?session=${SID}`);
+    await expect(page.locator(".event-row.turn-header").first()).toBeVisible();
+    await expect(page.locator(".chip.turn-chip").first()).toContainText(/Turn 1\b/);
+    await expect(page.locator(".chip.turn-chip").first()).toContainText(/step/);
+  });
+
+  test("Collapse turns reduces the timeline to turn headers only", async ({ page }) => {
+    await page.goto(`/?session=${SID}`);
+    const headers = await page.locator(".event-row.turn-header").count();
+    expect(headers).toBeGreaterThan(1);
+    await page.locator(".turn-filter button", { hasText: "Collapse turns" }).click();
+    await expect.poll(async () => page.locator(".event-row").count()).toBe(headers);
+    await page.locator(".turn-filter button", { hasText: "Expand turns" }).click();
+    await expect
+      .poll(async () => page.locator(".event-row").count())
+      .toBeGreaterThan(headers);
   });
 });
 

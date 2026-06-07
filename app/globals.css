@@ -389,6 +389,12 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 /* ---- expandable sub-agent steps in the transcript ---- */
 .tw-expand{border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:11px;line-height:1;padding:3px 4px;border-radius:4px;}
 .tw-expand:hover{background:var(--panel-hover);color:var(--accent);}
+/* turn header: a user_message that starts a turn — visually a divider so the
+   turn boundary reads at a glance, even when expanded. The chip carries "Turn N
+   · N steps" and the seq column hosts the ▾/▸ toggle. */
+.event-row.turn-header{background:var(--bg-sunken);border-top:1px solid var(--border-strong);box-shadow:inset 3px 0 0 var(--accent);}
+.event-row.turn-header .event-title{font-weight:650;color:var(--text);}
+.chip.turn-chip{background:var(--accent-weak);color:var(--accent);border:1px solid var(--accent-ring);font-weight:650;}
 .event-row.child-row{background:var(--bg-sunken);box-shadow:inset 3px 0 0 var(--accent-ring);}
 .event-row.child-row .event-gutter{padding-left:16px;}
 .event-row.child-row .event-title{font-weight:500;}
