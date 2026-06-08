@@ -15,7 +15,7 @@
 //    scale with zoom, so the clock times stay readable when you zoom in.
 
 import { useMemo, useState } from "react";
-import { fmtDurationSec } from "@/lib/format";
+import { fmtDurationSec } from "@lathe/shared";
 import type { TranscriptEvent } from "@/lib/types";
 
 function tsToSec(ts: string): number | null {

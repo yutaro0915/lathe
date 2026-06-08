@@ -17,7 +17,7 @@
 // Phase-1 observation only (no AI / harness evaluation — that's Phase 2).
 
 import { EVENT_COLOR, EVENT_LABEL } from "@/lib/event-display";
-import { fmtCompact, fmtCost, fmtInt, shortModel } from "@/lib/format";
+import { fmtCompact, fmtCost, fmtInt, shortModel } from "@lathe/shared";
 import type { EventType, Session } from "@/lib/types";
 function parseDate(s: string): string {
   // "2026-06-04 09:12:00" -> "Jun 4"

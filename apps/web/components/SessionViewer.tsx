@@ -25,7 +25,7 @@ import {
   humanizeDuration,
   parseStamp,
   shortModel,
-} from "@/lib/format";
+} from "@lathe/shared";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import type {
   Session,

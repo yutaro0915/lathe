@@ -8,8 +8,8 @@ next-env.d.ts
 *.tsbuildinfo
 
 # generated sqlite database (regenerate with `pnpm ingest`)
-data/*.db
-data/*.db-*
+**/data/*.db
+**/data/*.db-*
 
 # playwright
 test-results/

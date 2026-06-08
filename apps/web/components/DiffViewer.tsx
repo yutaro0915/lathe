@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import TimeRibbon from "@/components/TimeRibbon";
-import { basename, fmtCompact, fmtDuration, fmtInt, fmtLatency, fmtTok } from "@/lib/format";
+import { basename, fmtCompact, fmtDuration, fmtInt, fmtLatency, fmtTok } from "@lathe/shared";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import type {
   Session,

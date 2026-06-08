@@ -13,7 +13,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import StatsView from "@/components/StatsView";
-import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@/lib/format";
+import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
 import type { Session, StatsBundle } from "@/lib/types";
 
 export default function OverviewView({
