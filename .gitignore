@@ -1,23 +1,23 @@
 # dependencies
-/node_modules
+node_modules/
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 next-env.d.ts
 *.tsbuildinfo
 
-# generated sqlite database (regenerate with `pnpm seed` or `pnpm ingest`)
-/data/*.db
-/data/*.db-*
+# generated sqlite database (regenerate with `pnpm ingest`)
+data/*.db
+data/*.db-*
 
 # playwright
-/test-results/
-/playwright-report/
-/playwright/.cache/
+test-results/
+playwright-report/
+playwright/.cache/
 
 # coverage / test artifacts
-/coverage/
+coverage/
 
 # editor & agent-tool settings (these are personal; don't ship them in a public repo)
 .claude/
