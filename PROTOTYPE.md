@@ -2,6 +2,14 @@
 
 **このファイルだけ読めば次の担当者（人間 / Codex / 別 agent）が再開できる**ことを目標にする。
 
+> **方針 / ロードマップ / ADR は別ファイル**:
+> - [ROADMAP.md](./ROADMAP.md) — Phase 1-7 の全体像、決定済み索引、次に詰める論点
+> - [adr/0001-...](./adr/0001-ingest-via-hook-and-server-side-jsonl.md) — Ingest 方式(hook + jsonl)
+> - [adr/0002-...](./adr/0002-project-identity-model.md) — Project identity モデル
+> - [adr/0003-...](./adr/0003-monorepo-with-pnpm-workspaces.md) — Repository 構成(monorepo)
+> - [REFACTOR-PLAN.md](./REFACTOR-PLAN.md) / [status.md](./status.md) — Phase 1 リファクタ計画と進捗(完了)
+
+
 **現在の状態（2026-06-07）**: Phase 1（観測 = トランスクリプト / Git 差分 / 統計ビューア）プロトタイプ**動作・E2E 42/42 GREEN・coverage GREEN**。
 - **公開済み** → https://github.com/yutaro0915/lathe （**public**、default branch `main` に全コードあり）
 - 取り込みは **Claude Code + Codex** 両対応。cost は実モデル単価（Claude + GPT/Codex）で算出
