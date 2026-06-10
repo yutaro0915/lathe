@@ -1,17 +1,18 @@
 ---
-updated: 2026-06-10T13:57+0900
+updated: 2026-06-10T15:10+0900
 current_owner: none
-current_stage: tasks/08 complete / G8 design draft ready for review
+current_stage: tasks/08 merged to main / G8 design draft ready for review
 ---
 
 ## Current
 
-- task: [08] lathe-client + notify endpoint — **完了**（push 主・pull 補 ingest）
+- task: [08] lathe-client + notify endpoint — **完了・main へ merge 済み**（`f83ead2`、push 主・pull 補 ingest）
 - agent: none
 - progress: `@lathe/client init`、fail-open Stop hook、`POST /api/ingest/notify`、単一 session 冪等 replace、notify 検証スクリプト、README/PROTOTYPE 更新まで完了。G8 は prior art 調査（`design/research-g8-trace-explorer-ui.md`、27 実装）→ 設計枠組み（`design/g8-explorer-ui.md`、未決 5 点）までドラフト完了・レビュー待ち (claude)
 
 ## Last completed
 
+- 2026-06-10 [08] review + merge — Claude が task 8 をレビュー（重大指摘なし。tx 境界 / fail-open / seq=MIN-1 はサブエージェント初回指摘を実コードで反証）。受け入れ条件 1〜8 を再検証: verify:notify PASS（冪等 counts 不変）、init の既存 hooks 保全 jq PASS、fail-open exit 0、ingest+coverage GREEN、両 build PASS。e2e 48/49 の 1 fail はデータ依存（/diff の既定セッション=changed file 1 件の live セッションで「別ファイル選択」が不成立）で task 8 の回帰ではない。`main` へ ff-merge + push（`f83ead2`）。follow-up: notify endpoint は認可なし（localhost 個人ツール前提、公開デプロイ時は要対応）(claude)
 - 2026-06-10 [08] lathe-client + notify endpoint — `packages/client` に `lathe-client init` CLI と fail-open `.lathe/hook.mjs` 生成を追加し、Claude `.claude/settings.json` merge / Codex `.codex/hooks.json` + TOML snippet 生成に対応。本体は `POST /api/ingest/notify` から provider 解析を再利用して該当 session の関連行だけ削除→再挿入する増分 ingest を実装。`pnpm -F web ingest` PASS、`pnpm -F web verify:notify -- --url http://localhost:3210` PASS、`pnpm -F web coverage` GREEN、`pnpm -F client build` PASS、`pnpm -F web build` PASS、`pnpm -F web e2e` 49/49 GREEN (codex)
 - 2026-06-10 [07] Postgres migration — `node:sqlite` / local DB file 依存を Postgres + `pg` に移行。`docker compose -f docker-compose.dev.yml up -d --wait` PASS、`pnpm -F web ingest` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web build` PASS、`pnpm -F web e2e` 49/49 GREEN、`rg -l "node:sqlite" apps/ packages/` 0 件、`rg -l "lathe\\.db" apps/ packages/` 0 件 (codex)
 - 2026-06-09 [06] scaffold packages and wiring smoke — `@lathe/shared` / `@lathe/client` skeleton を追加し、`format.ts` を `@lathe/shared` 経由に移動。`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web e2e` 49/49 GREEN (codex)
