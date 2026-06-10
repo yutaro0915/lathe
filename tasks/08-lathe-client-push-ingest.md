@@ -30,9 +30,9 @@ estimated: large
 - transcript 解析ロジックは `apps/web/scripts/ingest/providers/{claude,codex}.ts` に実装済み。notify 経路はこれを**再利用**する（再実装しない）。
 - `packages/client/src/index.ts` は 1 行の skeleton。`@lathe/shared` の利用パターンは [06] 参照。
 
-## 設計上の未決論点（ループ開始前に承認で確定）
+## 設計上の論点（**2026-06-10 ユーザー承認済み**）
 
-[observation-ingest.md](../design/observation-ingest.md) 末尾の 3 点。本 task では以下を既定値として提案する:
+[observation-ingest.md](../design/observation-ingest.md) 末尾の 3 点。以下で確定:
 
 1. **payload フィールド**: `{ agent, session_id, transcript_path, cwd, project_id?, event }`（本文は運ばない。ADR 0001）
 2. **発火 event**: Claude Code = `Stop`（毎ターン、増分反映）。Codex = `Stop`。SessionEnd は使わない（timeout 1.5s が fire-and-forget でも詰まりうるため）
@@ -73,5 +73,5 @@ estimated: large
 
 - 作業ブランチ: `loop/08-push-ingest`（main から分岐）
 - goal 文の骨子: 「受け入れ条件 1〜8 がすべて該当コマンドで exit 0 / 全件 pass。1 ターン 1 項目。実装前に既存実装（providers / ingest/db.ts）を検索し再利用する。placeholder・テスト無効化・受け入れ条件コマンド改変による充足は不可。bound 節: 〔レビューで確定〕ターンまたは〔レビューで確定〕時間で未達停止、loop/PROGRESS.md に残課題」
-- ループ開始前の人間チェック: 未決論点 1〜3 の既定値承認 / 受け入れ条件承認 / Docker Desktop + Postgres 起動 / `status.md` の `current_owner` を `codex-loop` へ
+- ループ開始前の人間チェック: ~~未決論点 1〜3 の既定値承認~~（2026-06-10 承認済み）/ Docker Desktop + Postgres 起動（`docker compose -f docker-compose.dev.yml up -d --wait`）/ `status.md` の `current_owner` を `codex-loop` へ / bound 節の値を起動時に決める
 - 推奨実装順（参考）: 増分 ingest 関数（冪等 upsert）→ notify route handler → 検証スクリプト → client CLI（init + hook script）→ fail-open → docs

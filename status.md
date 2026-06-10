@@ -1,7 +1,7 @@
 ---
 updated: 2026-06-10
 current_owner: none
-current_stage: tasks/08 planned (awaiting approval) / G8 research done
+current_stage: tasks/08 approved (codex 起動はユーザーが実施) / G8 design in progress
 ---
 
 ## Current
@@ -24,7 +24,7 @@ current_stage: tasks/08 planned (awaiting approval) / G8 research done
 
 ## Open questions / blockers
 
-- [08] 開始前の人間承認待ち: 受け入れ条件 8 項 + 未決論点 3 点の既定値（payload フィールド / 発火 event = Stop / project_id 運搬。`tasks/08-lathe-client-push-ingest.md` 参照）
+- [08] 論点 3 点（payload フィールド / 発火 event = Stop / project_id 運搬）は 2026-06-10 ユーザー承認済み。**Codex への task 受け渡しはユーザーが実施**。bound 節の値は起動時に決める
 - G8（S1-1 探索モデル）/ G9（S1-3 コスト異常検知）は調査・設計フェーズ。G8 prior art 調査は完了（`design/research-g8-trace-explorer-ui.md`、27 実装・existence proof あり）。次は調査結果のレビュー → 設計の枠組み起こし（disciplined-research の順序）
 - schema.sql のコメント劣化は issue #2 に記録済み（https://github.com/yutaro0915/lathe/issues/2）
 - （解決済み 2026-06-09 調査）Codex CLI にも Stop hook があり transcript path を stdin で渡す。Codex=scan の前提は棄却（`design/observation-ingest.md`）
