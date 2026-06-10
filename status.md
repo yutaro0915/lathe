@@ -1,14 +1,14 @@
 ---
-updated: 2026-06-09
+updated: 2026-06-10
 current_owner: none
-current_stage: monorepo A complete
+current_stage: tasks/07 planned (awaiting acceptance-criteria approval)
 ---
 
 ## Current
 
-- task: none
-- agent: none
-- progress: monorepo A complete（[05] apps/web block move + pnpm workspace、[06] @lathe/shared/@lathe/client scaffold + shared format smoke）
+- task: [07] Postgres migration — **計画済み・未着手**（`tasks/07-postgres-migration.md`、受け入れ条件 7 項の人間承認待ち）
+- agent: none（承認後は claude が `/goal` loop で実施、`design/dev-loop.md` v2。開始時に owner を `claude-loop` へ）
+- progress: monorepo A complete（[05] apps/web block move + pnpm workspace、[06] @lathe/shared/@lathe/client scaffold + shared format smoke）。dev-loop v2 設計（`/goal` 駆動・両ゲート型）を design/ に追加
 
 ## Last completed
 
