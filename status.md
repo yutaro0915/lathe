@@ -1,7 +1,7 @@
 ---
 updated: 2026-06-10
 current_owner: none
-current_stage: tasks/08 approved (codex 起動はユーザーが実施) / G8 design in progress
+current_stage: tasks/08 approved (codex 起動はユーザーが実施) / G8 design draft ready for review
 ---
 
 ## Current
