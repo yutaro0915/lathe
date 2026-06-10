@@ -108,17 +108,18 @@ RED のまま commit しない。同一項目の RED が続く場合の扱いは
 
 | 失敗モード（一次報告あり） | 対策 |
 |---|---|
-| 一度に全部やる | PROMPT に one item per loop を明記、diff 行数の上限目安 |
-| 未完了なのに完了宣言 | 完了判定を受け入れ条件のコマンド結果のみに限定 |
-| placeholder 実装 | no cheating 指示 + E2E が実挙動を検証 |
-| 二重実装 | 実装前にコードベース検索を義務化 |
-| context 劣化 | fresh session per iteration（案 A）で毎回リセット |
-| 暴走・破壊 | ブランチ隔離 + RED 3 連続停止 + 人間承認まで merge しない |
+| 一度に全部やる | goal 文に one item per turn を明記、diff 行数の上限目安 |
+| 未完了なのに完了宣言 | 完了判定を independent grader + 受け入れ条件のコマンド結果に限定（自己申告を判定根拠にしない） |
+| placeholder 実装・テスト無効化による充足 | goal 文に no cheating 節 + E2E が実挙動を検証 |
+| 二重実装 | 実装前にコードベース検索を goal 文で義務化 |
+| context 劣化（長大 goal） | task 分割し goal を受け入れ条件のまとまり単位で複数回設定 |
+| 誤状態の増幅（state carry-over） | 状態は git + PROGRESS.md に限定し、commit 単位で audit 可能にする |
+| 暴走・破壊 | ブランチ隔離 + bound 節 + 人間承認まで merge しない |
 
 ## 7. 未決定（レビューで決める）
 
-1. `claude -p` の権限モード（`--dangerously-skip-permissions` をブランチ隔離前提で許すか、`--permission-mode` + allowlist にするか）
-2. max iterations の既定値（10 で妥当か）
-3. ループログ（`loop/logs/*.jsonl`）を git 管理するか gitignore か
-4. Codex でも同じループを回すか（driver の CLI 差し替えだけで成立するか）
-5. tasks/07 の受け入れ条件の細目（上記 5 の 4 項で足りるか）
+1. loop 実行時の権限モード（auto mode / allowlist。ブランチ隔離前提でどこまで許すか）
+2. bound 節の既定値（turn 上限・時間上限をいくつにするか）
+3. Codex 側に同等の goal loop primitive があるか（一次情報未確認）。無ければ Codex タスクは従来の tasks/NN handoff のまま二本立てにするか
+4. tasks/07 の受け入れ条件の細目（§5 の 4 項で足りるか）
+5. grader の判定根拠の固定方法（ゲートコマンドの実行結果をどう grader に見せるか。実機で `/goal` の挙動確認が先）
