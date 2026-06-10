@@ -6,9 +6,9 @@ current_stage: tasks/08 approved (codex 起動はユーザーが実施) / G8 des
 
 ## Current
 
-- task: [08] lathe-client + notify endpoint — **計画済み・未着手**（`tasks/08-lathe-client-push-ingest.md`、受け入れ条件 8 項 + 未決論点 3 点の既定値の人間承認待ち。承認後 codex が `/goal` loop で実施）
+- task: [08] lathe-client + notify endpoint — **承認済み・Codex 起動待ち**（`tasks/08-lathe-client-push-ingest.md`。論点 3 点は 2026-06-10 承認、受け渡しはユーザーが実施）
 - agent: none
-- progress: [07] Postgres migration 完了・main へ merge 済み（`c0f8cc4`）。user-stories.md に G8（S1-1 探索モデル未設計）/ G9（S1-3 異常検知無定義）を追加。G8 の prior art 調査（trace explorer UI、disciplined-research）を claude subagent で実行中 → `design/research-g8-trace-explorer-ui.md` に出力予定
+- progress: [07] 完了・merge 済み（`c0f8cc4`）。G8/G9 を user-stories.md に採番。G8 は prior art 調査（`design/research-g8-trace-explorer-ui.md`、27 実装）→ 設計枠組み（`design/g8-explorer-ui.md`、未決 5 点）までドラフト完了・レビュー待ち (claude)
 
 ## Last completed
 
@@ -25,7 +25,8 @@ current_stage: tasks/08 approved (codex 起動はユーザーが実施) / G8 des
 ## Open questions / blockers
 
 - [08] 論点 3 点（payload フィールド / 発火 event = Stop / project_id 運搬）は 2026-06-10 ユーザー承認済み。**Codex への task 受け渡しはユーザーが実施**。bound 節の値は起動時に決める
-- G8（S1-1 探索モデル）/ G9（S1-3 コスト異常検知）は調査・設計フェーズ。G8 prior art 調査は完了（`design/research-g8-trace-explorer-ui.md`、27 実装・existence proof あり）。次は調査結果のレビュー → 設計の枠組み起こし（disciplined-research の順序）
+- G8 設計枠組み（`design/g8-explorer-ui.md`）の未決 5 点がユーザーレビュー待ち: 探索モデルの採用範囲（A-1/A-2/A-3）/ turn rollup 項目 / ファイル軸の同時実装 / task 分割 / SessionViewer 分割の同時実施
+- G9（コスト異常検知）は未着手。baseline 定義（project 別中央値 / percentile / 絶対閾値）はユーザー判断待ち。表示面の界面は g8-explorer-ui.md §6 に定義済み
 - schema.sql のコメント劣化は issue #2 に記録済み（https://github.com/yutaro0915/lathe/issues/2）
 - （解決済み 2026-06-09 調査）Codex CLI にも Stop hook があり transcript path を stdin で渡す。Codex=scan の前提は棄却（`design/observation-ingest.md`）
 - スコープ判断（ユーザー veto 可）: turbo+changesets は YAGNI で後回し（ADR 0003 から sequencing 変更）
