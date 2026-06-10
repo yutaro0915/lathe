@@ -1,17 +1,18 @@
 ---
-updated: 2026-06-10
+updated: 2026-06-10T13:57+0900
 current_owner: none
-current_stage: tasks/08 approved (codex 起動はユーザーが実施) / G8 design draft ready for review
+current_stage: tasks/08 complete / G8 design draft ready for review
 ---
 
 ## Current
 
-- task: [08] lathe-client + notify endpoint — **承認済み・Codex 起動待ち**（`tasks/08-lathe-client-push-ingest.md`。論点 3 点は 2026-06-10 承認、受け渡しはユーザーが実施）
+- task: [08] lathe-client + notify endpoint — **完了**（push 主・pull 補 ingest）
 - agent: none
-- progress: [07] 完了・merge 済み（`c0f8cc4`）。G8/G9 を user-stories.md に採番。G8 は prior art 調査（`design/research-g8-trace-explorer-ui.md`、27 実装）→ 設計枠組み（`design/g8-explorer-ui.md`、未決 5 点）までドラフト完了・レビュー待ち (claude)
+- progress: `@lathe/client init`、fail-open Stop hook、`POST /api/ingest/notify`、単一 session 冪等 replace、notify 検証スクリプト、README/PROTOTYPE 更新まで完了。G8 は prior art 調査（`design/research-g8-trace-explorer-ui.md`、27 実装）→ 設計枠組み（`design/g8-explorer-ui.md`、未決 5 点）までドラフト完了・レビュー待ち (claude)
 
 ## Last completed
 
+- 2026-06-10 [08] lathe-client + notify endpoint — `packages/client` に `lathe-client init` CLI と fail-open `.lathe/hook.mjs` 生成を追加し、Claude `.claude/settings.json` merge / Codex `.codex/hooks.json` + TOML snippet 生成に対応。本体は `POST /api/ingest/notify` から provider 解析を再利用して該当 session の関連行だけ削除→再挿入する増分 ingest を実装。`pnpm -F web ingest` PASS、`pnpm -F web verify:notify -- --url http://localhost:3210` PASS、`pnpm -F web coverage` GREEN、`pnpm -F client build` PASS、`pnpm -F web build` PASS、`pnpm -F web e2e` 49/49 GREEN (codex)
 - 2026-06-10 [07] Postgres migration — `node:sqlite` / local DB file 依存を Postgres + `pg` に移行。`docker compose -f docker-compose.dev.yml up -d --wait` PASS、`pnpm -F web ingest` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web build` PASS、`pnpm -F web e2e` 49/49 GREEN、`rg -l "node:sqlite" apps/ packages/` 0 件、`rg -l "lathe\\.db" apps/ packages/` 0 件 (codex)
 - 2026-06-09 [06] scaffold packages and wiring smoke — `@lathe/shared` / `@lathe/client` skeleton を追加し、`format.ts` を `@lathe/shared` 経由に移動。`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web e2e` 49/49 GREEN (codex)
 - 2026-06-09 [05] monorepo block move — app 本体を `apps/web/` へ block move し、root pnpm workspace 化。`pnpm -F web ingest` PASS、`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web e2e` 49/49 GREEN (codex)
@@ -24,7 +25,6 @@ current_stage: tasks/08 approved (codex 起動はユーザーが実施) / G8 des
 
 ## Open questions / blockers
 
-- [08] 論点 3 点（payload フィールド / 発火 event = Stop / project_id 運搬）は 2026-06-10 ユーザー承認済み。**Codex への task 受け渡しはユーザーが実施**。bound 節の値は起動時に決める
 - G8 設計枠組み（`design/g8-explorer-ui.md`）の未決 5 点がユーザーレビュー待ち: 探索モデルの採用範囲（A-1/A-2/A-3）/ turn rollup 項目 / ファイル軸の同時実装 / task 分割 / SessionViewer 分割の同時実施
 - G9（コスト異常検知）は未着手。baseline 定義（project 別中央値 / percentile / 絶対閾値）はユーザー判断待ち。表示面の界面は g8-explorer-ui.md §6 に定義済み
 - schema.sql のコメント劣化は issue #2 に記録済み（https://github.com/yutaro0915/lathe/issues/2）

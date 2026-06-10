@@ -19,8 +19,17 @@ per-session & per-project stats, token **cost**, sub-agent and **harness**
 ```bash
 pnpm install
 docker compose -f docker-compose.dev.yml up -d --wait
-pnpm ingest     # read your transcripts into Postgres
-pnpm dev        # http://localhost:3000
+pnpm -F web ingest     # catch-up sweep: read existing transcripts into Postgres
+pnpm -F web dev        # http://localhost:3000
+```
+
+Then initialize each repo you want Lathe to observe:
+
+```bash
+pnpm -F @lathe/client build
+# in the observed repo, after installing @lathe/client:
+lathe-client init --server-url http://localhost:3000
+# finish a Claude Code or Codex turn in that repo; the Stop hook notifies Lathe
 ```
 
 By default `ingest` picks your **most-recently-active Claude project** and the
@@ -31,8 +40,11 @@ Codex sessions whose `cwd` matches it. Override via env:
 - `LATHE_NO_CODEX=1` — skip Codex entirely
 
 > The ingested database is regenerable. Re-run `pnpm ingest` after new sessions;
-> restart `pnpm dev` so the app sees the fresh data. Override the connection with
-> `DATABASE_URL`; the local default is shown in [.env.example](./.env.example).
+> restart the app if you are relying on the catch-up sweep. Once `lathe-client init`
+> is installed, Stop hooks POST only the session pointer to `/api/ingest/notify`;
+> Lathe reads that transcript server-side and replaces that one session
+> idempotently. Override the connection with `DATABASE_URL`; the local default is
+> shown in [.env.example](./.env.example).
 
 ## What you get (Phase 1)
 
@@ -49,6 +61,9 @@ Codex sessions whose `cwd` matches it. Override via env:
   (Claude + GPT/Codex, cache-aware; `db/pricing.json`, sourced from LiteLLM, MIT).
 - **Harness signals** — which nested `CLAUDE.md` / `AGENTS.md` were loaded and
   which hooks fired (PreToolUse / PostToolUse / Stop).
+- **Push ingest** — `lathe-client init` installs fail-open Stop hooks. Hooks send
+  `{agent, session_id, transcript_path, cwd, project_id, event}` only; the server
+  reads the transcript file and ingests that session incrementally.
 
 Both **Claude Code** and **Codex** runs land in the same viewer/stats, tagged by runner.
 

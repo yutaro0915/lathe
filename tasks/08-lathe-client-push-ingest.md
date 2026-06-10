@@ -1,7 +1,7 @@
 ---
 id: 08
 title: lathe-client + POST /api/ingest/notify（push 主・pull 補の ingest）
-status: todo
+status: done
 assignee: codex (/goal loop, design/dev-loop.md v2)
 depends_on: [07]
 estimated: large
