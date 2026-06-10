@@ -1,14 +1,14 @@
 ---
 updated: 2026-06-10
 current_owner: none
-current_stage: tasks/07 complete
+current_stage: tasks/08 planned (awaiting approval) / G8 research in progress
 ---
 
 ## Current
 
-- task: [07] Postgres migration — **完了**（`tasks/07-postgres-migration.md`、受け入れ条件 7 項 GREEN）
+- task: [08] lathe-client + notify endpoint — **計画済み・未着手**（`tasks/08-lathe-client-push-ingest.md`、受け入れ条件 8 項 + 未決論点 3 点の既定値の人間承認待ち。承認後 codex が `/goal` loop で実施）
 - agent: none
-- progress: Postgres migration complete。dev 依存は `docker-compose.dev.yml` の Postgres、接続先は `DATABASE_URL` seam。`pg` async read/write、coverage/e2e は Postgres 対象で通過
+- progress: [07] Postgres migration 完了・main へ merge 済み（`c0f8cc4`）。user-stories.md に G8（S1-1 探索モデル未設計）/ G9（S1-3 異常検知無定義）を追加。G8 の prior art 調査（trace explorer UI、disciplined-research）を claude subagent で実行中 → `design/research-g8-trace-explorer-ui.md` に出力予定
 
 ## Last completed
 
@@ -24,10 +24,11 @@ current_stage: tasks/07 complete
 
 ## Open questions / blockers
 
-- monorepo A は完了。次 sprint は Postgres 化（pg 差し替え + schema 方言 + docker-compose.dev + CI/e2e、ADR 0004）
-- #2 観測クラスタ設計（hook payload）は Claude 側で並行設計中。YAGNI（当面 Claude/Codex のみ）+ Langfuse 流の hook 自動設定。Codex 稼働中も新規 design ファイル追加で進める（single-writer 抵触なし）
-- 要確認（#2 設計時）: Codex CLI に Claude Code 相当の hook 機構があるか（無ければ Codex は catch-up/scan で取り込む）
-- スコープ判断（ユーザー veto 可）: A の packages 抽出は A-2（format.ts 1 本で配線 smoke test）。turbo+changesets は YAGNI で後回し（ADR 0003 から sequencing 変更）
+- [08] 開始前の人間承認待ち: 受け入れ条件 8 項 + 未決論点 3 点の既定値（payload フィールド / 発火 event = Stop / project_id 運搬。`tasks/08-lathe-client-push-ingest.md` 参照）
+- G8（S1-1 探索モデル）/ G9（S1-3 コスト異常検知）は調査・設計フェーズ。G8 prior art 調査の結果待ち → 設計の枠組みはその後（disciplined-research の順序）
+- schema.sql のコメント劣化は issue #2 に記録済み（https://github.com/yutaro0915/lathe/issues/2）
+- （解決済み 2026-06-09 調査）Codex CLI にも Stop hook があり transcript path を stdin で渡す。Codex=scan の前提は棄却（`design/observation-ingest.md`）
+- スコープ判断（ユーザー veto 可）: turbo+changesets は YAGNI で後回し（ADR 0003 から sequencing 変更）
 
 ## Feedback for Claude
 
