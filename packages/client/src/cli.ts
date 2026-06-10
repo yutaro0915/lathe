@@ -2,6 +2,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { LATHE_HOOK_VERSION } from './index.js';
 
 interface InitOptions {
@@ -9,6 +10,7 @@ interface InitOptions {
   serverUrl: string;
   projectId?: string;
   name?: string;
+  token?: string;
 }
 
 type JsonRecord = Record<string, any>;
@@ -17,7 +19,7 @@ function usage(): string {
   return `lathe-client
 
 Usage:
-  lathe-client init [--server-url http://localhost:3000] [--project-id <id>] [--name <display-name>] [--cwd <path>]
+  lathe-client init [--server-url http://localhost:3000] [--project-id <id>] [--name <display-name>] [--cwd <path>] [--token <shared-secret>]
 `;
 }
 
@@ -32,6 +34,7 @@ function parseInitOptions(): InitOptions {
     serverUrl: readArg('--server-url') || process.env.LATHE_SERVER_URL || 'http://localhost:3000',
     projectId: readArg('--project-id'),
     name: readArg('--name'),
+    token: readArg('--token') || process.env.LATHE_INGEST_TOKEN,
   };
 }
 
@@ -186,12 +189,15 @@ async function main() {
       event: typeof hook.hook_event_name === 'string' ? hook.hook_event_name : readArg('--event') || 'Stop',
     };
 
+    const headers = { 'content-type': 'application/json' };
+    if (config.ingestToken) headers['authorization'] = 'Bearer ' + config.ingestToken;
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), Number(config.timeoutMs || 1000));
     try {
       await fetch(new URL('/api/ingest/notify', config.serverUrl), {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
@@ -250,6 +256,13 @@ function init(): void {
   const hookPath = path.join(latheDir, 'hook.mjs');
 
   ensureDir(latheDir);
+  // Reuse an existing token on re-init so the server env value stays valid.
+  const existingConfig = readJson(path.join(latheDir, 'config.json'));
+  const ingestToken =
+    options.token?.trim() ||
+    (typeof existingConfig.ingestToken === 'string' ? existingConfig.ingestToken : undefined) ||
+    randomBytes(32).toString('hex');
+
   fs.writeFileSync(path.join(latheDir, 'project-id'), `${project.projectId}\n`, 'utf8');
   writeJson(path.join(latheDir, 'config.json'), {
     serverUrl: options.serverUrl,
@@ -259,6 +272,7 @@ function init(): void {
     cwd: options.cwd,
     hookVersion: LATHE_HOOK_VERSION,
     timeoutMs: 1000,
+    ingestToken,
   });
   fs.writeFileSync(hookPath, hookScript(), { encoding: 'utf8', mode: 0o755 });
   fs.chmodSync(hookPath, 0o755);
@@ -275,6 +289,12 @@ function init(): void {
   console.log(`server_url=${options.serverUrl}`);
   console.log(`claude_settings=${claudeSettingsPath}`);
   console.log(`codex_hooks=${codexHooksPath}`);
+  console.log(`ingest_token=${ingestToken}`);
+  console.log(
+    `# Auth is enforced only when the server runs with LATHE_INGEST_TOKEN set.\n` +
+      `# To require auth (e.g. before any non-localhost deploy), start the server with:\n` +
+      `#   LATHE_INGEST_TOKEN=${ingestToken}`,
+  );
 }
 
 async function main(): Promise<void> {

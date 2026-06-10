@@ -150,9 +150,12 @@ function assertSame(label: string, a: unknown, b: unknown): void {
 }
 
 async function postNotify(baseUrl: string, payload: IngestNotifyPayload): Promise<unknown> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const token = process.env.LATHE_INGEST_TOKEN?.trim();
+  if (token) headers.authorization = `Bearer ${token}`;
   const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/ingest/notify`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => ({}));

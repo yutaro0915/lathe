@@ -1,5 +1,7 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import type { Pool } from 'pg';
 import type { Runner } from '../../lib/types';
 import { getPool } from '../../lib/postgres';
@@ -25,6 +27,83 @@ export interface IngestNotifyResult {
   transcriptPath: string;
   projectId: string | null;
   counts: InsertCounts;
+}
+
+export interface AuthCheck {
+  ok: boolean;
+  status?: number;
+  error?: string;
+}
+
+function expandHome(p: string): string {
+  if (p === '~') return os.homedir();
+  if (p.startsWith('~/') || p.startsWith(`~${path.sep}`)) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
+
+function realIfExists(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+// The transcript path is attacker-influenced (it arrives in the hook payload and
+// is read off disk verbatim). Constrain it to the directories where Claude Code /
+// Codex actually persist transcripts so a caller cannot coerce the server into
+// reading arbitrary local files. Symlinks are resolved before the check so a
+// symlink inside an allowed root cannot escape it.
+function allowedTranscriptRoots(): string[] {
+  const roots = [
+    path.join(os.homedir(), '.claude', 'projects'),
+    path.join(os.homedir(), '.codex', 'sessions'),
+    path.join(os.homedir(), '.codex', 'archived_sessions'),
+  ];
+  // Operator-controlled extensions for non-default layouts / verification dirs.
+  if (process.env.LATHE_TRANSCRIPTS_DIR?.trim()) roots.push(expandHome(process.env.LATHE_TRANSCRIPTS_DIR.trim()));
+  for (const extra of (process.env.LATHE_INGEST_ALLOWED_ROOTS || '').split(/[,:]/)) {
+    const trimmed = extra.trim();
+    if (trimmed) roots.push(expandHome(trimmed));
+  }
+  return roots.map((root) => realIfExists(root));
+}
+
+export function assertTranscriptPathAllowed(transcriptPath: string): void {
+  const target = realIfExists(transcriptPath);
+  const allowed = allowedTranscriptRoots().some(
+    (root) => target === root || target.startsWith(root + path.sep),
+  );
+  if (!allowed) {
+    throw new Error('transcript_path is outside the allowed transcript directories');
+  }
+}
+
+function parseBearer(header: string | null | undefined): string | null {
+  if (typeof header !== 'string') return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match ? match[1].trim() : null;
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  // Hash to a fixed length first so timingSafeEqual never throws on length
+  // mismatch (and the comparison does not leak the secret's length).
+  const ha = crypto.createHash('sha256').update(a).digest();
+  const hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+// Shared-secret gate. Disabled when LATHE_INGEST_TOKEN is unset (the localhost
+// single-user default); required and enforced once an operator sets it (e.g.
+// before any non-localhost deployment).
+export function authorizeIngest(authorizationHeader: string | null | undefined): AuthCheck {
+  const expected = (process.env.LATHE_INGEST_TOKEN || '').trim();
+  if (!expected) return { ok: true };
+  const provided = parseBearer(authorizationHeader);
+  if (!provided || !constantTimeEqual(provided, expected)) {
+    return { ok: false, status: 401, error: 'unauthorized' };
+  }
+  return { ok: true };
 }
 
 function buildOptionsFromEnv(): ProviderBuildOptions {
@@ -94,6 +173,7 @@ export function buildNotifyPayloadFromHook(stdinPayload: unknown, agent: string,
 
 export async function ingestNotify(payload: IngestNotifyPayload, pool: Pool = getPool()): Promise<IngestNotifyResult> {
   const transcriptPath = resolveTranscriptPath(payload);
+  assertTranscriptPathAllowed(transcriptPath);
   if (!fs.existsSync(transcriptPath)) {
     throw new Error(`transcript_path does not exist: ${transcriptPath}`);
   }

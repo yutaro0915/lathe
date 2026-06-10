@@ -102,6 +102,8 @@ attributions / event_files / annotations`。型は `lib/types.ts`、read 層は 
 
 `POST /api/ingest/notify` は hook payload の `{agent, session_id, transcript_path, cwd, project_id, event}` だけを受け、該当 transcript 1 本を provider で再解析して当該 session の DB 行だけを冪等に差し替える。hook は本文を運ばず、サーバ停止中の取りこぼしは上記 catch-up sweep で回収する。
 
+**認可（tasks/09）**: notify は payload の `transcript_path` をローカルファイルとして読むため 2 層で守る。(1) **path allowlist**: `fs.realpath` で symlink を解決した上で `~/.claude/projects/` / `~/.codex/sessions/`（+ `LATHE_TRANSCRIPTS_DIR` / `LATHE_INGEST_ALLOWED_ROOTS`）配下のみ許可（範囲外は拒否＝任意ローカルファイル読み取りを封じる）。(2) **shared secret**: `LATHE_INGEST_TOKEN` を env に設定したときだけ `Authorization: Bearer <token>` を必須化（定数時間比較）。未設定なら認可スキップ（localhost 個人ツールの既定）で後方互換、**公開デプロイ前に env を設定して enforce する**。token は `lathe-client init` が生成して `.lathe/config.json` に保存し、hook が毎回送る（同じ値をサーバ env に渡す）。
+
 `scripts/coverage_check.ts`（`pnpm -F web coverage`）= 正本(JSONL) ⇄ DB の機械照合。MISSING/DROPPED が無ければ GREEN。
 直近3分以内に更新中の transcript は「live」として除外し明示（並行書き込み対策）。
 

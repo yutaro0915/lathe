@@ -46,6 +46,17 @@ Codex sessions whose `cwd` matches it. Override via env:
 > idempotently. Override the connection with `DATABASE_URL`; the local default is
 > shown in [.env.example](./.env.example).
 
+> **Notify endpoint auth.** `/api/ingest/notify` reads a local file off the
+> hook payload, so it is hardened two ways. The server only ever reads
+> transcripts under the agents' own directories (`~/.claude/projects/`,
+> `~/.codex/sessions/`); paths elsewhere are rejected (extend with
+> `LATHE_INGEST_ALLOWED_ROOTS`). A shared-secret gate is **off by default** for
+> the localhost single-user setup and **enforced once you set
+> `LATHE_INGEST_TOKEN`** on the server — required before any non-localhost
+> deploy. `lathe-client init` generates/saves the token in `.lathe/config.json`
+> and the hook sends it as `Authorization: Bearer …`; pass the same value to the
+> server via `LATHE_INGEST_TOKEN`.
+
 ## What you get (Phase 1)
 
 - **Transcript** — the full run timeline (messages, tools, file edits, thinking),
