@@ -20,6 +20,7 @@ per-session & per-project stats, token **cost**, sub-agent and **harness**
 pnpm install
 docker compose -f docker-compose.dev.yml up -d --wait
 pnpm -F web ingest     # catch-up sweep: read existing transcripts into Postgres
+export LATHE_NOTIFY_TOKEN="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))")"
 pnpm -F web dev        # http://localhost:3000
 ```
 
@@ -38,6 +39,8 @@ Codex sessions whose `cwd` matches it. Override via env:
 - `LATHE_TRANSCRIPTS_DIR=~/.claude/projects/<dir>` — a specific Claude project
 - `LATHE_CODEX_PROJECT=<repo-basename>` — which Codex sessions to include (by cwd)
 - `LATHE_NO_CODEX=1` — skip Codex entirely
+- `LATHE_NOTIFY_TOKEN=<secret>` — shared secret required by
+  `POST /api/ingest/notify`; `lathe-client init` reads it from the environment
 
 > The ingested database is regenerable. Re-run `pnpm ingest` after new sessions;
 > restart the app if you are relying on the catch-up sweep. Once `lathe-client init`
@@ -62,8 +65,9 @@ Codex sessions whose `cwd` matches it. Override via env:
 - **Harness signals** — which nested `CLAUDE.md` / `AGENTS.md` were loaded and
   which hooks fired (PreToolUse / PostToolUse / Stop).
 - **Push ingest** — `lathe-client init` installs fail-open Stop hooks. Hooks send
-  `{agent, session_id, transcript_path, cwd, project_id, event}` only; the server
-  reads the transcript file and ingests that session incrementally.
+  `{agent, session_id, transcript_path, cwd, project_id, event}` only with
+  `Authorization: Bearer <LATHE_NOTIFY_TOKEN>`; the server reads allowlisted
+  transcript files and ingests that session incrementally.
 
 Both **Claude Code** and **Codex** runs land in the same viewer/stats, tagged by runner.
 

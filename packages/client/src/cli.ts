@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -9,6 +10,7 @@ interface InitOptions {
   serverUrl: string;
   projectId?: string;
   name?: string;
+  notifyToken?: string;
 }
 
 type JsonRecord = Record<string, any>;
@@ -17,7 +19,7 @@ function usage(): string {
   return `lathe-client
 
 Usage:
-  lathe-client init [--server-url http://localhost:3000] [--project-id <id>] [--name <display-name>] [--cwd <path>]
+  lathe-client init [--server-url http://localhost:3000] [--notify-token <token>] [--project-id <id>] [--name <display-name>] [--cwd <path>]
 `;
 }
 
@@ -32,6 +34,7 @@ function parseInitOptions(): InitOptions {
     serverUrl: readArg('--server-url') || process.env.LATHE_SERVER_URL || 'http://localhost:3000',
     projectId: readArg('--project-id'),
     name: readArg('--name'),
+    notifyToken: readArg('--notify-token') || process.env.LATHE_NOTIFY_TOKEN,
   };
 }
 
@@ -188,10 +191,14 @@ async function main() {
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), Number(config.timeoutMs || 1000));
+    const headers = { 'content-type': 'application/json' };
+    if (typeof config.notifyToken === 'string' && config.notifyToken.trim()) {
+      headers.authorization = \`Bearer \${config.notifyToken.trim()}\`;
+    }
     try {
       await fetch(new URL('/api/ingest/notify', config.serverUrl), {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
@@ -248,8 +255,10 @@ function init(): void {
   const codexHooksPath = path.join(options.cwd, '.codex', 'hooks.json');
   const codexTomlPath = path.join(latheDir, 'codex-hook.toml');
   const hookPath = path.join(latheDir, 'hook.mjs');
+  const notifyToken = options.notifyToken?.trim() || crypto.randomBytes(32).toString('base64url');
 
   ensureDir(latheDir);
+  fs.writeFileSync(path.join(latheDir, '.gitignore'), '*\n!.gitignore\n', 'utf8');
   fs.writeFileSync(path.join(latheDir, 'project-id'), `${project.projectId}\n`, 'utf8');
   writeJson(path.join(latheDir, 'config.json'), {
     serverUrl: options.serverUrl,
@@ -257,6 +266,7 @@ function init(): void {
     displayName: project.displayName,
     gitRemote: project.gitRemote,
     cwd: options.cwd,
+    notifyToken,
     hookVersion: LATHE_HOOK_VERSION,
     timeoutMs: 1000,
   });
@@ -273,6 +283,8 @@ function init(): void {
   console.log(`lathe-client init ok`);
   console.log(`project_id=${project.projectId}`);
   console.log(`server_url=${options.serverUrl}`);
+  console.log(`notify_token=${options.notifyToken?.trim() ? 'provided' : 'generated in .lathe/config.json'}`);
+  console.log(`server_env=LATHE_NOTIFY_TOKEN=<same token>`);
   console.log(`claude_settings=${claudeSettingsPath}`);
   console.log(`codex_hooks=${codexHooksPath}`);
 }

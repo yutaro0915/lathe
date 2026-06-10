@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { closePool, getPool } from '../lib/postgres';
 import { pickDefaultTranscriptsDir } from './ingest/shared';
@@ -149,10 +150,42 @@ function assertSame(label: string, a: unknown, b: unknown): void {
   if (left !== right) throw new Error(`${label} changed: before=${left} after=${right}`);
 }
 
-async function postNotify(baseUrl: string, payload: IngestNotifyPayload): Promise<unknown> {
+function makeTempJsonl(): { file: string; cleanup: () => void } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lathe-notify-verify-'));
+  const file = path.join(dir, 'outside-transcript.jsonl');
+  fs.writeFileSync(file, '{}\n', 'utf8');
+  return {
+    file,
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+function makeSymlinkEscape(): { file: string; cleanup: () => void } {
+  const allowedRoot = path.join(os.homedir(), '.claude', 'projects');
+  if (!fs.existsSync(allowedRoot)) {
+    throw new Error(`default allowed root does not exist: ${allowedRoot}`);
+  }
+
+  const target = makeTempJsonl();
+  const link = path.join(allowedRoot, `.lathe-notify-escape-${process.pid}-${Date.now()}.jsonl`);
+  fs.symlinkSync(target.file, link);
+  return {
+    file: link,
+    cleanup: () => {
+      fs.rmSync(link, { force: true });
+      target.cleanup();
+    },
+  };
+}
+
+async function postNotify(baseUrl: string, payload: IngestNotifyPayload, token: string): Promise<unknown> {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${token}`,
+  };
   const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/ingest/notify`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => ({}));
@@ -160,27 +193,76 @@ async function postNotify(baseUrl: string, payload: IngestNotifyPayload): Promis
   return body;
 }
 
+async function expectNotifyRejected(
+  baseUrl: string,
+  payload: IngestNotifyPayload,
+  expectedStatuses: number[],
+  label: string,
+  token?: string,
+): Promise<void> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (token) headers.authorization = `Bearer ${token}`;
+  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/ingest/notify`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!expectedStatuses.includes(response.status)) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(`${label} was not rejected as expected (${response.status}): ${JSON.stringify(body)}`);
+  }
+}
+
 async function main(): Promise<void> {
   const baseUrl = argValue('--url') || process.env.LATHE_NOTIFY_URL || 'http://localhost:3000';
+  const token = argValue('--token') || process.env.LATHE_NOTIFY_TOKEN;
+  if (!token) throw new Error('LATHE_NOTIFY_TOKEN or --token is required for verify:notify');
   const payload = loadPayload();
   const sessionId = inferSessionId(payload);
+  const disallowedJsonl = makeTempJsonl();
+  const symlinkEscape = makeSymlinkEscape();
 
-  const before = await snapshot(sessionId);
-  const firstResponse = await postNotify(baseUrl, payload);
-  const afterFirst = await snapshot(sessionId);
-  const secondResponse = await postNotify(baseUrl, payload);
-  const afterSecond = await snapshot(sessionId);
+  try {
+    const before = await snapshot(sessionId);
+    await expectNotifyRejected(baseUrl, payload, [401], 'missing authorization');
+    await expectNotifyRejected(baseUrl, payload, [401], 'invalid authorization', `${token}-wrong`);
+    await expectNotifyRejected(
+      baseUrl,
+      { ...payload, transcript_path: disallowedJsonl.file },
+      [400],
+      'disallowed transcript path',
+      token,
+    );
+    await expectNotifyRejected(
+      baseUrl,
+      { ...payload, transcript_path: symlinkEscape.file },
+      [400],
+      'symlink transcript escape',
+      token,
+    );
+    const afterRejected = await snapshot(sessionId);
+    assertSame('rejected target rows', before.target, afterRejected.target);
+    assertSame('rejected other rows', before.other, afterRejected.other);
 
-  if (afterFirst.target.sessions !== 1) throw new Error(`target session missing after notify: ${sessionId}`);
-  if (afterFirst.target.transcriptEvents < 1) throw new Error(`target transcript_events missing after notify: ${sessionId}`);
+    const firstResponse = await postNotify(baseUrl, payload, token);
+    const afterFirst = await snapshot(sessionId);
+    const secondResponse = await postNotify(baseUrl, payload, token);
+    const afterSecond = await snapshot(sessionId);
 
-  assertSame('other session rows', before.other, afterFirst.other);
-  assertSame('idempotent target rows', afterFirst.target, afterSecond.target);
-  assertSame('idempotent other rows', afterFirst.other, afterSecond.other);
+    if (afterFirst.target.sessions !== 1) throw new Error(`target session missing after notify: ${sessionId}`);
+    if (afterFirst.target.transcriptEvents < 1) throw new Error(`target transcript_events missing after notify: ${sessionId}`);
 
-  console.log(
-    `[verify-notify] ok session=${sessionId} events=${afterSecond.target.transcriptEvents} first=${JSON.stringify(firstResponse)} second=${JSON.stringify(secondResponse)}`,
-  );
+    assertSame('other session rows', before.other, afterFirst.other);
+    assertSame('idempotent target rows', afterFirst.target, afterSecond.target);
+    assertSame('idempotent other rows', afterFirst.other, afterSecond.other);
+
+    console.log(
+      `[verify-notify] ok session=${sessionId} events=${afterSecond.target.transcriptEvents} first=${JSON.stringify(firstResponse)} second=${JSON.stringify(secondResponse)}`,
+    );
+  } finally {
+    symlinkEscape.cleanup();
+    disallowedJsonl.cleanup();
+  }
 }
 
 main()

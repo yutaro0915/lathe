@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Pool } from 'pg';
 import type { Runner } from '../../lib/types';
@@ -56,6 +57,55 @@ function resolveTranscriptPath(payload: IngestNotifyPayload): string {
   return path.resolve(rawPath);
 }
 
+function expandHome(value: string): string {
+  if (value === '~') return os.homedir();
+  if (value.startsWith('~/') || value.startsWith(`~${path.sep}`)) return path.join(os.homedir(), value.slice(2));
+  return value;
+}
+
+function configuredAllowedRoots(): string[] {
+  const configured = process.env.LATHE_NOTIFY_ALLOWED_ROOTS?.trim();
+  if (configured) {
+    return configured
+      .split(path.delimiter)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => path.resolve(expandHome(entry)));
+  }
+
+  return [
+    path.join(os.homedir(), '.claude', 'projects'),
+    path.join(os.homedir(), '.codex', 'sessions'),
+    path.join(os.homedir(), '.codex', 'archived_sessions'),
+  ];
+}
+
+function isWithinRoot(file: string, root: string): boolean {
+  const relative = path.relative(root, file);
+  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function assertAllowedTranscriptPath(transcriptPath: string): string {
+  if (!transcriptPath.endsWith('.jsonl')) {
+    throw new Error('transcript_path must point to a .jsonl transcript');
+  }
+
+  const realTranscriptPath = fs.realpathSync(transcriptPath);
+  const allowedRoots = configuredAllowedRoots()
+    .filter((root) => fs.existsSync(root))
+    .map((root) => fs.realpathSync(root));
+
+  if (!allowedRoots.length) {
+    throw new Error('no notify transcript allowlist roots exist');
+  }
+
+  if (!allowedRoots.some((root) => isWithinRoot(realTranscriptPath, root))) {
+    throw new Error(`transcript_path is outside allowed roots: ${transcriptPath}`);
+  }
+
+  return realTranscriptPath;
+}
+
 function buildSession(payload: IngestNotifyPayload, transcriptPath: string, runner: Runner): Built {
   const opts = buildOptionsFromEnv();
   const built =
@@ -98,15 +148,16 @@ export async function ingestNotify(payload: IngestNotifyPayload, pool: Pool = ge
     throw new Error(`transcript_path does not exist: ${transcriptPath}`);
   }
 
-  const runner = normalizeRunner(payload.agent, transcriptPath);
-  const built = buildSession(payload, transcriptPath, runner);
+  const allowedTranscriptPath = assertAllowedTranscriptPath(transcriptPath);
+  const runner = normalizeRunner(payload.agent, allowedTranscriptPath);
+  const built = buildSession(payload, allowedTranscriptPath, runner);
   const counts = await replaceBuiltSession(pool, built);
 
   return {
     ok: true,
     sessionId: built.session.id,
     runner,
-    transcriptPath,
+    transcriptPath: allowedTranscriptPath,
     projectId: payload.project_id?.trim() || null,
     counts,
   };
