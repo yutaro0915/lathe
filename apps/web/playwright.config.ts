@@ -23,7 +23,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    // build + start a production server; assumes data/lathe.db is already ingested.
+    // build + start a production server; assumes Postgres has already been ingested.
     command: `pnpm build && pnpm start -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     timeout: 180_000,

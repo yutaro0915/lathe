@@ -3,7 +3,6 @@
 // Thin SERVER wrapper. Loads the session list + the requested SessionBundle
 // (falling back to the primary session) and renders the interactive client
 // component <SessionViewer>. The client never touches lib/db.
-// node:sqlite logs an ExperimentalWarning at runtime — harmless.
 
 export const dynamic = "force-dynamic";
 
@@ -24,14 +23,15 @@ export default async function Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const sessions = listSessions();
+  const sessions = await listSessions();
   const req = typeof sp.session === "string" ? sp.session : undefined;
-  const id = req && getSessionBundle(req) ? req : getPrimarySession().id;
-  const bundle = getSessionBundle(id)!;
+  const requestedBundle = req ? await getSessionBundle(req) : undefined;
+  const id = requestedBundle ? req! : (await getPrimarySession()).id;
+  const bundle = requestedBundle ?? (await getSessionBundle(id))!;
   // Project list is only used by the sidebar's session-list scope selector here.
   // Cross-session ANALYTICS (charts) live on /overview, not in the viewer — the
   // viewer is per-session, and cross-session aggregates would be off-topic in it.
-  const stats = getStats();
+  const stats = await getStats();
   const projects = stats.projects.map((p) => ({
     project: p.project,
     sessions: p.sessions,

@@ -1,17 +1,18 @@
 ---
 updated: 2026-06-10
 current_owner: none
-current_stage: tasks/07 planned (awaiting acceptance-criteria approval)
+current_stage: tasks/07 complete
 ---
 
 ## Current
 
-- task: [07] Postgres migration — **計画済み・未着手**（`tasks/07-postgres-migration.md`、受け入れ条件 7 項の人間承認待ち）
-- agent: none（承認後は claude が `/goal` loop で実施、`design/dev-loop.md` v2。開始時に owner を `claude-loop` へ）
-- progress: monorepo A complete（[05] apps/web block move + pnpm workspace、[06] @lathe/shared/@lathe/client scaffold + shared format smoke）。dev-loop v2 設計（`/goal` 駆動・両ゲート型）を design/ に追加
+- task: [07] Postgres migration — **完了**（`tasks/07-postgres-migration.md`、受け入れ条件 7 項 GREEN）
+- agent: none
+- progress: Postgres migration complete。dev 依存は `docker-compose.dev.yml` の Postgres、接続先は `DATABASE_URL` seam。`pg` async read/write、coverage/e2e は Postgres 対象で通過
 
 ## Last completed
 
+- 2026-06-10 [07] Postgres migration — `node:sqlite` / local DB file 依存を Postgres + `pg` に移行。`docker compose -f docker-compose.dev.yml up -d --wait` PASS、`pnpm -F web ingest` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web build` PASS、`pnpm -F web e2e` 49/49 GREEN、`rg -l "node:sqlite" apps/ packages/` 0 件、`rg -l "lathe\\.db" apps/ packages/` 0 件 (codex)
 - 2026-06-09 [06] scaffold packages and wiring smoke — `@lathe/shared` / `@lathe/client` skeleton を追加し、`format.ts` を `@lathe/shared` 経由に移動。`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web e2e` 49/49 GREEN (codex)
 - 2026-06-09 [05] monorepo block move — app 本体を `apps/web/` へ block move し、root pnpm workspace 化。`pnpm -F web ingest` PASS、`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web e2e` 49/49 GREEN (codex)
 - 2026-06-09 ADR 0004 — DB = Postgres（Phase 1 から）+ hybrid dev env（依存だけ Docker・アプリは host）+ dev/prod compose 分離。ROADMAP の DB/deploy 方針を改訂 (claude)

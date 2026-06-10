@@ -1,16 +1,16 @@
 /*
  * Lathe coverage harness — machine-compares the source of truth (raw Claude Code
- * JSONL transcripts) against the ingested DB (data/lathe.db). Proves there are no
+ * JSONL transcripts) against the ingested database. Proves there are no
  * silent omissions: every non-empty transcript becomes a session, and every
  * session holds at least as many events as the transcript contains (per the
  * ingester's counting rules), plus every Edit/Write produced a diff hunk.
  *
  * Run:  pnpm coverage    (exits non-zero / prints RED if any gap is found)
  */
-import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { closePool, queryOne, queryRows } from '../lib/postgres';
 
 // Default to the most-recently-active Claude project (matches ingest's default;
 // no hard-coded username). Override with argv[2] or LATHE_TRANSCRIPTS_DIR.
@@ -38,7 +38,6 @@ function pickDefaultDir(): string {
 }
 
 const DIR = process.argv[2] || process.env.LATHE_TRANSCRIPTS_DIR || pickDefaultDir();
-const DB_PATH = path.join(process.cwd(), 'data', 'lathe.db');
 
 // Replicate the ingester's event-counting rules EXACTLY so the comparison is
 // apples-to-apples (see scripts/ingest.ts buildSession).
@@ -86,30 +85,23 @@ function expectedOf(file: string) {
   return { sessionId, ev, editWrite };
 }
 
-function main() {
-  if (!fs.existsSync(DB_PATH)) {
-    console.error(`[coverage] DB not found at ${DB_PATH}. Run \`pnpm ingest\` first.`);
-    process.exit(2);
-  }
-  const db = new DatabaseSync(DB_PATH);
-
+async function main() {
   // DB side, keyed by session id.
   const dbEvents = new Map<string, number>();
   const dbTrunc = new Map<string, number>();
-  for (const r of db
-    .prepare(
-      `SELECT session_id AS id,
-              COUNT(*) AS n,
-              SUM(CASE WHEN meta LIKE '%truncated%' THEN 1 ELSE 0 END) AS trunc
-         FROM transcript_events
-        WHERE parent_id IS NULL
-        GROUP BY session_id`,
-    )
-    .all() as unknown as { id: string; n: number; trunc: number }[]) {
+  for (const r of await queryRows<{ id: string; n: number; trunc: number }>(
+    `SELECT session_id AS id,
+            COUNT(*)::int AS n,
+            SUM(CASE WHEN meta::text LIKE '%truncated%' THEN 1 ELSE 0 END)::int AS trunc
+       FROM transcript_events
+      WHERE parent_id IS NULL
+      GROUP BY session_id`,
+  )) {
     dbEvents.set(r.id, r.n);
     dbTrunc.set(r.id, r.trunc);
   }
-  const dbHunksTotal = (db.prepare('SELECT COUNT(*) AS n FROM diff_hunks').get() as any).n as number;
+  const dbHunksTotal =
+    (await queryOne<{ n: number }>('SELECT COUNT(*)::int AS n FROM diff_hunks'))?.n ?? 0;
 
   const files = fs
     .readdirSync(DIR)
@@ -183,7 +175,12 @@ function main() {
   console.log('=======================================================');
   console.log(green ? 'VERDICT: GREEN — no omissions (every transcript fully covered).'
                     : 'VERDICT: RED — see findings above.');
+  await closePool();
   process.exit(green ? 0 : 1);
 }
 
-main();
+main().catch(async (error) => {
+  await closePool();
+  console.error(`[coverage] failed: ${(error as Error).message}`);
+  process.exit(2);
+});

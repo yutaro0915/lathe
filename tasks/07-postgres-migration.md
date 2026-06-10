@@ -1,8 +1,8 @@
 ---
 id: 07
 title: Postgres migration (node:sqlite -> pg) + docker-compose.dev
-status: todo
-assignee: claude (/goal loop, design/dev-loop.md v2)
+status: done
+assignee: codex (/goal loop, design/dev-loop.md v2)
 depends_on: [05, 06]
 estimated: large
 ---

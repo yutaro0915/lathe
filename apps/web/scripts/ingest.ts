@@ -1,6 +1,6 @@
 /*
  * Lathe Phase 1 — real transcript ingester.
- * Reads Claude Code and Codex transcripts and populates data/lathe.db.
+ * Reads Claude Code and Codex transcripts and populates the configured database.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -19,10 +19,9 @@ const buildOpts: ProviderBuildOptions = {
   maxHunkLines: Number(process.env.LATHE_MAX_HUNK_LINES || 200),
 };
 const ROOT = process.cwd();
-const DB_PATH = path.join(ROOT, 'data', 'lathe.db');
 const SCHEMA_PATH = path.join(ROOT, 'db', 'schema.sql');
 
-function main() {
+async function main() {
   if (!fs.existsSync(TRANSCRIPTS_DIR)) {
     console.error(`[ingest] transcripts dir not found: ${TRANSCRIPTS_DIR}`);
     process.exit(1);
@@ -54,11 +53,14 @@ function main() {
 
   built.sort((a, b) => (b.session._startMs ?? 0) - (a.session._startMs ?? 0));
   built.forEach((b, i) => (b.session.seq = i + 1));
-  const db = resetDatabase(DB_PATH, SCHEMA_PATH);
-  const counts = insertBuilt(db, built);
+  const db = await resetDatabase(SCHEMA_PATH);
+  const counts = await insertBuilt(db, built).finally(() => db.end());
   console.log(
     `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: sessions=${counts.sessions} events=${counts.events} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations}`,
   );
 }
 
-main();
+main().catch((error) => {
+  console.error(`[ingest] failed: ${(error as Error).message}`);
+  process.exit(1);
+});

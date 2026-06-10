@@ -84,7 +84,7 @@ export function basename(p: string): string {
 }
 
 /**
- * Split a SQLite timestamp into compact date and time labels.
+ * Split a stored timestamp into compact date and time labels.
  */
 export function parseStamp(s: string): { date: string; time: string } {
   const [datePart, timePart = ""] = s.split(" ");

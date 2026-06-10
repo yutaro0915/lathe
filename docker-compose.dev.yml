@@ -1,0 +1,23 @@
+# Development dependency stack only. The Next.js app runs on the host; Postgres
+# is containerized so dev matches the selected self-hosted database engine.
+services:
+  postgres:
+    # Postgres 16 is a mature supported major release; pin the major version so
+    # local schema behavior does not drift when newer majors are published.
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lathe
+      POSTGRES_PASSWORD: lathe
+      POSTGRES_DB: lathe
+    ports:
+      - "55432:5432"
+    volumes:
+      - lathe-postgres-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lathe -d lathe"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  lathe-postgres-dev:

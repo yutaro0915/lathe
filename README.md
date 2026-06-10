@@ -9,7 +9,8 @@ per-session & per-project stats, token **cost**, sub-agent and **harness**
 
 ## Requirements
 
-- **Node ≥ 24** (uses the built-in `node:sqlite`)
+- **Node ≥ 24**
+- **Docker Compose** for the development Postgres dependency
 - Your own transcripts on this machine: Claude Code (`~/.claude/projects/**`)
   and/or Codex (`~/.codex/sessions/**`)
 
@@ -17,7 +18,8 @@ per-session & per-project stats, token **cost**, sub-agent and **harness**
 
 ```bash
 pnpm install
-pnpm ingest     # read your transcripts → data/lathe.db (gitignored; regenerate anytime)
+docker compose -f docker-compose.dev.yml up -d --wait
+pnpm ingest     # read your transcripts into Postgres
 pnpm dev        # http://localhost:3000
 ```
 
@@ -28,8 +30,9 @@ Codex sessions whose `cwd` matches it. Override via env:
 - `LATHE_CODEX_PROJECT=<repo-basename>` — which Codex sessions to include (by cwd)
 - `LATHE_NO_CODEX=1` — skip Codex entirely
 
-> `data/lathe.db` is a regenerable artifact (gitignored). Re-run `pnpm ingest`
-> after new sessions; restart `pnpm dev` so it picks up the fresh DB.
+> The ingested database is regenerable. Re-run `pnpm ingest` after new sessions;
+> restart `pnpm dev` so the app sees the fresh data. Override the connection with
+> `DATABASE_URL`; the local default is shown in [.env.example](./.env.example).
 
 ## What you get (Phase 1)
 

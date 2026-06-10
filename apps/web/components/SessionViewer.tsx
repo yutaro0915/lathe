@@ -1678,7 +1678,9 @@ export default function SessionViewer({
               <div className="empty">No flagged moments.</div>
             ) : (
               annotations.map((a) => {
-                const target = events.find((e) => e.seq === a.atSeq);
+                const target =
+                  events.find((e) => e.seq === a.atSeq && !e.parentId) ??
+                  events.find((e) => e.seq === a.atSeq);
                 return (
                   <div
                     key={a.id}

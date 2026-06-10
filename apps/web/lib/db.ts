@@ -1,12 +1,8 @@
-// lib/db.ts — Phase 1 read-only data access over SQLite (node:sqlite).
+// lib/db.ts — Phase 1 read-only data access over Postgres.
 //
-// Opens data/lathe.db once (lazy singleton). Every query returns plain row
-// objects with snake_case keys; we cast to a Row shape and map to the camelCase
-// records declared in lib/types.ts. node:sqlite prints an ExperimentalWarning at
-// runtime — that is harmless, not an error.
+// Queries return plain rows with snake_case keys; this module maps them to the
+// camelCase records declared in lib/types.ts before sending data to clients.
 
-import { DatabaseSync } from 'node:sqlite';
-import path from 'node:path';
 import type {
   Session,
   TranscriptEvent,
@@ -30,8 +26,9 @@ import type {
   ProjectSessionRef,
   FileStat,
 } from './types';
+import { queryOne, queryRows } from './postgres';
 
-// ---- raw row shapes (snake_case, as returned by node:sqlite) --------------
+// ---- raw row shapes (snake_case, as returned by pg) -----------------------
 
 interface SessionRow {
   id: string;
@@ -121,14 +118,13 @@ interface AnnotationRow {
   note: string | null;
 }
 
-// LinkedEvent join row: a transcript event plus the attribution metadata.
 interface LinkedEventRow extends TranscriptEventRow {
   __confidence: string;
   __method: string;
   __hunk_id: string;
 }
 
-// ---- row -> record mappers -------------------------------------------------
+// ---- row -> record mappers ------------------------------------------------
 
 function toSession(r: SessionRow): Session {
   return {
@@ -232,127 +228,102 @@ function toAnnotation(r: AnnotationRow): Annotation {
   };
 }
 
-// ---- lazy singleton --------------------------------------------------------
-
-let _db: DatabaseSync | undefined;
-
-export function getDb(): DatabaseSync {
-  if (!_db) {
-    const dbPath = path.join(process.cwd(), 'data', 'lathe.db');
-    _db = new DatabaseSync(dbPath);
-  }
-  return _db;
-}
-
 // ---- session queries -------------------------------------------------------
 
-export function getPrimarySession(): Session {
-  const db = getDb();
-  const row = db
-    .prepare('SELECT * FROM sessions WHERE seq = 1 LIMIT 1')
-    .get() as unknown as SessionRow | undefined;
-  if (!row) {
-    // Fall back to the lowest-seq session so the viewer always has something.
-    const first = db
-      .prepare('SELECT * FROM sessions ORDER BY seq ASC LIMIT 1')
-      .get() as unknown as SessionRow | undefined;
-    if (!first) {
-      throw new Error('No sessions found. Run `pnpm seed` to populate data/lathe.db.');
-    }
-    return toSession(first);
+export async function getPrimarySession(): Promise<Session> {
+  const row = await queryOne<SessionRow>('SELECT * FROM sessions WHERE seq = 1 LIMIT 1');
+  if (row) return toSession(row);
+
+  const first = await queryOne<SessionRow>('SELECT * FROM sessions ORDER BY seq ASC LIMIT 1');
+  if (!first) {
+    throw new Error('No sessions found. Run `pnpm ingest` first.');
   }
-  return toSession(row);
+  return toSession(first);
 }
 
-export function getSession(id: string): Session | undefined {
-  const row = getDb()
-    .prepare('SELECT * FROM sessions WHERE id = ?')
-    .get(id) as unknown as SessionRow | undefined;
+export async function getSession(id: string): Promise<Session | undefined> {
+  const row = await queryOne<SessionRow>('SELECT * FROM sessions WHERE id = $1', [id]);
   return row ? toSession(row) : undefined;
 }
 
-export function listSessions(): Session[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM sessions ORDER BY seq ASC')
-    .all() as unknown as SessionRow[];
+export async function listSessions(): Promise<Session[]> {
+  const rows = await queryRows<SessionRow>('SELECT * FROM sessions ORDER BY seq ASC');
   return rows.map(toSession);
 }
 
 // ---- transcript event queries ---------------------------------------------
 
-export function getEvents(sessionId: string): TranscriptEvent[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM transcript_events WHERE session_id = ? ORDER BY seq ASC')
-    .all(sessionId) as unknown as TranscriptEventRow[];
+export async function getEvents(sessionId: string): Promise<TranscriptEvent[]> {
+  const rows = await queryRows<TranscriptEventRow>(
+    'SELECT * FROM transcript_events WHERE session_id = $1 ORDER BY seq ASC, parent_id NULLS FIRST, id ASC',
+    [sessionId],
+  );
   return rows.map(toEvent);
 }
 
-export function getEvent(id: string): TranscriptEvent | undefined {
-  const row = getDb()
-    .prepare('SELECT * FROM transcript_events WHERE id = ?')
-    .get(id) as unknown as TranscriptEventRow | undefined;
+export async function getEvent(id: string): Promise<TranscriptEvent | undefined> {
+  const row = await queryOne<TranscriptEventRow>('SELECT * FROM transcript_events WHERE id = $1', [id]);
   return row ? toEvent(row) : undefined;
 }
 
-export function getEventFiles(eventId: string): EventFile[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM event_files WHERE event_id = ? ORDER BY id ASC')
-    .all(eventId) as unknown as EventFileRow[];
+export async function getEventFiles(eventId: string): Promise<EventFile[]> {
+  const rows = await queryRows<EventFileRow>(
+    'SELECT * FROM event_files WHERE event_id = $1 ORDER BY id ASC',
+    [eventId],
+  );
   return rows.map(toEventFile);
 }
 
-export function getAnnotations(sessionId: string): Annotation[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM annotations WHERE session_id = ? ORDER BY at_seq ASC')
-    .all(sessionId) as unknown as AnnotationRow[];
+export async function getAnnotations(sessionId: string): Promise<Annotation[]> {
+  const rows = await queryRows<AnnotationRow>(
+    'SELECT * FROM annotations WHERE session_id = $1 ORDER BY at_seq ASC',
+    [sessionId],
+  );
   return rows.map(toAnnotation);
 }
 
 // ---- git diff queries ------------------------------------------------------
 
-export function getChangedFiles(sessionId: string): ChangedFile[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM changed_files WHERE session_id = ? ORDER BY seq ASC')
-    .all(sessionId) as unknown as ChangedFileRow[];
+export async function getChangedFiles(sessionId: string): Promise<ChangedFile[]> {
+  const rows = await queryRows<ChangedFileRow>(
+    'SELECT * FROM changed_files WHERE session_id = $1 ORDER BY seq ASC',
+    [sessionId],
+  );
   return rows.map(toChangedFile);
 }
 
-export function getHunks(fileId: string): DiffHunk[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM diff_hunks WHERE file_id = ? ORDER BY seq ASC')
-    .all(fileId) as unknown as DiffHunkRow[];
+export async function getHunks(fileId: string): Promise<DiffHunk[]> {
+  const rows = await queryRows<DiffHunkRow>(
+    'SELECT * FROM diff_hunks WHERE file_id = $1 ORDER BY seq ASC',
+    [fileId],
+  );
   return rows.map(toHunk);
 }
 
-export function getAttributionsForHunk(hunkId: string): Attribution[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM attributions WHERE hunk_id = ? ORDER BY id ASC')
-    .all(hunkId) as unknown as AttributionRow[];
+export async function getAttributionsForHunk(hunkId: string): Promise<Attribution[]> {
+  const rows = await queryRows<AttributionRow>(
+    'SELECT * FROM attributions WHERE hunk_id = $1 ORDER BY id ASC',
+    [hunkId],
+  );
   return rows.map(toAttribution);
 }
 
 // ---- attribution join (screen B "Linked Events") --------------------------
 
-// Join hunks -> attributions -> events for a file. Returns one entry per
-// (event, hunk) pair carrying the attribution's confidence + method + hunkId.
-// Unattributed rows (event_id IS NULL, e.g. a dirty-worktree hunk) carry no
-// transcript event, so they are skipped here — the aside surfaces them via the
-// per-hunk attribution + banner instead. Kept deliberately simple.
-export function getLinkedEventsForFile(fileId: string): LinkedEvent[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT e.*,
-              a.confidence AS __confidence,
-              a.method     AS __method,
-              a.hunk_id    AS __hunk_id
-         FROM attributions a
-         JOIN diff_hunks   h ON h.id = a.hunk_id
-         JOIN transcript_events e ON e.id = a.event_id
-        WHERE h.file_id = ?
-          AND a.event_id IS NOT NULL
-        ORDER BY h.seq ASC, e.seq ASC`
-    )
-    .all(fileId) as unknown as LinkedEventRow[];
+export async function getLinkedEventsForFile(fileId: string): Promise<LinkedEvent[]> {
+  const rows = await queryRows<LinkedEventRow>(
+    `SELECT e.*,
+            a.confidence AS __confidence,
+            a.method     AS __method,
+            a.hunk_id    AS __hunk_id
+       FROM attributions a
+       JOIN diff_hunks   h ON h.id = a.hunk_id
+       JOIN transcript_events e ON e.id = a.event_id
+      WHERE h.file_id = $1
+        AND a.event_id IS NOT NULL
+      ORDER BY h.seq ASC, e.seq ASC`,
+    [fileId],
+  );
 
   return rows.map((r) => ({
     event: toEvent(r),
@@ -364,12 +335,15 @@ export function getLinkedEventsForFile(fileId: string): LinkedEvent[] {
 
 // ---- aggregates ------------------------------------------------------------
 
-export function countEventsByType(sessionId: string): Record<string, number> {
-  const rows = getDb()
-    .prepare(
-      'SELECT type, COUNT(*) AS n FROM transcript_events WHERE session_id = ? AND parent_id IS NULL GROUP BY type'
-    )
-    .all(sessionId) as unknown as { type: string; n: number }[];
+export async function countEventsByType(sessionId: string): Promise<Record<string, number>> {
+  const rows = await queryRows<{ type: string; n: number }>(
+    `SELECT type, COUNT(*)::int AS n
+       FROM transcript_events
+      WHERE session_id = $1
+        AND parent_id IS NULL
+      GROUP BY type`,
+    [sessionId],
+  );
   const out: Record<string, number> = {};
   for (const r of rows) out[r.type] = r.n;
   return out;
@@ -377,31 +351,34 @@ export function countEventsByType(sessionId: string): Record<string, number> {
 
 // ---- full per-session bundle (for the interactive client) ------------------
 
-// Assemble EVERYTHING one session needs on the client in a single serializable
-// object. Called by the server pages; the client never touches the db.
-export function getSessionBundle(id: string): SessionBundle | undefined {
-  const session = getSession(id);
+export async function getSessionBundle(id: string): Promise<SessionBundle | undefined> {
+  const session = await getSession(id);
   if (!session) return undefined;
 
-  const events = getEvents(id);
-  const typeCounts = countEventsByType(id);
-  const annotations = getAnnotations(id);
-  const changedFiles = getChangedFiles(id);
+  const [events, typeCounts, annotations, changedFiles] = await Promise.all([
+    getEvents(id),
+    countEventsByType(id),
+    getAnnotations(id),
+    getChangedFiles(id),
+  ]);
 
+  const eventFilePairs = await Promise.all(events.map(async (e) => [e.id, await getEventFiles(e.id)] as const));
   const eventFiles: Record<string, EventFile[]> = {};
-  for (const e of events) {
-    const ef = getEventFiles(e.id);
-    if (ef.length) eventFiles[e.id] = ef;
+  for (const [eventId, files] of eventFilePairs) {
+    if (files.length) eventFiles[eventId] = files;
   }
 
   const hunks: Record<string, DiffHunk[]> = {};
   const attributions: Record<string, Attribution[]> = {};
   const linkedEvents: Record<string, LinkedEvent[]> = {};
   for (const f of changedFiles) {
-    const fh = getHunks(f.id);
+    const fh = await getHunks(f.id);
     hunks[f.id] = fh;
-    for (const h of fh) attributions[h.id] = getAttributionsForHunk(h.id);
-    linkedEvents[f.id] = getLinkedEventsForFile(f.id);
+    const attrPairs = await Promise.all(
+      fh.map(async (h) => [h.id, await getAttributionsForHunk(h.id)] as const),
+    );
+    for (const [hunkId, attrs] of attrPairs) attributions[hunkId] = attrs;
+    linkedEvents[f.id] = await getLinkedEventsForFile(f.id);
   }
 
   return {
@@ -417,13 +394,8 @@ export function getSessionBundle(id: string): SessionBundle | undefined {
   };
 }
 
-// ---- cross-session stats (the /stats page) --------------------------------
+// ---- cross-session stats (the /overview page) -----------------------------
 
-// Derive a "project directory" key from an absolute changed-file path, relative
-// to the session's repo basename. projects/<slug> stays a unit; other hub dirs
-// (wiki, memory, raw, …) collapse to their top segment; repo-root files and
-// out-of-repo paths get their own buckets. Keeps the tool repo-agnostic (uses
-// the session's own project name as the marker, not a hard-coded path).
 function deriveProjectKey(path: string, repoBasename: string): string {
   const marker = `/${repoBasename}/`;
   const idx = repoBasename ? path.indexOf(marker) : -1;
@@ -449,21 +421,16 @@ interface StatSessionRow {
   error_count: number;
 }
 
-export function getStats(): StatsBundle {
-  const db = getDb();
-  const sessions = db
-    .prepare(
-      'SELECT id, title, project, model, duration_ms, token_usage, cost_usd, error_count FROM sessions ORDER BY seq ASC'
-    )
-    .all() as unknown as StatSessionRow[];
-  const fileRows = db
-    .prepare('SELECT session_id, path, additions, deletions FROM changed_files')
-    .all() as unknown as {
+export async function getStats(): Promise<StatsBundle> {
+  const sessions = await queryRows<StatSessionRow>(
+    'SELECT id, title, project, model, duration_ms, token_usage, cost_usd, error_count FROM sessions ORDER BY seq ASC',
+  );
+  const fileRows = await queryRows<{
     session_id: string;
     path: string;
     additions: number;
     deletions: number;
-  }[];
+  }>('SELECT session_id, path, additions, deletions FROM changed_files');
 
   const filesBySession = new Map<string, { path: string; additions: number; deletions: number }[]>();
   for (const f of fileRows) {
@@ -496,7 +463,6 @@ export function getStats(): StatsBundle {
 
   for (const s of sessions) {
     const files = filesBySession.get(s.id) ?? [];
-    // tally changed files per derived project key for THIS session
     const tally = new Map<string, { files: number; add: number; del: number }>();
     for (const f of files) {
       const k = deriveProjectKey(f.path, s.project);
@@ -506,7 +472,7 @@ export function getStats(): StatsBundle {
       t.del += f.deletions;
       tally.set(k, t);
     }
-    // primary project = where the session changed the most files (ties: alpha)
+
     let primary = '(no edits)';
     let best = -1;
     for (const [k, t] of [...tally.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
@@ -542,11 +508,9 @@ export function getStats(): StatsBundle {
   }
 
   const projectList = [...projects.values()].sort(
-    (a, b) => b.cost - a.cost || b.tokens - a.tokens || b.sessions - a.sessions
+    (a, b) => b.cost - a.cost || b.tokens - a.tokens || b.sessions - a.sessions,
   );
 
-  // ---- per-file rollup: which file, in which project, and the sessions that
-  // touched it (so file-level activity is traceable back to where it happened).
   const refById = new Map<string, ProjectSessionRef>();
   const projBySession = new Map<string, string>();
   for (const s of sessions) {
@@ -595,51 +559,74 @@ export function getStats(): StatsBundle {
         .filter((r): r is ProjectSessionRef => !!r),
     }));
 
-  // ---- light "usage" observation (Phase 1 = counts only, no evaluation) ----
-  const skillRows = db
-    .prepare(
-      "SELECT title, COUNT(*) n FROM transcript_events WHERE type='skill' GROUP BY title ORDER BY n DESC LIMIT 40"
-    )
-    .all() as unknown as { title: string; n: number }[];
+  const skillRows = await queryRows<{ title: string; n: number }>(
+    `SELECT title, COUNT(*)::int n
+       FROM transcript_events
+      WHERE type = 'skill'
+      GROUP BY title
+      ORDER BY n DESC
+      LIMIT 40`,
+  );
   const skills = skillRows.map((r) => ({
     name: r.title.replace(/^Skill\s*·\s*/, '').trim() || r.title,
     count: r.n,
   }));
 
-  const saRows = db
-    .prepare(
-      "SELECT subagent, COUNT(*) n FROM transcript_events WHERE type='subagent' AND parent_id IS NULL AND subagent IS NOT NULL GROUP BY subagent ORDER BY n DESC LIMIT 40"
-    )
-    .all() as unknown as { subagent: string; n: number }[];
+  const saRows = await queryRows<{ subagent: string; n: number }>(
+    `SELECT subagent, COUNT(*)::int n
+       FROM transcript_events
+      WHERE type = 'subagent'
+        AND parent_id IS NULL
+        AND subagent IS NOT NULL
+      GROUP BY subagent
+      ORDER BY n DESC
+      LIMIT 40`,
+  );
   const subagentTypes = saRows.map((r) => ({ name: r.subagent, count: r.n }));
 
-  // harness: which nested CLAUDE.md/AGENTS.md were loaded, and which hooks fired
-  const memRows = db
-    .prepare(
-      "SELECT file_path, COUNT(*) n FROM transcript_events WHERE type='memory' AND file_path IS NOT NULL GROUP BY file_path ORDER BY n DESC LIMIT 40"
-    )
-    .all() as unknown as { file_path: string; n: number }[];
+  const memRows = await queryRows<{ file_path: string; n: number }>(
+    `SELECT file_path, COUNT(*)::int n
+       FROM transcript_events
+      WHERE type = 'memory'
+        AND file_path IS NOT NULL
+      GROUP BY file_path
+      ORDER BY n DESC
+      LIMIT 40`,
+  );
   const memory = memRows.map((r) => {
     const segs = r.file_path.split('/').filter(Boolean);
     return { name: segs.length <= 2 ? r.file_path : segs.slice(-2).join('/'), count: r.n };
   });
-  const hookRows = db
-    .prepare(
-      "SELECT json_extract(meta,'$.hookEvent') ev, json_extract(meta,'$.hookName') nm, COUNT(*) n FROM transcript_events WHERE type='hook' GROUP BY ev, nm ORDER BY n DESC LIMIT 40"
-    )
-    .all() as unknown as { ev: string | null; nm: string | null; n: number }[];
+
+  const hookRows = await queryRows<{ ev: string | null; nm: string | null; n: number }>(
+    `SELECT meta->>'hookEvent' ev,
+            meta->>'hookName' nm,
+            COUNT(*)::int n
+       FROM transcript_events
+      WHERE type = 'hook'
+      GROUP BY meta->>'hookEvent', meta->>'hookName'
+      ORDER BY n DESC
+      LIMIT 40`,
+  );
   const hooks = hookRows.map((r) => ({
     name: r.ev ? (r.nm && r.nm !== r.ev ? `${r.ev} (${r.nm})` : r.ev) : r.nm ?? 'hook',
     count: r.n,
   }));
 
-  const modelRows = db
-    .prepare(
-      // SUM(cost_usd) is NULL-aware: a model whose sessions are all unpriceable
-      // (Codex/GPT) sums to NULL → shown as "—", not a misleading $0.00.
-      "SELECT COALESCE(model, '(unknown)') model, COUNT(*) sessions, SUM(token_usage) tokens, SUM(cost_usd) cost FROM sessions GROUP BY model ORDER BY sessions DESC"
-    )
-    .all() as unknown as { model: string; sessions: number; tokens: number; cost: number | null }[];
+  const modelRows = await queryRows<{
+    model: string;
+    sessions: number;
+    tokens: number;
+    cost: number | null;
+  }>(
+    `SELECT COALESCE(model, '(unknown)') model,
+            COUNT(*)::int sessions,
+            COALESCE(SUM(token_usage), 0)::int tokens,
+            SUM(cost_usd)::float8 cost
+       FROM sessions
+      GROUP BY model
+      ORDER BY sessions DESC`,
+  );
   const models = modelRows.map((r) => ({
     name: r.model,
     sessions: r.sessions,
@@ -654,23 +641,19 @@ export function getStats(): StatsBundle {
       tokens: acc.tokens + (s.token_usage ?? 0),
       cost: acc.cost + (s.cost_usd ?? 0),
     }),
-    { sessions: 0, durationMs: 0, tokens: 0, cost: 0 }
+    { sessions: 0, durationMs: 0, tokens: 0, cost: 0 },
   );
 
   return { totals, projects: projectList, files, skills, subagentTypes, memory, hooks, models };
 }
 
-// Per-session top-level event-type counts (parent_id IS NULL = the main spine,
-// matching the transcript timeline). Lets the Stats tab chart event composition
-// for ANY scope (a project / a filtered set) by summing the in-scope sessions
-// client-side — without shipping every event to the client.
-export function getSessionEventCounts(): Record<string, Record<string, number>> {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      "SELECT session_id, type, COUNT(*) n FROM transcript_events WHERE parent_id IS NULL GROUP BY session_id, type"
-    )
-    .all() as unknown as { session_id: string; type: string; n: number }[];
+export async function getSessionEventCounts(): Promise<Record<string, Record<string, number>>> {
+  const rows = await queryRows<{ session_id: string; type: string; n: number }>(
+    `SELECT session_id, type, COUNT(*)::int n
+       FROM transcript_events
+      WHERE parent_id IS NULL
+      GROUP BY session_id, type`,
+  );
   const out: Record<string, Record<string, number>> = {};
   for (const r of rows) (out[r.session_id] ??= {})[r.type] = r.n;
   return out;

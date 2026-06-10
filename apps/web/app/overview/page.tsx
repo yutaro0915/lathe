@@ -6,17 +6,18 @@
 // shouldn't surface aggregates over every other session.
 //
 // In-session stats live on the Session viewer's Stats tab (see SessionStatsView).
-// node:sqlite logs an ExperimentalWarning at runtime — harmless.
 
 export const dynamic = "force-dynamic";
 
 import { getStats, listSessions, getSessionEventCounts } from "@/lib/db";
 import OverviewView from "@/components/OverviewView";
 
-export default function Page() {
-  const sessions = listSessions();
-  const stats = getStats();
-  const eventCounts = getSessionEventCounts();
+export default async function Page() {
+  const [sessions, stats, eventCounts] = await Promise.all([
+    listSessions(),
+    getStats(),
+    getSessionEventCounts(),
+  ]);
   // session -> primary project, computed from stats so the overview's project
   // selector scopes a consistent session set (matching the SessionViewer rule).
   const sessionProject: Record<string, string> = {};
