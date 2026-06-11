@@ -1,6 +1,6 @@
 ---
 title: G1 — PR 連携（session ⇄ PR 紐付け）設計ドラフト
-status: draft（紐付けキー・認証の 2 点がユーザー判断待ち → 確定後 ADR 0006 化）
+status: accepted（2026-06-11 ユーザー決定: commit SHA 主 + branch 補 / 認証は gh token 流用・サービス化時に移行 = issue #4 → ADR 0006 / tasks/13）
 created: 2026-06-11
 updated: 2026-06-11
 ---

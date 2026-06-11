@@ -1,6 +1,6 @@
 ---
 title: G9 — コスト異常検知（baseline 設計ドラフト）
-status: draft（baseline 選択・前提検証の 2 点がユーザー判断待ち）
+status: accepted（2026-06-11 ユーザー決定: baseline = ハイブリッド案 H / cost 検証を実装前に実施 → tasks/11・12）
 created: 2026-06-11
 updated: 2026-06-11
 ---

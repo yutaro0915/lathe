@@ -6,11 +6,11 @@ current_stage: tasks/10 merged to main / UI direction probes (A-C) in progress
 
 ## Current
 
-- task: **3 トラック並行**（2026-06-11 ユーザー指示。オーケストレーションは Claude main）
-  - **UI**: B 標準（`design/ui-design-language.md`）を新 main へ port 中（`polish/ui-b-standard`、サブエージェント）→ ゲート + ユーザー目視合否 → merge
-  - **G9**: 設計フェーズ。実データ 341 sessions で baseline 候補 3 案（median×k / p95 / 絶対閾値）をシミュレーション分析中 → 選択肢つきでユーザーに諮る → task 化 → Codex loop
-  - **G1**: 設計フェーズ。prior art 実装網羅 + GitHub API 一次調査を並列実行中 → design + ADR ドラフト → ユーザー承認 → task 化（audit: A）→ Codex loop。手元データ: 全 341 sessions に git_branch、commit イベント 265 件（SHA は本文抽出余地）
-- agent: claude（調査・分析はサブエージェント委譲。実装フェーズから Codex、UI 以外）
+- task: **3 トラック並行・実装フェーズ**（設計 4 決定は 2026-06-11 ユーザー承認済み）
+  - **UI**: B 標準 port 中（`polish/ui-b-standard`、Claude サブエージェント）→ ユーザー目視合否 → merge
+  - **G9 系**: tasks/11 cost 検証（audit A）loop 稼働 → merge 後 tasks/12 G9 実装（audit B）
+  - **G1**: tasks/13（audit A）loop 稼働。専用 worktree `/tmp/lathe-g1` + 専用 Postgres :55433
+- agent: codex-loop ×2（11 = 本 checkout `loop/11-cost-verification` / 13 = worktree）+ claude（UI・監査・統合）
 
 ## Last completed
 
