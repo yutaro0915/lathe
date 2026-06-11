@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { Client } from "pg";
+import { COST_ANOMALY_BASELINE } from "@lathe/shared";
 
 const DATABASE_URL = process.env.DATABASE_URL || "postgres://lathe:lathe@localhost:55432/lathe";
 
@@ -7,6 +8,7 @@ type DbSession = { cost_usd: number | null; token_usage: number };
 type DbEvent = {
   id: string;
   seq: number;
+  ts: string;
   type: string;
   title: string;
   body: string | null;
@@ -25,11 +27,27 @@ type TurnExpectation = {
   errors: number;
   tokens: number;
   durationMs: number;
+  wallDurationMs: number;
   costUsd: number | null;
   files: DbFileLink[];
 };
+type CostAnomalyExpectation = {
+  session_id: string;
+  runner: string;
+  cost_usd: number | null;
+  cost_anomaly_group_size: number;
+  cost_anomaly_group_median_usd: number | null;
+  cost_anomaly_threshold_usd: number;
+  cost_anomaly: boolean;
+};
 
 const turnCache = new Map<string, Promise<TurnExpectation[]>>();
+const COST_FIXTURE_IDS = [
+  "e2e-cost-fallback-low",
+  "e2e-cost-fallback-high",
+  "e2e-cost-fallback-null",
+] as const;
+const COST_FIXTURE_PROJECT_ID = "fixture:g9-cost-anomaly";
 
 const PR_FIXTURE = {
   projectId: "fixture:g1-pr-linkage",
@@ -64,6 +82,12 @@ function humanizeDurationForTest(ms: number | null): string {
   return `${s}s`;
 }
 
+function hmsToMsForTest(ts: string): number | null {
+  const m = /(\d{2}):(\d{2}):(\d{2})/.exec(ts);
+  if (!m) return null;
+  return (Number(m[1]) * 60 * 60 + Number(m[2]) * 60 + Number(m[3])) * 1000;
+}
+
 function readMetaCostForTest(e: DbEvent): number | null {
   if (!e.meta) return null;
   try {
@@ -90,7 +114,7 @@ async function getTurnExpectations(sessionId: string): Promise<TurnExpectation[]
       ).rows[0];
       const events = (
         await client.query<DbEvent>(
-          `SELECT id, seq, type, title, body, exit_code, duration_ms, token_usage, parent_id, meta
+          `SELECT id, seq, ts, type, title, body, exit_code, duration_ms, token_usage, parent_id, meta
              FROM transcript_events
             WHERE session_id = $1
             ORDER BY seq ASC, parent_id NULLS FIRST, id ASC`,
@@ -159,6 +183,7 @@ async function getTurnExpectations(sessionId: string): Promise<TurnExpectation[]
           errors: 0,
           tokens: 0,
           durationMs: 0,
+          wallDurationMs: 0,
           costUsd: null,
           files: [],
           fileMap: new Map(),
@@ -194,6 +219,23 @@ async function getTurnExpectations(sessionId: string): Promise<TurnExpectation[]
         for (const child of childrenByParent.get(e.id) ?? []) collect(rollup, child);
       }
 
+      const dayMs = 24 * 60 * 60 * 1000;
+      const sessionStart = hmsToMsForTest(topEvents[0]?.ts ?? "") ?? 0;
+      const normalizeMs = (e: DbEvent | undefined) => {
+        const raw = e ? hmsToMsForTest(e.ts) : null;
+        if (raw == null) return sessionStart;
+        return raw < sessionStart ? raw + dayMs : raw;
+      };
+      const headers = topEvents.filter((e) => e.type === "user_message");
+      const lastTop = topEvents.at(-1);
+      for (let i = 0; i < headers.length; i += 1) {
+        const rollup = rollups.get(headers[i].id);
+        if (!rollup) continue;
+        const start = normalizeMs(headers[i]);
+        const end = i + 1 < headers.length ? normalizeMs(headers[i + 1]) : normalizeMs(lastTop);
+        rollup.wallDurationMs = Math.max(0, end - start);
+      }
+
       return [...rollups.values()]
         .sort((a, b) => a.turn - b.turn)
         .map(({ fileMap, ...r }) => ({ ...r, files: [...fileMap.values()] }));
@@ -204,6 +246,180 @@ async function getTurnExpectations(sessionId: string): Promise<TurnExpectation[]
   turnCache.set(sessionId, promise);
   return promise;
 }
+
+async function withDb<T>(fn: (client: Client) => Promise<T>): Promise<T> {
+  const client = new Client({ connectionString: DATABASE_URL });
+  await client.connect();
+  try {
+    return await fn(client);
+  } finally {
+    await client.end();
+  }
+}
+
+async function seedCostFallbackFixtures() {
+  const { absoluteFloorUsd } = COST_ANOMALY_BASELINE;
+  await withDb(async (client) => {
+    await client.query("DELETE FROM sessions WHERE id = ANY($1::text[])", [COST_FIXTURE_IDS]);
+    await client.query(
+      `INSERT INTO projects (id,display_name,git_remote,cwd_hint)
+       VALUES ($1,'G9 Cost Anomaly Fixture',NULL,NULL)
+       ON CONFLICT (id) DO UPDATE
+          SET display_name = EXCLUDED.display_name,
+              updated_at = CURRENT_TIMESTAMP`,
+      [COST_FIXTURE_PROJECT_ID]
+    );
+    const rows = [
+      {
+        id: COST_FIXTURE_IDS[0],
+        title: "E2E fallback cost low",
+        cost: absoluteFloorUsd - 1,
+        seq: 2,
+      },
+      {
+        id: COST_FIXTURE_IDS[1],
+        title: "E2E fallback cost high",
+        cost: absoluteFloorUsd + 1,
+        seq: 3,
+      },
+      {
+        id: COST_FIXTURE_IDS[2],
+        title: "E2E fallback cost null",
+        cost: null,
+        seq: 4,
+      },
+    ];
+    for (const r of rows) {
+      await client.query(
+        `INSERT INTO sessions (
+           id, project_id, project, title, runner, model, status, started_at, ended_at, duration_ms,
+           turn_count, tool_count, edit_count, bash_count, subagent_count, error_count,
+           token_usage, token_in, token_out, git_branch, commit_count, cost_usd, summary, seq
+         ) VALUES (
+           $1, $2, 'LLMWiki', $3, 'cursor', 'e2e-cost-baseline', 'done',
+           '2026-06-11 00:00:00', '2026-06-11 00:00:01', 1000,
+           1, 0, 0, 0, 0, 0,
+           0, 0, 0, 'loop/12-g9-cost-anomaly', 0, $4, NULL, $5
+         )`,
+        [r.id, COST_FIXTURE_PROJECT_ID, r.title, r.cost, r.seq]
+      );
+    }
+  });
+}
+
+async function cleanupCostFallbackFixtures() {
+  await withDb(async (client) => {
+    await client.query("DELETE FROM sessions WHERE id = ANY($1::text[])", [COST_FIXTURE_IDS]);
+    await client.query("DELETE FROM projects WHERE id = $1", [COST_FIXTURE_PROJECT_ID]);
+  });
+}
+
+async function getCostAnomalyExpectations(
+  sessionIds?: readonly string[]
+): Promise<CostAnomalyExpectation[]> {
+  const { minimumGroupSize, absoluteFloorUsd, medianMultiplier } = COST_ANOMALY_BASELINE;
+  return withDb(async (client) => {
+    const params: unknown[] = [minimumGroupSize, absoluteFloorUsd, medianMultiplier];
+    const where = sessionIds?.length ? "WHERE session_id = ANY($4::text[])" : "";
+    if (sessionIds?.length) params.push(sessionIds);
+    const rows = await client.query<CostAnomalyExpectation>(
+      `WITH cost_baseline AS (
+         SELECT runner,
+                COUNT(cost_usd)::int AS cost_anomaly_group_size,
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_usd)::float8 AS cost_anomaly_group_median_usd
+           FROM sessions
+          WHERE cost_usd IS NOT NULL
+          GROUP BY runner
+       ),
+       scored AS (
+         SELECT s.id AS session_id,
+                s.runner,
+                s.cost_usd,
+                COALESCE(b.cost_anomaly_group_size, 0)::int AS cost_anomaly_group_size,
+                b.cost_anomaly_group_median_usd,
+                CASE
+                  WHEN s.cost_usd IS NULL THEN $2::float8
+                  WHEN COALESCE(b.cost_anomaly_group_size, 0) < $1::int THEN $2::float8
+                  WHEN b.cost_anomaly_group_median_usd IS NULL THEN $2::float8
+                  ELSE GREATEST(b.cost_anomaly_group_median_usd * $3::float8, $2::float8)
+                END AS cost_anomaly_threshold_usd
+           FROM sessions s
+           LEFT JOIN cost_baseline b ON b.runner = s.runner
+       )
+       SELECT scored.*,
+              (
+                cost_usd IS NOT NULL
+                AND cost_usd > cost_anomaly_threshold_usd
+              ) AS cost_anomaly
+         FROM scored
+         ${where}
+        ORDER BY session_id ASC`,
+      params
+    );
+    return rows.rows;
+  });
+}
+
+function highestCostTurn(turns: TurnExpectation[]): TurnExpectation {
+  const candidates = turns.filter((t) => t.steps > 0 && t.costUsd != null);
+  return candidates.sort((a, b) => (b.costUsd ?? -1) - (a.costUsd ?? -1) || a.turn - b.turn)[0];
+}
+
+function longestWallDurationTurn(turns: TurnExpectation[]): TurnExpectation {
+  const candidates = turns.filter((t) => t.steps > 0);
+  return candidates.sort((a, b) => b.wallDurationMs - a.wallDurationMs || a.turn - b.turn)[0];
+}
+
+async function findCompactCodexSession(): Promise<string> {
+  const rows = await withDb(async (client) =>
+    (
+      await client.query<{ id: string }>(
+        `SELECT s.id
+           FROM sessions s
+           JOIN transcript_events e ON e.session_id = s.id
+          WHERE s.runner = 'codex'
+          GROUP BY s.id, s.duration_ms
+         HAVING COUNT(*) FILTER (WHERE e.type = 'user_message') > 1
+            AND COUNT(*) < 300
+          ORDER BY s.duration_ms DESC NULLS LAST
+          LIMIT 20`
+      )
+    ).rows
+  );
+  for (const row of rows) {
+    const target = longestWallDurationTurn(await getTurnExpectations(row.id));
+    if (target?.wallDurationMs > 0) return row.id;
+  }
+  throw new Error("No compact Codex session with a non-zero wall-clock turn duration");
+}
+
+async function expectTurnJump(
+  page: Page,
+  sessionId: string,
+  buttonText: string,
+  targetTurn: TurnExpectation,
+  expectedBasis?: "cost" | "duration"
+) {
+  await page.goto(`/?session=${sessionId}`);
+  const jump = page.locator(".sessbar .jump-chip", { hasText: buttonText });
+  await expect(jump).toBeVisible();
+  await expect(jump).toHaveAttribute("data-turn", String(targetTurn.turn));
+  if (expectedBasis) await expect(jump).toHaveAttribute("data-turn-score-basis", expectedBasis);
+  await jump.click();
+  const header = page.locator(`.timeline .event-row.turn-header[data-turn="${targetTurn.turn}"]`);
+  await expect(header).toHaveClass(/selected/);
+  await expect(
+    page.locator(`.timeline .event-row.step-row[data-turn="${targetTurn.turn}"]`).first()
+  ).toBeVisible();
+}
+
+test.beforeAll(async () => {
+  await seedCostFallbackFixtures();
+});
+
+test.afterAll(async () => {
+  await cleanupCostFallbackFixtures();
+});
 
 async function expandAllTurns(page: Page) {
   const expand = page.locator(".turn-filter button", { hasText: "Expand turns" });
@@ -331,9 +547,11 @@ test.describe("Session viewer (/)", () => {
 
   test("clicking an event selects it (detail panel)", async ({ page }) => {
     await page.goto("/");
-    const row = page.locator(".event-row").first();
-    await expect(row).toBeVisible();
-    await row.click();
+    const rows = page.locator(".event-row");
+    await expect(rows.first()).toBeVisible();
+    const n = await rows.count();
+    expect(n).toBeGreaterThan(0);
+    await rows.first().click();
     await expect(page.locator(".event-row.selected")).toHaveCount(1);
   });
 
@@ -371,6 +589,90 @@ test.describe("Session viewer (/)", () => {
     // priceable (Opus) sessions show a real dollar amount in the list, not "—"
     const dollarCosts = page.locator(".session-item .chip.cost", { hasText: "$" });
     expect(await dollarCosts.count()).toBeGreaterThan(0);
+  });
+});
+
+test.describe("Cost anomaly detection", () => {
+  const CLAUDE_JUMP_SID = "33a47290-fc24-47bc-b624-e7fbc4412ade";
+
+  test("session-list anomaly chips match an independent DB baseline oracle", async ({ page }) => {
+    const oracle = await getCostAnomalyExpectations();
+    const expected = oracle
+      .filter((r) => r.cost_anomaly)
+      .map((r) => r.session_id)
+      .sort();
+
+    await page.goto("/");
+    const actual = (
+      await page.locator(".session-list .session-item").evaluateAll((items) =>
+        items
+          .filter((item) => item.querySelector(".anomaly-chip"))
+          .map((item) => item.getAttribute("data-session-id"))
+          .filter((id): id is string => !!id)
+      )
+    ).sort();
+
+    expect(actual).toEqual(expected);
+  });
+
+  test("n<10 groups and cost-NULL sessions use the absolute-floor fallback", async ({ page }) => {
+    const oracle = await getCostAnomalyExpectations(COST_FIXTURE_IDS);
+    const byId = new Map(oracle.map((r) => [r.session_id, r]));
+    const low = byId.get(COST_FIXTURE_IDS[0])!;
+    const high = byId.get(COST_FIXTURE_IDS[1])!;
+    const nil = byId.get(COST_FIXTURE_IDS[2])!;
+
+    for (const row of [low, high, nil]) {
+      expect(row.cost_anomaly_group_size).toBeLessThan(COST_ANOMALY_BASELINE.minimumGroupSize);
+      expect(row.cost_anomaly_threshold_usd).toBe(COST_ANOMALY_BASELINE.absoluteFloorUsd);
+    }
+    expect(low.cost_anomaly).toBe(false);
+    expect(high.cost_anomaly).toBe(true);
+    expect(nil.cost_usd).toBeNull();
+    expect(nil.cost_anomaly).toBe(false);
+
+    await page.goto("/");
+    await page.getByPlaceholder(/Search sessions/i).fill("E2E fallback cost");
+    await expect(page.locator(".session-list .session-item")).toHaveCount(3);
+    await expect(
+      page.locator(`.session-item[data-session-id="${COST_FIXTURE_IDS[1]}"] .anomaly-chip`)
+    ).toHaveText("▲ cost");
+    await expect(
+      page.locator(`.session-item[data-session-id="${COST_FIXTURE_IDS[0]}"] .anomaly-chip`)
+    ).toHaveCount(0);
+    await expect(
+      page.locator(`.session-item[data-session-id="${COST_FIXTURE_IDS[2]}"] .anomaly-chip`)
+    ).toHaveCount(0);
+  });
+
+  test("overview shows the same anomaly chip in scoped session rows", async ({ page }) => {
+    await page.goto("/overview");
+    await page.locator(".project-picker").selectOption("(no edits)");
+    await expect(
+      page.locator(`.overview-shell .session-item[data-session-id="${COST_FIXTURE_IDS[1]}"] .anomaly-chip`)
+    ).toHaveText("▲ cost");
+  });
+
+  test("highest-turn jump expands and activates the estimated-cost turn for Claude Code", async ({ page }) => {
+    const target = highestCostTurn(await getTurnExpectations(CLAUDE_JUMP_SID));
+    expect(target).toBeTruthy();
+    await expectTurnJump(page, CLAUDE_JUMP_SID, "最も高い turn へ", target, "cost");
+  });
+
+  test("highest-turn jump expands and activates the duration fallback turn for Codex", async ({ page }) => {
+    const codexSession = await findCompactCodexSession();
+    const target = longestWallDurationTurn(await getTurnExpectations(codexSession));
+    expect(target).toBeTruthy();
+    expect(target.wallDurationMs).toBeGreaterThan(0);
+    await expectTurnJump(page, codexSession, "最も高い turn へ", target, "duration");
+  });
+
+  test("error-turn jump expands and activates the first failing turn", async ({ page }) => {
+    const target = (await getTurnExpectations(CLAUDE_JUMP_SID)).find(
+      (t) => t.steps > 0 && t.errors > 0
+    );
+    expect(target).toBeTruthy();
+    await expectTurnJump(page, CLAUDE_JUMP_SID, "エラー turn へ", target!);
   });
 });
 

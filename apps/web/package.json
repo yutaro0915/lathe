@@ -47,6 +47,7 @@
     "ingest": "tsx scripts/ingest.ts",
     "coverage": "tsx scripts/coverage_check.ts",
     "verify:commits": "tsx scripts/verify-commits.ts",
+    "verify:cost": "tsx scripts/verify-cost.ts",
     "verify:notify": "tsx scripts/verify-ingest-notify.ts",
     "verify:pr": "tsx scripts/verify-pr.ts",
     "verify:pr-idempotency": "tsx scripts/verify-pr-idempotency.ts",

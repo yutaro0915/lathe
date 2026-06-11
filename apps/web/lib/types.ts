@@ -53,6 +53,10 @@ export interface Session {
   gitBranch: string | null;
   commitCount: number;
   costUsd: number | null;
+  costAnomaly: boolean;
+  costAnomalyThresholdUsd: number;
+  costAnomalyGroupSize: number;
+  costAnomalyGroupMedianUsd: number | null;
   summary: string | null;
   seq: number;
 }

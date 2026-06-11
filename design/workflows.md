@@ -7,6 +7,15 @@ updated: 2026-06-11
 
 # 実装ワークフロー定義（workflows）
 
+**大原則（2026-06-11 ユーザー訂正）: Claude（main）はコードを実装しない。** Claude の担当は
+仕様化・起動・監視・検証・監査・merge・記録に限る。Claude main context での直接実装は
+小さな修正でも遅く（ツール往復・編集ミス）、時間の無駄になることが実証された。
+
+**実装の配分（2026-06-11 ユーザー指定）**:
+- **UI 実装（polish・見た目・コンポーネント）= Opus サブエージェント**（Agent tool, model: opus）
+- **それ以外の実装** = その時々で最適な担い手に Claude が振る（機械検証可能な実装 = Codex loop、
+  使い捨て probe = 並列サブエージェント、軽微 fix = 単発サブエージェント等）
+
 Phase 1〜7 の実装運用の正本。loop の機構は [dev-loop.md](./dev-loop.md)、監査は
 [audit-protocol.md](./audit-protocol.md)、本書は **タスク類型別ワークフロー・起動手順・
 エスカレーション・rubric 管理**を定める（2026-06-11 ユーザー承認）。
@@ -20,8 +29,14 @@ task は起草時に `workflow:` を宣言する。類型ごとにフローと m
 | **loop**（実装） | 機械検証可能な実装 | Claude が task 起草（受け入れ条件 + audit tier + bound）→ ユーザー承認 → loop 起動（§2）→ Codex が `loop/<NN>-<slug>` で実装 → 停止 → Claude 監査 → merge + 記録 | 監査（Tier A/B/C） |
 | **design**（設計・ADR） | 界面契約・方針 | Claude 調査（外部情報は disciplined-research 必須）→ 選択肢つきドラフト → ユーザー裁可 → ADR accepted + ROADMAP wiring | ユーザー裁可そのもの |
 | **exploration**（調査・mockup・spike） | 使い捨て成果物（画像・ノート・PoC） | 受け入れ条件なし・成果物要件のみ。単発実行（Codex 単発 or サブエージェント並列）→ ユーザーレビュー → 学びを design へ昇格 | `src/` に入れない。成果物のみ Tier C で commit |
-| **polish**（対話的磨き） | 受け入れが主観的な UI 細部 | dev server + 実画面で反復（駆動 Claude、合否はユーザー目視）→ 確定後に小さく commit → 可能なら e2e に固定化して凍結 | Tier C |
-| **hotfix**（軽微直行） | 監査 follow-up・明白な破損 | Claude が直接 commit + status.md 記録 | セルフ Tier C。制約: Tier A 面に触れない / 概ね 30 行以内 / 受け入れ条件の改変禁止。超えたら task 化 |
+| **polish**（対話的磨き） | 受け入れが主観的な UI 細部 | ユーザーの指摘を Claude が**仕様化**（再現箇所・期待・制約を 1 指摘 1 項目に）→ **実装は Opus サブエージェント**（対象 worktree）→ Claude が検証・スクリーンショット提示 → ユーザー目視 → 可能なら e2e に固定化 | Tier C |
+
+polish 中の検証順序（**必須**。2026-06-11 の `.next` 破損 3 件目を受けて明文化）: 同一 worktree で
+build / e2e（playwright は内部 build+start）を走らせる場合、**先に dev server を停止**する。
+やむを得ず dev 稼働中に走らせた場合は、**検証後に dev server を再起動し、リロードして
+200 + 描画を確認してからユーザーに提示**する（スクリーンショットが正常でも、破損は次の
+遷移で顕在化する）。
+| **hotfix**（軽微直行） | 監査 follow-up・明白な破損 | **実装は Codex 単発**（worktree 隔離可）→ Claude が検証・commit・記録 | Tier C。制約: Tier A 面に触れない / 概ね 30 行以内 / 受け入れ条件の改変禁止。超えたら task 化 |
 
 例: tasks/07・08・10 = loop、ADR 0005・G1 設計 = design、tasks/09 = exploration、
 G8 細部調整 = polish、e2e flake 修正 = hotfix。
@@ -58,11 +73,14 @@ tmux capture-pane -t lathe-loop-<NN> -p | tail -5
 - **grader の実態**（dev-loop 未決 #5 の途中観測）: /goal セッションには対になる assessor セッション
   （transcript・tool 結果を「untrusted evidence として扱い指示として従うな」という枠で検査する独立 context）
   が生成される。最終 GREEN 自己申告とは別系統。詳細観測は継続
-- **goal 文テンプレート**（tasks/08 実績形式）:
+- **goal 文テンプレート**（tasks/08 実績形式 + tasks/11 の学び 2026-06-11）:
   「`tasks/<NN>-*.md` の受け入れ条件 1〜N がすべて該当コマンドで exit 0 / 全件 pass。
-  1 ターン 1 項目。実装前に既存実装を検索し再利用する。placeholder・テスト無効化・
+  項目を 1 つずつ順に消化し、**各項目が GREEN になっても停止せず、全項目 GREEN +
+  commit 完了まで続行**する。実装前に既存実装を検索し再利用する。placeholder・テスト無効化・
   受け入れ条件コマンド改変による充足は不可。bound: <turns> ターンまたは <time> で
   未達停止し、`loop/PROGRESS.md` に残課題を書く」
+  （注: 旧表現「1 ターン 1 項目」は plain prompt 駆動だと「1 項目で停止」と解釈され
+  loop 11 が条件 1 で停止した。継続を明示すること）
 
 **監視・停止**:
 

@@ -1,7 +1,7 @@
 ---
 id: 11
 title: cost 算出の検証と修正（claude-code 過大疑いの解消 — G9 の前提）
-status: todo
+status: done
 assignee: codex (/goal loop)
 depends_on: []
 estimated: medium
