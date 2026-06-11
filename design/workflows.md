@@ -21,6 +21,12 @@ task は起草時に `workflow:` を宣言する。類型ごとにフローと m
 | **design**（設計・ADR） | 界面契約・方針 | Claude 調査（外部情報は disciplined-research 必須）→ 選択肢つきドラフト → ユーザー裁可 → ADR accepted + ROADMAP wiring | ユーザー裁可そのもの |
 | **exploration**（調査・mockup・spike） | 使い捨て成果物（画像・ノート・PoC） | 受け入れ条件なし・成果物要件のみ。単発実行（Codex 単発 or サブエージェント並列）→ ユーザーレビュー → 学びを design へ昇格 | `src/` に入れない。成果物のみ Tier C で commit |
 | **polish**（対話的磨き） | 受け入れが主観的な UI 細部 | dev server + 実画面で反復（駆動 Claude、合否はユーザー目視）→ 確定後に小さく commit → 可能なら e2e に固定化して凍結 | Tier C |
+
+polish 中の検証順序（**必須**。2026-06-11 の `.next` 破損 3 件目を受けて明文化）: 同一 worktree で
+build / e2e（playwright は内部 build+start）を走らせる場合、**先に dev server を停止**する。
+やむを得ず dev 稼働中に走らせた場合は、**検証後に dev server を再起動し、リロードして
+200 + 描画を確認してからユーザーに提示**する（スクリーンショットが正常でも、破損は次の
+遷移で顕在化する）。
 | **hotfix**（軽微直行） | 監査 follow-up・明白な破損 | Claude が直接 commit + status.md 記録 | セルフ Tier C。制約: Tier A 面に触れない / 概ね 30 行以内 / 受け入れ条件の改変禁止。超えたら task 化 |
 
 例: tasks/07・08・10 = loop、ADR 0005・G1 設計 = design、tasks/09 = exploration、
