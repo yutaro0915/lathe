@@ -107,6 +107,15 @@ updated: 2026-06-11
 3. **G2**: finding の「有意義」の定義（dogfood で 1 件出る、の判定基準）
 4. **G3**: finding 採否記録の最小スキーマ（棄却理由を Phase 4 judge の学習材料にする）
 5. **MCP server の transport**（論点 #7: stdio / SSE / HTTP）
+6. **analyst 選抜プロトコル**（複雑系対処 = probe-sense-respond）: 複数 candidate analyst（prompt / tool 構成違い）を並列 probe する。fitness は二段 — (a) **既知インシデント replay = 動作確認の smoke gate**: `memory/feedback_*.md` や lathe status.md 履歴など、人間認定済みの実ハーネス失敗（実際に harness 規則化されたもの）を seed 正解集合とし、教えずに過去 transcript から近い指摘を再発見できるかを見る。**ただし seed は数も質も限られる（N≈10〜20）ため最適化対象にしない（Goodhart 回避）** — 一部でも再発見できれば「動く」と判定して早期に dogfood 投入する。(b) **本命の fitness は運用中のユーザー採否ストリーム**で precision を継続測定。採否記録の蓄積により G2「有意義」の定義を結晶化させ、複雑系 → 煩雑系へ移行したら定義を文書化して Phase 4 judge の設計材料にする
+7. **採否 UX 要件**: ユーザーの採否判定は「**1 クリック + 理由一言**」で完了すること。判定が重いとループ自体が止まる（G4 fixture 化と同種の、dogfood 成立の急所）
+
+**Phase 2 のスコープ境界（2026-06-11 確定）**:
+
+- analyst の出力は**現象レベルの finding**（改善余地 + 根拠リンク）まで。ハーネスの語彙（どのファイルをどう変えるか）には踏み込ませない。どの種類の finding がハーネスで解決可能かは、事前の制約ではなく採否記録から学ぶ（[ADR 0005](./adr/0005-harness-artifact-model.md) §3 と整合）
+- ハーネスは操作しない。ただし **session / finding への harness 版数スタンプは行う**（記録のみ。採用改善の before/after 比較 = G7 原型の成立条件）
+- 採用 finding のハーネスへの適用は P2 では**ユーザーの手作業**（Lathe の外）。自動適用は Phase 5
+- analyst をコードレビューツール化しない（設計境界: コード編集環境は Lathe の外）。コードのバグは「agent がそれを見逃した / 作った過程」という現象として扱う限りで finding になる
 
 **完了の定義**:
 
@@ -284,7 +293,17 @@ task ファイル（`tasks/NN-*.md`、受け入れ条件つき）への詳細化
 | 3 | G9 設計（baseline 定義をユーザーに諮る → 小設計文書）→ task 化（audit: B） | Claude → Codex loop | G8 の Stats 界面確定後 |
 | 4 | G1 設計文書 + ADR（PR ⇄ session 紐付けキー、GitHub 認証 = 論点 #8）→ task 化（audit: A、スキーマ・外部 API 界面に触れるため） | Claude（設計）→ ユーザー承認 → Codex loop | — |
 | 5 | Phase 1 終了ゲート（完了定義チェック + Phase 監査 + 本書更新） | Claude | 1〜4 完了 |
-| 6 | Phase 2 開始ゲート（design sprint: ハーネス版数 / finding model / archive v2 踏襲度 / G2 / G3 / MCP transport） | Claude + ユーザー | 5 完了 |
+| 6 | Phase 2 開始ゲート（design sprint: ハーネス版数 / finding model / archive v2 踏襲度 / G2 / G3 / MCP transport / analyst 選抜 / 採否 UX） | Claude + ユーザー | 5 完了（下記注記参照） |
+
+注記: 順 6 の**設計ドラフトは順 1〜4 と並行開始可**。設計（Claude、新規 design 文書のみ）と実装（Codex loop、src/）は lane が分かれ single-writer に抵触しない。ただし ADR の最終確定と Phase 2 実装 task の起動は順 5（Phase 1 終了ゲート）の後。
+
+## ユーザーの作業（役割定義、2026-06-11）
+
+書く仕事はゼロ、選ぶ仕事が全部。以下の 3 種類に限定される。
+
+- **定常（task ごと、数分）**: task ファイルの受け入れ条件を承認し、Codex loop を起動する。実装中・コードレビュー・merge は無関与（監査 = Claude が代行、[design/audit-protocol.md](./design/audit-protocol.md)）。監査が重大 block を出した時のみ裁定（revert か hotfix か等）
+- **節目（Phase ゲートごと、30〜60 分）**: 選択肢つきで諮られる **UX / データの境界 / 設計方針**を選ぶ。残りの主な判断: G8 mockup レビュー、G9 baseline、G1 紐付けキー ADR、finding モデルと MCP tool surface、G4 fixture 保持範囲、rubric テンプレ、ハーネス意味論の一般化 ADR、OSS 公開判断
+- **運用（P2 以降、週 5〜10 分）**: finding の**採否判定（オラクル）**。「採用 / 棄却 + 理由一言」。これが G2 の教師信号・analyst 選抜の fitness・Phase 4 judge の校正材料になる。**代替不能な作業はこれだけ**。P3 以降は同種の作業として「fixture 化を自分で試して軽さを判定」「judge の採点理由の月 1 spot check」が加わる
 
 ## 決定済み（ADR 索引）
 
