@@ -1,6 +1,6 @@
 ---
 title: Phase 2 — finding データモデル設計ドラフト（開始ゲート用）
-status: draft（Phase 1 終了ゲート後にユーザー裁可 → ADR 化）
+status: accepted（2026-06-11 ユーザー裁可: kind 4 種 / stdio / analyst 3 系統 / hook 採取 → ADR 0007）
 created: 2026-06-11
 updated: 2026-06-11
 ---
