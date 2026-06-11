@@ -586,10 +586,12 @@ export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Bu
     delete f._hunkSeq; delete f._firstWrite; return f;
   });
 
+  const commitExtraction = collectSessionCommits(events as Built['events']);
   return {
     session,
     events: events as Built['events'],
-    sessionCommits: collectSessionCommits(events as Built['events']),
+    sessionCommits: commitExtraction.commits,
+    commitShaMissCount: commitExtraction.unextractedEvents,
     eventFiles: eventFiles as Built['eventFiles'],
     changedFiles: changedFiles as Built['changedFiles'],
     hunks: hunks as Built['hunks'],

@@ -279,10 +279,12 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
   };
   const changedFiles = [...filesByPath.values()].slice(0, maxFiles).map((f) => { delete f._hunkSeq; return f; });
 
+  const commitExtraction = collectSessionCommits(events as Built['events']);
   return {
     session,
     events: events as Built['events'],
-    sessionCommits: collectSessionCommits(events as Built['events']),
+    sessionCommits: commitExtraction.commits,
+    commitShaMissCount: commitExtraction.unextractedEvents,
     eventFiles: eventFiles as Built['eventFiles'],
     changedFiles: changedFiles as Built['changedFiles'],
     hunks: hunks as Built['hunks'],

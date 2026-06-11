@@ -37,6 +37,7 @@ const PR_FIXTURE = {
   shaSession: "fixture-sha-session",
   branchSession: "fixture-branch-session",
   sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  shaPrefix: "aaaaaaa",
   branch: "feature/g1-pr-linkage-fixture",
 };
 
@@ -281,7 +282,7 @@ async function seedPrFixture() {
     }
     await client.query("INSERT INTO session_commits (session_id,sha,event_id,source) VALUES ($1,$2,$3,'fixture')", [
       PR_FIXTURE.shaSession,
-      PR_FIXTURE.sha,
+      PR_FIXTURE.shaPrefix,
       `${PR_FIXTURE.shaSession}_1`,
     ]);
     await client.query("COMMIT");
@@ -330,9 +331,9 @@ test.describe("Session viewer (/)", () => {
 
   test("clicking an event selects it (detail panel)", async ({ page }) => {
     await page.goto("/");
-    const rows = page.locator(".event-row");
-    const n = await rows.count();
-    await rows.nth(Math.min(5, n - 1)).click();
+    const row = page.locator(".event-row").first();
+    await expect(row).toBeVisible();
+    await row.click();
     await expect(page.locator(".event-row.selected")).toHaveCount(1);
   });
 

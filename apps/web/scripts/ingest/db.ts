@@ -8,6 +8,7 @@ export interface InsertCounts {
   sessions: number;
   events: number;
   sessionCommits: number;
+  commitShaMisses: number;
   changedFiles: number;
   hunks: number;
   attributions: number;
@@ -37,6 +38,7 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
     sessions: built.length,
     events: 0,
     sessionCommits: 0,
+    commitShaMisses: 0,
     changedFiles: 0,
     hunks: 0,
     attributions: 0,
@@ -46,6 +48,7 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
 
   for (const b of built) {
     const s = b.session;
+    counts.commitShaMisses += b.commitShaMissCount;
     await client.query(
       `INSERT INTO projects (id,display_name,git_remote,cwd_hint,updated_at)
        VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP)

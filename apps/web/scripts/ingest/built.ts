@@ -104,6 +104,7 @@ export interface Built {
   session: BuiltSession;
   events: BuiltEvent[];
   sessionCommits: BuiltSessionCommit[];
+  commitShaMissCount: number;
   eventFiles: BuiltEventFile[];
   changedFiles: BuiltChangedFile[];
   hunks: BuiltHunk[];

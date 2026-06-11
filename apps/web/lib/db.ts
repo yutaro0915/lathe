@@ -147,6 +147,8 @@ interface PullRequestRow {
 
 interface PullRequestLinkRow extends PullRequestRow {
   link_method: string;
+  source: string;
+  pr_updated_at: string;
 }
 
 interface SessionPrSummaryRow {
@@ -161,6 +163,8 @@ interface SessionPrSummaryRow {
   merged_at: string | null;
   updated_at: string;
   link_method: string;
+  source: string;
+  pr_updated_at: string;
 }
 
 interface LinkedEventRow extends TranscriptEventRow {
@@ -359,11 +363,11 @@ export async function getPullRequest(id: string): Promise<PullRequest | undefine
 
 export async function getPullRequestsForSession(sessionId: string): Promise<PullRequestSummary[]> {
   const rows = await queryRows<PullRequestLinkRow>(
-    `SELECT pr.*, spr.link_method
+    `SELECT pr.*, spr.source AS link_method, spr.source, spr.pr_updated_at
        FROM session_pull_requests spr
        JOIN pull_requests pr ON pr.id = spr.pr_id
       WHERE spr.session_id = $1
-      ORDER BY pr.updated_at DESC, pr.number DESC`,
+      ORDER BY spr.pr_updated_at DESC, pr.number DESC`,
     [sessionId],
   );
   return rows.map((row) => toPullRequestSummary(row, row.link_method));
@@ -373,10 +377,10 @@ export async function getSessionPrSummary(): Promise<Record<string, PullRequestS
   const rows = await queryRows<SessionPrSummaryRow>(
     `SELECT spr.session_id,
             pr.id, pr.project_id, pr.number, pr.title, pr.state, pr.url,
-            pr.head_ref_name, pr.merged_at, pr.updated_at, spr.link_method
+            pr.head_ref_name, pr.merged_at, pr.updated_at, spr.source AS link_method, spr.source, spr.pr_updated_at
        FROM session_pull_requests spr
        JOIN pull_requests pr ON pr.id = spr.pr_id
-      ORDER BY pr.updated_at DESC, pr.number DESC`,
+      ORDER BY spr.pr_updated_at DESC, pr.number DESC`,
   );
   const out: Record<string, PullRequestSummary[]> = {};
   for (const row of rows) (out[row.session_id] ??= []).push(toPullRequestSummary(row, row.link_method));
@@ -385,11 +389,11 @@ export async function getSessionPrSummary(): Promise<Record<string, PullRequestS
 
 export async function getSessionsForPullRequest(prId: string): Promise<PullRequestSessionLink[]> {
   const rows = await queryRows<SessionRow & { link_method: string }>(
-    `SELECT s.*, spr.link_method
+    `SELECT s.*, spr.source AS link_method
        FROM session_pull_requests spr
        JOIN sessions s ON s.id = spr.session_id
       WHERE spr.pr_id = $1
-      ORDER BY s.seq ASC`,
+      ORDER BY spr.pr_updated_at DESC, s.seq ASC`,
     [prId],
   );
   return rows.map((row) => ({ session: toSession(row), linkMethod: row.link_method as 'sha' | 'branch' }));

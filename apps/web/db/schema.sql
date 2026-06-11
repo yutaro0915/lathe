@@ -186,27 +186,40 @@ CREATE TABLE IF NOT EXISTS github_pr_sync_state (
 );
 
 CREATE OR REPLACE VIEW session_pull_requests AS
-SELECT DISTINCT
-  sc.session_id,
-  pc.pr_id,
-  'sha'::TEXT AS link_method
-FROM session_commits sc
-JOIN pr_commits pc ON pc.sha = sc.sha
-JOIN pull_requests pr ON pr.id = pc.pr_id
-JOIN sessions s ON s.id = sc.session_id AND s.project_id = pr.project_id
+WITH sha_links AS (
+  SELECT DISTINCT
+    sc.session_id,
+    pc.pr_id,
+    'sha'::TEXT AS link_method,
+    'sha'::TEXT AS source,
+    pr.updated_at AS pr_updated_at
+  FROM session_commits sc
+  JOIN pr_commits pc
+    ON LENGTH(sc.sha) >= 7
+   AND LOWER(pc.sha) LIKE LOWER(sc.sha) || '%'
+  JOIN pull_requests pr ON pr.id = pc.pr_id
+  JOIN sessions s ON s.id = sc.session_id AND s.project_id = pr.project_id
+),
+branch_links AS (
+  SELECT DISTINCT
+    s.id AS session_id,
+    pr.id AS pr_id,
+    'branch'::TEXT AS link_method,
+    'branch'::TEXT AS source,
+    pr.updated_at AS pr_updated_at
+  FROM sessions s
+  JOIN pull_requests pr
+    ON pr.project_id = s.project_id
+   AND pr.head_ref_name IS NOT NULL
+   AND s.git_branch = pr.head_ref_name
+  WHERE s.git_branch IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM sha_links sl
+      WHERE sl.session_id = s.id
+    )
+)
+SELECT session_id, pr_id, link_method, source, pr_updated_at FROM sha_links
 UNION
-SELECT DISTINCT
-  s.id AS session_id,
-  pr.id AS pr_id,
-  'branch'::TEXT AS link_method
-FROM sessions s
-JOIN pull_requests pr
-  ON pr.project_id = s.project_id
- AND pr.head_ref_name IS NOT NULL
- AND s.git_branch = pr.head_ref_name
-WHERE s.git_branch IS NOT NULL
-  AND NOT EXISTS (
-    SELECT 1
-    FROM session_commits sc
-    WHERE sc.session_id = s.id
-  );
+SELECT session_id, pr_id, link_method, source, pr_updated_at FROM branch_links
+ORDER BY pr_updated_at DESC;

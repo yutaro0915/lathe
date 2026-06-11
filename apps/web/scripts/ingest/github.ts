@@ -28,6 +28,12 @@ interface GraphqlPage {
   } | null;
 }
 
+interface GraphqlSinglePullRequestPage {
+  repository: {
+    pullRequest: GraphqlPullRequest | null;
+  } | null;
+}
+
 interface GraphqlPullRequest {
   id: string;
   number: number;
@@ -46,10 +52,12 @@ interface GraphqlPullRequest {
   updatedAt: string;
   mergedAt: string | null;
   commits: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
     nodes: { commit: { oid: string; committedDate: string | null } }[];
   };
   reviews: {
     totalCount: number;
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
     nodes: { state: string; author: { login: string } | null; body: string; submittedAt: string | null }[];
   };
 }
@@ -142,12 +150,48 @@ query LathePullRequests($owner: String!, $name: String!, $cursor: String) {
         updatedAt
         mergedAt
         commits(first: 100) {
+          pageInfo { hasNextPage endCursor }
           nodes { commit { oid committedDate } }
         }
         reviews(first: 100) {
           totalCount
+          pageInfo { hasNextPage endCursor }
           nodes { state author { login } body submittedAt }
         }
+      }
+    }
+  }
+}
+`;
+
+const PR_SINGLE_QUERY = `
+query LathePullRequest($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      number
+      title
+      body
+      state
+      url
+      author { login }
+      headRefName
+      headRefOid
+      baseRefName
+      additions
+      deletions
+      changedFiles
+      createdAt
+      updatedAt
+      mergedAt
+      commits(first: 100) {
+        pageInfo { hasNextPage endCursor }
+        nodes { commit { oid committedDate } }
+      }
+      reviews(first: 100) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes { state author { login } body submittedAt }
       }
     }
   }
@@ -167,6 +211,13 @@ async function ensureProject(client: PoolClient, repo: RepoRef): Promise<void> {
 }
 
 async function upsertPullRequest(client: PoolClient, repo: RepoRef, pr: GraphqlPullRequest): Promise<void> {
+  if (pr.commits.pageInfo.hasNextPage) {
+    throw new Error(`PR #${pr.number} has more than 100 commits; pagination is not yet implemented`);
+  }
+  if (pr.reviews.pageInfo.hasNextPage) {
+    throw new Error(`PR #${pr.number} has more than 100 reviews; pagination is not yet implemented`);
+  }
+
   const id = `${repo.projectId}#${pr.number}`;
   await client.query(
     `INSERT INTO pull_requests (
@@ -229,6 +280,37 @@ async function upsertPullRequest(client: PoolClient, repo: RepoRef, pr: GraphqlP
   }
 }
 
+async function fetchPullRequestByNumber(
+  repo: RepoRef,
+  token: string,
+  graphqlUrl: string,
+  number: number,
+): Promise<GraphqlPullRequest> {
+  const data = await graphql<GraphqlSinglePullRequestPage>(graphqlUrl, token, PR_SINGLE_QUERY, {
+    owner: repo.owner,
+    name: repo.name,
+    number,
+  });
+  const pr = data.repository?.pullRequest;
+  if (!pr) throw new Error(`pull request not found: ${repo.fullName}#${number}`);
+  return pr;
+}
+
+function nextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(',')) {
+    const match = /<([^>]+)>;\s*rel="([^"]+)"/.exec(part.trim());
+    if (match?.[2] === 'next') return match[1];
+  }
+  return null;
+}
+
+function issuePrNumber(issue: unknown): number | null {
+  if (!issue || typeof issue !== 'object') return null;
+  const record = issue as Record<string, unknown>;
+  return record.pull_request && typeof record.number === 'number' ? record.number : null;
+}
+
 export async function syncPullRequestsGraphql(client: PoolClient, options: SyncOptions): Promise<PullRequestSyncResult> {
   const repo = parseRepo(options.repo);
   const token = options.token ?? resolveGitHubToken();
@@ -288,6 +370,7 @@ export async function pollPullRequestsIncremental(client: PoolClient, options: S
   const repo = parseRepo(options.repo);
   const token = options.token ?? resolveGitHubToken();
   const apiBaseUrl = options.apiBaseUrl ?? 'https://api.github.com';
+  const graphqlUrl = options.graphqlUrl ?? 'https://api.github.com/graphql';
   const log = options.log ?? console.log;
   await ensureProject(client, repo);
 
@@ -301,33 +384,50 @@ export async function pollPullRequestsIncremental(client: PoolClient, options: S
   const headers = githubHeaders(token);
   if (state?.issues_etag) headers['if-none-match'] = state.issues_etag;
 
-  const url = `${apiBaseUrl.replace(/\/$/, '')}/repos/${repo.owner}/${repo.name}/issues?state=all&since=${encodeURIComponent(since)}&per_page=100`;
-  const response = await fetch(url, { headers });
-  const etag = response.headers.get('etag') ?? state?.issues_etag ?? null;
+  let url: string | null = `${apiBaseUrl.replace(/\/$/, '')}/repos/${repo.owner}/${repo.name}/issues?state=all&since=${encodeURIComponent(since)}&per_page=100`;
+  let etag: string | null = state?.issues_etag ?? null;
   const sentIfNoneMatch = !!state?.issues_etag;
+  const issues: unknown[] = [];
+  let first = true;
 
-  if (response.status === 304) {
-    await client.query(
-      `INSERT INTO github_pr_sync_state (project_id,repo_full_name,issues_etag,last_issue_since,last_incremental_at,updated_at)
-       VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-       ON CONFLICT (project_id) DO UPDATE SET
-         repo_full_name = EXCLUDED.repo_full_name,
-         issues_etag = EXCLUDED.issues_etag,
-         last_issue_since = EXCLUDED.last_issue_since,
-         last_incremental_at = CURRENT_TIMESTAMP,
-         updated_at = CURRENT_TIMESTAMP`,
-      [repo.projectId, repo.fullName, etag, since],
-    );
-    log(`[pr-sync] incremental repo=${repo.fullName} status=304 etag=${etag ?? '(none)'}`);
-    return { repo, status: 'not_modified', sentIfNoneMatch, etag, changedPulls: 0 };
+  while (url) {
+    const response = await fetch(url, { headers: first ? headers : githubHeaders(token) });
+    etag = response.headers.get('etag') ?? etag;
+    if (first && response.status === 304) {
+      await client.query(
+        `INSERT INTO github_pr_sync_state (project_id,repo_full_name,issues_etag,last_issue_since,last_incremental_at,updated_at)
+         VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+         ON CONFLICT (project_id) DO UPDATE SET
+           repo_full_name = EXCLUDED.repo_full_name,
+           issues_etag = EXCLUDED.issues_etag,
+           last_issue_since = EXCLUDED.last_issue_since,
+           last_incremental_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP`,
+        [repo.projectId, repo.fullName, etag, since],
+      );
+      log(`[pr-sync] incremental repo=${repo.fullName} status=304 etag=${etag ?? '(none)'}`);
+      return { repo, status: 'not_modified', sentIfNoneMatch, etag, changedPulls: 0 };
+    }
+
+    const body = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(`GitHub REST issues failed (${response.status}): ${JSON.stringify(body)}`);
+    if (Array.isArray(body)) issues.push(...body);
+    url = nextLink(response.headers.get('link'));
+    first = false;
   }
 
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(`GitHub REST issues failed (${response.status}): ${JSON.stringify(body)}`);
-  const issues = Array.isArray(body) ? body : [];
-  const changedPulls = issues.filter((issue) => issue?.pull_request).length;
+  const changedNumbers = [...new Set(issues.map(issuePrNumber).filter((n): n is number => n != null))];
+  for (const number of changedNumbers) {
+    const pr = await fetchPullRequestByNumber(repo, token, graphqlUrl, number);
+    await upsertPullRequest(client, repo, pr);
+  }
+  const changedPulls = changedNumbers.length;
   const newest = issues
-    .map((issue) => (typeof issue?.updated_at === 'string' ? issue.updated_at : null))
+    .map((issue) => {
+      if (!issue || typeof issue !== 'object') return null;
+      const updatedAt = (issue as Record<string, unknown>).updated_at;
+      return typeof updatedAt === 'string' ? updatedAt : null;
+    })
     .filter((value): value is string => !!value)
     .sort()
     .at(-1);
@@ -344,6 +444,6 @@ export async function pollPullRequestsIncremental(client: PoolClient, options: S
     [repo.projectId, repo.fullName, etag, newest ?? since],
   );
 
-  log(`[pr-sync] incremental repo=${repo.fullName} status=${response.status} changed_prs=${changedPulls} etag=${etag ?? '(none)'}`);
+  log(`[pr-sync] incremental repo=${repo.fullName} status=200 changed_prs=${changedPulls} etag=${etag ?? '(none)'}`);
   return { repo, status: 'changed', sentIfNoneMatch, etag, changedPulls };
 }
