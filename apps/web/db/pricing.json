@@ -1,9 +1,24 @@
 {
-  "_comment": "Per-MILLION-token USD prices used to derive session cost from real token counts (transcripts carry no cost field). Values mirror BerriAI/litellm model_prices_and_context_window.json (MIT). Claude `tiers` are matched by substring (opus/sonnet/haiku); `openai` is matched by longest model-id prefix (gpt-5.5 before gpt-5). cacheWrite = cache-creation rate (Anthropic 1.25x input; OpenAI has no write surcharge so = input). cacheRead = cached-read rate. Unknown models resolve to null so cost shows '—' rather than a faked number. Bundled (not fetched) so the package is dependency-free and offline. Re-pin when pricing changes.",
+  "_comment": "Per-MILLION-token USD prices used to derive session cost from real token counts (transcripts carry no cost field). Values mirror BerriAI/litellm model_prices_and_context_window.json (MIT) and are checked against first-party pricing docs in docs/cost-semantics.md. `claude` and `openai` are matched by longest model-id prefix before Claude family `tiers` fallback. cacheWrite = 5m cache-creation rate for Anthropic and normal input for OpenAI. cacheRead = cached-read/cache-hit rate. Unknown models resolve to null so cost shows '—' rather than a faked number. Bundled (not fetched) so the package is dependency-free and offline. Re-pin when pricing changes.",
   "source": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
   "license": "MIT (BerriAI/litellm)",
   "pinnedAt": "2026-06-06",
   "unit": "usd_per_million_tokens",
+  "claude": {
+    "claude-fable-5":   { "input": 10,   "output": 50, "cacheWrite": 12.5,  "cacheRead": 1 },
+    "claude-mythos-5":  { "input": 10,   "output": 50, "cacheWrite": 12.5,  "cacheRead": 1 },
+    "claude-opus-4-8":  { "input": 5,    "output": 25, "cacheWrite": 6.25,  "cacheRead": 0.5 },
+    "claude-opus-4-7":  { "input": 5,    "output": 25, "cacheWrite": 6.25,  "cacheRead": 0.5 },
+    "claude-opus-4-6":  { "input": 5,    "output": 25, "cacheWrite": 6.25,  "cacheRead": 0.5 },
+    "claude-opus-4-5":  { "input": 5,    "output": 25, "cacheWrite": 6.25,  "cacheRead": 0.5 },
+    "claude-opus-4-1":  { "input": 15,   "output": 75, "cacheWrite": 18.75, "cacheRead": 1.5 },
+    "claude-opus-4":    { "input": 15,   "output": 75, "cacheWrite": 18.75, "cacheRead": 1.5 },
+    "claude-sonnet-4-6":{ "input": 3,    "output": 15, "cacheWrite": 3.75,  "cacheRead": 0.3 },
+    "claude-sonnet-4-5":{ "input": 3,    "output": 15, "cacheWrite": 3.75,  "cacheRead": 0.3 },
+    "claude-sonnet-4":  { "input": 3,    "output": 15, "cacheWrite": 3.75,  "cacheRead": 0.3 },
+    "claude-haiku-4-5": { "input": 1,    "output": 5,  "cacheWrite": 1.25,  "cacheRead": 0.1 },
+    "claude-haiku-3-5": { "input": 0.8,  "output": 4,  "cacheWrite": 1.0,   "cacheRead": 0.08 }
+  },
   "tiers": {
     "opus":   { "input": 15,  "output": 75, "cacheWrite": 18.75, "cacheRead": 1.5 },
     "sonnet": { "input": 3,   "output": 15, "cacheWrite": 3.75,  "cacheRead": 0.3 },

@@ -27,17 +27,23 @@ export interface TierRate {
 }
 
 const TIERS = pricing.tiers as Record<string, TierRate>;
+const CLAUDE = pricing.claude as Record<string, TierRate>;
+// Newer Claude families have version-specific prices, so check exact model-id
+// prefixes before falling back to the coarse opus/sonnet/haiku tiers.
+const CLAUDE_KEYS = Object.keys(CLAUDE).sort((a, b) => b.length - a.length);
 const OPENAI = pricing.openai as Record<string, TierRate>;
 // longest id first so "gpt-5.5" / "gpt-5.4-mini" win over the "gpt-5" prefix
 const OPENAI_KEYS = Object.keys(OPENAI).sort((a, b) => b.length - a.length);
 
-// Map a transcript model string to a pricing tier. Claude family by substring
-// (opus/sonnet/haiku); OpenAI by longest model-id prefix (gpt-5.5, gpt-5.4, …).
+// Map a transcript model string to a pricing tier. Claude and OpenAI first use
+// longest model-id prefix matching, then Claude falls back to family substring
+// matching (opus/sonnet/haiku) for older or abbreviated transcript model names.
 // Returns null for models we cannot price (e.g. "claude-code", "codex-auto-
 // review", "<synthetic>") — callers must then show "—" rather than invent one.
 export function resolveTier(model: string | null | undefined): TierRate | null {
   if (!model) return null;
   const m = model.toLowerCase();
+  for (const k of CLAUDE_KEYS) if (m.startsWith(k)) return CLAUDE[k];
   if (m.includes("opus")) return TIERS.opus;
   if (m.includes("sonnet")) return TIERS.sonnet;
   if (m.includes("haiku")) return TIERS.haiku;
