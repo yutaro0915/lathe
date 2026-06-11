@@ -46,6 +46,7 @@
     "start": "next start",
     "ingest": "tsx scripts/ingest.ts",
     "coverage": "tsx scripts/coverage_check.ts",
+    "verify:cost": "tsx scripts/verify-cost.ts",
     "verify:notify": "tsx scripts/verify-ingest-notify.ts",
     "e2e": "playwright test"
   },
