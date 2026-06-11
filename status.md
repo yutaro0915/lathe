@@ -1,7 +1,7 @@
 ---
-updated: 2026-06-11T21:00+0900
-current_owner: none
-current_stage: Phase 1 COMPLETE / Phase 2 entry gate pending user decisions
+updated: 2026-06-11T22:00+0900
+current_owner: codex-loop
+current_stage: tasks/14 loop running (Phase 2 data model)
 ---
 
 ## Current
