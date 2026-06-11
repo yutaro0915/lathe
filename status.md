@@ -1,17 +1,17 @@
 ---
-updated: 2026-06-11T14:21+0900
-current_owner: codex-loop
-current_stage: tasks/10 complete (loop/10-turn-first-explorer)
+updated: 2026-06-11T15:00+0900
+current_owner: none
+current_stage: tasks/10 merged to main / UI direction probes (A-C) in progress
 ---
 
 ## Current
 
-- task: [10] A-1 turn-first explorer — **完了**。Transcript 初期視界を turn ヘッダのみへ変更し、turn rollup / error turn 強調 / step 時間バー / turn files chip → Git active file / Diff 側 touched steps / type filter highlight-hide 切替を実装。
-- agent: codex
-- progress: 受け入れ条件 1〜10 GREEN。`pnpm -F web e2e` 56/56 PASS、`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN。coverage 前に transcript corpus 同期のため `pnpm -F web ingest` を実行（sessions=341 events=63932 changed_files=2146 hunks=5928 attributions=5928 event_files=12304 annotations=4326）。
+- task: [10] **監査 PASS・main へ merge 済み**（`a35cab9`）。並行で UI 方向性 probe 3 種（A: minimal-dark / B: observability-dense / C: refined-light）を main(旧)ベースの worktree で実装中（exploration workflow、ユーザー比較レビュー待ち）
+- agent: none
 
 ## Last completed
 
+- 2026-06-11 [10] 監査 + merge（Tier B、初の loop 監査）— Claude がゲートを独立再実行: build PASS / e2e **56/56** / coverage GREEN。diff 照合: 変更は期待 6 ファイルのみ（スコープ外なし）、新規 E2E 7 件は **DB から期待値を独立算出して UI と突き合わせる independent oracle 構造**で空打ちなし、skip/only なし、既存テストは意図保存（Collapse→Expand/Collapse 往復に更新）、追加コードに TODO/HACK/ts-ignore なし。`main` へ ff-merge + push（`a35cab9`）。loop 運用observed: 承認は「コマンド prefix 永続許可」を 4 種（e2e/playwright/coverage/ingest）に付与して自動化、/goal は CLI 初期プロンプト引数が正、assessor セッション（独立 grader）生成を確認 (claude)
 - 2026-06-11 [10] A-1 turn-first explorer — `SessionViewer` の既存 turn/collapse/filter と `DiffViewer` の attribution リンクを再利用し、初期表示を turn-first に変更。turn 行に `steps / edits / bash / errors / cost / tokens / duration / files` rollup と機械抽出 summary、error turn class/属性、展開 step の時間バー、files chip から Git active file への導線を追加。Diff 側は既存 `linkedEvents` から file header の touched steps を表示し、click で transcript の該当 step へ戻る。type filter は highlight/hide 2 モード化。新 E2E 7 件を追加し、既存 E2E は turn 展開操作を足して意図維持。検証: `pnpm -F web exec tsc --noEmit` PASS、`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web e2e` 56/56 GREEN (codex)
 - 2026-06-11 [09] G8 mockup close — 並行セッション成果物（mockups/g8 PNG 10 枚 + NOTES.md、g8-explorer-ui.md §7 決定化、tasks/09・10）を Claude が回収・照合して commit。受け入れ条件 6 項照合 PASS（10 ファイル存在 / 案バッジ / 実データ baseline / 配色維持 / NOTES 変更点 / コード変更 0）。ユーザーレビューは 2026-06-10 実施済み: **A-1 turn-first のみ採用、A-2/A-3 不採用、ファイル軸は軽い導線、細部は作りながら詰める**。M2 順 1 完了 (claude)
 - 2026-06-11 全体実装計画の確定 — ユーザー決定 4 点（rolling wave / Phase 1 完了ライン = G8+G9+G1 / リスク階層監査 / 期日ベストエフォート）を受け、ROADMAP.md を改訂: Phase 1 完了定義更新（tasks/01-08 済、残 = G8/G9/G1）、Phase 2/3/4/6 に開始ゲート確定事項と G 採番を紐付け（**ハーネス版数を Phase 2 で一級概念化** が最重要の先取り）、マイルストーン順序化、論点台帳 13 件に整理（済 5 / 残 8 を Phase ゲートへ割付）、「直近の実行計画（M2）」6 手順を明記。`design/audit-protocol.md` 新設（Tier A/B/C、裏取り原則、out-of-band retro 監査、tasks/08 を参照実装に）(claude)
