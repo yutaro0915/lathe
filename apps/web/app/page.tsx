@@ -14,7 +14,7 @@ import {
 } from "@/lib/db";
 import SessionViewer from "@/components/SessionViewer";
 
-const TABS = ["transcript", "tools", "git", "skills", "subagents", "raw", "stats"] as const;
+const TABS = ["transcript", "tools", "git", "skills", "subagents", "annotations", "raw", "stats"] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function Page({

@@ -93,7 +93,7 @@ const ALL_TYPES: EventType[] = [
 // Tools tab shows these "tool-ish" event types.
 const TOOL_TYPES: EventType[] = ["bash", "file_read", "file_edit", "file_write", "test", "commit"];
 
-type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "raw" | "stats";
+type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "annotations" | "raw" | "stats";
 type SortKey = "recent" | "oldest" | "tokens";
 type FilterMode = "highlight" | "hide";
 
@@ -394,13 +394,26 @@ export default function SessionViewer({
     } catch {
       /* ignore */
     }
-    const failed = kids.some((k) => k.exitCode != null && k.exitCode !== 0);
+    // Result = the RUN's own verdict (the launcher's is_error / exit), NOT a
+    // roll-up of child failures. A grep that exits 1 mid-run does not make the
+    // whole run "error". `failedSteps` is the separate, factual count of child
+    // steps that exited non-zero (surfaced as its own chip, never as Result).
+    let metaIsError: boolean | undefined;
+    try {
+      const m = launcher.meta ? JSON.parse(launcher.meta) : {};
+      if (typeof m.isError === "boolean") metaIsError = m.isError;
+    } catch {
+      /* ignore */
+    }
+    const runFailed =
+      metaIsError ?? (launcher.exitCode != null ? launcher.exitCode !== 0 : false);
+    const failedSteps = kids.filter((k) => k.exitCode != null && k.exitCode !== 0).length;
     // observed fallback: tool-ish steps counted from the child transcript, for
     // runs that did not report a toolUses total of their own
     const observedTools = kids.filter(
       (k) => !["user_message", "assistant_message", "thinking"].includes(k.type),
     ).length;
-    return { kids, toolUses, failed, model, costUsd, tokens, observedTools };
+    return { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools };
   }
 
   // The agent's own one-line summary of what it did (its result), else its title.
@@ -638,6 +651,18 @@ export default function SessionViewer({
     [events, selectedEventId]
   );
   const selectedFiles = selected ? bundle.eventFiles[selected.id] ?? [] : [];
+
+  // ---- aside scoping while a sub-agent run is open ------------------------
+  // On the Subagents tab, opening a run sets selectedEventId = launcher id so the
+  // EXECUTION list highlights its own header. But the right aside then mirrored
+  // the launcher's own detail — a near-duplicate of the centre stats strip +
+  // RESULT·SUMMARY. While a run is open, the aside is reserved for the EXECUTION
+  // *step* the user picks; if nothing is picked yet (selection is still the
+  // launcher), show a quiet placeholder instead of re-printing the run.
+  const asideIsLauncherDup =
+    activeTab === "subagents" &&
+    subAgentTab !== "overview" &&
+    selectedEventId === subAgentTab;
 
   // ---- metrics band derived values (REAL data) ----------------------------
   const branch = primary.gitBranch ?? "main";
@@ -891,6 +916,7 @@ export default function SessionViewer({
             ["git", "Git"],
             ["skills", "Skills"],
             ["subagents", "Subagents"],
+            ["annotations", "Annotations"],
             ["raw", "Raw JSON"],
             ["stats", "Stats"],
           ] as const
@@ -908,6 +934,9 @@ export default function SessionViewer({
             }}
           >
             {label}
+            {key === "annotations" && annotations.length > 0 && (
+              <span className="tab-count">{annotations.length}</span>
+            )}
           </button>
         ))}
         <span className="tabs-spacer" />
@@ -1584,7 +1613,7 @@ export default function SessionViewer({
                     {subAgentTab === "overview" ? (
                       /* ---------- OVERVIEW: chronological spine of every run ---------- */
                       invocations.map((e, i) => {
-                        const { kids, toolUses, failed, model, costUsd, tokens, observedTools } = summarizeInvocation(e);
+                        const { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools } = summarizeInvocation(e);
                         return (
                           <button
                             key={e.id}
@@ -1598,7 +1627,15 @@ export default function SessionViewer({
                                 <span className="event-type-badge subagent">⌥ {e.subagent ?? "sub-agent"}</span>
                                 {model && <span className="sa-model" title="model the sub-agent ran on">{shortModel(model)}</span>}
                                 <span className="sa-card-time">{e.ts}</span>
-                                {failed && <span className="badge failed">error</span>}
+                                {runFailed && <span className="badge failed">error</span>}
+                                {failedSteps > 0 && (
+                                  <span
+                                    className="chip failed-steps-chip"
+                                    title={`${failedSteps} child step(s) exited non-zero — distinct from the run's own result`}
+                                  >
+                                    {failedSteps} failed step{failedSteps === 1 ? "" : "s"}
+                                  </span>
+                                )}
                               </div>
                               <div className="sa-card-task">{invocationSummaryLine(e)}</div>
                               {kids.length > 0 && (
@@ -1632,7 +1669,7 @@ export default function SessionViewer({
                       (() => {
                         const e = invocations.find((x) => x.id === subAgentTab);
                         if (!e) return null;
-                        const { kids, toolUses, failed, model, costUsd, tokens, observedTools } = summarizeInvocation(e);
+                        const { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools } = summarizeInvocation(e);
                         const tokensShown = e.tokenUsage ?? tokens ?? null;
                         return (
                           <div className="sa-detail">
@@ -1646,7 +1683,17 @@ export default function SessionViewer({
                             <div className="sa-detail-stats">
                               <div className="stat">
                                 <span className="stat-k">Steps</span>
-                                <span className="stat-v">{kids.length}</span>
+                                <span className="stat-v">
+                                  {kids.length}
+                                  {failedSteps > 0 && (
+                                    <span
+                                      className="stat-note failed-steps-note"
+                                      title={`${failedSteps} child step(s) exited non-zero — distinct from the run's own result`}
+                                    >
+                                      {failedSteps} failed
+                                    </span>
+                                  )}
+                                </span>
                               </div>
                               <div className="stat">
                                 <span className="stat-k">Tool calls</span>
@@ -1696,8 +1743,11 @@ export default function SessionViewer({
                               </div>
                               <div className="stat">
                                 <span className="stat-k">Result</span>
-                                <span className={`stat-v ${failed ? "err" : "ok"}`}>
-                                  {failed ? "error" : "ok"}
+                                <span
+                                  className={`stat-v ${runFailed ? "err" : "ok"}`}
+                                  title="The run's own verdict (the launcher's is_error / exit). Child-step failures are reported separately under Steps."
+                                >
+                                  {runFailed ? "error" : "ok"}
                                 </span>
                               </div>
                             </div>
@@ -1801,6 +1851,68 @@ export default function SessionViewer({
             </div>
           )}
 
+          {/* ===== ANNOTATIONS (session-wide notable moments) ===== */}
+          {activeTab === "annotations" && (
+            <div className="timeline annotations-tab">
+              <div className="annotations-tab-head">
+                <span className="ann-tab-label">Annotations</span>
+                <span className="count mono">{annotations.length}</span>
+              </div>
+              <div className="annotations-tab-sub">
+                Notable moments flagged along the run — errors, commits &amp; tests, in time order.
+                Click one to jump to that step in the Transcript.
+              </div>
+              {annotations.length === 0 ? (
+                <div className="empty" style={{ padding: "16px" }}>
+                  No flagged moments in this session.
+                </div>
+              ) : (
+                [...annotations]
+                  .sort((a, b) => a.atSeq - b.atSeq)
+                  .map((a) => {
+                    const target =
+                      events.find((e) => e.seq === a.atSeq && !e.parentId) ??
+                      events.find((e) => e.seq === a.atSeq);
+                    const jump = () => {
+                      if (!target) return;
+                      setActiveTab("transcript");
+                      selectTimelineEvent(target.id, true);
+                    };
+                    return (
+                      <div
+                        key={a.id}
+                        className="annotation annotation-tab-row"
+                        data-annotation-seq={a.atSeq}
+                        onClick={jump}
+                        role={target ? "button" : undefined}
+                        tabIndex={target ? 0 : undefined}
+                        onKeyDown={(ev) => {
+                          if (target && (ev.key === "Enter" || ev.key === " ")) {
+                            ev.preventDefault();
+                            jump();
+                          }
+                        }}
+                        title={
+                          target
+                            ? `${a.kind} at step ${a.atSeq} — click to jump to the Transcript`
+                            : `${a.kind} at step ${a.atSeq}`
+                        }
+                        style={{ cursor: target ? "pointer" : "default" }}
+                      >
+                        <span className="amain">
+                          <span className="ameta">
+                            <span className={`akind-tag ${a.kind as AnnotationKind}`}>{a.kind}</span>
+                            <span className="aseq">step {a.atSeq}</span>
+                          </span>
+                          {a.note && <span className="atxt">{a.note}</span>}
+                        </span>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+          )}
+
           {/* Git is handled above as an embedded DiffViewer (in-page tab),
               so there is no changed-files block inside <main> anymore. */}
 
@@ -1839,6 +1951,13 @@ export default function SessionViewer({
 
         {/* ---------- COLUMN 3: aside / detail ---------- */}
         <aside className="aside">
+          {asideIsLauncherDup ? (
+            <div className="detail">
+              <div className="detail-placeholder" data-aside-placeholder="step-inspect">
+                Select a step to inspect
+              </div>
+            </div>
+          ) : (
           <div className="detail">
             <div className="detail-head">
               <span className={`event-icon ${selType}`} aria-hidden>
@@ -2054,55 +2173,7 @@ export default function SessionViewer({
               <JsonView value={runJson} />
             </pre>
           </div>
-
-          {/* Annotations strip (right side, same vertical band as the minimap) */}
-          <div className="annotations">
-            <div className="ahead">
-              Annotations <span className="count">({annotations.length})</span>
-            </div>
-            <div className="asub">
-              Notable moments flagged along the run — errors, commits &amp; tests. Click one to jump
-              to that step.
-            </div>
-            {annotations.length === 0 ? (
-              <div className="empty">No flagged moments.</div>
-            ) : (
-              annotations.map((a) => {
-                const target =
-                  events.find((e) => e.seq === a.atSeq && !e.parentId) ??
-                  events.find((e) => e.seq === a.atSeq);
-                return (
-                  <div
-                    key={a.id}
-                    className="annotation"
-                    onClick={() => target && selectTimelineEvent(target.id, true)}
-                    role={target ? "button" : undefined}
-                    tabIndex={target ? 0 : undefined}
-                    onKeyDown={(ev) => {
-                      if (target && (ev.key === "Enter" || ev.key === " ")) {
-                        ev.preventDefault();
-                        selectTimelineEvent(target.id, true);
-                      }
-                    }}
-                    title={
-                      target
-                        ? `${a.kind} at step ${a.atSeq} — click to jump`
-                        : `${a.kind} at step ${a.atSeq}`
-                    }
-                    style={{ cursor: target ? "pointer" : "default" }}
-                  >
-                    <span className="amain">
-                      <span className="ameta">
-                        <span className={`akind-tag ${a.kind as AnnotationKind}`}>{a.kind}</span>
-                        <span className="aseq">step {a.atSeq}</span>
-                      </span>
-                      {a.note && <span className="atxt">{a.note}</span>}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-          </div>
+          )}
         </aside>
           </>
         )}

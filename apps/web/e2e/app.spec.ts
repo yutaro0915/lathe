@@ -828,6 +828,45 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
       page.locator(".sa-detail-stats .stat", { hasText: "Cost" })
     ).toBeVisible();
   });
+
+  test("opening a run does NOT duplicate the run into the right aside; it asks for a step", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    await page.locator(".sa-card").first().click();
+    // run is open in the centre (stats strip is the canonical place)
+    await expect(page.locator(".sa-detail-stats")).toBeVisible();
+    // the right aside is reserved for the selected EXECUTION step — until one is
+    // picked it shows a quiet placeholder, not a second copy of the run detail
+    await expect(
+      page.locator('.aside [data-aside-placeholder="step-inspect"]')
+    ).toBeVisible();
+    await expect(page.locator(".aside .detail-head")).toHaveCount(0);
+    // picking a step swaps the aside to that step's detail (placeholder gone)
+    await expect
+      .poll(async () => page.locator(".sa-detail .event-row.child-row").count())
+      .toBeGreaterThan(0);
+    await page.locator(".sa-detail .event-row.child-row").first().click();
+    await expect(
+      page.locator('.aside [data-aside-placeholder="step-inspect"]')
+    ).toHaveCount(0);
+    await expect(page.locator(".aside .detail-head .dtitle")).toBeVisible();
+  });
+
+  test("Result = the run's own verdict; child-step failures are a separate count", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    await page.locator(".sa-card").first().click();
+    const result = page.locator(".sa-detail-stats .stat", { hasText: "Result" }).locator(".stat-v");
+    await expect(result).toHaveText(/^(ok|error)$/);
+    // if any child step failed, that fact is surfaced under Steps (NOT folded
+    // into Result) — so "ok" + "N failed" can coexist without contradiction.
+    const note = page.locator(".sa-detail-stats .failed-steps-note");
+    if ((await note.count()) > 0) {
+      await expect(note.first()).toContainText(/failed/);
+    }
+  });
 });
 
 test.describe("Changed-files tree (compact folders)", () => {
@@ -894,14 +933,50 @@ test.describe("Time ribbon & annotations", () => {
   });
 
   test("annotations are labelled (kind + step) and jump on click", async ({ page }) => {
-    // a session with errors + commits flagged
-    await page.goto("/?session=4912b75c-6018-427c-b67b-00a583404d21");
-    const ann = page.locator(".annotation").first();
+    // a session with errors + commits flagged — annotations now live in their
+    // own top-level tab (moved out of the right aside, which was context-wrong).
+    await page.goto("/?session=4912b75c-6018-427c-b67b-00a583404d21&tab=annotations");
+    const ann = page.locator(".annotations-tab .annotation").first();
     if ((await ann.count()) > 0) {
       await expect(ann.locator(".akind-tag")).toBeVisible();
       await expect(ann.locator(".aseq")).toContainText(/step/);
       await ann.click();
+      // clicking jumps INTO the Transcript tab and selects the step there
+      await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
       await expect(page.locator(".event-row.selected")).toHaveCount(1);
+    }
+  });
+});
+
+test.describe("Annotations tab (moved out of the right aside)", () => {
+  // session known to carry flagged moments (errors + commits)
+  const SID = "4912b75c-6018-427c-b67b-00a583404d21";
+
+  test("there is an Annotations tab with a count badge, and the aside no longer hosts annotations", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SID}&tab=annotations`);
+    const tab = page.locator(".tabs .tab", { hasText: "Annotations" });
+    await expect(tab).toBeVisible();
+    const count = await page.locator(".annotations-tab .annotation").count();
+    if (count > 0) {
+      // count badge reflects the number of flagged moments
+      await expect(tab.locator(".tab-count")).toHaveText(String(count));
+    }
+    // the old right-aside annotations strip is gone everywhere
+    await expect(page.locator(".aside .annotations")).toHaveCount(0);
+  });
+
+  test("annotations are listed in time order (at_seq ascending)", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=annotations`);
+    const seqs = await page
+      .locator(".annotations-tab .annotation")
+      .evaluateAll((rows) =>
+        (rows as HTMLElement[]).map((r) => Number(r.getAttribute("data-annotation-seq")))
+      );
+    if (seqs.length > 1) {
+      const sorted = [...seqs].sort((a, b) => a - b);
+      expect(seqs).toEqual(sorted);
     }
   });
 });
