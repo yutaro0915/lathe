@@ -6,8 +6,8 @@ current_stage: tasks/10 merged to main / UI direction probes (A-C) in progress
 
 ## Current
 
-- task: [10] **監査 PASS・main へ merge 済み**（`a35cab9`）。並行で UI 方向性 probe 3 種（A: minimal-dark / B: observability-dense / C: refined-light）を main(旧)ベースの worktree で実装中（exploration workflow、ユーザー比較レビュー待ち）
-- agent: none
+- task: UI 新標準の適用（polish workflow）— 4 方向比較の結果 **B: observability-dense を新標準に採用**（2026-06-11 ユーザー選定「情報密度がちょうどいい」、`design/ui-design-language.md`）。`polish/ui-b-standard` branch で新 main（turn-first）へ port + 新要素拡張中 → ゲート + ユーザー目視合否 → merge
+- agent: claude（サブエージェント委譲、worktree 隔離）
 
 ## Last completed
 
