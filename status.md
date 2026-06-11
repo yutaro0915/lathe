@@ -1,13 +1,13 @@
 ---
-updated: 2026-06-11T01:10+0900
-current_owner: none
-current_stage: full roadmap fixed (rolling wave) / next = M2 Phase 1 close-out
+updated: 2026-06-11T02:05+0900
+current_owner: codex-loop
+current_stage: tasks/10 loop running (loop/10-turn-first-explorer)
 ---
 
 ## Current
 
-- task: M2 順 2 = tasks/10 turn-first explorer。**受け入れ条件のユーザー承認待ち**（承認後 Claude が tmux + /goal で loop 起動）
-- agent: none
+- task: [10] A-1 turn-first explorer — **loop 稼働中**（受け入れ条件 1〜10 を 2026-06-11 ユーザー承認。audit: B、bound: 40 turns / 4h）
+- agent: codex（tmux session `lathe-loop-10`、Claude が起動・監視）
 - progress: `POST /api/ingest/notify` は `LATHE_NOTIFY_TOKEN` Bearer token 必須、transcript は `~/.claude/projects` / `~/.codex/sessions` / `~/.codex/archived_sessions` 配下の実在 `.jsonl` だけ許可。`lathe-client init` は token を env から読み、未指定時は `.lathe/config.json` へ生成保存、hook は Authorization header を送る。G8 は prior art 調査（`design/research-g8-trace-explorer-ui.md`、27 実装）→ 設計枠組み（`design/g8-explorer-ui.md`、未決 5 点）までドラフト完了・レビュー待ち (claude)
 
 ## Last completed
