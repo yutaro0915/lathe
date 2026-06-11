@@ -1,9 +1,9 @@
 ---
 title: Lathe — Roadmap (Phase 1 → 7)
-status: drafting
+status: in-progress
 owner: yutaro0915
 created: 2026-06-07
-updated: 2026-06-07
+updated: 2026-06-11
 ---
 
 # Lathe — Roadmap (Phase 1 → 7)
@@ -13,7 +13,8 @@ updated: 2026-06-07
 - **目標**: 提案書 ([fukuoka-mitou-2026 proposal](../fukuoka-mitou-2026/work/proposal-ohno-draft-plain.md)) の全ビジョン（Phase 1-7）を完成させ、「**ハーネス開発を職人芸から定量工学へ引き上げる開発基盤**」を**ループとして動かす**。
 - **アプローチ**: **dogfood-first**。当面はあなた自身がセルフホストで全 Phase を回し、その実運用フィードバックを元に Phase 7 を完成させる。**OSS 公開は Phase 7 動作後に段階的**に行う。
 - **境界**: 提案書 [§3.0](../fukuoka-mitou-2026/work/proposal-ohno-draft-plain.md) に従い、**実装意図の作成 UI / コード編集環境 / PR ホスティングは Lathe の外**。入力は「既存ツール（Claude Code / Codex / Cursor / GitHub PR）が残した実行履歴」、出力は「ハーネス改善案・採否履歴・スコア推移」。
-- **初期セキュリティ**: 単一ユーザー dogfood のため、認証・RBAC・SOC2・マルチテナント対応は**当面しない**。Phase 7 動作後の OSS 公開フェーズで段階的に追加する。
+- **初期セキュリティ**: 単一ユーザー dogfood のため、認証・RBAC・SOC2・マルチテナント対応は**当面しない**。Phase 7 動作後の OSS 公開フェーズで段階的に追加する（notify endpoint の token 認可は #3 対応で導入済み）。
+- **計画運用（2026-06-11 ユーザー決定）**: ① **rolling wave** — 全 Phase の完了定義・ADR ゲート・順序は本書で確定し、task ファイル詳細化は「現 Phase + 次 Phase」のみ。② **リスク階層監査** — 全 task に `audit: A|B|C` を宣言し Claude が常設監査（[design/audit-protocol.md](./design/audit-protocol.md)）。③ **期日はベストエフォート** — 順序と完了定義だけ固定し、日付は管理しない（各 Phase の「目安」は参考値）。
 
 ## なぜ今ロードマップを書くか
 
@@ -61,9 +62,9 @@ updated: 2026-06-07
 
 ### Phase 1 — 観測（実行履歴の集約）
 
-**現状**: 基本動作・E2E 49/49 GREEN・public 公開済み（→ [PROTOTYPE.md](./PROTOTYPE.md)）。
+**現状（2026-06-11）**: tasks/01〜08 完了・main へ merge 済み。pnpm workspace 化（apps/web + packages/client,shared）、Postgres 移行（ADR 0004）、push 主・pull 補 ingest（`lathe-client init` + `POST /api/ingest/notify`、token 認可つき）。E2E 49/49 GREEN（→ [PROTOTYPE.md](./PROTOTYPE.md)）。
 
-**Phase 1 完了の定義（dogfood で観測の不便がない状態）**:
+**Phase 1 完了の定義（dogfood で観測の不便がない状態。G8/G9 は 2026-06-11 ユーザー決定で完了ラインに追加）**:
 
 - [x] Claude Code / Codex のローカル transcript 取り込み
 - [x] Per-session ビュー（Transcript / Tools / Git / Skills / Subagents / Raw JSON / Stats）
@@ -73,9 +74,11 @@ updated: 2026-06-07
 - [x] ハーネス信号観測（memory / hook / skill）
 - [x] Transcript ⇄ Git 双方向リンク、step focus
 - [x] 巨大セッション軽量化（hunk pagination + 時系列バケット）
-- [ ] **provider 抽象 + 型強化**（Codex 進行中、→ [REFACTOR-PLAN.md](./REFACTOR-PLAN.md) tasks/04）
-- [ ] **増分 ingest / watch**（リアルタイム更新 — dogfood で必須）
-- [ ] **PR 連携**（GitHub API で PR 履歴を実行記録に取り込み — 提案書の「起点は PR」を満たす）
+- [x] **provider 抽象 + 型強化**（tasks/04）
+- [x] **増分 ingest**（tasks/08 = Stop hook push + catch-up sweep。S1-4 成立）
+- [ ] **G8 探索 UI**（turn-first A-1 採用済み。tasks/09 mockup シミュレーション → tasks/10 骨格実装。S1-1 を閉じる）
+- [ ] **G9 コスト異常検知**（S1-3。baseline 定義 = project 別中央値 / percentile / 絶対閾値 は設計時にユーザー決定。表示界面は g8-explorer-ui.md §6 に定義済み）
+- [ ] **G1 PR 連携**（GitHub API で PR 履歴を実行記録に取り込み — 提案書の「起点は PR」を満たす。S1-5 を閉じる。**紐付けキーの設計が先行**: branch / commit SHA / 時間窓 / cwd のどれで session ⇄ PR を結ぶか → 設計文書 + ADR）
 
 **Phase 1 で意図的にやらないこと**:
 
@@ -83,7 +86,7 @@ updated: 2026-06-07
 - **検索強化（ベクトル検索等）**: Phase 2 の分析機能で十分代替できる可能性。
 - **マルチユーザー対応**: dogfood 単一ユーザーのため不要。
 
-**目安**: 1〜2 週間（リファクタ + 増分 ingest + PR 連携）。
+**目安（参考）**: 2〜3 週間（G8 骨格 + G9 + G1 設計&実装）。
 
 ### Phase 2 — AI 分析（履歴の横断分析）
 
@@ -95,6 +98,14 @@ updated: 2026-06-07
 - 複数セッション横断の finding 抽出（同じハーネスでの同じ失敗パターン、コスト推移）
 - 各 finding は **根拠リンク**（Phase 1 のイベント・差分・hunk への direct reference）を持つ
 - **MCP ツール**: ハーネス改善エージェントが transcript を query できる Server を Lathe が公開（`mcp__lathe__*`）
+
+**Phase 2 開始ゲートで確定する界面契約（後から変えると高くつく順）**:
+
+1. **ハーネス版数（harness version）を一級概念としてデータモデルに導入** — G7（回帰検知、Phase 6）は「スコアがハーネス版数に紐付く」ことが前提。Phase 2 で入れ損なうと Phase 6 で migration になる
+2. **finding データモデル + archive format v2 の踏襲度**（論点 #10。lathe-phase7 の v2 spec = Intent / Plan / DecisionTrace / format_version semver をどこまで採るか）
+3. **G2**: finding の「有意義」の定義（dogfood で 1 件出る、の判定基準）
+4. **G3**: finding 採否記録の最小スキーマ（棄却理由を Phase 4 judge の学習材料にする）
+5. **MCP server の transport**（論点 #7: stdio / SSE / HTTP）
 
 **完了の定義**:
 
@@ -117,6 +128,12 @@ updated: 2026-06-07
 - 改善前後の harness を並走実行（同じ fixture を 2 バージョンに食わせる）
 - 並走結果を archive に記録（後の Phase 4 で採点する）
 
+**Phase 3 開始ゲートで確定する事項**:
+
+1. **G4: fixture の保持範囲**（プロンプトのみ vs repo 状態・ハーネス版数込み）— 「finding → fixture 化が軽い」かどうかが dogfood ループの成立を左右する急所
+2. **sandbox 選定**（論点 #9。ADR 0004 で Workers 路線降格後は Docker ベースが第一候補。選定 ADR を起こす）
+3. **G5: 並走結果の比較 UI**（Phase 1 の SessionViewer を 2 カラム再利用できるかが設計分岐。S4-3 judge 検証とも同根）
+
 **完了の定義**:
 
 - 自分の Claude Code CLAUDE.md の 1 行変更を例に、改善前 vs 改善後で同じ fixture を回せる
@@ -131,8 +148,9 @@ updated: 2026-06-07
 **スコープ**:
 
 - **rubric** の設計（採点観点の集合、例: 「コードが動く」「テストが通る」「セキュリティ違反がない」「指示に従っている」）
-- LLM-as-judge による採点（Claude API で OK）
-- 採点結果の archive 記録
+- **G6: rubric テンプレ運用**（テンプレから数分で微調整できる UX。S4-1。重い rubric 作成はループを止める）
+- LLM-as-judge による採点（Claude API で OK）。提案書 §3.x の信頼性向上策（多数決 / cross-model judging / 一次資料ベース採点）は最小構成の後に段階導入
+- 採点結果の archive 記録（採点理由 → finding への逆リンク。S4-3 judge への不信に答える）
 - 既存 evals fw との互換性検討（Inspect AI 等、提案書では Phase 7 のスコープ）
 
 **完了の定義**:
@@ -166,7 +184,7 @@ updated: 2026-06-07
 
 **スコープ**:
 
-- 改善履歴の永続化（dec 採否、scoring 推移、回帰アラート）
+- 改善履歴の永続化（dec 採否、scoring 推移、**G7: 回帰アラート** — Phase 2 で導入したハーネス版数に紐付く。S6-3）
 - ダッシュボード（複数 project / 複数 harness 版 / 複数 agent の横断ビュー）
 - 採否管理 UI（人間が最終承認するワークフロー）
 - 週次レポート、改善履歴の検索
@@ -204,7 +222,7 @@ updated: 2026-06-07
   - Phase 2 analyst worker（finding 抽出）
   - Phase 3 sandbox runner（fixture 並走実行）
   - Phase 4 judge worker（採点）
-  - 当面: Node.js child process / シンプルな queue（BullMQ 等不要、SQLite ベースで足りる）
+  - 当面: Node.js child process / シンプルな queue（BullMQ 等不要、Postgres テーブルベースの素朴な queue で足りる）
 - **Auth**: なし（dogfood 単一ユーザー）
 - **観測 API**: MCP server として Phase 2 で公開（外部 agent からも query 可）
 
@@ -224,16 +242,44 @@ updated: 2026-06-07
   - **transcripts に含まれる機密**は ingest 時に明示的に redact（既存の token redaction を維持・拡張）
   - **public repo に push する artifacts は手動レビュー必須**（既存の `cherie` スクラブ規約）
 
-## 直近 3〜6 ヶ月のマイルストーン
+## マイルストーン（順序ベース。期日はベストエフォート — 2026-06-11 決定）
 
-| M | 期間 | 内容 | 完了の判定 |
+| M | 内容 | 完了の判定 | 状態 |
 |---|---|---|---|
-| **M1** | 1-2 週間（今） | Phase 1 リファクタ完成（Codex） + 増分 ingest skeleton | `pnpm e2e` GREEN / 新セッション追加でブラウザ自動更新 |
-| **M2** | 〜1 ヶ月 | PR 連携（GitHub API で PR 履歴も実行記録に取り込み） | dogfood の自分の PR の意図 → 実装 → review → merge が 1 セッションとして見える |
-| **M3** | 1-2 ヶ月 | **Phase 2 analyst の最小プロトタイプ** + MCP server 公開 | Claude API で自分のセッションを読み、finding が 1 件出る |
-| **M4** | 2-4 ヶ月 | **Phase 3 sandbox + Phase 4 judge** の最小構成 | 自分の CLAUDE.md の 1 行変更で改善前後を並走、勝敗が出る |
-| **M5** | 4-6 ヶ月 | **Phase 5-6 統合** = ループの最短経路が動く | 観測 → 分析 → 改善案 → 実験 → 採点 → 採用 → 履歴記録 が 1 クリック範囲で回る |
-| **M6** | 6 ヶ月〜 | **Phase 7** spec 公開 + OSS 段階公開 | JSON Schema 公開 + README / quickstart 整備 |
+| **M1** | Phase 1 リファクタ + monorepo + Postgres + 増分 ingest（tasks/01〜08） | `pnpm -F web e2e` GREEN / Stop hook で自動反映 | **済（2026-06-10）** |
+| **M2** | Phase 1 完了 = G8 探索 UI + G9 コスト異常 + G1 PR 連携 | dogfood の自分の PR の意図 → 実装 → review → merge が 1 セッションとして見える。S1-1〜S1-5 全て閉じる | 進行中 |
+| **M3** | **Phase 2 analyst の最小プロトタイプ** + MCP server 公開 | Claude API で自分のセッションを読み、finding が 1 件出る。finding クリックで Phase 1 のイベントへジャンプできる | — |
+| **M4** | **Phase 3 sandbox + Phase 4 judge** の最小構成 | 自分の CLAUDE.md の 1 行変更で改善前後を並走、勝敗が出る | — |
+| **M5** | **Phase 5-6 統合** = ループの最短経路が動く | 観測 → 分析 → 改善案 → 実験 → 採点 → 採用 → 履歴記録 が 1 クリック範囲で回る | — |
+| **M6** | **Phase 7** spec 公開 + OSS 段階公開 | JSON Schema 公開 + README / quickstart 整備 | — |
+
+## 計画運用 — rolling wave と監査
+
+**rolling wave（2026-06-11 決定）**: 本書で確定するのは「全 Phase の完了定義・開始ゲート・順序」。
+task ファイル（`tasks/NN-*.md`、受け入れ条件つき）への詳細化は **現 Phase + 次 Phase のみ**行う。
+遠い Phase の task 分割は前 Phase の設計結果で陳腐化するため、書かない。
+
+**Phase 開始ゲート（design sprint）**: 各 Phase 着手時に Claude が
+① その Phase の「開始ゲートで確定する事項」（各 Phase 節に列挙済み）を design 文書 + ADR に確定
+（必要な判断はユーザーに選択肢つきで諮る）→ ② task ファイル群へ分割（`audit: A|B|C` 宣言つき）→
+③ ユーザーが受け入れ条件を承認 → Codex `/goal` loop 起動（[design/dev-loop.md](./design/dev-loop.md) v2）。
+
+**Phase 終了ゲート**: 完了定義チェックリスト全項目を機械検証 → Claude が Phase 監査
+（界面契約の整合・docs 同期・既知の罠の棚卸し）→ 本書の該当 Phase を「済」に更新 + 短い振り返りを追記。
+
+**監査**: 全 task はリスク階層化された監査（Tier A/B/C）を通って main に入る。
+詳細・tier 判定基準・out-of-band commit の扱いは [design/audit-protocol.md](./design/audit-protocol.md)。
+
+### 直近の実行計画（M2 = Phase 1 完了まで）
+
+| 順 | 項目 | 担当 | 前提 |
+|---|---|---|---|
+| 1 | tasks/09 G8 mockup シミュレーション → ユーザーレビュー | Codex → ユーザー | 準備済み（未コミット） |
+| 2 | tasks/10 turn-first explorer 骨格（audit: B 想定） | Codex loop → Claude 監査 | tasks/09 の結果反映 |
+| 3 | G9 設計（baseline 定義をユーザーに諮る → 小設計文書）→ task 化（audit: B） | Claude → Codex loop | G8 の Stats 界面確定後 |
+| 4 | G1 設計文書 + ADR（PR ⇄ session 紐付けキー、GitHub 認証 = 論点 #8）→ task 化（audit: A、スキーマ・外部 API 界面に触れるため） | Claude（設計）→ ユーザー承認 → Codex loop | — |
+| 5 | Phase 1 終了ゲート（完了定義チェック + Phase 監査 + 本書更新） | Claude | 1〜4 完了 |
+| 6 | Phase 2 開始ゲート（design sprint: ハーネス版数 / finding model / archive v2 踏襲度 / G2 / G3 / MCP transport） | Claude + ユーザー | 5 完了 |
 
 ## 決定済み（ADR 索引）
 
@@ -244,23 +290,25 @@ updated: 2026-06-07
 | [0003](./adr/0003-monorepo-with-pnpm-workspaces.md) | Repository structure = single GitHub repo, internal pnpm workspaces + Turborepo | 2026-06-07 |
 | [0004](./adr/0004-postgres-from-phase-1-and-hybrid-dev-env.md) | DB = Postgres（Phase 1 から）+ hybrid dev env（依存だけ Docker・アプリは host）+ dev/prod compose 分離 | 2026-06-09 |
 
-## 次に詰める論点（順序つき）
+## 論点台帳（2026-06-11 更新）
 
-ADR 0001-0003 で観測パイプラインの骨格は決まった。次は実装に落とすための詳細を順に詰める。
+ADR 0001-0004 + tasks/01〜08 で観測パイプラインの骨格は実装済み。残論点は各 Phase の開始ゲートに割り付けた。
 
-| 順 | 論点 | 主担当 | 関連 ADR |
+| # | 論点 | 状態 | 処理先 |
 |---|---|---|---|
-| **1** | **monorepo 移行のタイミング**（今すぐ / Phase 1 リファクタ完了後 / Phase 2 直前） | 議論 | [0003](./adr/0003-monorepo-with-pnpm-workspaces.md) |
-| **2** | **hook が送る payload の中身**（`session_id` / `transcript_path` / `project_id` / `cwd` / `git_branch` / その他） | 議論 → 別 ADR | [0001](./adr/0001-ingest-via-hook-and-server-side-jsonl.md), [0002](./adr/0002-project-identity-model.md) |
-| **3** | **`lathe-client init` の UX**（`.claude/settings.json` への hook 追加、本体 URL の保存、identity 解決の対話フロー、init 失敗時の挙動） | 議論 → 別 ADR | [0001](./adr/0001-ingest-via-hook-and-server-side-jsonl.md), [0002](./adr/0002-project-identity-model.md) |
-| **4** | **サーバ停止中の取りこぼし対策**（catch-up sweep の仕様、どこまで遡るか、重複回避） | 議論 → 別 ADR | [0001](./adr/0001-ingest-via-hook-and-server-side-jsonl.md) |
-| **5** | **HTTP API 設計**（`POST /api/ingest/notify` 等の endpoint 仕様、認証は当面なし） | 議論 → 別 ADR | [0001](./adr/0001-ingest-via-hook-and-server-side-jsonl.md) |
-| **6** | **DB スキーマ変更**（`sessions.project` の意味変更、`projects` テーブル新設） | 設計 → 別 ADR | [0002](./adr/0002-project-identity-model.md) |
-| **7** | **MCP server**（Phase 2 で外部 agent からも query 可能にする、stdio / SSE / HTTP のどれか） | 議論 → 別 ADR | (Phase 2) |
-| **8** | **PR 連携の認証**（GitHub Personal Access Token / GitHub App） | 議論 → 別 ADR | (Phase 1 完成) |
-| **9** | **Phase 3 の sandbox**（Cloudflare Sandbox SDK / Docker Compose / Modal Labs） | 議論 → 別 ADR | (Phase 3) |
-| **10** | **archive format v2 の踏襲度**（lathe-phase7 の v2 spec をそのまま採用するか、Phase 1 の現スキーマを発展させるか） | 議論 → 別 ADR | (Phase 2 finding データモデル設計時) |
-| **11** | **npm package 名問題**（`lathe` は埋まり気味 → `@yutaro0915/lathe` 等） | 議論 → 別 ADR | [0003](./adr/0003-monorepo-with-pnpm-workspaces.md) |
+| 1 | monorepo 移行のタイミング | **済** | tasks/05-06（apps/web + packages/、[0003](./adr/0003-monorepo-with-pnpm-workspaces.md)） |
+| 2 | hook が送る payload の中身 | **済** | tasks/08 設計論点として 2026-06-10 承認（`{agent, session_id, transcript_path, cwd, project_id?, event}`、本文は運ばない） |
+| 3 | `lathe-client init` の UX | **済** | tasks/08 実装（settings.json 非破壊 merge / Codex hooks.json + TOML / `.lathe/config.json`） |
+| 4 | サーバ停止中の取りこぼし対策 | **済** | catch-up sweep = 全量 `pnpm -F web ingest` を維持（ADR 0001 Consequences） |
+| 5 | HTTP API 設計（notify、認証） | **済** | tasks/08 + #3 対応（`LATHE_NOTIFY_TOKEN` Bearer、timingSafeEqual、transcript path allowlist） |
+| 6 | DB スキーマ（`projects` テーブル新設、`sessions.project` 意味変更） | 残 | **G1 設計（直近実行計画 順 4）で要否ごと判定**。PR エンティティ追加と同時にやるのが migration 1 回で済む |
+| 7 | MCP server transport（stdio / SSE / HTTP） | 残 | Phase 2 開始ゲート |
+| 8 | PR 連携の認証（PAT / GitHub App） | 残 | **G1 設計に統合**（直近実行計画 順 4） |
+| 9 | Phase 3 sandbox（Docker / その他） | 残 | Phase 3 開始ゲート（ADR 0004 以降は Docker 第一候補） |
+| 10 | archive format v2 の踏襲度 | 残 | Phase 2 開始ゲート（ハーネス版数・finding model と同時） |
+| 11 | npm package 名（`lathe` は埋まり気味） | 残 | Phase 7（npm 公開時。それまで `private:true`） |
+| 12 | G9 baseline 定義（project 別中央値 / percentile / 絶対閾値） | 残 | G9 設計（直近実行計画 順 3）でユーザーに選択肢つきで諮る |
+| 13 | dev-loop 運用の未決（権限モード / bound 節既定値 / Codex 側 `/goal` 相当 / grader 根拠固定） | 残 | loop 実運用の中で順次確定（[design/dev-loop.md](./design/dev-loop.md)） |
 
 ## このロードマップとの整合性チェック
 

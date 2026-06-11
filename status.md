@@ -1,17 +1,19 @@
 ---
-updated: 2026-06-11T00:25+0900
+updated: 2026-06-11T01:10+0900
 current_owner: none
-current_stage: issues #2/#3 implemented / G8 design draft ready for review
+current_stage: full roadmap fixed (rolling wave) / next = M2 Phase 1 close-out
 ---
 
 ## Current
 
-- task: issues #2/#3 — **実装・検証完了**（schema コメント復元、notify endpoint 認可 + transcript allowlist）
+- task: **全体実装計画の確定**（ROADMAP.md 改訂 + design/audit-protocol.md 新設）。次は直近実行計画 順 1 = tasks/09 G8 mockup
 - agent: none
 - progress: `POST /api/ingest/notify` は `LATHE_NOTIFY_TOKEN` Bearer token 必須、transcript は `~/.claude/projects` / `~/.codex/sessions` / `~/.codex/archived_sessions` 配下の実在 `.jsonl` だけ許可。`lathe-client init` は token を env から読み、未指定時は `.lathe/config.json` へ生成保存、hook は Authorization header を送る。G8 は prior art 調査（`design/research-g8-trace-explorer-ui.md`、27 実装）→ 設計枠組み（`design/g8-explorer-ui.md`、未決 5 点）までドラフト完了・レビュー待ち (claude)
 
 ## Last completed
 
+- 2026-06-11 全体実装計画の確定 — ユーザー決定 4 点（rolling wave / Phase 1 完了ライン = G8+G9+G1 / リスク階層監査 / 期日ベストエフォート）を受け、ROADMAP.md を改訂: Phase 1 完了定義更新（tasks/01-08 済、残 = G8/G9/G1）、Phase 2/3/4/6 に開始ゲート確定事項と G 採番を紐付け（**ハーネス版数を Phase 2 で一級概念化** が最重要の先取り）、マイルストーン順序化、論点台帳 13 件に整理（済 5 / 残 8 を Phase ゲートへ割付）、「直近の実行計画（M2）」6 手順を明記。`design/audit-protocol.md` 新設（Tier A/B/C、裏取り原則、out-of-band retro 監査、tasks/08 を参照実装に）(claude)
+- 2026-06-11 d0f5da0 事後監査（out-of-band commit、audit-protocol 初適用）— **PASS-with-notes、重大指摘なし**。Bearer token は timingSafeEqual 比較、transcript は realpath 後 allowlist + `.jsonl` 制限で symlink/`..` エスケープ遮断、fail-open 維持（token 未設定時はヘッダ送らず・失敗は silent）、schema.sql は DDL 不変（コメントのみ）、verify:notify が拒否 4 ケース + DB 不変を実検査 (claude)
 - 2026-06-11 issues #2/#3 — `apps/web/db/schema.sql` の列セマンティクスコメントを PostgreSQL 方言のまま復元。notify endpoint は JSON parse / transcript 読み取り前に Bearer token を検証し、`realpath` 後の transcript allowlist + `.jsonl` 制限を追加。hook 生成は token を Authorization header へ載せ、`.lathe/.gitignore` で config/token を git へ載せない。`verify:notify` は token なし / wrong token / allowlist 外 `.jsonl` / symlink escape の拒否と DB 不変、正規 notify の冪等 replace を確認。サブエージェントレビューの指摘を反映済み。`pnpm -F @lathe/client build` PASS、`pnpm -F web build` PASS、`LATHE_TRANSCRIPTS_DIR=/Users/cherie/.claude/projects/-Users-cherie-LLMWiki pnpm -F web coverage` GREEN、`pnpm -F web e2e` 49/49 GREEN、`pnpm -F web verify:notify -- --url http://localhost:3210` PASS (codex)
 - 2026-06-10 [08] review + merge — Claude が task 8 をレビュー（重大指摘なし。tx 境界 / fail-open / seq=MIN-1 はサブエージェント初回指摘を実コードで反証）。受け入れ条件 1〜8 を再検証: verify:notify PASS（冪等 counts 不変）、init の既存 hooks 保全 jq PASS、fail-open exit 0、ingest+coverage GREEN、両 build PASS。e2e 48/49 の 1 fail はデータ依存（/diff の既定セッション=changed file 1 件の live セッションで「別ファイル選択」が不成立）で task 8 の回帰ではない。`main` へ ff-merge + push（`f83ead2`）。follow-up: notify endpoint は認可なし（localhost 個人ツール前提、公開デプロイ時は要対応）→ issue #3（https://github.com/yutaro0915/lathe/issues/3）に記録、対応は後日 (claude)
 - 2026-06-10 [08] lathe-client + notify endpoint — `packages/client` に `lathe-client init` CLI と fail-open `.lathe/hook.mjs` 生成を追加し、Claude `.claude/settings.json` merge / Codex `.codex/hooks.json` + TOML snippet 生成に対応。本体は `POST /api/ingest/notify` から provider 解析を再利用して該当 session の関連行だけ削除→再挿入する増分 ingest を実装。`pnpm -F web ingest` PASS、`pnpm -F web verify:notify -- --url http://localhost:3210` PASS、`pnpm -F web coverage` GREEN、`pnpm -F client build` PASS、`pnpm -F web build` PASS、`pnpm -F web e2e` 49/49 GREEN (codex)
