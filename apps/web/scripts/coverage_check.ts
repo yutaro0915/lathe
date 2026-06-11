@@ -12,12 +12,10 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { closePool, queryOne, queryRows } from '../lib/postgres';
 
-// Default to the most-recently-active Claude project (matches ingest's default;
-// no hard-coded username). Override with argv[2] or LATHE_TRANSCRIPTS_DIR.
-function pickDefaultDir(): string {
+function claudeProjectDirs(): { full: string; mtime: number }[] {
   const base = path.join(os.homedir(), '.claude', 'projects');
   try {
-    const dirs = fs
+    return fs
       .readdirSync(base, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => {
@@ -32,12 +30,55 @@ function pickDefaultDir(): string {
       })
       .filter((x) => x.mtime > 0)
       .sort((a, b) => b.mtime - a.mtime);
-    if (dirs.length) return dirs[0].full;
   } catch { /* ignore */ }
-  return base;
+  return [];
 }
 
-const DIR = process.argv[2] || process.env.LATHE_TRANSCRIPTS_DIR || pickDefaultDir();
+function fallbackDefaultDir(): string {
+  return claudeProjectDirs()[0]?.full ?? path.join(os.homedir(), '.claude', 'projects');
+}
+
+function sessionIdOf(file: string): string {
+  const fallback = path.basename(file, '.jsonl');
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const record = JSON.parse(line);
+      if (typeof record?.sessionId === 'string' && record.sessionId.trim()) {
+        return record.sessionId;
+      }
+    } catch {
+      // ignore malformed lines; expectedOf handles detailed validation later.
+    }
+  }
+  return fallback;
+}
+
+function pickDirMatchingDb(dbSessionIds: Set<string>): string {
+  const dirs = claudeProjectDirs();
+  let best: { full: string; mtime: number; matches: number } | null = null;
+  for (const dir of dirs) {
+    let matches = 0;
+    let files: string[] = [];
+    try {
+      files = fs.readdirSync(dir.full).filter((f) => f.endsWith('.jsonl'));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (dbSessionIds.has(sessionIdOf(path.join(dir.full, file)))) matches++;
+    }
+    if (
+      matches > 0 &&
+      (!best || matches > best.matches || (matches === best.matches && dir.mtime > best.mtime))
+    ) {
+      best = { ...dir, matches };
+    }
+  }
+  return best?.full ?? fallbackDefaultDir();
+}
+
+const EXPLICIT_DIR = process.argv[2] || process.env.LATHE_TRANSCRIPTS_DIR || '';
 
 // Replicate the ingester's event-counting rules EXACTLY so the comparison is
 // apples-to-apples (see scripts/ingest.ts buildSession).
@@ -103,6 +144,7 @@ async function main() {
   const dbHunksTotal =
     (await queryOne<{ n: number }>('SELECT COUNT(*)::int AS n FROM diff_hunks'))?.n ?? 0;
 
+  const DIR = EXPLICIT_DIR || pickDirMatchingDb(new Set(dbEvents.keys()));
   const files = fs
     .readdirSync(DIR)
     .filter((f) => f.endsWith('.jsonl'))

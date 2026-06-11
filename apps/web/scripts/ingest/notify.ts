@@ -6,6 +6,7 @@ import type { Runner } from '../../lib/types';
 import { getPool } from '../../lib/postgres';
 import type { Built } from './built';
 import { replaceBuiltSession, type InsertCounts } from './db';
+import { resolveProjectIdentity } from './project';
 import { buildClaudeSession } from './providers/claude';
 import { CodexProvider } from './providers/codex';
 import type { ProviderBuildOptions } from './providers/types';
@@ -122,9 +123,17 @@ function buildSession(payload: IngestNotifyPayload, transcriptPath: string, runn
   }
 
   if (payload.project_id?.trim()) {
-    built.session.project = payload.project_id.trim();
+    const projectId = payload.project_id.trim();
+    built.session.projectId = projectId;
+    built.session.project = projectId;
+    built.session.projectGitRemote = null;
+    built.session.projectCwdHint = payload.cwd?.trim() || built.session.projectCwdHint;
   } else if (payload.cwd?.trim()) {
-    built.session.project = path.basename(payload.cwd.trim());
+    const project = resolveProjectIdentity(payload.cwd.trim(), path.basename(payload.cwd.trim()));
+    built.session.projectId = project.id;
+    built.session.project = project.displayName;
+    built.session.projectGitRemote = project.gitRemote;
+    built.session.projectCwdHint = project.cwdHint;
   }
 
   return built;
@@ -158,7 +167,7 @@ export async function ingestNotify(payload: IngestNotifyPayload, pool: Pool = ge
     sessionId: built.session.id,
     runner,
     transcriptPath: allowedTranscriptPath,
-    projectId: payload.project_id?.trim() || null,
+    projectId: built.session.projectId,
     counts,
   };
 }

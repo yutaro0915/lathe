@@ -11,6 +11,7 @@ import {
   getPrimarySession,
   listSessions,
   getStats,
+  getSessionPrSummary,
 } from "@/lib/db";
 import SessionViewer from "@/components/SessionViewer";
 
@@ -31,7 +32,7 @@ export default async function Page({
   // Project list is only used by the sidebar's session-list scope selector here.
   // Cross-session ANALYTICS (charts) live on /overview, not in the viewer — the
   // viewer is per-session, and cross-session aggregates would be off-topic in it.
-  const stats = await getStats();
+  const [stats, sessionPrs] = await Promise.all([getStats(), getSessionPrSummary()]);
   const projects = stats.projects.map((p) => ({
     project: p.project,
     sessions: p.sessions,
@@ -51,6 +52,7 @@ export default async function Page({
       currentId={id}
       projects={projects}
       sessionProject={sessionProject}
+      sessionPrs={sessionPrs}
       initialTab={initialTab}
     />
   );
