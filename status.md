@@ -1,16 +1,14 @@
 ---
-updated: 2026-06-11T19:30+0900
-current_owner: codex-loop
-current_stage: landing (loop/13 main-merge running / UI approved, awaiting integration)
+updated: 2026-06-11T21:00+0900
+current_owner: none
+current_stage: Phase 1 COMPLETE / Phase 2 entry gate pending user decisions
 ---
 
 ## Current
 
-- task: **着地フェーズ**
-  - **UI（polish/ui-b-standard-2）**: 2026-06-11 **ユーザー目視承認済み**（B 標準 port + subagent タブ 1 行化 + 7 項目固定 + tokens 整合 + aside 重複解消 + Result 意味統一 + Annotations タブ。e2e 66/66、`ae9315f`）。loop 13 着地後に main へ統合（SessionViewer/globals/e2e の conflict 解消は Opus へ委譲）→ Claude 最終ゲート → merge
-  - **G1（loop/13）**: 修正 R1〜R7 完了（実リンク 3 件成立を再監査一次照合で確認）。main merge + 統合後全ゲートを Codex 実行中 → Claude 最終監査 → merge
-  - その後: Phase 1 終了ゲート → 掃除（worktree 群 / 専用 DB / tmux）→ Phase 2 開始ゲート（finding model ドラフト `design/phase2-finding-model.md` 起草済み）
-- agent: codex（loop 13 統合）+ claude（監査・統合指揮）
+- **Phase 1 完了（2026-06-11）**。S1-1〜S1-5 すべて閉鎖、e2e 67/67 / coverage / verify 7 本 GREEN。main = `3f5dcf5`。振り返りは ROADMAP の Phase 1 節
+- 次: Phase 2 開始ゲート — `design/phase2-finding-model.md` の未決 4 点（kind 語彙 / MCP transport / analyst 数 / hook 採取）をユーザーに諮る → ADR 0007 → task 化
+- agent: none
 
 ## Last completed
 

@@ -76,9 +76,17 @@ updated: 2026-06-11
 - [x] 巨大セッション軽量化（hunk pagination + 時系列バケット）
 - [x] **provider 抽象 + 型強化**（tasks/04）
 - [x] **増分 ingest**（tasks/08 = Stop hook push + catch-up sweep。S1-4 成立）
-- [ ] **G8 探索 UI**（turn-first A-1 採用済み。tasks/09 mockup シミュレーション → tasks/10 骨格実装。S1-1 を閉じる）
-- [ ] **G9 コスト異常検知**（S1-3。baseline 定義 = project 別中央値 / percentile / 絶対閾値 は設計時にユーザー決定。表示界面は g8-explorer-ui.md §6 に定義済み）
-- [ ] **G1 PR 連携**（GitHub API で PR 履歴を実行記録に取り込み — 提案書の「起点は PR」を満たす。S1-5 を閉じる。**紐付けキーの設計が先行**: branch / commit SHA / 時間窓 / cwd のどれで session ⇄ PR を結ぶか → 設計文書 + ADR）
+- [x] **G8 探索 UI**（turn-first A-1。tasks/09 mockup → tasks/10 骨格 `a35cab9` → UI 標準 B 適用 `3f5dcf5`。S1-1 済）
+- [x] **G9 コスト異常検知**（S1-3。前提の cost 検証 tasks/11 で **Opus 4.5+ の 3 倍過大計上を発見・修正** `493f3d8` → hybrid baseline 実装 tasks/12 `a281849`）
+- [x] **G1 PR 連携**（tasks/13 `c8cae1b`。ADR 0006 = commit SHA 主 + branch 補。監査で block 3 件 → 修正 → 実データリンク成立を確認して merge。S1-5 済）
+
+**Phase 1 完了（2026-06-11）**。e2e 67/67 / coverage GREEN / verify スクリプト 7 本 GREEN。
+
+**振り返り（要点）**:
+- **監査の価値が実証された**: tasks/13 は全ゲート GREEN 自己申告だったが、実データ照合で「紐付け 0 行」（検証スクリプトの合成 fixture による自己充足）を検出。fixture だけの GREEN は信用しない、が Phase 2 以降の検証設計の規範
+- **cost 3 倍過大の発見**: 異常検知（G9）の前に cost 検証を挟む判断が正解だった。前提検証 → 機能実装の順序は維持
+- **loop 運用の学び**は workflows.md / dev-loop.md に反映済み（/goal は CLI 引数、継続明示、prefix 永続承認、watcher、`.next` 規約、ゲートスクリプト変更は監査者検分）
+- **実装配分の確立**: Claude は実装しない。UI = Opus、機械検証可能な実装 = Codex loop、probe = 並列サブエージェント
 
 **Phase 1 で意図的にやらないこと**:
 
@@ -261,7 +269,7 @@ updated: 2026-06-11
 | M | 内容 | 完了の判定 | 状態 |
 |---|---|---|---|
 | **M1** | Phase 1 リファクタ + monorepo + Postgres + 増分 ingest（tasks/01〜08） | `pnpm -F web e2e` GREEN / Stop hook で自動反映 | **済（2026-06-10）** |
-| **M2** | Phase 1 完了 = G8 探索 UI + G9 コスト異常 + G1 PR 連携 | dogfood の自分の PR の意図 → 実装 → review → merge が 1 セッションとして見える。S1-1〜S1-5 全て閉じる | 進行中 |
+| **M2** | Phase 1 完了 = G8 探索 UI + G9 コスト異常 + G1 PR 連携 | dogfood の自分の PR の意図 → 実装 → review → merge が 1 セッションとして見える。S1-1〜S1-5 全て閉じる | **済（2026-06-11）** |
 | **M3** | **Phase 2 analyst の最小プロトタイプ** + MCP server 公開 | Claude API で自分のセッションを読み、finding が 1 件出る。finding クリックで Phase 1 のイベントへジャンプできる | — |
 | **M4** | **Phase 3 sandbox + Phase 4 judge** の最小構成 | 自分の CLAUDE.md の 1 行変更で改善前後を並走、勝敗が出る | — |
 | **M5** | **Phase 5-6 統合** = ループの最短経路が動く | 観測 → 分析 → 改善案 → 実験 → 採点 → 採用 → 履歴記録 が 1 クリック範囲で回る | — |
