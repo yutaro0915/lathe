@@ -7,10 +7,14 @@ updated: 2026-06-11
 
 # 実装ワークフロー定義（workflows）
 
-**大原則（2026-06-11 ユーザー訂正）: Claude はコードを実装しない。** どの workflow でも
-コード変更の実行主体は Codex（または実装サブエージェント）。Claude の担当は
+**大原則（2026-06-11 ユーザー訂正）: Claude（main）はコードを実装しない。** Claude の担当は
 仕様化・起動・監視・検証・監査・merge・記録に限る。Claude main context での直接実装は
 小さな修正でも遅く（ツール往復・編集ミス）、時間の無駄になることが実証された。
+
+**実装の配分（2026-06-11 ユーザー指定）**:
+- **UI 実装（polish・見た目・コンポーネント）= Opus サブエージェント**（Agent tool, model: opus）
+- **それ以外の実装** = その時々で最適な担い手に Claude が振る（機械検証可能な実装 = Codex loop、
+  使い捨て probe = 並列サブエージェント、軽微 fix = 単発サブエージェント等）
 
 Phase 1〜7 の実装運用の正本。loop の機構は [dev-loop.md](./dev-loop.md)、監査は
 [audit-protocol.md](./audit-protocol.md)、本書は **タスク類型別ワークフロー・起動手順・
@@ -25,7 +29,7 @@ task は起草時に `workflow:` を宣言する。類型ごとにフローと m
 | **loop**（実装） | 機械検証可能な実装 | Claude が task 起草（受け入れ条件 + audit tier + bound）→ ユーザー承認 → loop 起動（§2）→ Codex が `loop/<NN>-<slug>` で実装 → 停止 → Claude 監査 → merge + 記録 | 監査（Tier A/B/C） |
 | **design**（設計・ADR） | 界面契約・方針 | Claude 調査（外部情報は disciplined-research 必須）→ 選択肢つきドラフト → ユーザー裁可 → ADR accepted + ROADMAP wiring | ユーザー裁可そのもの |
 | **exploration**（調査・mockup・spike） | 使い捨て成果物（画像・ノート・PoC） | 受け入れ条件なし・成果物要件のみ。単発実行（Codex 単発 or サブエージェント並列）→ ユーザーレビュー → 学びを design へ昇格 | `src/` に入れない。成果物のみ Tier C で commit |
-| **polish**（対話的磨き） | 受け入れが主観的な UI 細部 | ユーザーの指摘を Claude が**仕様化**（再現箇所・期待・制約を 1 指摘 1 項目に）→ **実装は Codex**（対象 worktree で短い fix loop）→ Claude が検証・スクリーンショット提示 → ユーザー目視 → 可能なら e2e に固定化 | Tier C |
+| **polish**（対話的磨き） | 受け入れが主観的な UI 細部 | ユーザーの指摘を Claude が**仕様化**（再現箇所・期待・制約を 1 指摘 1 項目に）→ **実装は Opus サブエージェント**（対象 worktree）→ Claude が検証・スクリーンショット提示 → ユーザー目視 → 可能なら e2e に固定化 | Tier C |
 
 polish 中の検証順序（**必須**。2026-06-11 の `.next` 破損 3 件目を受けて明文化）: 同一 worktree で
 build / e2e（playwright は内部 build+start）を走らせる場合、**先に dev server を停止**する。
