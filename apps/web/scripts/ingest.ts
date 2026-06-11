@@ -4,8 +4,10 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { Pool } from 'pg';
 import type { Built } from './ingest/built';
 import { insertBuilt, resetDatabase } from './ingest/db';
+import { resolveGitHubToken, syncPullRequestsGraphql } from './ingest/github';
 import { ClaudeProvider } from './ingest/providers/claude';
 import { CodexProvider } from './ingest/providers/codex';
 import type { ProviderBuildOptions, TranscriptProvider } from './ingest/providers/types';
@@ -20,6 +22,42 @@ const buildOpts: ProviderBuildOptions = {
 };
 const ROOT = process.cwd();
 const SCHEMA_PATH = path.join(ROOT, 'db', 'schema.sql');
+
+function repoFromProjectId(projectId: string): string | null {
+  const match = /^github\.com\/([^/]+\/[^/]+)$/.exec(projectId);
+  return match ? match[1] : null;
+}
+
+async function syncPullRequestsCatchup(pool: Pool): Promise<void> {
+  let token: string;
+  try {
+    token = resolveGitHubToken();
+  } catch (error) {
+    console.log(`[ingest] pr sync skipped: ${(error as Error).message}`);
+    return;
+  }
+
+  const projects = await pool.query<{ id: string }>('SELECT id FROM projects ORDER BY id ASC');
+  for (const project of projects.rows) {
+    const repo = repoFromProjectId(project.id);
+    if (!repo) continue;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await syncPullRequestsGraphql(client, {
+        repo,
+        token,
+        log: (line) => console.log(`[ingest] ${line}`),
+      });
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      console.log(`[ingest] pr sync failed for ${repo}: ${(error as Error).message}`);
+    } finally {
+      client.release();
+    }
+  }
+}
 
 async function main() {
   if (!fs.existsSync(TRANSCRIPTS_DIR)) {
@@ -54,9 +92,11 @@ async function main() {
   built.sort((a, b) => (b.session._startMs ?? 0) - (a.session._startMs ?? 0));
   built.forEach((b, i) => (b.session.seq = i + 1));
   const db = await resetDatabase(SCHEMA_PATH);
-  const counts = await insertBuilt(db, built).finally(() => db.end());
+  const counts = await insertBuilt(db, built);
+  await syncPullRequestsCatchup(db);
+  await db.end();
   console.log(
-    `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: sessions=${counts.sessions} events=${counts.events} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations}`,
+    `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: projects=${counts.projects} sessions=${counts.sessions} events=${counts.events} session_commits=${counts.sessionCommits} commit_sha_misses=${counts.commitShaMisses} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations}`,
   );
 }
 

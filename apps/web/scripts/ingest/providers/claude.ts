@@ -2,6 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { costForUsage } from '../../../lib/cost';
 import type { Built } from '../built';
+import { collectSessionCommits } from '../commit-sha';
+import { resolveProjectIdentity } from '../project';
 import {
   clampLines,
   durationBetween,
@@ -554,10 +556,14 @@ export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Bu
     (e) => (e.exit_code != null && e.exit_code !== 0) || e.type === 'error',
   ).length;
   const status = errorCount > 0 ? 'failed' : 'done';
+  const project = resolveProjectIdentity(cwd, cwd ? path.basename(cwd) : 'LLMWiki');
 
   const session: Built['session'] = {
     id: sessionId,
-    project: cwd ? path.basename(cwd) : 'LLMWiki',
+    projectId: project.id,
+    project: project.displayName,
+    projectGitRemote: project.gitRemote,
+    projectCwdHint: project.cwdHint,
     title,
     runner: 'claude-code',
     model,
@@ -587,9 +593,12 @@ export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Bu
     delete f._hunkSeq; delete f._firstWrite; return f;
   });
 
+  const commitExtraction = collectSessionCommits(events as Built['events']);
   return {
     session,
     events: events as Built['events'],
+    sessionCommits: commitExtraction.commits,
+    commitShaMissCount: commitExtraction.unextractedEvents,
     eventFiles: eventFiles as Built['eventFiles'],
     changedFiles: changedFiles as Built['changedFiles'],
     hunks: hunks as Built['hunks'],

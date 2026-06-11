@@ -3,6 +3,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { costForUsage } from '../../../lib/cost';
 import type { Built } from '../built';
+import { collectSessionCommits } from '../commit-sha';
+import { resolveProjectIdentity } from '../project';
 import {
   clampLines,
   hhmmss,
@@ -244,10 +246,14 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
   // cost from real GPT pricing: fresh input + cached (at cache-read rate) + output.
   // null for unpriceable models (e.g. codex-auto-review) -> shown as "—".
   const costUsd = costForUsage(model, { input: tokenIn, output: tokenOut, cacheWrite: 0, cacheRead: cachedInput });
+  const project = resolveProjectIdentity(cwd, cwd ? path.basename(cwd) : 'LLMWiki');
 
   const session: Built['session'] = {
     id: sessionId,
-    project: cwd ? path.basename(cwd) : 'LLMWiki',
+    projectId: project.id,
+    project: project.displayName,
+    projectGitRemote: project.gitRemote,
+    projectCwdHint: project.cwdHint,
     title,
     runner: 'codex',
     model,
@@ -273,9 +279,12 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
   };
   const changedFiles = [...filesByPath.values()].slice(0, maxFiles).map((f) => { delete f._hunkSeq; return f; });
 
+  const commitExtraction = collectSessionCommits(events as Built['events']);
   return {
     session,
     events: events as Built['events'],
+    sessionCommits: commitExtraction.commits,
+    commitShaMissCount: commitExtraction.unextractedEvents,
     eventFiles: eventFiles as Built['eventFiles'],
     changedFiles: changedFiles as Built['changedFiles'],
     hunks: hunks as Built['hunks'],

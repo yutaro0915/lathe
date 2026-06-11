@@ -1,16 +1,16 @@
 ---
-updated: 2026-06-11T15:00+0900
-current_owner: none
-current_stage: tasks/10 merged to main / UI direction probes (A-C) in progress
+updated: 2026-06-11T19:30+0900
+current_owner: codex-loop
+current_stage: landing (loop/13 main-merge running / UI approved, awaiting integration)
 ---
 
 ## Current
 
-- task: **3 トラック並行・実装フェーズ**（設計 4 決定は 2026-06-11 ユーザー承認済み）
-  - **UI**: B 標準 port 中（`polish/ui-b-standard`、Claude サブエージェント）→ ユーザー目視合否 → merge
-  - **G9 系**: tasks/11 cost 検証（audit A）loop 稼働 → merge 後 tasks/12 G9 実装（audit B）
-  - **G1**: tasks/13（audit A）loop 稼働。専用 worktree `/tmp/lathe-g1` + 専用 Postgres :55433
-- agent: codex-loop ×2（11 = 本 checkout `loop/11-cost-verification` / 13 = worktree）+ claude（UI・監査・統合）
+- task: **着地フェーズ**
+  - **UI（polish/ui-b-standard-2）**: 2026-06-11 **ユーザー目視承認済み**（B 標準 port + subagent タブ 1 行化 + 7 項目固定 + tokens 整合 + aside 重複解消 + Result 意味統一 + Annotations タブ。e2e 66/66、`ae9315f`）。loop 13 着地後に main へ統合（SessionViewer/globals/e2e の conflict 解消は Opus へ委譲）→ Claude 最終ゲート → merge
+  - **G1（loop/13）**: 修正 R1〜R7 完了（実リンク 3 件成立を再監査一次照合で確認）。main merge + 統合後全ゲートを Codex 実行中 → Claude 最終監査 → merge
+  - その後: Phase 1 終了ゲート → 掃除（worktree 群 / 専用 DB / tmux）→ Phase 2 開始ゲート（finding model ドラフト `design/phase2-finding-model.md` 起草済み）
+- agent: codex（loop 13 統合）+ claude（監査・統合指揮）
 
 ## Last completed
 

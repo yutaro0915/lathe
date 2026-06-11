@@ -8,10 +8,14 @@ import type {
   Runner,
   SessionStatus,
 } from '../../lib/types';
+import type { BuiltSessionCommit } from './commit-sha';
 
 export interface BuiltSession {
   id: string;
+  projectId: string;
   project: string;
+  projectGitRemote: string | null;
+  projectCwdHint: string | null;
   title: string;
   runner: Runner;
   model: string | null;
@@ -99,6 +103,8 @@ export interface BuiltAnnotation {
 export interface Built {
   session: BuiltSession;
   events: BuiltEvent[];
+  sessionCommits: BuiltSessionCommit[];
+  commitShaMissCount: number;
   eventFiles: BuiltEventFile[];
   changedFiles: BuiltChangedFile[];
   hunks: BuiltHunk[];
