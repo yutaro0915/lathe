@@ -25,7 +25,7 @@ function extractChildEvents(
   parentEventId: string,
   sessionId: string,
   agentLabel: string,
-): { children: LooseRecord[]; model: string | null; costUsd: number | null } {
+): { children: LooseRecord[]; model: string | null; costUsd: number | null; tokens: number | null } {
   let recs: LooseRecord[];
   try {
     recs = fs
@@ -41,7 +41,7 @@ function extractChildEvents(
       })
       .filter(Boolean);
   } catch {
-    return { children: [], model: null, costUsd: null };
+    return { children: [], model: null, costUsd: null, tokens: null };
   }
 
   const results = new Map<string, { isError: boolean; text: string; ts?: string }>();
@@ -71,6 +71,7 @@ function extractChildEvents(
     saOut = 0,
     saCacheWrite = 0,
     saCacheRead = 0;
+  let saSawUsage = false;
   let k = 0;
   const add = (e: LooseRecord) => {
     k += 1;
@@ -99,6 +100,7 @@ function extractChildEvents(
       if (!saModel && r.message?.model) saModel = r.message.model;
       const su = r.message?.usage;
       if (su) {
+        saSawUsage = true;
         saIn += su.input_tokens || 0;
         saOut += su.output_tokens || 0;
         saCacheWrite += su.cache_creation_input_tokens || 0;
@@ -137,7 +139,11 @@ function extractChildEvents(
     cacheWrite: saCacheWrite,
     cacheRead: saCacheRead,
   });
-  return { children: out, model: saModel, costUsd };
+  // tokens = the sub-agent's own work volume (cache reads excluded — same
+  // semantics as the session-level tokens column). Without this the launcher
+  // shows a cost with no token basis when the parent <usage> block is absent.
+  const tokens = saSawUsage ? saIn + saOut + saCacheWrite : null;
+  return { children: out, model: saModel, costUsd, tokens };
 }
 
 export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Built | null {
@@ -517,6 +523,7 @@ export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Bu
         }
         if (sa.model) lm.model = sa.model;
         if (sa.costUsd != null) lm.costUsd = sa.costUsd;
+        if (sa.tokens != null) lm.tokens = sa.tokens;
         launcher.meta = JSON.stringify(lm);
       }
     }

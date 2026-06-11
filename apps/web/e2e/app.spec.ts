@@ -783,8 +783,8 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
   }) => {
     await page.goto(`/?session=${SID}&tab=subagents`);
     await page.locator(".sa-card").first().click();
-    // detail header + per-run execution rows appear
-    await expect(page.locator(".sa-detail-head")).toContainText(/Agent 1 of/);
+    // the tabbar reflects the opened run + per-run execution rows appear
+    await expect(page.locator(".sa-tabbar .sa-tab.active .sa-tab-idx")).toHaveText("1");
     await expect
       .poll(async () => page.locator(".sa-detail .event-row.child-row").count())
       .toBeGreaterThan(0);
@@ -794,12 +794,13 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
     await expect(page.locator(".detail .detail-head .dtitle")).toBeVisible();
   });
 
-  test("Prev/Next steps between runs", async ({ page }) => {
+  test("tabbar steps between runs", async ({ page }) => {
     await page.goto(`/?session=${SID}&tab=subagents`);
     await page.locator(".sa-card").first().click();
-    const nextBtn = page.locator(".sa-detail-head button", { hasText: "Next" });
-    await nextBtn.click();
-    await expect(page.locator(".sa-detail-head")).toContainText(/Agent 2 of/);
+    await expect(page.locator(".sa-tabbar .sa-tab.active .sa-tab-idx")).toHaveText("1");
+    await page.locator(".sa-tabbar .sa-tab", { has: page.locator(".sa-tab-idx", { hasText: "2" }) }).click();
+    await expect(page.locator(".sa-tabbar .sa-tab.active .sa-tab-idx")).toHaveText("2");
+    await expect.poll(async () => page.locator(".sa-detail .event-row.child-row").count()).toBeGreaterThan(0);
   });
 
   test("a launcher row in the transcript jumps to its run detail", async ({ page }) => {
@@ -809,7 +810,7 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
     if ((await jump.count()) > 0) {
       await jump.click();
       await expect(page.locator(".tabs .tab.active")).toHaveText(/Subagents/);
-      await expect(page.locator(".sa-detail-head")).toContainText(/Agent 1 of/);
+      await expect(page.locator(".sa-tabbar .sa-tab.active .sa-tab-idx")).toBeVisible();
     }
   });
 

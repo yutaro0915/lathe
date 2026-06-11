@@ -168,6 +168,17 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
               <>
                 <div className="chart-body">
                   <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="none">
+                    {[0.25, 0.5, 0.75].map((f) => (
+                      <line
+                        key={f}
+                        x1={0}
+                        x2={W}
+                        y1={H - f * (H - 16)}
+                        y2={H - f * (H - 16)}
+                        stroke="var(--border-faint)"
+                        strokeWidth={1}
+                      />
+                    ))}
                     {turns.map((t, i) => {
                       const h = (t.durationMs / maxTurnDur) * (H - 16);
                       return (
@@ -177,7 +188,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                           y={H - h}
                           width={Math.max(0.6, bw - 0.6)}
                           height={h}
-                          fill="var(--accent)"
+                          fill="var(--chart-bar)"
                           opacity={0.85}
                         >
                           <title>{`Turn ${t.turn}\n${t.title}\n${fmtDuration(t.durationMs)} · ${t.steps} steps · ${fmtCompact(t.tokens)} tok`}</title>
@@ -185,13 +196,13 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                       );
                     })}
                     {n > 1 && (
-                      <polyline points={tokLine} fill="none" stroke="#10b981" strokeWidth={1.3} opacity={0.8} />
+                      <polyline points={tokLine} fill="none" stroke="var(--chart-line)" strokeWidth={1.3} opacity={0.9} />
                     )}
                   </svg>
                 </div>
                 <div className="chart-legend">
-                  <span><i style={{ background: "var(--accent)" }} />duration (bars)</span>
-                  <span><i style={{ background: "#10b981" }} />tokens (line)</span>
+                  <span><i style={{ background: "var(--chart-bar)" }} />duration (bars)</span>
+                  <span><i style={{ background: "var(--chart-line)" }} />tokens (line)</span>
                   <span style={{ flex: 1 }} />
                   <span>peak {fmtDuration(maxTurnDur)} / {fmtCompact(maxTurnTok)} tok</span>
                 </div>
@@ -213,7 +224,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                       className="hbar-fill"
                       style={{
                         width: `${(e.count / maxEv) * 100}%`,
-                        background: EVENT_COLOR[e.type as EventType] ?? "#94a3b8",
+                        background: EVENT_COLOR[e.type as EventType] ?? "var(--cat-uncertain)",
                       }}
                     />
                   </span>
@@ -238,7 +249,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                       className="hbar-fill"
                       style={{
                         width: `${((f.additions + f.deletions) / maxFileChurn) * 100}%`,
-                        background: "var(--accent)",
+                        background: "var(--chart-bar)",
                       }}
                     />
                   </span>
@@ -274,7 +285,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                       className="hbar-fill"
                       style={{
                         width: `${((s.costUsd ?? 0) / maxSubCost) * 100}%`,
-                        background: "#8b5cf6",
+                        background: "var(--cat-subagent)",
                       }}
                     />
                   </span>
@@ -304,7 +315,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                       className="hbar-fill"
                       style={{
                         width: `${(m.count / Math.max(1, ...memory.map((x) => x.count))) * 100}%`,
-                        background: "#06b6d4",
+                        background: "var(--cat-git)",
                       }}
                     />
                   </span>
@@ -328,7 +339,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                       className="hbar-fill"
                       style={{
                         width: `${(h.count / Math.max(1, ...hooks.map((x) => x.count))) * 100}%`,
-                        background: "#f43f5e",
+                        background: "var(--cat-uncertain)",
                       }}
                     />
                   </span>

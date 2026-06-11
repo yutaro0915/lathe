@@ -384,16 +384,23 @@ export default function SessionViewer({
     let toolUses: number | undefined;
     let model: string | undefined;
     let costUsd: number | undefined;
+    let tokens: number | undefined;
     try {
       const m = launcher.meta ? JSON.parse(launcher.meta) : {};
       if (typeof m.toolUses === "number") toolUses = m.toolUses;
       if (typeof m.model === "string") model = m.model; // the model the sub-agent ran on
       if (typeof m.costUsd === "number") costUsd = m.costUsd; // priced from the sub-agent's own usage
+      if (typeof m.tokens === "number") tokens = m.tokens; // same usage the cost was priced from
     } catch {
       /* ignore */
     }
     const failed = kids.some((k) => k.exitCode != null && k.exitCode !== 0);
-    return { kids, toolUses, failed, model, costUsd };
+    // observed fallback: tool-ish steps counted from the child transcript, for
+    // runs that did not report a toolUses total of their own
+    const observedTools = kids.filter(
+      (k) => !["user_message", "assistant_message", "thinking"].includes(k.type),
+    ).length;
+    return { kids, toolUses, failed, model, costUsd, tokens, observedTools };
   }
 
   // The agent's own one-line summary of what it did (its result), else its title.
@@ -968,13 +975,14 @@ export default function SessionViewer({
                       title={`${EVENT_LABEL[t]} — click to ${on ? "hide" : "show"}`}
                       onClick={() => toggleType(t)}
                       style={{
-                        border: "1px solid transparent",
                         cursor: "pointer",
-                        opacity: on ? 1 : 0.4,
-                        filter: on ? "none" : "grayscale(0.6)",
+                        opacity: on ? 1 : 0.38,
                       }}
                     >
-                      {EVENT_LABEL[t]} {typeCounts[t] ?? 0}
+                      {EVENT_LABEL[t]}
+                      <span className="mono" style={{ marginLeft: "auto", color: "var(--muted-2)" }}>
+                        {typeCounts[t] ?? 0}
+                      </span>
                     </button>
                   );
                 })}
@@ -1576,7 +1584,7 @@ export default function SessionViewer({
                     {subAgentTab === "overview" ? (
                       /* ---------- OVERVIEW: chronological spine of every run ---------- */
                       invocations.map((e, i) => {
-                        const { kids, toolUses, failed, model, costUsd } = summarizeInvocation(e);
+                        const { kids, toolUses, failed, model, costUsd, tokens, observedTools } = summarizeInvocation(e);
                         return (
                           <button
                             key={e.id}
@@ -1610,9 +1618,9 @@ export default function SessionViewer({
                             </div>
                             <span className="sa-card-meta">
                               <span className="chip">{kids.length} steps</span>
-                              {toolUses != null && <span className="chip">{toolUses} tools</span>}
+                              <span className="chip">{toolUses ?? observedTools} tools</span>
                               {e.durationMs != null && <span className="dur">{durLabel(e.durationMs)}</span>}
-                              {e.tokenUsage != null && <span className="tok">{fmtTok(e.tokenUsage)} tok</span>}
+                              {(e.tokenUsage ?? tokens) != null && <span className="tok">{fmtTok((e.tokenUsage ?? tokens)!)} tok</span>}
                               {costUsd != null && <span className="sa-cost">{fmtCost(costUsd)}</span>}
                               <span className="sa-go">Open →</span>
                             </span>
@@ -1624,79 +1632,68 @@ export default function SessionViewer({
                       (() => {
                         const e = invocations.find((x) => x.id === subAgentTab);
                         if (!e) return null;
-                        const idx = invocations.findIndex((x) => x.id === subAgentTab);
-                        const { kids, toolUses, failed, model, costUsd } = summarizeInvocation(e);
+                        const { kids, toolUses, failed, model, costUsd, tokens, observedTools } = summarizeInvocation(e);
+                        const tokensShown = e.tokenUsage ?? tokens ?? null;
                         return (
                           <div className="sa-detail">
-                            <div className="sa-detail-head">
-                              <button
-                                type="button"
-                                className="btn btn-sm"
-                                onClick={() => setSubAgentTab("overview")}
-                              >
-                                ← Overview
-                              </button>
-                              <span className="event-type-badge subagent">⌥ {e.subagent ?? "sub-agent"}</span>
-                              {model && <span className="sa-model" title="model the sub-agent ran on">{shortModel(model)}</span>}
-                              <span className="sa-detail-which">
-                                Agent {idx + 1} of {invocations.length}
-                              </span>
-                              <span style={{ flex: "1 1 auto" }} />
-                              <button
-                                type="button"
-                                className="btn btn-sm"
-                                onClick={() => openAgent(invocations[idx - 1].id)}
-                                disabled={idx <= 0}
-                              >
-                                ‹ Prev
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-sm"
-                                onClick={() => openAgent(invocations[idx + 1].id)}
-                                disabled={idx >= invocations.length - 1}
-                              >
-                                Next ›
-                              </button>
-                            </div>
-
+                            {/* run selection / back / position all live in the .sa-tabbar above —
+                                no second header row (it duplicated Overview, the active tab, and
+                                tab-click navigation). Model sits in the stats strip below. */}
+                            {/* fixed 7-column strip: every run shows the same cards so runs are
+                                comparable at a glance. A missing value renders as "—" (not
+                                recorded in the transcript), never by dropping the card — a
+                                vanished "Tool calls" reads as "this model can't use tools". */}
                             <div className="sa-detail-stats">
                               <div className="stat">
                                 <span className="stat-k">Steps</span>
                                 <span className="stat-v">{kids.length}</span>
                               </div>
-                              {toolUses != null && (
-                                <div className="stat">
-                                  <span className="stat-k">Tool calls</span>
+                              <div className="stat">
+                                <span className="stat-k">Tool calls</span>
+                                {toolUses != null ? (
                                   <span className="stat-v">{toolUses}</span>
-                                </div>
-                              )}
-                              {model && (
-                                <div className="stat">
-                                  <span className="stat-k">Model</span>
-                                  <span className="stat-v" style={{ fontSize: "12.5px" }}>
-                                    {shortModel(model)}
+                                ) : (
+                                  <span
+                                    className="stat-v"
+                                    title="not reported by the run; counted from observed tool steps in the transcript"
+                                  >
+                                    {observedTools}
                                   </span>
-                                </div>
-                              )}
-                              {e.durationMs != null && (
-                                <div className="stat">
-                                  <span className="stat-k">Duration</span>
-                                  <span className="stat-v">{fmtDur2(e.durationMs)}</span>
-                                </div>
-                              )}
-                              {e.tokenUsage != null && (
-                                <div className="stat">
-                                  <span className="stat-k">Tokens</span>
-                                  <span className="stat-v">{fmtInt(e.tokenUsage)}</span>
-                                </div>
-                              )}
-                              {costUsd != null && (
-                                <div className="stat">
-                                  <span className="stat-k">Cost</span>
-                                  <span className="stat-v">{fmtCost(costUsd)}</span>
-                                </div>
-                              )}
+                                )}
+                              </div>
+                              <div className="stat">
+                                <span className="stat-k">Model</span>
+                                <span className="stat-v" style={{ fontSize: "12.5px" }} title={model ?? "not recorded in the transcript"}>
+                                  {model ? shortModel(model) : "—"}
+                                </span>
+                              </div>
+                              <div className="stat">
+                                <span className="stat-k">Duration</span>
+                                <span className="stat-v" title={e.durationMs == null ? "not recorded in the transcript" : undefined}>
+                                  {e.durationMs != null ? fmtDur2(e.durationMs) : "—"}
+                                </span>
+                              </div>
+                              <div className="stat">
+                                <span className="stat-k">Tokens</span>
+                                <span
+                                  className="stat-v"
+                                  title={
+                                    e.tokenUsage != null
+                                      ? undefined
+                                      : tokensShown != null
+                                        ? "summed from the sub-agent's own transcript (cache reads excluded) — the same usage its cost is priced from"
+                                        : "no usage recorded in either transcript"
+                                  }
+                                >
+                                  {tokensShown != null ? fmtInt(tokensShown) : "—"}
+                                </span>
+                              </div>
+                              <div className="stat">
+                                <span className="stat-k">Cost</span>
+                                <span className="stat-v" title={costUsd == null ? "model or token usage not recorded — cost is not invented" : undefined}>
+                                  {costUsd != null ? fmtCost(costUsd) : "—"}
+                                </span>
+                              </div>
                               <div className="stat">
                                 <span className="stat-k">Result</span>
                                 <span className={`stat-v ${failed ? "err" : "ok"}`}>

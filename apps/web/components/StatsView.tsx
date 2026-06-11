@@ -188,6 +188,17 @@ export default function StatsView({
             </div>
             <div className="chart-body">
               <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="none">
+                {[0.25, 0.5, 0.75].map((f) => (
+                  <line
+                    key={f}
+                    x1={0}
+                    x2={W}
+                    y1={H - f * (H - 16)}
+                    y2={H - f * (H - 16)}
+                    stroke="var(--border-faint)"
+                    strokeWidth={1}
+                  />
+                ))}
                 {timeBars.map((b, i) => {
                   const h = (b.cost / maxCost) * (H - 16);
                   return (
@@ -197,7 +208,7 @@ export default function StatsView({
                       y={H - h}
                       width={Math.max(0.6, bw - 0.6)}
                       height={h}
-                      fill="var(--accent)"
+                      fill="var(--chart-bar)"
                       opacity={0.85}
                     >
                       <title>{b.title}</title>
@@ -205,13 +216,13 @@ export default function StatsView({
                   );
                 })}
                 {n > 1 && (
-                  <polyline points={tokLine} fill="none" stroke="#10b981" strokeWidth={1.3} opacity={0.8} />
+                  <polyline points={tokLine} fill="none" stroke="var(--chart-line)" strokeWidth={1.3} opacity={0.9} />
                 )}
               </svg>
             </div>
             <div className="chart-legend">
-              <span><i style={{ background: "var(--accent)" }} />cost (bars)</span>
-              <span><i style={{ background: "#10b981" }} />tokens (line)</span>
+              <span><i style={{ background: "var(--chart-bar)" }} />cost (bars)</span>
+              <span><i style={{ background: "var(--chart-line)" }} />tokens (line)</span>
               <span className="spacer" style={{ flex: 1 }} />
               <span>{parseDate(chrono[0].startedAt)} → {parseDate(chrono[chrono.length - 1].startedAt)} · peak {fmtCost(maxCost)} / {fmtCompact(maxTok)} tok</span>
             </div>
@@ -227,7 +238,7 @@ export default function StatsView({
                     {shortModel(m.name)}
                   </span>
                   <span className="hbar-track">
-                    <span className="hbar-fill" style={{ width: `${(m.cost / maxModelCost) * 100}%`, background: "var(--accent)" }} />
+                    <span className="hbar-fill" style={{ width: `${(m.cost / maxModelCost) * 100}%`, background: "var(--chart-bar)" }} />
                   </span>
                   <span className="hbar-val">{m.costKnown ? fmtCost(m.cost) : "—"}</span>
                 </div>
@@ -245,7 +256,7 @@ export default function StatsView({
                 <div className="hbar-row" key={e.type}>
                   <span className="hbar-label">{EVENT_LABEL[e.type as EventType] ?? e.type}</span>
                   <span className="hbar-track">
-                    <span className="hbar-fill" style={{ width: `${(e.count / maxEv) * 100}%`, background: EVENT_COLOR[e.type as EventType] ?? "#94a3b8" }} />
+                    <span className="hbar-fill" style={{ width: `${(e.count / maxEv) * 100}%`, background: EVENT_COLOR[e.type as EventType] ?? "var(--cat-uncertain)" }} />
                   </span>
                   <span className="hbar-val">{fmtInt(e.count)}</span>
                 </div>
@@ -264,7 +275,7 @@ export default function StatsView({
                 <div className="hbar-row" key={s.id}>
                   <span className="hbar-label ttl" title={s.title}>{s.title}</span>
                   <span className="hbar-track">
-                    <span className="hbar-fill" style={{ width: `${((s.costUsd ?? 0) / maxBig) * 100}%`, background: "var(--accent)" }} />
+                    <span className="hbar-fill" style={{ width: `${((s.costUsd ?? 0) / maxBig) * 100}%`, background: "var(--chart-bar)" }} />
                   </span>
                   <span className="hbar-val">{fmtCost(s.costUsd)}</span>
                 </div>

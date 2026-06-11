@@ -2,21 +2,21 @@ import type { EventType } from "@/lib/types";
 
 // Event-type color palette shared by transcript and stats surfaces.
 export const EVENT_COLOR: Record<EventType, string> = {
-  user_message: "#64748b",
-  assistant_message: "#6366f1",
-  thinking: "#a855f7",
-  file_read: "#0ea5e9",
-  file_edit: "#f59e0b",
-  file_write: "#10b981",
-  bash: "#475569",
-  subagent: "#8b5cf6",
-  skill: "#eab308",
-  commit: "#22c55e",
-  test: "#14b8a6",
-  error: "#ef4444",
-  todo: "#94a3b8",
-  memory: "#06b6d4",
-  hook: "#f43f5e",
+  user_message: "#7d92b8",
+  assistant_message: "#9c8fc4",
+  thinking: "#ada0cf",
+  file_read: "#6fa3b8",
+  file_edit: "#c2a36b",
+  file_write: "#7aa389",
+  bash: "#8b95a5",
+  subagent: "#9c8fc4",
+  skill: "#c2a36b",
+  commit: "#7aa389",
+  test: "#6fa3b8",
+  error: "#d64545",
+  todo: "#aab2bd",
+  memory: "#6fa3b8",
+  hook: "#aab2bd",
 };
 
 // Short human label per event type.
