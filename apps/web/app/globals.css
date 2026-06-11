@@ -194,6 +194,10 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .event-sub.path{color:var(--muted);} .event-sub.body{font-family:var(--sans);color:var(--text-soft);}
 .event-meta{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--muted-2);font-family:var(--mono);white-space:nowrap;padding-top:2px;}
 .event-meta .dur{color:var(--muted);} .event-meta .tok{color:var(--muted-2);} .event-meta .ok{color:var(--green);} .event-meta .err{color:var(--red);}
+.event-row.filter-dimmed{opacity:.42;}
+.event-row.filter-dimmed:hover{opacity:.72;}
+.step-timebar-track{position:relative;display:inline-block;width:74px;height:8px;border-radius:999px;background:var(--bg-sunken);border:1px solid var(--border);overflow:hidden;vertical-align:middle;}
+.step-timebar{position:absolute;top:1px;bottom:1px;min-width:2px;border-radius:999px;background:var(--accent);}
 .event-type-badge{display:inline-flex;align-items:center;height:17px;padding:0 7px;border-radius:999px;font-size:10.5px;font-weight:600;letter-spacing:.2px;white-space:nowrap;}
 .event-type-badge.user_message{background:#e8f0ff;color:#1f5fe0;} .event-type-badge.assistant_message{background:#efeaff;color:#5b3fd6;}
 .event-type-badge.file_read{background:#eef1f4;color:#475467;} .event-type-badge.file_edit{background:#fdf3e2;color:#b25e09;} .event-type-badge.file_write{background:#e7f6ec;color:#1a7f43;}
@@ -261,6 +265,9 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .diff-toolbar .fpath{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:13px;font-weight:600;color:var(--text);}
 .diff-toolbar .fstats{flex:0 0 auto;font-family:var(--mono);font-size:12px;white-space:nowrap;} .diff-toolbar .fstats .add{color:var(--add-text);} .diff-toolbar .fstats .del{color:var(--del-text);}
 .diff-toolbar .spacer{flex:1 1 auto;min-width:0;}
+.file-touched-steps{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:7px 16px;background:var(--panel-2);border-bottom:1px solid var(--border);}
+.file-touched-step{height:22px;padding:0 8px;border:1px solid var(--border);border-radius:5px;background:var(--panel);color:var(--text-soft);font-family:var(--mono);font-size:11px;cursor:pointer;}
+.file-touched-step:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);}
 .hunk-nav{display:flex;align-items:center;gap:10px;padding:7px 16px;background:var(--panel-2);border-bottom:1px solid var(--border);font-size:11.5px;color:var(--muted);}
 .hunk-nav .nav-btn{width:22px;height:22px;border:1px solid var(--border-strong);border-radius:var(--radius-xs);background:var(--panel);color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;}
 .hunk-nav .pos{font-family:var(--mono);color:var(--text-soft);}
@@ -393,8 +400,16 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
    turn boundary reads at a glance, even when expanded. The chip carries "Turn N
    · N steps" and the seq column hosts the ▾/▸ toggle. */
 .event-row.turn-header{background:var(--bg-sunken);border-top:1px solid var(--border-strong);box-shadow:inset 3px 0 0 var(--accent);}
+.event-row.turn-header.turn-has-error{background:var(--red-bg);box-shadow:inset 3px 0 0 var(--red);}
 .event-row.turn-header .event-title{font-weight:650;color:var(--text);}
+.event-row.turn-header .event-meta{justify-content:flex-end;flex-wrap:wrap;row-gap:4px;white-space:normal;}
+.event-row.turn-header .turn-summary{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .chip.turn-chip{background:var(--accent-weak);color:var(--accent);border:1px solid var(--accent-ring);font-weight:650;}
+.chip.rollup-chip{background:var(--panel);border:1px solid var(--border);color:var(--text-soft);}
+.chip.rollup-chip.err{background:var(--red-chip);border-color:var(--red-bg);color:var(--red-text);}
+.chip.rollup-chip.is-empty{color:var(--muted-2);}
+.turn-files-chip{font:inherit;font-family:var(--mono);cursor:pointer;}
+.turn-files-chip:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);}
 .event-row.child-row{background:var(--bg-sunken);box-shadow:inset 3px 0 0 var(--accent-ring);}
 .event-row.child-row .event-gutter{padding-left:16px;}
 .event-row.child-row .event-title{font-weight:500;}

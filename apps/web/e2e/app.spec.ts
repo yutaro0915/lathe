@@ -1,4 +1,204 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import { Client } from "pg";
+
+const DATABASE_URL = process.env.DATABASE_URL || "postgres://lathe:lathe@localhost:55432/lathe";
+
+type DbSession = { cost_usd: number | null; token_usage: number };
+type DbEvent = {
+  id: string;
+  seq: number;
+  type: string;
+  title: string;
+  body: string | null;
+  exit_code: number | null;
+  duration_ms: number | null;
+  token_usage: number | null;
+  parent_id: string | null;
+  meta: string | null;
+};
+type DbFileLink = { event_id: string; file_id: string; path: string };
+type TurnExpectation = {
+  turn: number;
+  steps: number;
+  edits: number;
+  bash: number;
+  errors: number;
+  tokens: number;
+  durationMs: number;
+  costUsd: number | null;
+  files: DbFileLink[];
+};
+
+const turnCache = new Map<string, Promise<TurnExpectation[]>>();
+
+function fmtCompactForTest(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function fmtCostForTest(c: number | null): string {
+  if (c == null || !Number.isFinite(c) || c < 0) return "—";
+  if (c > 0 && c < 0.01) return "<$0.01";
+  return `$${c.toFixed(2)}`;
+}
+
+function humanizeDurationForTest(ms: number | null): string {
+  if (ms == null) return "—";
+  const totalSec = Math.round(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function readMetaCostForTest(e: DbEvent): number | null {
+  if (!e.meta) return null;
+  try {
+    const meta = JSON.parse(e.meta);
+    return typeof meta.costUsd === "number" ? meta.costUsd : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getTurnExpectations(sessionId: string): Promise<TurnExpectation[]> {
+  const cached = turnCache.get(sessionId);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    const client = new Client({ connectionString: DATABASE_URL });
+    await client.connect();
+    try {
+      const session = (
+        await client.query<DbSession>(
+          "SELECT cost_usd, token_usage FROM sessions WHERE id = $1",
+          [sessionId]
+        )
+      ).rows[0];
+      const events = (
+        await client.query<DbEvent>(
+          `SELECT id, seq, type, title, body, exit_code, duration_ms, token_usage, parent_id, meta
+             FROM transcript_events
+            WHERE session_id = $1
+            ORDER BY seq ASC, parent_id NULLS FIRST, id ASC`,
+          [sessionId]
+        )
+      ).rows;
+      const links = (
+        await client.query<DbFileLink>(
+          `SELECT DISTINCT x.event_id, x.file_id, x.path
+             FROM (
+               SELECT ef.event_id, cf.id AS file_id, cf.path
+                 FROM event_files ef
+                 JOIN changed_files cf ON cf.session_id = $1 AND cf.path = ef.path
+                WHERE ef.event_id IN (SELECT id FROM transcript_events WHERE session_id = $1)
+               UNION
+               SELECT a.event_id, cf.id AS file_id, cf.path
+                 FROM changed_files cf
+                 JOIN diff_hunks h ON h.file_id = cf.id
+                 JOIN attributions a ON a.hunk_id = h.id
+                WHERE cf.session_id = $1
+                  AND a.event_id IS NOT NULL
+             ) x`,
+          [sessionId]
+        )
+      ).rows;
+
+      const topEvents = events.filter((e) => !e.parent_id);
+      const childrenByParent = new Map<string, DbEvent[]>();
+      for (const e of events) {
+        if (!e.parent_id) continue;
+        const arr = childrenByParent.get(e.parent_id) ?? [];
+        arr.push(e);
+        childrenByParent.set(e.parent_id, arr);
+      }
+
+      const linksByEvent = new Map<string, Map<string, DbFileLink>>();
+      for (const link of links) {
+        const arr = linksByEvent.get(link.event_id) ?? new Map<string, DbFileLink>();
+        arr.set(link.file_id, link);
+        linksByEvent.set(link.event_id, arr);
+      }
+
+      let turn = 0;
+      let headerId: string | null = null;
+      const turnByEvent = new Map<string, { turn: number; headerId: string }>();
+      for (const e of topEvents) {
+        if (e.type === "user_message") {
+          turn += 1;
+          headerId = e.id;
+        }
+        if (headerId) turnByEvent.set(e.id, { turn, headerId });
+      }
+
+      const rollups = new Map<
+        string,
+        TurnExpectation & { fileMap: Map<string, DbFileLink> }
+      >();
+      for (const e of topEvents) {
+        const owner = turnByEvent.get(e.id);
+        if (e.type !== "user_message" || !owner) continue;
+        rollups.set(e.id, {
+          turn: owner.turn,
+          steps: 0,
+          edits: 0,
+          bash: 0,
+          errors: 0,
+          tokens: 0,
+          durationMs: 0,
+          costUsd: null,
+          files: [],
+          fileMap: new Map(),
+        });
+      }
+
+      const collect = (
+        rollup: TurnExpectation & { fileMap: Map<string, DbFileLink> },
+        e: DbEvent
+      ) => {
+        if (e.type === "file_edit" || e.type === "file_write") rollup.edits += 1;
+        if (e.type === "bash") rollup.bash += 1;
+        if (e.type === "error" || (e.exit_code != null && e.exit_code !== 0)) rollup.errors += 1;
+        rollup.tokens += e.token_usage ?? 0;
+        rollup.durationMs += e.duration_ms ?? 0;
+        const directCost = readMetaCostForTest(e);
+        const tokenCost =
+          directCost == null && session?.cost_usd != null && session.token_usage > 0 && e.token_usage != null
+            ? (session.cost_usd * e.token_usage) / session.token_usage
+            : null;
+        const cost = directCost ?? tokenCost;
+        if (cost != null) rollup.costUsd = (rollup.costUsd ?? 0) + cost;
+        for (const file of linksByEvent.get(e.id)?.values() ?? []) rollup.fileMap.set(file.file_id, file);
+      };
+
+      for (const e of topEvents) {
+        const owner = turnByEvent.get(e.id);
+        if (!owner) continue;
+        const rollup = rollups.get(owner.headerId);
+        if (!rollup) continue;
+        if (e.id !== owner.headerId) rollup.steps += 1;
+        collect(rollup, e);
+        for (const child of childrenByParent.get(e.id) ?? []) collect(rollup, child);
+      }
+
+      return [...rollups.values()]
+        .sort((a, b) => a.turn - b.turn)
+        .map(({ fileMap, ...r }) => ({ ...r, files: [...fileMap.values()] }));
+    } finally {
+      await client.end();
+    }
+  })();
+  turnCache.set(sessionId, promise);
+  return promise;
+}
+
+async function expandAllTurns(page: Page) {
+  const expand = page.locator(".turn-filter button", { hasText: "Expand turns" });
+  if ((await expand.count()) > 0) await expand.click();
+}
 
 // Assertions are structural (counts change, classes toggle, URL changes) rather
 // than tied to specific seeded titles, so they stay green as the ingested
@@ -108,7 +308,7 @@ test.describe("Diff viewer (/diff)", () => {
     const diff = page.locator(".diff");
     const before = await diff.innerHTML();
     // scope to the view-mode toggle (a separate .segmented.step-filter may exist)
-    const viewToggle = page.locator(".segmented:not(.step-filter)");
+    const viewToggle = page.locator(".diff-toolbar .segmented:not(.step-filter)");
     await viewToggle.locator("button", { hasText: "Split" }).click();
     await expect(viewToggle.locator("button.active")).toHaveText(/Split/);
     await expect.poll(async () => diff.innerHTML()).not.toBe(before);
@@ -206,6 +406,7 @@ test.describe("Cross-screen navigation & time ribbon", () => {
 test.describe("Event detail panel", () => {
   test("shows compact stats (duration/exit) and a wrapping output", async ({ page }) => {
     await page.goto("/?session=da2ac032-a905-4267-8e5f-851456926a79");
+    await expandAllTurns(page);
     const bashRow = page
       .locator(".event-row")
       .filter({ has: page.locator(".event-icon.bash") })
@@ -228,6 +429,7 @@ test.describe("Thinking", () => {
   test("thinking events are captured and viewable", async ({ page }) => {
     // a session with extended-thinking (non-redacted) blocks
     await page.goto("/?session=b1dcf7bd-a268-4304-bc4a-b45463538aa2");
+    await expandAllTurns(page);
     const trow = page
       .locator(".event-row")
       .filter({ has: page.locator(".event-icon.thinking") })
@@ -245,6 +447,7 @@ test.describe("Sub-agent expansion", () => {
   test("sub-agent rows expand to reveal child steps (tools/skills)", async ({ page }) => {
     // a session known to spawn general-purpose sub-agents
     await page.goto("/?session=da2ac032-a905-4267-8e5f-851456926a79");
+    await expandAllTurns(page);
     // pick the expander on a SUB-AGENT row (not a turn-header user_message —
     // they now share the .tw-expand class for ▾/▸ toggles).
     const saExpander = page
@@ -309,6 +512,7 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
 
   test("a launcher row in the transcript jumps to its run detail", async ({ page }) => {
     await page.goto(`/?session=${SID}`);
+    await expandAllTurns(page);
     const jump = page.locator(".sa-jump").first();
     if ((await jump.count()) > 0) {
       await jump.click();
@@ -483,6 +687,7 @@ test.describe("Harness signals", () => {
     page,
   }) => {
     await page.goto("/?session=da2ac032-a905-4267-8e5f-851456926a79");
+    await expandAllTurns(page);
     // event-type filter exposes Memory + Hook
     await expect(
       page.locator(".filters .event-type-badge", { hasText: "Memory" })
@@ -545,6 +750,7 @@ test.describe("Transcript ⇄ Git cross-links", () => {
     page,
   }) => {
     await page.goto(`/?session=${SID}`);
+    await expandAllTurns(page);
     // select a file-edit step in the transcript
     const editRow = page
       .locator(".event-row")
@@ -568,28 +774,137 @@ test.describe("Transcript ⇄ Git cross-links", () => {
   });
 });
 
+test.describe("Turn-first explorer", () => {
+  const SID = "33a47290-fc24-47bc-b624-e7fbc4412ade";
+  const SUBAGENT_SID = "da2ac032-a905-4267-8e5f-851456926a79";
+
+  test("initial transcript view shows turn headers only", async ({ page }) => {
+    await page.goto(`/?session=${SID}`);
+    await expect(page.locator(".timeline .event-row.turn-header").first()).toBeVisible();
+    await expect.poll(async () => page.locator(".timeline .event-row.step-row").count()).toBe(0);
+  });
+
+  test("turn headers show rollup values from the real session data", async ({ page }) => {
+    const first = (await getTurnExpectations(SID))[0];
+    await page.goto(`/?session=${SID}`);
+    const row = page.locator(`.timeline .event-row.turn-header[data-turn="${first.turn}"]`);
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute("data-rollup-steps", String(first.steps));
+    await expect(row).toHaveAttribute("data-rollup-edits", String(first.edits));
+    await expect(row).toHaveAttribute("data-rollup-errors", String(first.errors));
+    await expect(row).toHaveAttribute("data-rollup-files", String(first.files.length));
+    await expect(row).toContainText(`${first.steps} step`);
+    await expect(row).toContainText(`${first.edits} edits`);
+    await expect(row).toContainText(`${first.errors} errors`);
+    await expect(row).toContainText(fmtCostForTest(first.costUsd));
+    await expect(row).toContainText(fmtCompactForTest(first.tokens));
+    await expect(row).toContainText(humanizeDurationForTest(first.durationMs));
+    await expect(row).toContainText(`${first.files.length} files`);
+  });
+
+  test("turns with errors carry the error emphasis hook", async ({ page }) => {
+    const errorTurn = (await getTurnExpectations(SID)).find((t) => t.errors > 0);
+    expect(errorTurn).toBeTruthy();
+    await page.goto(`/?session=${SID}`);
+    const row = page.locator(`.timeline .event-row.turn-header[data-turn="${errorTurn!.turn}"]`);
+    await expect(row).toHaveAttribute("data-turn-has-error", "true");
+    await expect(row).toHaveClass(/turn-has-error/);
+  });
+
+  test("turn row click expands and collapses; sub-agent nesting still expands", async ({ page }) => {
+    await page.goto(`/?session=${SUBAGENT_SID}`);
+    const firstHeader = page.locator(".timeline .event-row.turn-header").first();
+    await firstHeader.click();
+    await expect.poll(async () => page.locator(".timeline .event-row.step-row").count()).toBeGreaterThan(0);
+    await firstHeader.click();
+    await expect.poll(async () => page.locator(".timeline .event-row.step-row").count()).toBe(0);
+
+    await expandAllTurns(page);
+    const saExpander = page
+      .locator(".event-row.step-row:not(.turn-header)")
+      .filter({ has: page.locator(".event-icon.subagent") })
+      .first()
+      .locator(".tw-expand");
+    if ((await saExpander.count()) > 0) {
+      await saExpander.click();
+      await expect
+        .poll(async () => page.locator(".timeline .event-row.child-row").count())
+        .toBeGreaterThan(0);
+    }
+  });
+
+  test("expanded step rows expose proportional time bars", async ({ page }) => {
+    await page.goto(`/?session=${SID}`);
+    await expandAllTurns(page);
+    const bars = page.locator(".timeline .event-row.step-row .step-timebar");
+    await expect(bars.first()).toBeVisible();
+    const values = await bars.evaluateAll((els) =>
+      els
+        .map((el) => ({
+          duration: Number((el as HTMLElement).dataset.durationMs || 0),
+          width: Number((el as HTMLElement).dataset.widthPct || 0),
+        }))
+        .filter((v) => v.duration > 0)
+    );
+    expect(values.length).toBeGreaterThan(0);
+    const shortest = values.reduce((a, b) => (a.duration <= b.duration ? a : b));
+    const longest = values.reduce((a, b) => (a.duration >= b.duration ? a : b));
+    expect(longest.width).toBeGreaterThanOrEqual(shortest.width);
+  });
+
+  test("turn files chip opens the active diff file; touched steps jump back", async ({ page }) => {
+    await page.goto(`/?session=${SID}`);
+    const chip = page.locator(".timeline .turn-files-chip").first();
+    await expect(chip).toBeVisible();
+    const fileId = await chip.getAttribute("data-file-id");
+    expect(fileId).toBeTruthy();
+    await chip.click();
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Git/);
+    await expect(page.locator(`.file-row.active[data-file-id="${fileId}"]`)).toBeVisible();
+    await expect(page.locator(".file-touched-steps")).toBeVisible();
+    await page.locator(".file-touched-step").first().click();
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
+    await expect(page.locator(".timeline .event-row.selected")).toHaveCount(1);
+  });
+
+  test("event type filters can highlight or hide non-matching steps", async ({ page }) => {
+    await page.goto(`/?session=${SID}`);
+    await expandAllTurns(page);
+    await page.locator(".filter-mode button", { hasText: "Highlight" }).click();
+    await page.locator(".filters .event-type-badge.bash").click();
+    await expect
+      .poll(async () => page.locator(".timeline .event-row.step-row.filter-dimmed").count())
+      .toBeGreaterThan(0);
+    expect(await page.locator(".timeline .event-row.step-row .event-icon.bash").count()).toBeGreaterThan(0);
+    await page.locator(".filter-mode button", { hasText: "Hide" }).click();
+    await expect.poll(async () => page.locator(".timeline .event-row.step-row .event-icon.bash").count()).toBe(0);
+  });
+});
+
 test.describe("Transcript: turn grouping", () => {
   // multi-turn Claude session (41 turns) — Collapse turns must reduce the row
   // count to exactly the turn-header count, Expand turns must restore them.
   const SID = "33a47290-fc24-47bc-b624-e7fbc4412ade";
 
   test("turn headers carry the Turn N · M steps chip", async ({ page }) => {
+    const first = (await getTurnExpectations(SID))[0];
     await page.goto(`/?session=${SID}`);
     await expect(page.locator(".event-row.turn-header").first()).toBeVisible();
     await expect(page.locator(".chip.turn-chip").first()).toContainText(/Turn 1\b/);
-    await expect(page.locator(".chip.turn-chip").first()).toContainText(/step/);
+    await expect(page.locator(".event-row.turn-header").first()).toContainText(`${first.steps} step`);
   });
 
-  test("Collapse turns reduces the timeline to turn headers only", async ({ page }) => {
+  test("Expand turns restores step rows; Collapse turns returns to turn headers only", async ({ page }) => {
     await page.goto(`/?session=${SID}`);
     const headers = await page.locator(".event-row.turn-header").count();
     expect(headers).toBeGreaterThan(1);
-    await page.locator(".turn-filter button", { hasText: "Collapse turns" }).click();
     await expect.poll(async () => page.locator(".event-row").count()).toBe(headers);
     await page.locator(".turn-filter button", { hasText: "Expand turns" }).click();
     await expect
       .poll(async () => page.locator(".event-row").count())
       .toBeGreaterThan(headers);
+    await page.locator(".turn-filter button", { hasText: "Collapse turns" }).click();
+    await expect.poll(async () => page.locator(".event-row").count()).toBe(headers);
   });
 });
 

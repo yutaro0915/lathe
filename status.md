@@ -1,17 +1,18 @@
 ---
-updated: 2026-06-11T02:05+0900
+updated: 2026-06-11T14:21+0900
 current_owner: codex-loop
-current_stage: tasks/10 loop running (loop/10-turn-first-explorer)
+current_stage: tasks/10 complete (loop/10-turn-first-explorer)
 ---
 
 ## Current
 
-- task: [10] A-1 turn-first explorer — **loop 稼働中**（受け入れ条件 1〜10 を 2026-06-11 ユーザー承認。audit: B、bound: 40 turns / 4h）
-- agent: codex（tmux session `lathe-loop-10`、Claude が起動・監視）
-- progress: `POST /api/ingest/notify` は `LATHE_NOTIFY_TOKEN` Bearer token 必須、transcript は `~/.claude/projects` / `~/.codex/sessions` / `~/.codex/archived_sessions` 配下の実在 `.jsonl` だけ許可。`lathe-client init` は token を env から読み、未指定時は `.lathe/config.json` へ生成保存、hook は Authorization header を送る。G8 は prior art 調査（`design/research-g8-trace-explorer-ui.md`、27 実装）→ 設計枠組み（`design/g8-explorer-ui.md`、未決 5 点）までドラフト完了・レビュー待ち (claude)
+- task: [10] A-1 turn-first explorer — **完了**。Transcript 初期視界を turn ヘッダのみへ変更し、turn rollup / error turn 強調 / step 時間バー / turn files chip → Git active file / Diff 側 touched steps / type filter highlight-hide 切替を実装。
+- agent: codex
+- progress: 受け入れ条件 1〜10 GREEN。`pnpm -F web e2e` 56/56 PASS、`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN。coverage 前に transcript corpus 同期のため `pnpm -F web ingest` を実行（sessions=341 events=63932 changed_files=2146 hunks=5928 attributions=5928 event_files=12304 annotations=4326）。
 
 ## Last completed
 
+- 2026-06-11 [10] A-1 turn-first explorer — `SessionViewer` の既存 turn/collapse/filter と `DiffViewer` の attribution リンクを再利用し、初期表示を turn-first に変更。turn 行に `steps / edits / bash / errors / cost / tokens / duration / files` rollup と機械抽出 summary、error turn class/属性、展開 step の時間バー、files chip から Git active file への導線を追加。Diff 側は既存 `linkedEvents` から file header の touched steps を表示し、click で transcript の該当 step へ戻る。type filter は highlight/hide 2 モード化。新 E2E 7 件を追加し、既存 E2E は turn 展開操作を足して意図維持。検証: `pnpm -F web exec tsc --noEmit` PASS、`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web e2e` 56/56 GREEN (codex)
 - 2026-06-11 [09] G8 mockup close — 並行セッション成果物（mockups/g8 PNG 10 枚 + NOTES.md、g8-explorer-ui.md §7 決定化、tasks/09・10）を Claude が回収・照合して commit。受け入れ条件 6 項照合 PASS（10 ファイル存在 / 案バッジ / 実データ baseline / 配色維持 / NOTES 変更点 / コード変更 0）。ユーザーレビューは 2026-06-10 実施済み: **A-1 turn-first のみ採用、A-2/A-3 不採用、ファイル軸は軽い導線、細部は作りながら詰める**。M2 順 1 完了 (claude)
 - 2026-06-11 全体実装計画の確定 — ユーザー決定 4 点（rolling wave / Phase 1 完了ライン = G8+G9+G1 / リスク階層監査 / 期日ベストエフォート）を受け、ROADMAP.md を改訂: Phase 1 完了定義更新（tasks/01-08 済、残 = G8/G9/G1）、Phase 2/3/4/6 に開始ゲート確定事項と G 採番を紐付け（**ハーネス版数を Phase 2 で一級概念化** が最重要の先取り）、マイルストーン順序化、論点台帳 13 件に整理（済 5 / 残 8 を Phase ゲートへ割付）、「直近の実行計画（M2）」6 手順を明記。`design/audit-protocol.md` 新設（Tier A/B/C、裏取り原則、out-of-band retro 監査、tasks/08 を参照実装に）(claude)
 - 2026-06-11 d0f5da0 事後監査（out-of-band commit、audit-protocol 初適用）— **PASS-with-notes、重大指摘なし**。Bearer token は timingSafeEqual 比較、transcript は realpath 後 allowlist + `.jsonl` 制限で symlink/`..` エスケープ遮断、fail-open 維持（token 未設定時はヘッダ送らず・失敗は silent）、schema.sql は DDL 不変（コメントのみ）、verify:notify が拒否 4 ケース + DB 不変を実検査 (claude)
@@ -30,7 +31,7 @@ current_stage: tasks/10 loop running (loop/10-turn-first-explorer)
 
 ## Open questions / blockers
 
-- G8 設計枠組み（`design/g8-explorer-ui.md`）の未決 5 点がユーザーレビュー待ち: 探索モデルの採用範囲（A-1/A-2/A-3）/ turn rollup 項目 / ファイル軸の同時実装 / task 分割 / SessionViewer 分割の同時実施
+- G8 A-1 骨格は完了。見た目の細部（色・密度・chip 並び）は task 10 の out of scope として未調整。
 - G9（コスト異常検知）は未着手。baseline 定義（project 別中央値 / percentile / 絶対閾値）はユーザー判断待ち。表示面の界面は g8-explorer-ui.md §6 に定義済み
 - （解決済み 2026-06-11）schema.sql のコメント劣化は issue #2 で対応。
 - （解決済み 2026-06-11）notify endpoint の認可欠如は issue #3 で対応。残る運用注意: server と observed repo の `lathe-client init` で同じ `LATHE_NOTIFY_TOKEN` を使う。

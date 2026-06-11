@@ -269,9 +269,12 @@ interface Props {
   // Bidirectional transcript↔diff link:
   //  • focusEventId — when the user jumps in from the transcript ("see this
   //    edit's diff"), open the file + hunk that this event produced.
+  //  • focusFileId — when the user jumps from a turn rollup's files chip,
+  //    open that changed file without inventing a separate link model.
   //  • onJumpToEvent — jump back out ("which step produced this diff"): the host
   //    switches to the Transcript tab and selects the given event.
   focusEventId?: string;
+  focusFileId?: string;
   onJumpToEvent?: (eventId: string) => void;
 }
 
@@ -282,7 +285,7 @@ interface Props {
 const HUNK_PAGE = 40; // hunks rendered per page
 const HUNK_LINE_CAP = 500; // lines rendered for one hunk before "show more lines"
 
-export default function DiffViewer({ sessions, bundle, currentId, embedded = false, focusEventId, onJumpToEvent }: Props) {
+export default function DiffViewer({ sessions, bundle, currentId, embedded = false, focusEventId, focusFileId, onJumpToEvent }: Props) {
   const router = useRouter();
   const s = bundle.session;
   const files = bundle.changedFiles;
@@ -307,9 +310,10 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
   // file; else the first.
   const initialFileId = useMemo(() => {
     if (focusHit) return focusHit.fileId;
+    if (focusFileId && files.some((f) => f.id === focusFileId)) return focusFileId;
     const mixed = files.find((f) => f.path.endsWith("globals.css"));
     return (mixed ?? files[0])?.id ?? "";
-  }, [files, focusHit]);
+  }, [files, focusFileId, focusHit]);
 
   const [activeFileId, setActiveFileId] = useState<string>(initialFileId);
   const [viewMode, setViewMode] = useState<"unified" | "split">("unified");
@@ -339,7 +343,7 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
     setShowRawJson(false);
     setShowAllHunks(false);
     setCollapsedFolders(new Set());
-  }, [currentId, initialFileId, focusHit, focusEventId]);
+  }, [currentId, initialFileId, focusHit, focusEventId, focusFileId]);
 
   /* ---- derived: active file + its hunks / attributions / events ---------- */
 
@@ -377,6 +381,17 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
   const linkedEvents: LinkedEvent[] = active
     ? bundle.linkedEvents[active.id] ?? []
     : [];
+
+  const touchedSteps = useMemo(() => {
+    const seen = new Set<string>();
+    const out: LinkedEvent[] = [];
+    for (const le of linkedEvents) {
+      if (seen.has(le.event.id)) continue;
+      seen.add(le.event.id);
+      out.push(le);
+    }
+    return out;
+  }, [linkedEvents]);
 
   // Selected linked event -> Event Details panel. Default to the first row.
   const selected: LinkedEvent | undefined = useMemo(() => {
@@ -689,6 +704,7 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
               return (
                 <div
                   key={f.id}
+                  data-file-id={f.id}
                   className={`file-row is-file ${indentClass(row.depth)}${
                     isActive ? " active" : ""
                   }`}
@@ -773,6 +789,27 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
                 </button>
               </span>
             </div>
+
+            {touchedSteps.length > 0 && (
+              <div className="file-touched-steps">
+                <span className="muted small">Touched steps</span>
+                {touchedSteps.map((le) => (
+                  <button
+                    key={le.event.id}
+                    type="button"
+                    className="file-touched-step"
+                    onClick={() => {
+                      setSelectedLinkedEventId(le.event.id);
+                      setShowRawJson(false);
+                      if (onJumpToEvent) onJumpToEvent(le.event.id);
+                    }}
+                    title={le.event.title}
+                  >
+                    step {le.event.seq}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="hunk-nav">
               <button

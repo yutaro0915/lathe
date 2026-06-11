@@ -1,7 +1,7 @@
 ---
 id: 10
 title: A-1 turn-first explorer（初期視界 = turn 要約行 + rollup + 時間バー + ファイル導線）
-status: in-progress
+status: done
 assignee: codex (/goal loop, design/dev-loop.md v2)
 depends_on: [08]   # merge 後の main から分岐すること（コード衝突回避）
 estimated: large

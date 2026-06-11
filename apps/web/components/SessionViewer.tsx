@@ -94,9 +94,51 @@ const TOOL_TYPES: EventType[] = ["bash", "file_read", "file_edit", "file_write",
 
 type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "raw" | "stats";
 type SortKey = "recent" | "oldest" | "tokens";
+type FilterMode = "highlight" | "hide";
+
+type TurnFile = { id: string; path: string };
+type TurnRollup = {
+  turn: number;
+  steps: number;
+  edits: number;
+  bash: number;
+  errors: number;
+  tokens: number;
+  durationMs: number;
+  costUsd: number | null;
+  files: TurnFile[];
+  summary: string;
+  collapsed: boolean;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const LS_PINS = "lathe.pins";
 const LS_NOTES = "lathe.notes";
+
+function firstNonEmptyLine(text: string | null | undefined): string {
+  return (text ?? "").split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+}
+
+function readMetaCostUsd(e: TranscriptEvent): number | null {
+  if (!e.meta) return null;
+  try {
+    const meta = JSON.parse(e.meta);
+    return typeof meta.costUsd === "number" ? meta.costUsd : null;
+  } catch {
+    return null;
+  }
+}
+
+function hmsToMs(ts: string): number | null {
+  const m = /(\d{2}):(\d{2}):(\d{2})/.exec(ts);
+  if (!m) return null;
+  return (Number(m[1]) * 60 * 60 + Number(m[2]) * 60 + Number(m[3])) * 1000;
+}
+
+function clampPct(n: number): number {
+  return Math.max(0, Math.min(100, n));
+}
 
 // ---- tiny JSON renderer for the Run JSON panel (.json-* spans) -------------
 
@@ -171,6 +213,7 @@ export default function SessionViewer({
   // ---- timeline / tab / selection state -----------------------------------
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [typeFilter, setTypeFilter] = useState<Set<EventType>>(() => new Set(ALL_TYPES));
+  const [filterMode, setFilterMode] = useState<FilterMode>("hide");
   const [transcriptSearch, setTranscriptSearch] = useState("");
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(() => new Set());
   // turn groups: each top-level user_message starts a "Turn N" (matches Linked
@@ -184,6 +227,7 @@ export default function SessionViewer({
   // transcript → Git jump target (the edit whose diff to focus). Set only via the
   // "see this edit's diff" action; cleared when Git is opened from the tab bar.
   const [gitFocusEvent, setGitFocusEvent] = useState<string | undefined>(undefined);
+  const [gitFocusFileId, setGitFocusFileId] = useState<string | undefined>(undefined);
 
   // Selected event seed: the failing build (bash, exit != 0) is most
   // informative; fall back gracefully. Re-seed whenever the session changes.
@@ -357,21 +401,32 @@ export default function SessionViewer({
     return e.title;
   }
 
-  const matchEvent = useMemo(() => {
+  const matchesSearch = useMemo(() => {
     const q = transcriptSearch.trim().toLowerCase();
     return (e: TranscriptEvent) => {
-      if (!typeFilter.has(e.type)) return false;
       if (q) {
         const hay = `${e.title} ${e.command ?? ""} ${e.filePath ?? ""} ${e.body ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     };
-  }, [typeFilter, transcriptSearch]);
+  }, [transcriptSearch]);
+
+  const matchesType = useMemo(() => {
+    return (e: TranscriptEvent) => typeFilter.has(e.type);
+  }, [typeFilter]);
+
+  const shouldRenderTimelineEvent = useMemo(() => {
+    return (e: TranscriptEvent) =>
+      matchesSearch(e) && (filterMode === "highlight" || matchesType(e));
+  }, [filterMode, matchesSearch, matchesType]);
 
   // top-level events drive the timeline + ribbon; children expand under parents
   const topEvents = useMemo(() => events.filter((e) => !e.parentId), [events]);
-  const visibleEvents = useMemo(() => topEvents.filter(matchEvent), [topEvents, matchEvent]);
+  const visibleEvents = useMemo(
+    () => topEvents.filter(shouldRenderTimelineEvent),
+    [topEvents, shouldRenderTimelineEvent]
+  );
 
   // turn numbering: each top-level user_message starts a new turn. A row's
   // owning turn = the most recent user_message at or before it. The user_message
@@ -408,6 +463,125 @@ export default function SessionViewer({
   function expandAllTurns() {
     setCollapsedTurns(new Set());
   }
+
+  useEffect(() => {
+    setCollapsedTurns(new Set(turnNumberByEventId.keys()));
+  }, [primary.id, turnNumberByEventId]);
+
+  const changedFileByPath = useMemo(() => {
+    const m = new Map<string, TurnFile>();
+    for (const f of bundle.changedFiles) m.set(f.path, { id: f.id, path: f.path });
+    return m;
+  }, [bundle.changedFiles]);
+
+  const changedFilesByEventId = useMemo(() => {
+    const m = new Map<string, Map<string, TurnFile>>();
+    const add = (eventId: string | null | undefined, file: TurnFile | undefined) => {
+      if (!eventId || !file) return;
+      let filesForEvent = m.get(eventId);
+      if (!filesForEvent) {
+        filesForEvent = new Map();
+        m.set(eventId, filesForEvent);
+      }
+      filesForEvent.set(file.id, file);
+    };
+
+    for (const [eventId, files] of Object.entries(bundle.eventFiles)) {
+      for (const f of files) add(eventId, changedFileByPath.get(f.path));
+    }
+    for (const f of bundle.changedFiles) {
+      for (const h of bundle.hunks[f.id] ?? []) {
+        for (const a of bundle.attributions[h.id] ?? []) add(a.eventId, { id: f.id, path: f.path });
+      }
+    }
+    return m;
+  }, [bundle.attributions, bundle.changedFiles, bundle.eventFiles, bundle.hunks, changedFileByPath]);
+
+  const turnRollups = useMemo(() => {
+    type MutableTurnRollup = Omit<TurnRollup, "files" | "collapsed"> & {
+      fileMap: Map<string, TurnFile>;
+    };
+
+    const rollups = new Map<string, MutableTurnRollup>();
+    const collect = (r: MutableTurnRollup, e: TranscriptEvent) => {
+      if (e.type === "file_edit" || e.type === "file_write") r.edits += 1;
+      if (e.type === "bash") r.bash += 1;
+      if (e.type === "error" || (e.exitCode != null && e.exitCode !== 0)) r.errors += 1;
+      r.tokens += e.tokenUsage ?? 0;
+      r.durationMs += e.durationMs ?? 0;
+
+      const directCost = readMetaCostUsd(e);
+      const tokenCost =
+        directCost == null && primary.costUsd != null && primary.tokenUsage > 0 && e.tokenUsage != null
+          ? (primary.costUsd * e.tokenUsage) / primary.tokenUsage
+          : null;
+      const cost = directCost ?? tokenCost;
+      if (cost != null) r.costUsd = (r.costUsd ?? 0) + cost;
+
+      for (const file of changedFilesByEventId.get(e.id)?.values() ?? []) {
+        r.fileMap.set(file.id, file);
+      }
+    };
+
+    for (const e of topEvents) {
+      if (e.type !== "user_message") continue;
+      rollups.set(e.id, {
+        turn: turnNumberByEventId.get(e.id) ?? 0,
+        steps: 0,
+        edits: 0,
+        bash: 0,
+        errors: 0,
+        tokens: 0,
+        durationMs: 0,
+        costUsd: null,
+        fileMap: new Map(),
+        summary: firstNonEmptyLine(e.body) || e.title,
+      });
+    }
+
+    for (const e of topEvents) {
+      const headerId = turnHeaderIds.get(e.id);
+      if (!headerId) continue;
+      const r = rollups.get(headerId);
+      if (!r) continue;
+      if (e.id !== headerId) r.steps += 1;
+      collect(r, e);
+      for (const child of childrenByParent.get(e.id) ?? []) collect(r, child);
+    }
+
+    const out = new Map<string, Omit<TurnRollup, "collapsed">>();
+    for (const [headerId, r] of rollups) {
+      const { fileMap, ...rest } = r;
+      out.set(headerId, { ...rest, files: [...fileMap.values()] });
+    }
+    return out;
+  }, [
+    changedFilesByEventId,
+    childrenByParent,
+    primary.costUsd,
+    primary.tokenUsage,
+    topEvents,
+    turnHeaderIds,
+    turnNumberByEventId,
+  ]);
+
+  const eventTimeBars = useMemo(() => {
+    const parsedTop = topEvents.map((e) => hmsToMs(e.ts)).filter((n): n is number => n != null);
+    const start = parsedTop[0] ?? 0;
+    const lastRaw = parsedTop.at(-1) ?? start;
+    const last = lastRaw < start ? lastRaw + DAY_MS : lastRaw;
+    const span = Math.max(1, primary.durationMs ?? Math.max(1, last - start));
+    const m = new Map<string, { startPct: number; widthPct: number }>();
+    for (const e of events) {
+      const raw = hmsToMs(e.ts);
+      const eventMs = raw == null ? start : raw < start ? raw + DAY_MS : raw;
+      const duration = Math.max(0, e.durationMs ?? 0);
+      const startPct = clampPct(((eventMs - start) / span) * 100);
+      const widthPct = duration > 0 ? Math.max(0.7, Math.min(100, (duration / span) * 100)) : 0.35;
+      m.set(e.id, { startPct, widthPct });
+    }
+    return m;
+  }, [events, primary.durationMs, topEvents]);
 
   const selected: TranscriptEvent | undefined = useMemo(
     () => events.find((e) => e.id === selectedEventId),
@@ -483,6 +657,28 @@ export default function SessionViewer({
     : {};
 
   // ---- handlers ------------------------------------------------------------
+  function expandTurnForEvent(eventId: string) {
+    const headerId = turnHeaderIds.get(eventId);
+    if (!headerId) return;
+    setCollapsedTurns((prev) => {
+      if (!prev.has(headerId)) return prev;
+      const next = new Set(prev);
+      next.delete(headerId);
+      return next;
+    });
+  }
+
+  function selectTimelineEvent(eventId: string, expandTurn = false) {
+    if (expandTurn) expandTurnForEvent(eventId);
+    setSelectedEventId(eventId);
+  }
+
+  function openTurnFile(fileId: string) {
+    setGitFocusFileId(fileId);
+    setGitFocusEvent(undefined);
+    setActiveTab("git");
+  }
+
   function switchSession(id: string) {
     if (id === currentId) return;
     // preserve the current tab so switching sessions from the sidebar keeps you
@@ -507,6 +703,7 @@ export default function SessionViewer({
 
   function clearFilters() {
     setTypeFilter(new Set(ALL_TYPES));
+    setFilterMode("hide");
     setSessionSearch("");
     setTranscriptSearch("");
   }
@@ -538,7 +735,7 @@ export default function SessionViewer({
     const rect = trackEl.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
     const idx = Math.min(events.length - 1, Math.round(ratio * (events.length - 1)));
-    setSelectedEventId(events[idx].id);
+    selectTimelineEvent(events[idx].id, true);
   }
 
   return (
@@ -616,7 +813,10 @@ export default function SessionViewer({
             className={`tab${activeTab === key ? " active" : ""}`}
             onClick={() => {
               setActiveTab(key);
-              if (key === "git") setGitFocusEvent(undefined);
+              if (key === "git") {
+                setGitFocusEvent(undefined);
+                setGitFocusFileId(undefined);
+              }
             }}
           >
             {label}
@@ -698,6 +898,26 @@ export default function SessionViewer({
                   );
                 })}
               </div>
+            </div>
+
+            <div className="filter-row">
+              <span className="flabel">Type filter mode</span>
+              <span className="segmented filter-mode" title="Choose whether non-matching event types stay visible or are hidden">
+                <button
+                  type="button"
+                  className={filterMode === "highlight" ? "active" : ""}
+                  onClick={() => setFilterMode("highlight")}
+                >
+                  Highlight
+                </button>
+                <button
+                  type="button"
+                  className={filterMode === "hide" ? "active" : ""}
+                  onClick={() => setFilterMode("hide")}
+                >
+                  Hide
+                </button>
+              </span>
             </div>
 
             <div className="filter-row">
@@ -808,10 +1028,12 @@ export default function SessionViewer({
             bundle={bundle}
             currentId={currentId}
             focusEventId={gitFocusEvent}
+            focusFileId={gitFocusFileId}
             onJumpToEvent={(eid) => {
               setActiveTab("transcript");
-              setSelectedEventId(eid);
+              selectTimelineEvent(eid, true);
               setGitFocusEvent(undefined);
+              setGitFocusFileId(undefined);
             }}
           />
         ) : activeTab === "stats" ? (
@@ -863,15 +1085,19 @@ export default function SessionViewer({
                   e: TranscriptEvent,
                   depth: number,
                   childCount: number,
-                  turnStats?: { turn: number; steps: number; collapsed: boolean },
+                  turnStats?: TurnRollup,
                 ) => {
                   const isSel = selectedEventId === e.id;
                   const glyph = TYPE_GLYPH[e.type] ?? "•";
                   const pinned = pins.has(e.id);
                   const expanded = expandedAgents.has(e.id);
                   const isTurnHeader = turnStats != null;
+                  const isDimmed = filterMode === "highlight" && !matchesType(e);
+                  const timebar = eventTimeBars.get(e.id) ?? { startPct: 0, widthPct: 0.35 };
                   let subNode: React.ReactNode = null;
-                  if (e.filePath) subNode = <div className="event-sub path">{e.filePath}</div>;
+                  if (isTurnHeader) {
+                    subNode = <div className="event-sub body turn-summary">{turnStats.summary}</div>;
+                  } else if (e.filePath) subNode = <div className="event-sub path">{e.filePath}</div>;
                   else if (e.command) subNode = <div className="event-sub mono">{e.command}</div>;
                   else if (e.body)
                     subNode = <div className="event-sub body">{e.body.split("\n")[0]}</div>;
@@ -887,14 +1113,33 @@ export default function SessionViewer({
                     <div
                       key={e.id}
                       data-eid={e.id}
-                      className={`event-row${depth > 0 ? " child-row" : ""}${isSel ? " selected" : ""}${isTurnHeader ? " turn-header" : ""}`}
-                      onClick={() => setSelectedEventId(e.id)}
+                      data-filter-match={isDimmed ? "false" : "true"}
+                      data-turn={isTurnHeader ? turnStats.turn : undefined}
+                      data-rollup-steps={isTurnHeader ? turnStats.steps : undefined}
+                      data-rollup-edits={isTurnHeader ? turnStats.edits : undefined}
+                      data-rollup-errors={isTurnHeader ? turnStats.errors : undefined}
+                      data-rollup-files={isTurnHeader ? turnStats.files.length : undefined}
+                      data-turn-has-error={isTurnHeader && turnStats.errors > 0 ? "true" : undefined}
+                      className={`event-row${depth > 0 ? " child-row" : ""}${!isTurnHeader ? " step-row" : ""}${isSel ? " selected" : ""}${isTurnHeader ? " turn-header" : ""}${isTurnHeader && turnStats.errors > 0 ? " turn-has-error" : ""}${isDimmed ? " filter-dimmed" : ""}`}
+                      onClick={() => {
+                        if (isTurnHeader) {
+                          setSelectedEventId(e.id);
+                          toggleTurn(e.id);
+                        } else {
+                          selectTimelineEvent(e.id);
+                        }
+                      }}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(ev) => {
                         if (ev.key === "Enter" || ev.key === " ") {
                           ev.preventDefault();
-                          setSelectedEventId(e.id);
+                          if (isTurnHeader) {
+                            setSelectedEventId(e.id);
+                            toggleTurn(e.id);
+                          } else {
+                            selectTimelineEvent(e.id);
+                          }
                         }
                       }}
                       style={{ cursor: "pointer" }}
@@ -957,8 +1202,54 @@ export default function SessionViewer({
                       <span className="event-meta">
                         {isTurnHeader && (
                           <span className="chip turn-chip" title={`Turn ${turnStats.turn} of ${turnCount}`}>
-                            Turn {turnStats.turn} · {turnStats.steps} step{turnStats.steps === 1 ? "" : "s"}
+                            Turn {turnStats.turn}
                           </span>
+                        )}
+                        {isTurnHeader && (
+                          <>
+                            <span className="chip rollup-chip" data-rollup-kind="steps">
+                              {turnStats.steps} step{turnStats.steps === 1 ? "" : "s"}
+                            </span>
+                            <span className="chip rollup-chip" data-rollup-kind="edits">
+                              {turnStats.edits} edits
+                            </span>
+                            <span className="chip rollup-chip" data-rollup-kind="bash">
+                              {turnStats.bash} bash
+                            </span>
+                            <span
+                              className={`chip rollup-chip${turnStats.errors > 0 ? " err" : ""}`}
+                              data-rollup-kind="errors"
+                            >
+                              {turnStats.errors} errors
+                            </span>
+                            <span className="chip rollup-chip" data-rollup-kind="cost">
+                              {fmtCost(turnStats.costUsd)}
+                            </span>
+                            <span className="chip rollup-chip" data-rollup-kind="tokens">
+                              {fmtCompact(turnStats.tokens)} tok
+                            </span>
+                            <span className="chip rollup-chip" data-rollup-kind="duration">
+                              {humanizeDuration(turnStats.durationMs)}
+                            </span>
+                            {turnStats.files.length > 0 ? (
+                              <button
+                                type="button"
+                                className="chip rollup-chip turn-files-chip"
+                                data-file-id={turnStats.files[0].id}
+                                title={turnStats.files.map((f) => f.path).join("\n")}
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  openTurnFile(turnStats.files[0].id);
+                                }}
+                              >
+                                {turnStats.files.length} files
+                              </button>
+                            ) : (
+                              <span className="chip rollup-chip is-empty" data-rollup-kind="files">
+                                0 files
+                              </span>
+                            )}
+                          </>
                         )}
                         {childCount > 0 && (
                           <span className="chip">{childCount} steps</span>
@@ -986,19 +1277,27 @@ export default function SessionViewer({
                           ) : (
                             <span className="err">✗</span>
                           ))}
+                        {!isTurnHeader && (
+                          <span
+                            className="step-timebar-track"
+                            title={`time ${timebar.startPct.toFixed(1)}% · duration ${e.durationMs ?? 0}ms`}
+                          >
+                            <span
+                              className="step-timebar"
+                              data-start-pct={timebar.startPct.toFixed(3)}
+                              data-width-pct={timebar.widthPct.toFixed(3)}
+                              data-duration-ms={e.durationMs ?? 0}
+                              style={{
+                                left: `${timebar.startPct}%`,
+                                width: `${timebar.widthPct}%`,
+                              }}
+                            />
+                          </span>
+                        )}
                       </span>
                     </div>
                   );
                 };
-                // pre-compute steps-per-turn over UNFILTERED top events so the
-                // header chip reads "N steps" of the actual turn, not of what
-                // happens to be filtered in right now.
-                const stepsPerTurn = new Map<string, number>();
-                for (const e of topEvents) {
-                  const h = turnHeaderIds.get(e.id);
-                  if (!h || h === e.id) continue;
-                  stepsPerTurn.set(h, (stepsPerTurn.get(h) ?? 0) + 1);
-                }
                 const rows: React.ReactNode[] = [];
                 for (const e of visibleEvents) {
                   const header = turnHeaderIds.get(e.id);
@@ -1007,16 +1306,11 @@ export default function SessionViewer({
                   // hide non-header rows whose owning turn is collapsed
                   if (collapsed && !isHeader) continue;
                   const kids = childrenByParent.get(e.id) ?? [];
-                  const turnStats = isHeader
-                    ? {
-                        turn: turnNumberByEventId.get(e.id) ?? 0,
-                        steps: stepsPerTurn.get(e.id) ?? 0,
-                        collapsed,
-                      }
-                    : undefined;
+                  const rollup = isHeader ? turnRollups.get(e.id) : undefined;
+                  const turnStats = rollup ? { ...rollup, collapsed } : undefined;
                   rows.push(renderRow(e, 0, kids.length, turnStats));
                   if (!isHeader && kids.length && expandedAgents.has(e.id)) {
-                    for (const k of kids) if (matchEvent(k)) rows.push(renderRow(k, 1, 0));
+                    for (const k of kids) if (shouldRenderTimelineEvent(k)) rows.push(renderRow(k, 1, 0));
                   }
                 }
                 return rows;
@@ -1443,7 +1737,7 @@ export default function SessionViewer({
           <TimeRibbon
             events={topEvents}
             selectedId={selectedEventId}
-            onSelect={setSelectedEventId}
+            onSelect={(eventId) => selectTimelineEvent(eventId, true)}
             title="Time spent"
           />
         </main>
@@ -1487,6 +1781,7 @@ export default function SessionViewer({
                   className="btn"
                   onClick={() => {
                     setGitFocusEvent(selected.id);
+                    setGitFocusFileId(undefined);
                     setActiveTab("git");
                   }}
                   title="See the Git diff this edit produced (jump to the Git tab)"
@@ -1685,13 +1980,13 @@ export default function SessionViewer({
                   <div
                     key={a.id}
                     className="annotation"
-                    onClick={() => target && setSelectedEventId(target.id)}
+                    onClick={() => target && selectTimelineEvent(target.id, true)}
                     role={target ? "button" : undefined}
                     tabIndex={target ? 0 : undefined}
                     onKeyDown={(ev) => {
                       if (target && (ev.key === "Enter" || ev.key === " ")) {
                         ev.preventDefault();
-                        setSelectedEventId(target.id);
+                        selectTimelineEvent(target.id, true);
                       }
                     }}
                     title={
