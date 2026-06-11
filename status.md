@@ -6,8 +6,11 @@ current_stage: tasks/10 merged to main / UI direction probes (A-C) in progress
 
 ## Current
 
-- task: UI 新標準の適用（polish workflow）— 4 方向比較の結果 **B: observability-dense を新標準に採用**（2026-06-11 ユーザー選定「情報密度がちょうどいい」、`design/ui-design-language.md`）。`polish/ui-b-standard` branch で新 main（turn-first）へ port + 新要素拡張中 → ゲート + ユーザー目視合否 → merge
-- agent: claude（サブエージェント委譲、worktree 隔離）
+- task: **3 トラック並行**（2026-06-11 ユーザー指示。オーケストレーションは Claude main）
+  - **UI**: B 標準（`design/ui-design-language.md`）を新 main へ port 中（`polish/ui-b-standard`、サブエージェント）→ ゲート + ユーザー目視合否 → merge
+  - **G9**: 設計フェーズ。実データ 341 sessions で baseline 候補 3 案（median×k / p95 / 絶対閾値）をシミュレーション分析中 → 選択肢つきでユーザーに諮る → task 化 → Codex loop
+  - **G1**: 設計フェーズ。prior art 実装網羅 + GitHub API 一次調査を並列実行中 → design + ADR ドラフト → ユーザー承認 → task 化（audit: A）→ Codex loop。手元データ: 全 341 sessions に git_branch、commit イベント 265 件（SHA は本文抽出余地）
+- agent: claude（調査・分析はサブエージェント委譲。実装フェーズから Codex、UI 以外）
 
 ## Last completed
 
