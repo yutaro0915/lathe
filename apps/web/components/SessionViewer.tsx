@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import TimeRibbon from "@/components/TimeRibbon";
 import DiffViewer from "@/components/DiffViewer";
 import SessionStatsView from "@/components/SessionStatsView";
+import CostAnomalyChip from "@/components/CostAnomalyChip";
 import Link from "next/link";
 import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
 import {
@@ -105,6 +106,7 @@ type TurnRollup = {
   errors: number;
   tokens: number;
   durationMs: number;
+  wallDurationMs: number;
   costUsd: number | null;
   files: TurnFile[];
   summary: string;
@@ -257,7 +259,7 @@ export default function SessionViewer({
         : null;
     if (!sel) return;
     const el = document.querySelector(sel);
-    if (el) el.scrollIntoView({ block: "nearest" });
+    if (el) el.scrollIntoView({ block: "center" });
   }, [selectedEventId, activeTab]);
 
   // ---- minimap zoom --------------------------------------------------------
@@ -533,6 +535,7 @@ export default function SessionViewer({
         errors: 0,
         tokens: 0,
         durationMs: 0,
+        wallDurationMs: 0,
         costUsd: null,
         fileMap: new Map(),
         summary: firstNonEmptyLine(e.body) || e.title,
@@ -547,6 +550,21 @@ export default function SessionViewer({
       if (e.id !== headerId) r.steps += 1;
       collect(r, e);
       for (const child of childrenByParent.get(e.id) ?? []) collect(r, child);
+    }
+
+    const sessionStart = hmsToMs(topEvents[0]?.ts ?? "") ?? 0;
+    const normalizeMs = (e: TranscriptEvent | undefined) => {
+      const raw = e ? hmsToMs(e.ts) : null;
+      if (raw == null) return sessionStart;
+      return raw < sessionStart ? raw + DAY_MS : raw;
+    };
+    const headers = topEvents.filter((e) => e.type === "user_message");
+    const lastTop = topEvents.at(-1);
+    for (let i = 0; i < headers.length; i += 1) {
+      const start = normalizeMs(headers[i]);
+      const end = i + 1 < headers.length ? normalizeMs(headers[i + 1]) : normalizeMs(lastTop);
+      const r = rollups.get(headers[i].id);
+      if (r) r.wallDurationMs = Math.max(0, end - start);
     }
 
     const out = new Map<string, Omit<TurnRollup, "collapsed">>();
@@ -564,6 +582,31 @@ export default function SessionViewer({
     turnHeaderIds,
     turnNumberByEventId,
   ]);
+
+  const highestTurnJump = useMemo(() => {
+    let best: { headerId: string; turn: number; score: number; basis: "cost" | "duration" } | null = null;
+    const useCostBasis =
+      primary.runner === "claude-code" &&
+      [...turnRollups.values()].some((r) => r.costUsd != null && Number.isFinite(r.costUsd));
+    for (const [headerId, r] of turnRollups.entries()) {
+      const costScore = r.costUsd ?? -1;
+      const durationScore = r.wallDurationMs > 0 ? r.wallDurationMs : r.durationMs;
+      const basis: "cost" | "duration" = useCostBasis ? "cost" : "duration";
+      const score = basis === "cost" ? costScore : durationScore;
+      if (score < 0) continue;
+      if (!best || score > best.score || (score === best.score && r.turn < best.turn)) {
+        best = { headerId, turn: r.turn, score, basis };
+      }
+    }
+    return best;
+  }, [primary.runner, turnRollups]);
+
+  const firstErrorTurnJump = useMemo(() => {
+    for (const [headerId, r] of [...turnRollups.entries()].sort((a, b) => a[1].turn - b[1].turn)) {
+      if (r.errors > 0) return { headerId, turn: r.turn, errors: r.errors };
+    }
+    return null;
+  }, [turnRollups]);
 
   const eventTimeBars = useMemo(() => {
     const parsedTop = topEvents.map((e) => hmsToMs(e.ts)).filter((n): n is number => n != null);
@@ -673,6 +716,12 @@ export default function SessionViewer({
     setSelectedEventId(eventId);
   }
 
+  function jumpToTurn(headerId: string) {
+    setActiveTab("transcript");
+    expandTurnForEvent(headerId);
+    setSelectedEventId(headerId);
+  }
+
   function openTurnFile(fileId: string) {
     setGitFocusFileId(fileId);
     setGitFocusEvent(undefined);
@@ -758,6 +807,38 @@ export default function SessionViewer({
           <span className="sessbar-meta">
             {primary.model ?? "—"} · <span className="mono">⎇ {branch}</span> · {commitLabel} ·{" "}
             {sessionDate} {parseStamp(primary.startedAt).time}
+          </span>
+          <CostAnomalyChip session={primary} />
+          <span className="sessbar-jumps">
+            {highestTurnJump && (
+              <button
+                type="button"
+                className="chip jump-chip high-turn-chip"
+                data-jump-kind="highest-cost-turn"
+                data-turn={highestTurnJump.turn}
+                data-turn-score-basis={highestTurnJump.basis}
+                title={
+                  highestTurnJump.basis === "cost"
+                    ? `Jump to the highest estimated-cost turn (${fmtCost(highestTurnJump.score)})`
+                    : `Jump to the longest-duration turn (${humanizeDuration(highestTurnJump.score)})`
+                }
+                onClick={() => jumpToTurn(highestTurnJump.headerId)}
+              >
+                最も高い turn へ
+              </button>
+            )}
+            {firstErrorTurnJump && (
+              <button
+                type="button"
+                className="chip jump-chip error-turn-chip"
+                data-jump-kind="error-turn"
+                data-turn={firstErrorTurnJump.turn}
+                title={`Jump to turn ${firstErrorTurnJump.turn} with ${firstErrorTurnJump.errors} error(s)`}
+                onClick={() => jumpToTurn(firstErrorTurnJump.headerId)}
+              >
+                エラー turn へ
+              </button>
+            )}
           </span>
         </div>
         <div className="sessbar-stats">
@@ -967,17 +1048,21 @@ export default function SessionViewer({
                   <button
                     key={s.id}
                     type="button"
+                    data-session-id={s.id}
                     className={`session-item${active ? " active" : ""}`}
                     onClick={() => switchSession(s.id)}
                     style={{ textAlign: "left", width: "100%", font: "inherit" }}
                   >
                     <div className="si-top">
                       <span className="si-title">{s.title}</span>
-                      {s.errorCount > 0 && (
-                        <span className="badge err" title={`${s.errorCount} failed tool call(s)`}>
-                          {s.errorCount} err
-                        </span>
-                      )}
+                      <span className="si-flags">
+                        <CostAnomalyChip session={s} />
+                        {s.errorCount > 0 && (
+                          <span className="badge err" title={`${s.errorCount} failed tool call(s)`}>
+                            {s.errorCount} err
+                          </span>
+                        )}
+                      </span>
                     </div>
                     <div className="si-meta">
                       <span>
@@ -1092,6 +1177,18 @@ export default function SessionViewer({
                   const pinned = pins.has(e.id);
                   const expanded = expandedAgents.has(e.id);
                   const isTurnHeader = turnStats != null;
+                  const ownerHeaderId = turnHeaderIds.get(e.id);
+                  const ownerTurn = isTurnHeader
+                    ? turnStats.turn
+                    : ownerHeaderId
+                      ? turnRollups.get(ownerHeaderId)?.turn
+                      : undefined;
+                  const rollupDurationMs =
+                    isTurnHeader && turnStats.durationMs > 0
+                      ? turnStats.durationMs
+                      : isTurnHeader
+                        ? turnStats.wallDurationMs
+                        : 0;
                   const isDimmed = filterMode === "highlight" && !matchesType(e);
                   const timebar = eventTimeBars.get(e.id) ?? { startPct: 0, widthPct: 0.35 };
                   let subNode: React.ReactNode = null;
@@ -1114,11 +1211,12 @@ export default function SessionViewer({
                       key={e.id}
                       data-eid={e.id}
                       data-filter-match={isDimmed ? "false" : "true"}
-                      data-turn={isTurnHeader ? turnStats.turn : undefined}
+                      data-turn={ownerTurn}
                       data-rollup-steps={isTurnHeader ? turnStats.steps : undefined}
                       data-rollup-edits={isTurnHeader ? turnStats.edits : undefined}
                       data-rollup-errors={isTurnHeader ? turnStats.errors : undefined}
                       data-rollup-files={isTurnHeader ? turnStats.files.length : undefined}
+                      data-rollup-duration-ms={isTurnHeader ? rollupDurationMs : undefined}
                       data-turn-has-error={isTurnHeader && turnStats.errors > 0 ? "true" : undefined}
                       className={`event-row${depth > 0 ? " child-row" : ""}${!isTurnHeader ? " step-row" : ""}${isSel ? " selected" : ""}${isTurnHeader ? " turn-header" : ""}${isTurnHeader && turnStats.errors > 0 ? " turn-has-error" : ""}${isDimmed ? " filter-dimmed" : ""}`}
                       onClick={() => {
@@ -1229,7 +1327,7 @@ export default function SessionViewer({
                               {fmtCompact(turnStats.tokens)} tok
                             </span>
                             <span className="chip rollup-chip" data-rollup-kind="duration">
-                              {humanizeDuration(turnStats.durationMs)}
+                              {humanizeDuration(rollupDurationMs)}
                             </span>
                             {turnStats.files.length > 0 ? (
                               <button
