@@ -284,6 +284,10 @@ task ファイル（`tasks/NN-*.md`、受け入れ条件つき）への詳細化
 **監査**: 全 task はリスク階層化された監査（Tier A/B/C）を通って main に入る。
 詳細・tier 判定基準・out-of-band commit の扱いは [design/audit-protocol.md](./design/audit-protocol.md)。
 
+**実装ワークフロー**: タスク類型 5 種（loop / design / exploration / polish / hotfix）、
+loop 起動手順（tmux + `/goal`）、エスカレーション基準、bound 既定値、rubric 管理は
+[design/workflows.md](./design/workflows.md) が正本（2026-06-11 確定）。
+
 ### 直近の実行計画（M2 = Phase 1 完了まで）
 
 | 順 | 項目 | 担当 | 前提 |

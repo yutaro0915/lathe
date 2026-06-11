@@ -119,7 +119,7 @@ RED のまま commit しない。同一項目の RED が続く場合の扱いは
 ## 7. 未決定（レビューで決める）
 
 1. loop 実行時の権限モード（auto mode / allowlist。ブランチ隔離前提でどこまで許すか）
-2. bound 節の既定値（turn 上限・時間上限をいくつにするか）
-3. Codex 側に同等の goal loop primitive があるか（一次情報未確認）。無ければ Codex タスクは従来の tasks/NN handoff のまま二本立てにするか
-4. tasks/07 の受け入れ条件の細目（§5 の 4 項で足りるか）
-5. grader の判定根拠の固定方法（ゲートコマンドの実行結果をどう grader に見せるか。実機で `/goal` の挙動確認が先）
+2. ~~bound 節の既定値~~ → **解消（2026-06-11）**: small 10 turns/1h、medium 20/2h、large 40/4h。[workflows.md](./workflows.md) §4 が正本
+3. ~~Codex 側に同等の goal loop primitive があるか~~ → **解消（2026-06-11 ユーザー確認）**: Codex も tmux + `/goal` で駆動する。起動手順は [workflows.md](./workflows.md) §2 が正本（tasks/07・08 はこの方式で完了済み）
+4. ~~tasks/07 の受け入れ条件の細目~~ → **解消**: tasks/07 は 2026-06-10 に完了（受け入れ条件はそのまま機能した）
+5. grader の判定根拠の固定方法（ゲートコマンドの実行結果をどう grader に見せるか。初回起動を Claude が監視する際に実機観測し、workflows.md §2 へ追記する）
