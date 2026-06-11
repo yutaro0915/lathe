@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { costForUsage } from '../lib/cost';
+import { costForUsage, resolveTier } from '../lib/cost';
 import { closePool, queryRows } from '../lib/postgres';
 import { ClaudeProvider } from './ingest/providers/claude';
 import { CodexProvider } from './ingest/providers/codex';
@@ -262,6 +262,50 @@ function candidateKey(candidate: Candidate): string {
   return candidate.row.id;
 }
 
+// Direct rate-resolution assertions (issue #5). The recalculation check below
+// reuses resolveTier/costForUsage, so a resolution bug would cancel out there
+// (DB and recalc both wrong). These fixtures pin model-id -> rate against the
+// first-party prices recorded in docs/cost-semantics.md, so prefix/tier
+// matching regressions (e.g. opus-4-8 falling back to the legacy opus tier)
+// fail loudly. null rows assert that unpriceable ids stay unpriced.
+const RATE_EXPECTATIONS: Array<{ model: string; expect: { input: number; output: number; cacheWrite: number; cacheRead: number } | null }> = [
+  { model: 'claude-opus-4-8', expect: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } },
+  { model: 'claude-opus-4-8-20260301', expect: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 } },
+  { model: 'claude-opus-4-1', expect: { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 } },
+  { model: 'claude-fable-5', expect: { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } },
+  { model: 'claude-sonnet-4-6', expect: { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 } },
+  { model: 'claude-haiku-4-5-20251001', expect: { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 } },
+  { model: 'gpt-5.5', expect: { input: 5, output: 30, cacheWrite: 5, cacheRead: 0.5 } },
+  { model: 'gpt-5.5-2026-05-12', expect: { input: 5, output: 30, cacheWrite: 5, cacheRead: 0.5 } },
+  { model: 'gpt-5-codex', expect: { input: 1.25, output: 10, cacheWrite: 1.25, cacheRead: 0.125 } },
+  { model: 'codex-mini', expect: { input: 1.5, output: 6, cacheWrite: 1.5, cacheRead: 0.375 } },
+  { model: 'codex-auto-review', expect: null },
+  { model: '<synthetic>', expect: null },
+];
+
+function assertRateResolution(): { lines: string[]; failures: string[] } {
+  const lines: string[] = [];
+  const failures: string[] = [];
+  for (const { model, expect } of RATE_EXPECTATIONS) {
+    const got = resolveTier(model);
+    const ok = expect === null
+      ? got === null
+      : got !== null &&
+        got.input === expect.input &&
+        got.output === expect.output &&
+        got.cacheWrite === expect.cacheWrite &&
+        got.cacheRead === expect.cacheRead;
+    const show = (r: { input: number; output: number; cacheWrite: number; cacheRead: number } | null) =>
+      r ? `${r.input}/${r.output}/${r.cacheWrite}/${r.cacheRead}` : 'null';
+    if (ok) {
+      lines.push(`${model.padEnd(26)} -> ${show(got)}`);
+    } else {
+      failures.push(`rate resolution ${model}: expected ${show(expect)} got ${show(got)}`);
+    }
+  }
+  return { lines, failures };
+}
+
 async function main(): Promise<void> {
   const seed = argValue('--seed') || process.env.LATHE_VERIFY_COST_SEED || DEFAULT_SEED;
   const top = await queryRows<SessionRow>(
@@ -289,7 +333,8 @@ async function main(): Promise<void> {
   }
 
   const { index, counts, transcriptsDir } = buildTranscriptIndex();
-  const failures: string[] = [];
+  const rates = assertRateResolution();
+  const failures: string[] = [...rates.failures];
   const checked: string[] = [];
 
   for (const candidate of [...candidates.values()].sort((a, b) => candidateKey(a).localeCompare(candidateKey(b)))) {
@@ -321,6 +366,7 @@ async function main(): Promise<void> {
   console.log(`indexed         : claude-code=${counts['claude-code'] ?? 0} codex=${counts.codex ?? 0}`);
   console.log(`sample          : top=${top.length} random=${random.length} checked=${checked.length} seed=${seed}`);
   console.log(`tolerance       : ${(TOLERANCE * 100).toFixed(2)}%`);
+  console.log(`rate assertions : ${RATE_EXPECTATIONS.length - rates.failures.length}/${RATE_EXPECTATIONS.length} OK (model-id -> usd/Mtok, pinned to docs/cost-semantics.md)`);
   if (checked.length) {
     console.log('--- checked ---');
     for (const line of checked) console.log(`  - ${line}`);
