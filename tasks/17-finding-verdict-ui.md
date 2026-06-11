@@ -17,11 +17,15 @@ bound: 20 turns / 2h
 
 1. **Findings タブ**（上部タブ列。Annotations と同様の routable in-page タブ。件数 badge = 未判定数）
 2. 一覧: kind chip / title / analyst / confidence / evidence 数 / harness 版 / 未判定・採否状態。
-   ui-design-language.md 準拠（ニュートラル + dot、mono 数値、未判定のみ目立たせる）
+   既定は**未判定のみ・confidence 降順**（判定済みはフィルタで）。ui-design-language.md 準拠
+   （ニュートラル + dot、mono 数値、未判定のみ目立たせる）
 3. **採否 = 1 クリック + 理由一言**: 行内に Accept / Reject ボタン + 一言 input（Enter で確定、
    空でも確定可）。判定は finding_verdicts へ。**undo（直後の取り消し）**あり
-4. evidence click → 該当 subject（Transcript の step / Git の hunk / PR）へジャンプ（既存導線再利用）
-5. S2-1 の dogfood 線: accept した finding に「ハーネス編集はユーザー手動（P2 境界）」の注記表示
+4. evidence click → 該当 subject（Transcript の step / Git の hunk / PR）へジャンプ（既存導線再利用）。
+   論理座標が解決できない場合は「根拠は更新された」を明示表示（design §6.2）
+5. session viewer 側の導線: 当該 session に findings があれば sessbar に件数 chip（→ Findings タブの
+   session フィルタ）。session / turn から「Analyze」を起動できる action（rules-v1 即時 + llm は確認つき）
+6. S2-1 の dogfood 線: accept した finding に「ハーネス編集はユーザー手動（P2 境界）」の注記表示
 
 ## 受け入れ条件（すべて機械検証）
 
