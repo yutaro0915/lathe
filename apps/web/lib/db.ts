@@ -27,6 +27,7 @@ import type {
   FileStat,
 } from './types';
 import { queryOne, queryRows } from './postgres';
+import { COST_ANOMALY_BASELINE } from '@lathe/shared';
 
 // ---- raw row shapes (snake_case, as returned by pg) -----------------------
 
@@ -52,6 +53,10 @@ interface SessionRow {
   git_branch: string | null;
   commit_count: number;
   cost_usd: number | null;
+  cost_anomaly: boolean;
+  cost_anomaly_threshold_usd: number;
+  cost_anomaly_group_size: number;
+  cost_anomaly_group_median_usd: number | null;
   summary: string | null;
   seq: number;
 }
@@ -149,6 +154,10 @@ function toSession(r: SessionRow): Session {
     gitBranch: r.git_branch,
     commitCount: r.commit_count,
     costUsd: r.cost_usd,
+    costAnomaly: r.cost_anomaly,
+    costAnomalyThresholdUsd: r.cost_anomaly_threshold_usd,
+    costAnomalyGroupSize: r.cost_anomaly_group_size,
+    costAnomalyGroupMedianUsd: r.cost_anomaly_group_median_usd,
     summary: r.summary,
     seq: r.seq,
   };
@@ -230,11 +239,53 @@ function toAnnotation(r: AnnotationRow): Annotation {
 
 // ---- session queries -------------------------------------------------------
 
+const COST_ANOMALY_PARAMS = [
+  COST_ANOMALY_BASELINE.minimumGroupSize,
+  COST_ANOMALY_BASELINE.absoluteFloorUsd,
+  COST_ANOMALY_BASELINE.medianMultiplier,
+] as const;
+
+const SESSIONS_WITH_COST_ANOMALY = `
+  WITH cost_baseline AS (
+    SELECT runner,
+           COUNT(cost_usd)::int AS cost_anomaly_group_size,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_usd)::float8 AS cost_anomaly_group_median_usd
+      FROM sessions
+     WHERE cost_usd IS NOT NULL
+     GROUP BY runner
+  ),
+  scored_sessions AS (
+    SELECT s.*,
+           COALESCE(b.cost_anomaly_group_size, 0)::int AS cost_anomaly_group_size,
+           b.cost_anomaly_group_median_usd,
+           CASE
+             WHEN s.cost_usd IS NULL THEN $2::float8
+             WHEN COALESCE(b.cost_anomaly_group_size, 0) < $1::int THEN $2::float8
+             WHEN b.cost_anomaly_group_median_usd IS NULL THEN $2::float8
+             ELSE GREATEST(b.cost_anomaly_group_median_usd * $3::float8, $2::float8)
+           END AS cost_anomaly_threshold_usd
+      FROM sessions s
+      LEFT JOIN cost_baseline b ON b.runner = s.runner
+  )
+  SELECT scored_sessions.*,
+         (
+           cost_usd IS NOT NULL
+           AND cost_usd > cost_anomaly_threshold_usd
+         ) AS cost_anomaly
+    FROM scored_sessions
+`;
+
 export async function getPrimarySession(): Promise<Session> {
-  const row = await queryOne<SessionRow>('SELECT * FROM sessions WHERE seq = 1 LIMIT 1');
+  const row = await queryOne<SessionRow>(
+    `${SESSIONS_WITH_COST_ANOMALY} WHERE seq = $4 LIMIT 1`,
+    [...COST_ANOMALY_PARAMS, 1],
+  );
   if (row) return toSession(row);
 
-  const first = await queryOne<SessionRow>('SELECT * FROM sessions ORDER BY seq ASC LIMIT 1');
+  const first = await queryOne<SessionRow>(
+    `${SESSIONS_WITH_COST_ANOMALY} ORDER BY seq ASC LIMIT 1`,
+    [...COST_ANOMALY_PARAMS],
+  );
   if (!first) {
     throw new Error('No sessions found. Run `pnpm ingest` first.');
   }
@@ -242,12 +293,18 @@ export async function getPrimarySession(): Promise<Session> {
 }
 
 export async function getSession(id: string): Promise<Session | undefined> {
-  const row = await queryOne<SessionRow>('SELECT * FROM sessions WHERE id = $1', [id]);
+  const row = await queryOne<SessionRow>(
+    `${SESSIONS_WITH_COST_ANOMALY} WHERE id = $4`,
+    [...COST_ANOMALY_PARAMS, id],
+  );
   return row ? toSession(row) : undefined;
 }
 
 export async function listSessions(): Promise<Session[]> {
-  const rows = await queryRows<SessionRow>('SELECT * FROM sessions ORDER BY seq ASC');
+  const rows = await queryRows<SessionRow>(
+    `${SESSIONS_WITH_COST_ANOMALY} ORDER BY seq ASC`,
+    [...COST_ANOMALY_PARAMS],
+  );
   return rows.map(toSession);
 }
 

@@ -13,6 +13,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import StatsView from "@/components/StatsView";
+import CostAnomalyChip from "@/components/CostAnomalyChip";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
 import type { Session, StatsBundle } from "@/lib/types";
 
@@ -36,13 +37,14 @@ export default function OverviewView({
   }, [sessions, projectFilter, sessionProject]);
 
   const scopeTotals = useMemo(() => {
-    let durationMs = 0, tokens = 0, cost = 0;
+    let durationMs = 0, tokens = 0, cost = 0, anomalies = 0;
     for (const s of scopeSessions) {
       durationMs += s.durationMs ?? 0;
       tokens += s.tokenUsage ?? 0;
       if (s.costUsd != null) cost += s.costUsd;
+      if (s.costAnomaly) anomalies += 1;
     }
-    return { sessions: scopeSessions.length, durationMs, tokens, cost };
+    return { sessions: scopeSessions.length, durationMs, tokens, cost, anomalies };
   }, [scopeSessions]);
 
   const scopeLabel = projectFilter === "all" ? "All projects" : projectFilter;
@@ -73,6 +75,10 @@ export default function OverviewView({
           <div className="kstat">
             <b>{scopeTotals.cost > 0 ? fmtCost(scopeTotals.cost) : "—"}</b>
             <span>cost</span>
+          </div>
+          <div className="kstat">
+            <b>{fmtInt(scopeTotals.anomalies)}</b>
+            <span>cost alerts</span>
           </div>
         </div>
       </div>
@@ -116,14 +122,18 @@ export default function OverviewView({
                 <Link
                   key={s.id}
                   href={`/?session=${encodeURIComponent(s.id)}`}
+                  data-session-id={s.id}
                   className="session-item"
                   style={{ textAlign: "left", display: "block" }}
                 >
                   <div className="si-top">
                     <span className="si-title">{s.title}</span>
-                    {s.errorCount > 0 && (
-                      <span className="badge err">{s.errorCount} err</span>
-                    )}
+                    <span className="si-flags">
+                      <CostAnomalyChip session={s} />
+                      {s.errorCount > 0 && (
+                        <span className="badge err">{s.errorCount} err</span>
+                      )}
+                    </span>
                   </div>
                   <div className="si-meta">
                     <span>{s.durationMs != null && s.durationMs > 0 ? humanizeDuration(s.durationMs) : "—"}</span>

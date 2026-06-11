@@ -110,6 +110,10 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
   color:var(--muted);font-size:11px;font-family:var(--mono);font-weight:500;white-space:nowrap;}
 .chip.hash{background:var(--accent-weak);color:var(--accent-strong);}
 .chip.token{background:var(--bg-sunken);color:var(--muted);} .chip.cost{background:var(--bg-sunken);color:var(--text-soft);}
+.chip.anomaly-chip{background:var(--amber-bg);border:1px solid var(--amber-chip);color:var(--amber-text);font-weight:700;}
+.chip.jump-chip{border:1px solid var(--border);background:var(--panel);color:var(--text-soft);cursor:pointer;}
+.chip.jump-chip:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);}
+.chip.error-turn-chip{border-color:var(--red-chip);color:var(--red-text);}
 
 /* status badges */
 .badge{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;}
@@ -163,6 +167,7 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .session-item.active{background:var(--accent-weak);border-color:var(--accent-ring);box-shadow:var(--shadow-sm);}
 .session-item .si-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
 .session-item .si-title{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.session-item .si-flags{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;}
 .session-item .si-meta{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
 .session-item .si-meta .dot{color:var(--muted-2);}
 .session-item .si-stats{display:flex;align-items:center;gap:6px;}
@@ -436,6 +441,7 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .sessbar-id .runner-dot{flex:0 0 auto;}
 .sessbar-title{font-size:15px;font-weight:680;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46ch;flex:0 1 auto;}
 .sessbar-meta{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;}
+.sessbar-jumps{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
 .sessbar-stats{display:flex;align-items:center;gap:22px;flex:0 0 auto;}
 .kstat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;}
 .kstat b{font-size:15px;font-weight:680;color:var(--text);font-variant-numeric:tabular-nums;}
