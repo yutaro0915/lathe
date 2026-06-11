@@ -4,6 +4,7 @@ import type { Built } from './built';
 import { getDatabaseUrl } from '../../lib/postgres';
 
 export interface InsertCounts {
+  projects: number;
   sessions: number;
   events: number;
   changedFiles: number;
@@ -28,8 +29,10 @@ export async function resetDatabase(schemaPath: string): Promise<Pool> {
 async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<InsertCounts> {
   const validEventIds = new Set<string>();
   for (const b of built) for (const e of b.events) validEventIds.add(e.id);
+  const projectIds = new Set<string>();
 
   const counts: InsertCounts = {
+    projects: 0,
     sessions: built.length,
     events: 0,
     changedFiles: 0,
@@ -42,10 +45,24 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
   for (const b of built) {
     const s = b.session;
     await client.query(
-      `INSERT INTO sessions (id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,seq)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+      `INSERT INTO projects (id,display_name,git_remote,cwd_hint,updated_at)
+       VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         git_remote = COALESCE(EXCLUDED.git_remote, projects.git_remote),
+         cwd_hint = COALESCE(EXCLUDED.cwd_hint, projects.cwd_hint),
+         updated_at = CURRENT_TIMESTAMP`,
+      cleanParams([s.projectId, s.project, s.projectGitRemote, s.projectCwdHint]),
+    );
+    projectIds.add(s.projectId);
+    counts.projects = projectIds.size;
+
+    await client.query(
+      `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,seq)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
       cleanParams([
         s.id,
+        s.projectId,
         s.project,
         s.title,
         s.runner,
@@ -167,6 +184,7 @@ async function deleteSessionRows(client: PoolClient, sessionId: string): Promise
      WHERE event_id IN (SELECT id FROM transcript_events WHERE session_id = $1)`,
     [sessionId],
   );
+  await client.query('DELETE FROM session_commits WHERE session_id = $1', [sessionId]);
   await client.query('DELETE FROM annotations WHERE session_id = $1', [sessionId]);
   await client.query(
     `DELETE FROM attributions

@@ -11,7 +11,10 @@ import type {
 
 export interface BuiltSession {
   id: string;
+  projectId: string;
   project: string;
+  projectGitRemote: string | null;
+  projectCwdHint: string | null;
   title: string;
   runner: Runner;
   model: string | null;

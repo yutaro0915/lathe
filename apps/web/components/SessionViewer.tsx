@@ -219,8 +219,8 @@ export default function SessionViewer({
   // turn groups: each top-level user_message starts a "Turn N" (matches Linked
   // Events numbering). Collapsing a turn hides the assistant/tool steps until
   // the NEXT user_message — so a long run can be scanned at the turn level and
-  // then drilled into. Default = all open.
-  const [collapsedTurns, setCollapsedTurns] = useState<Set<string>>(() => new Set());
+  // then drilled into. Default = all collapsed.
+  const [collapsedTurns, setCollapsedTurns] = useState<Set<string> | null>(null);
 
   // ---- Subagents tab: which run is open ("overview" or a launcher event id) --
   const [subAgentTab, setSubAgentTab] = useState<string>("overview");
@@ -448,10 +448,11 @@ export default function SessionViewer({
     return { turnNumberByEventId, turnHeaderIds };
   }, [topEvents]);
   const turnCount = turnNumberByEventId.size;
+  const effectiveCollapsedTurns = collapsedTurns ?? new Set(turnNumberByEventId.keys());
 
   function toggleTurn(headerId: string) {
     setCollapsedTurns((prev) => {
-      const next = new Set(prev);
+      const next = new Set(prev ?? turnNumberByEventId.keys());
       if (next.has(headerId)) next.delete(headerId);
       else next.add(headerId);
       return next;
@@ -661,8 +662,8 @@ export default function SessionViewer({
     const headerId = turnHeaderIds.get(eventId);
     if (!headerId) return;
     setCollapsedTurns((prev) => {
-      if (!prev.has(headerId)) return prev;
-      const next = new Set(prev);
+      const next = new Set(prev ?? turnNumberByEventId.keys());
+      if (!next.has(headerId)) return next;
       next.delete(headerId);
       return next;
     });
@@ -1060,14 +1061,14 @@ export default function SessionViewer({
                 <span className="segmented turn-filter" title="Show/hide every turn in this session">
                   <button
                     type="button"
-                    className={collapsedTurns.size === 0 ? "active" : ""}
+                    className={effectiveCollapsedTurns.size === 0 ? "active" : ""}
                     onClick={expandAllTurns}
                   >
                     Expand turns
                   </button>
                   <button
                     type="button"
-                    className={collapsedTurns.size === turnCount ? "active" : ""}
+                    className={effectiveCollapsedTurns.size === turnCount ? "active" : ""}
                     onClick={collapseAllTurns}
                   >
                     Collapse turns
@@ -1302,7 +1303,7 @@ export default function SessionViewer({
                 for (const e of visibleEvents) {
                   const header = turnHeaderIds.get(e.id);
                   const isHeader = e.type === "user_message" && turnNumberByEventId.has(e.id);
-                  const collapsed = header != null && collapsedTurns.has(header);
+                  const collapsed = header != null && effectiveCollapsedTurns.has(header);
                   // hide non-header rows whose owning turn is collapsed
                   if (collapsed && !isHeader) continue;
                   const kids = childrenByParent.get(e.id) ?? [];

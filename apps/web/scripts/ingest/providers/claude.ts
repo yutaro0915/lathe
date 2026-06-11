@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { costForUsage } from '../../../lib/cost';
 import type { Built } from '../built';
+import { resolveProjectIdentity } from '../project';
 import {
   clampLines,
   durationBetween,
@@ -547,10 +548,14 @@ export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Bu
     (e) => (e.exit_code != null && e.exit_code !== 0) || e.type === 'error',
   ).length;
   const status = errorCount > 0 ? 'failed' : 'done';
+  const project = resolveProjectIdentity(cwd, cwd ? path.basename(cwd) : 'LLMWiki');
 
   const session: Built['session'] = {
     id: sessionId,
-    project: cwd ? path.basename(cwd) : 'LLMWiki',
+    projectId: project.id,
+    project: project.displayName,
+    projectGitRemote: project.gitRemote,
+    projectCwdHint: project.cwdHint,
     title,
     runner: 'claude-code',
     model,

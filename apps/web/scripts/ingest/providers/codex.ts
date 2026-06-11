@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { costForUsage } from '../../../lib/cost';
 import type { Built } from '../built';
+import { resolveProjectIdentity } from '../project';
 import {
   clampLines,
   hhmmss,
@@ -244,10 +245,14 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
   // cost from real GPT pricing: fresh input + cached (at cache-read rate) + output.
   // null for unpriceable models (e.g. codex-auto-review) -> shown as "—".
   const costUsd = costForUsage(model, { input: tokenIn, output: tokenOut, cacheWrite: 0, cacheRead: cachedInput });
+  const project = resolveProjectIdentity(cwd, cwd ? path.basename(cwd) : 'LLMWiki');
 
   const session: Built['session'] = {
     id: sessionId,
-    project: cwd ? path.basename(cwd) : 'LLMWiki',
+    projectId: project.id,
+    project: project.displayName,
+    projectGitRemote: project.gitRemote,
+    projectCwdHint: project.cwdHint,
     title,
     runner: 'codex',
     model,

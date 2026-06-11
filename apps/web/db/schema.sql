@@ -11,9 +11,22 @@
 --
 -- snake_case columns; the db layer maps to camelCase (see lib/types.ts).
 
+-- A repository-level identity. `id` is the canonical key from ADR 0002:
+-- normalized git remote URL when available (for example github.com/owner/repo),
+-- with a local fallback only for historical/uninitialized transcripts.
+CREATE TABLE IF NOT EXISTS projects (
+  id           TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  git_remote   TEXT,
+  cwd_hint     TEXT,
+  created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- A recorded coding-agent session (one run over a repository).
 CREATE TABLE IF NOT EXISTS sessions (
   id             TEXT PRIMARY KEY,        -- session id from the transcript
+  project_id     TEXT NOT NULL REFERENCES projects(id),
   project        TEXT NOT NULL,           -- repository / project display bucket
   title          TEXT NOT NULL,           -- session title or first user message
   runner         TEXT NOT NULL,           -- claude-code | codex | cursor
@@ -37,6 +50,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   summary        TEXT,
   seq            INTEGER NOT NULL DEFAULT 0    -- ordering in the session list
 );
+CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
 
 -- Append-only transcript events (the timeline of a session).
 CREATE TABLE IF NOT EXISTS transcript_events (
@@ -109,4 +123,64 @@ CREATE TABLE IF NOT EXISTS annotations (
   at_seq     INTEGER NOT NULL,           -- position along the timeline
   kind       TEXT NOT NULL,              -- error | test | edit | commit | note
   note       TEXT
+);
+
+-- Commit SHAs observed in a session transcript. Populated by provider commit
+-- event parsing in the next G1 item.
+CREATE TABLE IF NOT EXISTS session_commits (
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  sha        TEXT NOT NULL,
+  event_id   TEXT REFERENCES transcript_events(id) ON DELETE SET NULL,
+  source     TEXT NOT NULL DEFAULT 'commit_event',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (session_id, sha)
+);
+CREATE INDEX IF NOT EXISTS idx_session_commits_sha ON session_commits(sha);
+
+-- Pull requests imported from the read-only GitHub API.
+CREATE TABLE IF NOT EXISTS pull_requests (
+  id               TEXT PRIMARY KEY,
+  project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  number           INTEGER NOT NULL,
+  node_id          TEXT,
+  title            TEXT NOT NULL,
+  body             TEXT,
+  state            TEXT NOT NULL,
+  url              TEXT NOT NULL,
+  author_login     TEXT,
+  head_ref_name    TEXT,
+  head_sha         TEXT,
+  base_ref_name    TEXT,
+  additions        INTEGER NOT NULL DEFAULT 0,
+  deletions        INTEGER NOT NULL DEFAULT 0,
+  changed_files    INTEGER NOT NULL DEFAULT 0,
+  review_count     INTEGER NOT NULL DEFAULT 0,
+  reviews          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  merged_at        TEXT,
+  synced_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (project_id, number)
+);
+CREATE INDEX IF NOT EXISTS idx_pull_requests_project_state ON pull_requests(project_id, state);
+CREATE INDEX IF NOT EXISTS idx_pull_requests_head_ref ON pull_requests(project_id, head_ref_name);
+
+CREATE TABLE IF NOT EXISTS pr_commits (
+  pr_id        TEXT NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+  sha          TEXT NOT NULL,
+  committed_at TEXT,
+  PRIMARY KEY (pr_id, sha)
+);
+CREATE INDEX IF NOT EXISTS idx_pr_commits_sha ON pr_commits(sha);
+
+-- Incremental GitHub polling state. The ETag column is for the REST
+-- issues?since= path described in ADR 0006.
+CREATE TABLE IF NOT EXISTS github_pr_sync_state (
+  project_id          TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  repo_full_name      TEXT NOT NULL,
+  issues_etag         TEXT,
+  last_issue_since    TEXT,
+  last_backfill_at    TEXT,
+  last_incremental_at TEXT,
+  updated_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
