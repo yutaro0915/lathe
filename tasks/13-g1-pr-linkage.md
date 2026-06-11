@@ -1,7 +1,7 @@
 ---
 id: 13
 title: G1 PR 連携（projects テーブル + PR 取り込み + session ⇄ PR 紐付け + PR 起点ビュー）
-status: todo
+status: done
 assignee: codex (/goal loop)
 depends_on: []   # tasks/11/12 と独立。専用 worktree + 専用 DB で並行実行
 estimated: large
