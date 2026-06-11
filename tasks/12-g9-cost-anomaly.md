@@ -1,7 +1,7 @@
 ---
 id: 12
 title: G9 コスト異常検知（hybrid baseline + anomaly chip + ジャンプ導線）
-status: in-progress
+status: done
 assignee: codex (/goal loop)
 depends_on: [11]   # cost 検証が GREEN になってから
 estimated: medium
