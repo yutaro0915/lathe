@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { costForUsage } from '../../../lib/cost';
 import type { Built } from '../built';
+import { collectSessionCommits } from '../commit-sha';
 import { resolveProjectIdentity } from '../project';
 import {
   clampLines,
@@ -281,6 +282,7 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
   return {
     session,
     events: events as Built['events'],
+    sessionCommits: collectSessionCommits(events as Built['events']),
     eventFiles: eventFiles as Built['eventFiles'],
     changedFiles: changedFiles as Built['changedFiles'],
     hunks: hunks as Built['hunks'],

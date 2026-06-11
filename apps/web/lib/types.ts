@@ -57,6 +57,44 @@ export interface Session {
   seq: number;
 }
 
+export type PullRequestState = 'open' | 'closed' | 'merged';
+
+export interface PullRequestSummary {
+  id: string;
+  projectId: string;
+  number: number;
+  title: string;
+  state: PullRequestState;
+  url: string;
+  headRefName: string | null;
+  mergedAt: string | null;
+  updatedAt: string;
+  linkMethod?: 'sha' | 'branch';
+}
+
+export interface PullRequest extends PullRequestSummary {
+  body: string | null;
+  authorLogin: string | null;
+  headSha: string | null;
+  baseRefName: string | null;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  reviewCount: number;
+  reviews: unknown[];
+  createdAt: string;
+}
+
+export interface PullRequestSessionLink {
+  session: Session;
+  linkMethod: 'sha' | 'branch';
+}
+
+export interface PullRequestBundle {
+  pullRequest: PullRequest;
+  linkedSessions: PullRequestSessionLink[];
+}
+
 export interface TranscriptEvent {
   id: string;
   sessionId: string;
@@ -190,6 +228,7 @@ export interface StatsBundle {
 // server-side and passed as serializable props (no db access on the client).
 export interface SessionBundle {
   session: Session;
+  pullRequests: PullRequestSummary[];
   events: TranscriptEvent[];
   typeCounts: Record<string, number>;
   annotations: Annotation[];

@@ -184,3 +184,29 @@ CREATE TABLE IF NOT EXISTS github_pr_sync_state (
   last_incremental_at TEXT,
   updated_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE OR REPLACE VIEW session_pull_requests AS
+SELECT DISTINCT
+  sc.session_id,
+  pc.pr_id,
+  'sha'::TEXT AS link_method
+FROM session_commits sc
+JOIN pr_commits pc ON pc.sha = sc.sha
+JOIN pull_requests pr ON pr.id = pc.pr_id
+JOIN sessions s ON s.id = sc.session_id AND s.project_id = pr.project_id
+UNION
+SELECT DISTINCT
+  s.id AS session_id,
+  pr.id AS pr_id,
+  'branch'::TEXT AS link_method
+FROM sessions s
+JOIN pull_requests pr
+  ON pr.project_id = s.project_id
+ AND pr.head_ref_name IS NOT NULL
+ AND s.git_branch = pr.head_ref_name
+WHERE s.git_branch IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM session_commits sc
+    WHERE sc.session_id = s.id
+  );

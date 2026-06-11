@@ -25,6 +25,11 @@ import type {
   ProjectStat,
   ProjectSessionRef,
   FileStat,
+  PullRequest,
+  PullRequestBundle,
+  PullRequestSessionLink,
+  PullRequestState,
+  PullRequestSummary,
 } from './types';
 import { queryOne, queryRows } from './postgres';
 
@@ -116,6 +121,46 @@ interface AnnotationRow {
   at_seq: number;
   kind: string;
   note: string | null;
+}
+
+interface PullRequestRow {
+  id: string;
+  project_id: string;
+  number: number;
+  title: string;
+  body: string | null;
+  state: string;
+  url: string;
+  author_login: string | null;
+  head_ref_name: string | null;
+  head_sha: string | null;
+  base_ref_name: string | null;
+  additions: number;
+  deletions: number;
+  changed_files: number;
+  review_count: number;
+  reviews: string | unknown[] | null;
+  created_at: string;
+  updated_at: string;
+  merged_at: string | null;
+}
+
+interface PullRequestLinkRow extends PullRequestRow {
+  link_method: string;
+}
+
+interface SessionPrSummaryRow {
+  session_id: string;
+  id: string;
+  project_id: string;
+  number: number;
+  title: string;
+  state: string;
+  url: string;
+  head_ref_name: string | null;
+  merged_at: string | null;
+  updated_at: string;
+  link_method: string;
 }
 
 interface LinkedEventRow extends TranscriptEventRow {
@@ -228,6 +273,51 @@ function toAnnotation(r: AnnotationRow): Annotation {
   };
 }
 
+function parseReviews(value: PullRequestRow['reviews']): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function toPullRequestSummary(r: PullRequestRow | SessionPrSummaryRow, linkMethod?: string): PullRequestSummary {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    number: r.number,
+    title: r.title,
+    state: r.state as PullRequestState,
+    url: r.url,
+    headRefName: r.head_ref_name,
+    mergedAt: r.merged_at,
+    updatedAt: r.updated_at,
+    linkMethod: linkMethod ? (linkMethod as 'sha' | 'branch') : undefined,
+  };
+}
+
+function toPullRequest(r: PullRequestRow): PullRequest {
+  return {
+    ...toPullRequestSummary(r),
+    body: r.body,
+    authorLogin: r.author_login,
+    headSha: r.head_sha,
+    baseRefName: r.base_ref_name,
+    additions: r.additions,
+    deletions: r.deletions,
+    changedFiles: r.changed_files,
+    reviewCount: r.review_count,
+    reviews: parseReviews(r.reviews),
+    createdAt: r.created_at,
+  };
+}
+
 // ---- session queries -------------------------------------------------------
 
 export async function getPrimarySession(): Promise<Session> {
@@ -249,6 +339,69 @@ export async function getSession(id: string): Promise<Session | undefined> {
 export async function listSessions(): Promise<Session[]> {
   const rows = await queryRows<SessionRow>('SELECT * FROM sessions ORDER BY seq ASC');
   return rows.map(toSession);
+}
+
+// ---- pull request queries --------------------------------------------------
+
+export async function listPullRequests(): Promise<PullRequestSummary[]> {
+  const rows = await queryRows<PullRequestRow>(
+    `SELECT *
+       FROM pull_requests
+      ORDER BY updated_at DESC, project_id ASC, number DESC`,
+  );
+  return rows.map((row) => toPullRequestSummary(row));
+}
+
+export async function getPullRequest(id: string): Promise<PullRequest | undefined> {
+  const row = await queryOne<PullRequestRow>('SELECT * FROM pull_requests WHERE id = $1', [id]);
+  return row ? toPullRequest(row) : undefined;
+}
+
+export async function getPullRequestsForSession(sessionId: string): Promise<PullRequestSummary[]> {
+  const rows = await queryRows<PullRequestLinkRow>(
+    `SELECT pr.*, spr.link_method
+       FROM session_pull_requests spr
+       JOIN pull_requests pr ON pr.id = spr.pr_id
+      WHERE spr.session_id = $1
+      ORDER BY pr.updated_at DESC, pr.number DESC`,
+    [sessionId],
+  );
+  return rows.map((row) => toPullRequestSummary(row, row.link_method));
+}
+
+export async function getSessionPrSummary(): Promise<Record<string, PullRequestSummary[]>> {
+  const rows = await queryRows<SessionPrSummaryRow>(
+    `SELECT spr.session_id,
+            pr.id, pr.project_id, pr.number, pr.title, pr.state, pr.url,
+            pr.head_ref_name, pr.merged_at, pr.updated_at, spr.link_method
+       FROM session_pull_requests spr
+       JOIN pull_requests pr ON pr.id = spr.pr_id
+      ORDER BY pr.updated_at DESC, pr.number DESC`,
+  );
+  const out: Record<string, PullRequestSummary[]> = {};
+  for (const row of rows) (out[row.session_id] ??= []).push(toPullRequestSummary(row, row.link_method));
+  return out;
+}
+
+export async function getSessionsForPullRequest(prId: string): Promise<PullRequestSessionLink[]> {
+  const rows = await queryRows<SessionRow & { link_method: string }>(
+    `SELECT s.*, spr.link_method
+       FROM session_pull_requests spr
+       JOIN sessions s ON s.id = spr.session_id
+      WHERE spr.pr_id = $1
+      ORDER BY s.seq ASC`,
+    [prId],
+  );
+  return rows.map((row) => ({ session: toSession(row), linkMethod: row.link_method as 'sha' | 'branch' }));
+}
+
+export async function getPullRequestBundle(id: string): Promise<PullRequestBundle | undefined> {
+  const pullRequest = await getPullRequest(id);
+  if (!pullRequest) return undefined;
+  return {
+    pullRequest,
+    linkedSessions: await getSessionsForPullRequest(id),
+  };
 }
 
 // ---- transcript event queries ---------------------------------------------
@@ -355,11 +508,12 @@ export async function getSessionBundle(id: string): Promise<SessionBundle | unde
   const session = await getSession(id);
   if (!session) return undefined;
 
-  const [events, typeCounts, annotations, changedFiles] = await Promise.all([
+  const [events, typeCounts, annotations, changedFiles, pullRequests] = await Promise.all([
     getEvents(id),
     countEventsByType(id),
     getAnnotations(id),
     getChangedFiles(id),
+    getPullRequestsForSession(id),
   ]);
 
   const eventFilePairs = await Promise.all(events.map(async (e) => [e.id, await getEventFiles(e.id)] as const));
@@ -383,6 +537,7 @@ export async function getSessionBundle(id: string): Promise<SessionBundle | unde
 
   return {
     session,
+    pullRequests,
     events,
     typeCounts,
     annotations,

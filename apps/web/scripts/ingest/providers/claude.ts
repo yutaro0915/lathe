@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { costForUsage } from '../../../lib/cost';
 import type { Built } from '../built';
+import { collectSessionCommits } from '../commit-sha';
 import { resolveProjectIdentity } from '../project';
 import {
   clampLines,
@@ -588,6 +589,7 @@ export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Bu
   return {
     session,
     events: events as Built['events'],
+    sessionCommits: collectSessionCommits(events as Built['events']),
     eventFiles: eventFiles as Built['eventFiles'],
     changedFiles: changedFiles as Built['changedFiles'],
     hunks: hunks as Built['hunks'],

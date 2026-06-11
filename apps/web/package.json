@@ -46,7 +46,12 @@
     "start": "next start",
     "ingest": "tsx scripts/ingest.ts",
     "coverage": "tsx scripts/coverage_check.ts",
+    "verify:commits": "tsx scripts/verify-commits.ts",
     "verify:notify": "tsx scripts/verify-ingest-notify.ts",
+    "verify:pr": "tsx scripts/verify-pr.ts",
+    "verify:pr-idempotency": "tsx scripts/verify-pr-idempotency.ts",
+    "verify:pr-etag": "tsx scripts/verify-pr-etag.ts",
+    "verify:pr-links": "tsx scripts/verify-pr-links.ts",
     "e2e": "playwright test"
   },
   "dependencies": {

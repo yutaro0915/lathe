@@ -56,7 +56,7 @@ async function main() {
   const db = await resetDatabase(SCHEMA_PATH);
   const counts = await insertBuilt(db, built).finally(() => db.end());
   console.log(
-    `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: projects=${counts.projects} sessions=${counts.sessions} events=${counts.events} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations}`,
+    `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: projects=${counts.projects} sessions=${counts.sessions} events=${counts.events} session_commits=${counts.sessionCommits} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations}`,
   );
 }
 

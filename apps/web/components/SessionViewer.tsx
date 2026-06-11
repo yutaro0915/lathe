@@ -33,6 +33,7 @@ import type {
   TranscriptEvent,
   EventType,
   AnnotationKind,
+  PullRequestSummary,
 } from "@/lib/types";
 
 function durLabel(ms: number | null): string {
@@ -184,6 +185,7 @@ export default function SessionViewer({
   currentId,
   projects,
   sessionProject,
+  sessionPrs,
   initialTab = "transcript",
 }: {
   sessions: Session[];
@@ -194,11 +196,13 @@ export default function SessionViewer({
   // inside the SessionViewer (which is per-session).
   projects: { project: string; sessions: number; cost: number; costKnown: boolean }[];
   sessionProject: Record<string, string>;
+  sessionPrs: Record<string, PullRequestSummary[]>;
   initialTab?: Tab;
 }) {
   const router = useRouter();
 
   const primary = bundle.session;
+  const primaryPrs = bundle.pullRequests;
   const events = bundle.events;
   const typeCounts = bundle.typeCounts;
   const annotations = bundle.annotations;
@@ -739,6 +743,15 @@ export default function SessionViewer({
     selectTimelineEvent(events[idx].id, true);
   }
 
+  function prStateLabel(pr: PullRequestSummary): string {
+    if (pr.mergedAt || pr.state === "merged") return "merged";
+    return pr.state;
+  }
+
+  function openPr(prId: string) {
+    router.push(`/pr?pr=${encodeURIComponent(prId)}`);
+  }
+
   return (
     <>
       {/* ===================== Band 2 — metrics ===================== */}
@@ -760,6 +773,20 @@ export default function SessionViewer({
             {primary.model ?? "—"} · <span className="mono">⎇ {branch}</span> · {commitLabel} ·{" "}
             {sessionDate} {parseStamp(primary.startedAt).time}
           </span>
+          {primaryPrs.length > 0 && (
+            <span className="pr-chip-row">
+              {primaryPrs.slice(0, 3).map((pr) => (
+                <Link
+                  key={pr.id}
+                  href={`/pr?pr=${encodeURIComponent(pr.id)}`}
+                  className={`pr-chip ${prStateLabel(pr)}`}
+                  title={pr.title}
+                >
+                  #{pr.number} {prStateLabel(pr)}
+                </Link>
+              ))}
+            </span>
+          )}
         </div>
         <div className="sessbar-stats">
           <div className="kstat">
@@ -964,6 +991,7 @@ export default function SessionViewer({
               {visibleSessions.map((s) => {
                 const st = parseStamp(s.startedAt);
                 const active = s.id === currentId;
+                const prs = sessionPrs[s.id] ?? [];
                 return (
                   <button
                     key={s.id}
@@ -996,6 +1024,28 @@ export default function SessionViewer({
                       </span>
                       <span className="chip token">{fmtTok(s.tokenUsage)} tok</span>
                       <span className="chip cost">{fmtCost(s.costUsd)}</span>
+                      {prs.slice(0, 1).map((pr) => (
+                        <span
+                          key={pr.id}
+                          className={`pr-chip mini ${prStateLabel(pr)}`}
+                          title={pr.title}
+                          role="link"
+                          tabIndex={0}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openPr(pr.id);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              openPr(pr.id);
+                            }
+                          }}
+                        >
+                          #{pr.number} {prStateLabel(pr)}
+                        </span>
+                      ))}
                     </div>
                   </button>
                 );

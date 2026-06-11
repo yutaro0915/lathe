@@ -7,6 +7,7 @@ export interface InsertCounts {
   projects: number;
   sessions: number;
   events: number;
+  sessionCommits: number;
   changedFiles: number;
   hunks: number;
   attributions: number;
@@ -35,6 +36,7 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
     projects: 0,
     sessions: built.length,
     events: 0,
+    sessionCommits: 0,
     changedFiles: 0,
     hunks: 0,
     attributions: 0,
@@ -112,6 +114,19 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
         ]),
       );
       counts.events++;
+    }
+
+    for (const commit of b.sessionCommits) {
+      if (commit.event_id && !validEventIds.has(commit.event_id)) continue;
+      await client.query(
+        `INSERT INTO session_commits (session_id,sha,event_id,source)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (session_id, sha) DO UPDATE SET
+           event_id = EXCLUDED.event_id,
+           source = EXCLUDED.source`,
+        cleanParams([commit.session_id, commit.sha, commit.event_id, commit.source]),
+      );
+      counts.sessionCommits++;
     }
 
     for (const f of b.changedFiles) {
