@@ -6,12 +6,13 @@ current_stage: full roadmap fixed (rolling wave) / next = M2 Phase 1 close-out
 
 ## Current
 
-- task: **全体実装計画の確定**（ROADMAP.md 改訂 + design/audit-protocol.md 新設）。次は直近実行計画 順 1 = tasks/09 G8 mockup
+- task: M2 順 2 = tasks/10 turn-first explorer。**受け入れ条件のユーザー承認待ち**（承認後 Claude が tmux + /goal で loop 起動）
 - agent: none
 - progress: `POST /api/ingest/notify` は `LATHE_NOTIFY_TOKEN` Bearer token 必須、transcript は `~/.claude/projects` / `~/.codex/sessions` / `~/.codex/archived_sessions` 配下の実在 `.jsonl` だけ許可。`lathe-client init` は token を env から読み、未指定時は `.lathe/config.json` へ生成保存、hook は Authorization header を送る。G8 は prior art 調査（`design/research-g8-trace-explorer-ui.md`、27 実装）→ 設計枠組み（`design/g8-explorer-ui.md`、未決 5 点）までドラフト完了・レビュー待ち (claude)
 
 ## Last completed
 
+- 2026-06-11 [09] G8 mockup close — 並行セッション成果物（mockups/g8 PNG 10 枚 + NOTES.md、g8-explorer-ui.md §7 決定化、tasks/09・10）を Claude が回収・照合して commit。受け入れ条件 6 項照合 PASS（10 ファイル存在 / 案バッジ / 実データ baseline / 配色維持 / NOTES 変更点 / コード変更 0）。ユーザーレビューは 2026-06-10 実施済み: **A-1 turn-first のみ採用、A-2/A-3 不採用、ファイル軸は軽い導線、細部は作りながら詰める**。M2 順 1 完了 (claude)
 - 2026-06-11 全体実装計画の確定 — ユーザー決定 4 点（rolling wave / Phase 1 完了ライン = G8+G9+G1 / リスク階層監査 / 期日ベストエフォート）を受け、ROADMAP.md を改訂: Phase 1 完了定義更新（tasks/01-08 済、残 = G8/G9/G1）、Phase 2/3/4/6 に開始ゲート確定事項と G 採番を紐付け（**ハーネス版数を Phase 2 で一級概念化** が最重要の先取り）、マイルストーン順序化、論点台帳 13 件に整理（済 5 / 残 8 を Phase ゲートへ割付）、「直近の実行計画（M2）」6 手順を明記。`design/audit-protocol.md` 新設（Tier A/B/C、裏取り原則、out-of-band retro 監査、tasks/08 を参照実装に）(claude)
 - 2026-06-11 d0f5da0 事後監査（out-of-band commit、audit-protocol 初適用）— **PASS-with-notes、重大指摘なし**。Bearer token は timingSafeEqual 比較、transcript は realpath 後 allowlist + `.jsonl` 制限で symlink/`..` エスケープ遮断、fail-open 維持（token 未設定時はヘッダ送らず・失敗は silent）、schema.sql は DDL 不変（コメントのみ）、verify:notify が拒否 4 ケース + DB 不変を実検査 (claude)
 - 2026-06-11 issues #2/#3 — `apps/web/db/schema.sql` の列セマンティクスコメントを PostgreSQL 方言のまま復元。notify endpoint は JSON parse / transcript 読み取り前に Bearer token を検証し、`realpath` 後の transcript allowlist + `.jsonl` 制限を追加。hook 生成は token を Authorization header へ載せ、`.lathe/.gitignore` で config/token を git へ載せない。`verify:notify` は token なし / wrong token / allowlist 外 `.jsonl` / symlink escape の拒否と DB 不変、正規 notify の冪等 replace を確認。サブエージェントレビューの指摘を反映済み。`pnpm -F @lathe/client build` PASS、`pnpm -F web build` PASS、`LATHE_TRANSCRIPTS_DIR=/Users/cherie/.claude/projects/-Users-cherie-LLMWiki pnpm -F web coverage` GREEN、`pnpm -F web e2e` 49/49 GREEN、`pnpm -F web verify:notify -- --url http://localhost:3210` PASS (codex)
