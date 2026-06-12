@@ -81,6 +81,12 @@ const FINDING_FIXTURE = {
   },
 };
 
+const CHAT_FIXTURE = {
+  projectId: "fixture:s2-chat-view",
+  sessionId: "fixture-chat-session",
+  title: "Fixture chat session",
+};
+
 function fmtCompactForTest(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
@@ -304,6 +310,105 @@ async function cleanupFindingFixtures() {
     await client.query("DELETE FROM sessions WHERE id = $1", [FINDING_FIXTURE.sessionId]);
     await client.query("DELETE FROM harness_versions WHERE id = $1", [FINDING_FIXTURE.harnessId]);
     await client.query("DELETE FROM projects WHERE id = $1", [FINDING_FIXTURE.projectId]);
+  });
+}
+
+async function cleanupChatFixtures() {
+  await withDb(async (client) => {
+    await client.query(
+      `DELETE FROM findings
+        WHERE analyst = 'chat-fake-provider'
+           OR project_id = $1`,
+      [CHAT_FIXTURE.projectId]
+    );
+    await client.query(
+      `DELETE FROM chat_threads
+        WHERE project_id = $1
+           OR title LIKE 'E2E chat%'`,
+      [CHAT_FIXTURE.projectId]
+    );
+    await client.query("DELETE FROM transcript_events WHERE session_id = $1", [CHAT_FIXTURE.sessionId]);
+    await client.query("DELETE FROM sessions WHERE id = $1", [CHAT_FIXTURE.sessionId]);
+    await client.query("DELETE FROM projects WHERE id = $1", [CHAT_FIXTURE.projectId]);
+  });
+}
+
+async function seedChatFixtures() {
+  await cleanupChatFixtures();
+  await withDb(async (client) => {
+    await client.query("BEGIN");
+    try {
+      await client.query(
+        "INSERT INTO projects (id,display_name,git_remote,cwd_hint) VALUES ($1,$2,$3,$4)",
+        [
+          CHAT_FIXTURE.projectId,
+          "S2 Chat View Fixture",
+          "https://github.com/lathe-fixture/chat-view.git",
+          "/tmp/lathe-chat-view",
+        ]
+      );
+      await client.query(
+        `INSERT INTO sessions (
+           id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,
+           edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,
+           cost_usd,summary,seq
+         )
+         VALUES ($1,$2,'S2 Chat View Fixture',$3,'codex','<synthetic>','done',
+           '2026-06-12 01:00:00','2026-06-12 01:00:05',5000,1,1,0,1,0,0,42,24,18,
+           'loop/18-agent-chat',0,0.01,'chat fixture',920018)`,
+        [CHAT_FIXTURE.sessionId, CHAT_FIXTURE.projectId, CHAT_FIXTURE.title]
+      );
+      await client.query(
+        `INSERT INTO transcript_events
+          (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta,parent_id)
+         VALUES
+          ($1,$2,1,'01:00:00','user_message','user','Chat fixture prompt','Analyze this fixture.',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+          ($3,$2,2,'01:00:02','assistant_message','assistant','Chat fixture answer','The fixture has enough context for chat.',NULL,NULL,NULL,200,42,NULL,NULL,NULL)`,
+        [
+          `${CHAT_FIXTURE.sessionId}-event-1`,
+          CHAT_FIXTURE.sessionId,
+          `${CHAT_FIXTURE.sessionId}-event-2`,
+        ]
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+async function assistantMetaForThread(threadId: string): Promise<Record<string, unknown>> {
+  return withDb(async (client) => {
+    const row = (
+      await client.query<{ meta: string | Record<string, unknown> | null }>(
+        `SELECT meta
+           FROM chat_messages
+          WHERE thread_id = $1
+            AND role = 'assistant'
+          ORDER BY seq DESC
+          LIMIT 1`,
+        [threadId]
+      )
+    ).rows[0];
+    if (!row?.meta) throw new Error(`assistant meta missing for ${threadId}`);
+    return typeof row.meta === "string" ? JSON.parse(row.meta) : row.meta;
+  });
+}
+
+async function latestChatFindingTitle(): Promise<string> {
+  return withDb(async (client) => {
+    const row = (
+      await client.query<{ title: string }>(
+        `SELECT title
+           FROM findings
+          WHERE analyst = 'chat-fake-provider'
+          ORDER BY id DESC
+          LIMIT 1`
+      )
+    ).rows[0];
+    if (!row) throw new Error("chat finding missing");
+    return row.title;
   });
 }
 
@@ -664,9 +769,11 @@ async function expectTurnJump(
 test.beforeAll(async () => {
   await seedCostFallbackFixtures();
   await seedFindingFixtures();
+  await seedChatFixtures();
 });
 
 test.afterAll(async () => {
+  await cleanupChatFixtures();
   await cleanupFindingFixtures();
   await cleanupCostFallbackFixtures();
 });
@@ -763,6 +870,79 @@ async function seedPrFixture() {
 // Assertions are structural (counts change, classes toggle, URL changes) rather
 // than tied to specific seeded titles, so they stay green as the ingested
 // transcripts grow.
+
+test.describe("Agent chat view (/chat)", () => {
+  test("creates a thread, sends a message, and renders the fake provider response", async ({
+    page,
+  }) => {
+    await page.goto("/chat");
+    await page.locator(".chat-sidebar .btn", { hasText: "New" }).click();
+    await expect(page).toHaveURL(/\/chat\?thread=/);
+
+    await page.locator(".chat-input").fill("E2E chat basic");
+    await page.locator(".chat-send").click();
+
+    await expect(page.locator(".chat-message.user")).toContainText("E2E chat basic");
+    await expect(page.locator(".chat-message.assistant").last()).toContainText(
+      "Fake analysis: E2E chat basic"
+    );
+    await expect(page.locator(".chat-thread-item.active .chat-thread-title")).toContainText(
+      "E2E chat basic"
+    );
+  });
+
+  test("streams fake provider chunks before the final assistant message persists", async ({
+    page,
+  }) => {
+    await page.goto("/chat");
+    await page.locator(".chat-sidebar .btn", { hasText: "New" }).click();
+    await page.locator(".chat-input").fill("E2E chat stream fixture");
+    await page.locator(".chat-send").click();
+
+    const streaming = page.locator(".chat-message.assistant.streaming");
+    await expect(streaming).toContainText("stream chunk 1");
+    await expect(streaming).not.toContainText("stream complete");
+    await expect(page.locator(".chat-message.assistant").last()).toContainText("stream complete");
+  });
+
+  test("attached session context reaches the fake provider request record", async ({
+    page,
+  }) => {
+    await page.goto(`/chat?session=${CHAT_FIXTURE.sessionId}`);
+    await expect(page.locator(".chat-attach-chip")).toContainText(CHAT_FIXTURE.title);
+    await page.locator(".chat-sidebar .btn", { hasText: "New" }).click();
+    await page.locator(".chat-input").fill("E2E chat attached session bundle");
+    await page.locator(".chat-send").click();
+
+    await expect(page.locator(".chat-message.assistant").last()).toContainText(
+      `Session bundle loaded: ${CHAT_FIXTURE.title}`
+    );
+    const threadId = new URL(page.url()).searchParams.get("thread");
+    expect(threadId).toBeTruthy();
+    const meta = await assistantMetaForThread(threadId!);
+    expect(JSON.stringify(meta)).toContain(CHAT_FIXTURE.sessionId);
+    expect(JSON.stringify(meta)).toContain("get_session_bundle");
+  });
+
+  test("chat submit_finding appears in Findings and can enter the verdict flow", async ({
+    page,
+  }) => {
+    await page.goto(`/chat?session=${CHAT_FIXTURE.sessionId}`);
+    await page.locator(".chat-sidebar .btn", { hasText: "New" }).click();
+    await page.locator(".chat-input").fill("submit finding");
+    await page.locator(".chat-send").click();
+    await expect(page.locator(".chat-message.assistant").last()).toContainText("Submitted finding:");
+
+    const title = await latestChatFindingTitle();
+    await page.goto(`/?session=${CHAT_FIXTURE.sessionId}&tab=findings&findingSession=${CHAT_FIXTURE.sessionId}`);
+    const row = page.locator(".finding-row", { hasText: title });
+    await expect(row).toBeVisible();
+    await row.locator(".finding-verdict-reason").fill("chat verified");
+    await row.locator(".finding-verdict-btn.accept").click();
+    await expect(page.locator(".finding-verdict-toast.accept")).toContainText("Accepted");
+    await expect.poll(async () => verdictCountForFinding(title)).toBe(1);
+  });
+});
 
 test.describe("Session viewer (/)", () => {
   test("loads with sessions, a named header and a timeline", async ({ page }) => {

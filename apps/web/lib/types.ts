@@ -199,6 +199,29 @@ export interface Finding {
   verdict: FindingVerdict | null;
 }
 
+export interface ChatThread {
+  id: string;
+  projectId: string | null;
+  title: string;
+  sessionId: string | null;
+  findingId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+}
+
+export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool';
+
+export interface ChatMessage {
+  id: string;
+  threadId: string;
+  role: ChatMessageRole;
+  body: string;
+  seq: number;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 // Convenience shape for screen B's "Linked Events" panel.
 export interface LinkedEvent {
   event: TranscriptEvent;

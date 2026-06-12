@@ -1175,6 +1175,12 @@ export default function SessionViewer({
     router.push(`/?session=${encodeURIComponent(currentId)}&tab=findings&findingSession=${encodeURIComponent(currentId)}`);
   }
 
+  function findingDiscussHref(finding: Finding): string {
+    const sessionId =
+      finding.evidence.map(evidenceSessionId).find((id): id is string => Boolean(id)) ?? currentId;
+    return `/chat?finding=${finding.id}&session=${encodeURIComponent(sessionId)}`;
+  }
+
   return (
     <>
       {/* ===================== Band 2 — metrics ===================== */}
@@ -1212,6 +1218,13 @@ export default function SessionViewer({
               )}
             </button>
           )}
+          <Link
+            href={`/chat?session=${encodeURIComponent(currentId)}`}
+            className="chip jump-chip chat-session-chip"
+            title="Discuss this session"
+          >
+            Discuss
+          </Link>
           <span className="sessbar-jumps">
             {highestTurnJump && (
               <button
@@ -1329,6 +1342,9 @@ export default function SessionViewer({
             )}
           </button>
         ))}
+        <Link href="/chat" className="tab">
+          Chat
+        </Link>
         <span className="tabs-spacer" />
         <span className="tabs-tool">
           <span className="sort-select">{visibleEvents.length} shown</span>
@@ -2428,6 +2444,9 @@ export default function SessionViewer({
                         <span className="mono">{findingConfidenceLabel(finding.confidence)}</span>
                         <span className="mono">{finding.evidence.length} evidence</span>
                         <span className="mono">harness {harnessLabel}</span>
+                        <Link className="finding-discuss-link" href={findingDiscussHref(finding)}>
+                          Discuss
+                        </Link>
                         {finding.verdict && (
                           <span className="mono">
                             {finding.verdict.decidedBy} · {finding.verdict.reason || "no reason"}

@@ -24,7 +24,7 @@ export default defineConfig({
   ],
   webServer: {
     // build + start a production server; assumes Postgres has already been ingested.
-    command: `pnpm build && pnpm start -p ${PORT}`,
+    command: `LATHE_CHAT_PROVIDER=fake pnpm build && LATHE_CHAT_PROVIDER=fake pnpm start -p ${PORT}`,
     url: `http://localhost:${PORT}`,
     timeout: 180_000,
     reuseExistingServer: false,
