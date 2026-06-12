@@ -1,7 +1,7 @@
 ---
 id: 16
 title: analyst 3 系統 probe 基盤 + 既知インシデント replay（smoke gate）
-status: todo
+status: in-progress
 assignee: codex (/goal loop)
 depends_on: [14, 15]
 estimated: large

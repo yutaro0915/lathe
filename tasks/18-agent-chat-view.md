@@ -1,7 +1,7 @@
 ---
 id: 18
 title: agent チャット view（/chat 専用画面・CLI provider・lathe MCP 限定）
-status: todo
+status: in-progress
 assignee: codex (/goal loop)
 depends_on: [14, 15]
 estimated: large
