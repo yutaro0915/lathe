@@ -1866,6 +1866,136 @@ test.describe("Findings tab and verdict oracle", () => {
   });
 });
 
+// ---- triage: jump導線 + embedded transcript + sticky verdict + layout -------
+// The Findings detail becomes a triage surface: jump to the session / turn,
+// read the surrounding transcript inline, decide without scrolling past it, and
+// never have the layout shift under selection (design/ui-design-language.md).
+test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layout)", () => {
+  // ① the SESSION header (axis) jumps to that session's transcript
+  test("clicking the SESSION header opens the session viewer transcript", async ({ page }) => {
+    await page.goto("/findings");
+    await page.locator(".findings-filter button", { hasText: "All" }).click();
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
+    const card = page
+      .locator(".finding-detail[data-detail-finding-id]")
+      .locator('.finding-evidence-card[data-evidence-kind="turn"]');
+    const sessionJump = card.locator("button.finding-evidence-session-jump");
+    await expect(sessionJump).toHaveAttribute("data-session-id", FINDING_FIXTURE.sessionId);
+    await sessionJump.click();
+    // lands on the owning session's viewer, on the Transcript tab
+    await expect(page).toHaveURL(new RegExp(`session=${FINDING_FIXTURE.sessionId}`));
+    await expect(page).toHaveURL(/tab=transcript/);
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
+  });
+
+  // ② the TURN header row jumps to the transcript positioned at that turn
+  test("clicking the TURN position jumps to that turn's step in the transcript", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
+    const card = page
+      .locator(".finding-detail[data-detail-finding-id]")
+      .locator('.finding-evidence-card[data-evidence-kind="turn"]');
+    const turnJump = card.locator("button.finding-evidence-turn-jump");
+    await expect(turnJump).toHaveAttribute("data-turn", "1");
+    await turnJump.click();
+    // same session → in-page: transcript tab active and the turn-head step (seq 1,
+    // the USER ASKED prompt) is selected + flashed.
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
+    const head = page.locator(`.event-row[data-eid="${FINDING_FIXTURE.sessionId}-event-1"]`);
+    await expect(head).toHaveClass(/selected/);
+  });
+
+  // ⑤ expanding an evidence group reveals the inline turn transcript rows
+  test("expanding 'this turn's transcript' shows the turn's event rows inline", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    // the grouped finding folds two same-turn steps into one card; the fixture
+    // session's turn 1 has 3 top-level events (seqs 1/2/3).
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.grouped }).click();
+    const card = page.locator(".finding-detail[data-detail-finding-id] .finding-evidence-card").first();
+
+    const toggle = card.locator(".finding-evidence-turn-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    const transcript = card.locator(".finding-turn-transcript");
+    await expect(transcript).toBeVisible();
+    // the three turn-1 events render as compact rows…
+    const rows = transcript.locator(".finding-turn-event");
+    await expect(rows).toHaveCount(3);
+    // …the failing bash step (seq 2) shows its command + non-zero exit and is
+    // flagged as this finding's own evidence.
+    const evRow = transcript.locator('.finding-turn-event[data-seq="2"]');
+    await expect(evRow).toHaveAttribute("data-evidence", "true");
+    await expect(evRow.locator(".finding-turn-event-cmd")).toContainText("pnpm test");
+    await expect(evRow.locator(".finding-turn-event-exit")).toContainText("exit 1");
+    // the "open in session" deep link is present at the top of the embed
+    await expect(transcript.locator(".finding-turn-open")).toBeVisible();
+
+    // clicking an inline row deep-links to that exact step in the transcript
+    await evRow.click();
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
+    await expect(page.locator(`.event-row.selected[data-eid="${FINDING_FIXTURE.eventId}"]`)).toBeVisible();
+  });
+
+  // ③ the verdict bar is visible without scrolling even with long evidence
+  test("the verdict bar stays pinned to the panel bottom (sticky) over long evidence", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    // pick a PENDING finding so the Accept/Reject controls render…
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.grouped }).click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const accept = detail.locator(".finding-verdict-btn.accept");
+    await expect(accept).toBeVisible();
+
+    // …expand the inline transcript to grow the evidence well past one screen,
+    // then scroll the detail panel to the TOP. The verdict bar must remain within
+    // the panel's viewport (sticky), not pushed below the fold.
+    await detail.locator(".finding-evidence-turn-toggle").click();
+    await detail.evaluate((el) => el.scrollTo(0, 0));
+
+    const acceptBox = await accept.boundingBox();
+    const detailBox = await detail.boundingBox();
+    expect(acceptBox).not.toBeNull();
+    expect(detailBox).not.toBeNull();
+    // the button's bottom edge sits within the detail panel's box (i.e. visible
+    // without scrolling the panel) — the definition of a working sticky bar.
+    expect(acceptBox!.y + acceptBox!.height).toBeLessThanOrEqual(
+      detailBox!.y + detailBox!.height + 1,
+    );
+    expect(acceptBox!.y).toBeGreaterThanOrEqual(detailBox!.y - 1);
+  });
+
+  // ④ regression for bug D: selecting a 2nd finding must NOT change the layout
+  test("selecting the 2nd finding does not shift the list-rail width (bug D)", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    const rows = page.locator(".finding-row");
+    await expect(rows.nth(1)).toBeVisible();
+
+    const railWidth = () =>
+      page.locator(".findings-list").evaluate((el) => el.getBoundingClientRect().width);
+
+    await rows.nth(0).click();
+    const before = await railWidth();
+    await rows.nth(1).click();
+    const after = await railWidth();
+    // the list rail is a fixed track — its width is identical regardless of which
+    // finding (and however tall its detail) is selected.
+    expect(Math.abs(after - before)).toBeLessThanOrEqual(0.5);
+
+    // and selection is client-side: the URL gains ?finding=<id> via replaceState
+    // (no full navigation), so the detail swaps instantly.
+    await expect(page).toHaveURL(/finding=/);
+  });
+});
+
 // ---- IA: one persistent global bar + Findings as a cross-session axis -------
 // (design/ui-design-language.md, IA principle 2026-06-12). Three guarantees:
 //   1. every route shows the SAME global bar with the current axis highlighted
@@ -1993,8 +2123,9 @@ test.describe("Global nav & IA axes", () => {
     ).toBeVisible();
     // the session tab no longer carries the All/This cross-session toggle
     await expect(page.locator(".findings-tab", { hasText: "All sessions" })).toHaveCount(0);
-    // there IS a link up to the cross-session axis
-    await expect(page.locator(".findings-axis-link")).toBeVisible();
+    // the in-tab "全 findings を見る" link is removed (requirement F) — the
+    // cross-session axis is reached from the global bar, not from this tab.
+    await expect(page.locator(".findings-axis-link")).toHaveCount(0);
 
     // other session: the SAME finding is NOT attached → its row is absent
     await page.goto(`/?session=${encodeURIComponent(oracle.otherSession)}&tab=findings`);

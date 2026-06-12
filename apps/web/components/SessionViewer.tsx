@@ -1077,6 +1077,34 @@ export default function SessionViewer({
     setSelectedEventId(headerId);
   }
 
+  // Findings SESSION-header jump (requirement A). Same session → switch to the
+  // transcript in-page; a different session → deep-link into that session's
+  // viewer (the same Sessions axis, new state).
+  function jumpToFindingSession(sessionId: string) {
+    if (sessionId === currentId) {
+      setActiveTab("transcript");
+      return;
+    }
+    router.push(`/?session=${encodeURIComponent(sessionId)}&tab=transcript`);
+  }
+
+  // Findings TURN-header / embedded-row jump (requirement A/B). `headSeq` is the
+  // step to land on (turn head or a specific row). Same session → select that
+  // step in-page; otherwise deep-link with &seq= so the destination flashes it.
+  function jumpToFindingTurn(sessionId: string, _turn: number, headSeq: number | null) {
+    if (sessionId === currentId) {
+      setActiveTab("transcript");
+      const target = headSeq != null ? eventBySeq.get(headSeq) : undefined;
+      if (target) selectTimelineEvent(target.id, true);
+      return;
+    }
+    router.push(
+      `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
+        headSeq != null ? `&seq=${headSeq}` : ""
+      }`,
+    );
+  }
+
   function openTurnFile(fileId: string) {
     setGitFocusFileId(fileId);
     setGitFocusEvent(undefined);
@@ -2352,8 +2380,9 @@ export default function SessionViewer({
               Scoped to THIS session: only findings whose evidence touches the
               current session appear (IA principle 2026-06-12 — the cross-session
               list is the Findings AXIS's job, not this tab). Reuses the same
-              master-detail component as the axis; the header carries a small link
-              up to the axis for "全 findings を見る". */}
+              master-detail component as the axis. The cross-session axis is
+              reached from the global bar, so no in-tab "全 findings" link is
+              needed (requirement F). */}
           {activeTab === "findings" && (
             <FindingsExplorer
               findings={findings}
@@ -2363,11 +2392,8 @@ export default function SessionViewer({
               scopeSessionId={currentId}
               resolveEvidence={resolveEvidence}
               initialStatusFilter="pending"
-              headerExtra={
-                <Link href="/findings" className="findings-axis-link" title="全 findings（横断軸）を見る">
-                  全 findings を見る →
-                </Link>
-              }
+              onJumpToSession={jumpToFindingSession}
+              onJumpToTurn={jumpToFindingTurn}
             />
           )}
 

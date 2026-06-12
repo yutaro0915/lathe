@@ -548,7 +548,14 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 /* ---- Findings tab ---------------------------------------------------------*/
 .chip-sub{margin-left:6px;color:var(--muted-2);font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;}
 .findings-session-chip{gap:6px;}
-.findings-tab{padding:12px 14px;gap:0;}
+/* The Findings master-detail fills its host and never grows the page: it is a
+   bounded flex column so the inner grid (list | detail) can own the scroll. In
+   the session viewer the tab mounts inside .timeline (overflow-y:auto), so we
+   pin it to the full height and hide its own overflow — the list and detail
+   panes scroll internally, NOT the whole tab. */
+.findings-tab{padding:12px 14px;gap:0;display:flex;flex-direction:column;
+  flex:1 1 auto;min-height:0;height:100%;overflow:hidden;}
+.timeline.findings-tab{overflow:hidden;}
 .findings-tab-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
 .findings-title{display:inline-flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
 .findings-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
@@ -617,11 +624,19 @@ button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--b
 .finding-verdict-btn:disabled{opacity:.55;cursor:wait;}
 
 /* ---- Findings master-detail --------------------------------------------- */
-.findings-md-grid{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:0;
-  border-top:1px solid var(--border);min-height:0;}
-.findings-list{min-width:0;border-right:1px solid var(--border);overflow-y:auto;}
+/* Fixed two-track grid: a hard 340px list rail + the rest for the detail. Using
+   a FIXED first track (not minmax(0,340px)) keeps the list rail width constant
+   regardless of what the detail renders — the detail's intrinsic content can no
+   longer feed back into track sizing and shove the rail wider (bug D). Both
+   tracks get min-width:0 + min-height:0 so each pane scrolls inside its own box
+   and the grid never grows the page. */
+.findings-md-grid{display:grid;grid-template-columns:340px minmax(0,1fr);gap:0;
+  border-top:1px solid var(--border);flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;}
+.findings-md-grid > *{min-width:0;min-height:0;}
+.findings-list{min-width:0;border-right:1px solid var(--border);overflow-y:auto;overflow-x:hidden;}
 .findings-list .finding-row:first-child{border-top:0;}
-.finding-detail{min-width:0;padding:14px 16px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;}
+.finding-detail{min-width:0;padding:14px 16px;display:flex;flex-direction:column;gap:14px;
+  overflow-y:auto;overflow-x:hidden;position:relative;}
 .finding-detail-empty{align-items:center;justify-content:center;color:var(--muted-2);}
 .finding-detail-empty .detail-placeholder{font-size:12px;}
 .finding-detail-head{display:flex;align-items:center;gap:8px;}
@@ -690,6 +705,70 @@ button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--b
 .finding-verdict-section .finding-verdict-decided{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   color:var(--muted-2);font-size:11px;}
 .finding-verdict-section .finding-verdict-decided .mono{font-variant-numeric:tabular-nums;}
+
+/* ---- triage: sticky verdict bar (requirement C) -------------------------- */
+/* The Accept/Reject bar pins to the detail panel's bottom edge so it is always
+   reachable while the evidence scrolls beneath it. The negative margins + pad
+   let it span the panel's full width and sit flush against the bottom, with a
+   hairline + panel background hiding the evidence as it scrolls under. */
+.finding-verdict-sticky{position:sticky;bottom:0;z-index:2;background:var(--panel);
+  margin:auto -16px -14px;padding:8px 16px 12px;border-top:1px solid var(--border);}
+
+/* ---- triage: SESSION header as a jump button (requirement A) -------------- */
+button.finding-evidence-session-jump{width:100%;text-align:left;background:transparent;
+  border:0;border-bottom:1px solid var(--border);color:inherit;font:inherit;cursor:pointer;
+  padding:0 0 6px;}
+button.finding-evidence-session-jump:hover .finding-evidence-session-title{color:var(--accent);}
+button.finding-evidence-session-jump:hover .finding-evidence-session-arrow{color:var(--accent);}
+button.finding-evidence-session-jump:focus-visible{outline:2px solid var(--accent-ring);outline-offset:2px;}
+.finding-evidence-session-headline{display:flex;align-items:center;gap:6px;}
+.finding-evidence-session-arrow{margin-left:auto;color:var(--muted-2);font-size:11px;}
+
+/* ---- triage: TURN position jump + embedded-transcript toggle ------------- */
+button.finding-evidence-turn-jump{display:inline-flex;align-items:center;gap:5px;
+  border:0;background:transparent;color:var(--muted-2);font:inherit;font-size:10px;
+  text-transform:uppercase;letter-spacing:.04em;cursor:pointer;padding:0;}
+button.finding-evidence-turn-jump:hover{color:var(--accent);}
+button.finding-evidence-turn-jump:focus-visible{outline:2px solid var(--accent-ring);outline-offset:2px;}
+.finding-evidence-turn-toggle{margin-left:auto;display:inline-flex;align-items:center;gap:5px;
+  border:1px solid var(--border);border-radius:4px;background:var(--panel);color:var(--muted);
+  font:inherit;font-size:10px;font-weight:650;padding:2px 7px;cursor:pointer;}
+.finding-evidence-turn-toggle:hover{background:var(--panel-hover);border-color:var(--border-strong);color:var(--text-soft);}
+.finding-evidence-turn-toggle:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
+.finding-evidence-repeats + .finding-evidence-turn-toggle{margin-left:8px;}
+
+/* ---- triage: embedded turn transcript (requirement B) -------------------- */
+.finding-turn-transcript{display:flex;flex-direction:column;gap:6px;margin-top:2px;
+  border-top:1px solid var(--border);padding-top:7px;min-width:0;}
+.finding-turn-transcript-head{display:flex;align-items:center;gap:10px;}
+.finding-turn-open{margin-left:auto;display:inline-flex;align-items:center;gap:5px;
+  border:0;background:transparent;color:var(--accent);font:inherit;font-size:10.5px;cursor:pointer;padding:0;}
+.finding-turn-open:hover{text-decoration:underline;}
+.finding-turn-open:focus-visible{outline:2px solid var(--accent-ring);outline-offset:2px;}
+.finding-turn-status{font-size:10.5px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
+.finding-turn-status.err{color:var(--red-text);}
+/* the bounded, scrollable event list — the core of the embedded transcript */
+.finding-turn-events{display:flex;flex-direction:column;max-height:40vh;overflow-y:auto;
+  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);min-width:0;}
+.finding-turn-event{display:grid;grid-template-columns:max-content max-content minmax(0,1fr) max-content;
+  align-items:baseline;gap:8px;padding:4px 8px;border-top:1px solid var(--border-faint);
+  min-width:0;text-align:left;width:100%;font:inherit;color:var(--text-soft);background:transparent;}
+.finding-turn-event:first-child{border-top:0;}
+button.finding-turn-event{border-left:0;border-right:0;border-bottom:0;cursor:pointer;}
+button.finding-turn-event:hover{background:var(--panel-hover);}
+button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);outline-offset:-2px;}
+.finding-turn-event.evidence{background:var(--accent-weak);box-shadow:inset 2px 0 0 var(--accent);}
+.finding-turn-event-seq{font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
+.finding-turn-event-type{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--muted);white-space:nowrap;}
+.finding-turn-event.err .finding-turn-event-type{color:var(--red-text);}
+.finding-turn-event-body{min-width:0;font-size:11px;line-height:1.4;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+.finding-turn-event-cmd{font-size:11px;color:var(--text);font-variant-numeric:tabular-nums;}
+.finding-turn-event-text{color:var(--text-soft);}
+.finding-turn-event-exit{font-size:10px;font-variant-numeric:tabular-nums;}
+.finding-turn-event-exit.ok{color:var(--green-text);}
+.finding-turn-event-exit.err{color:var(--red-text);}
 
 /* deep-link / evidence jump flash on the destination transcript step */
 @keyframes lathe-flash-jump{

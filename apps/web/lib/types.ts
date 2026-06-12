@@ -213,6 +213,40 @@ export interface FindingEvidenceNarrative {
   aftermath: { seq: number; type: string; text: string } | null;
 }
 
+// ---- embedded turn transcript (Findings triage) ---------------------------
+// One compact event row for the inline transcript a Findings evidence group can
+// expand. A lighter projection of TranscriptEvent: only what a compact row needs
+// (type label / mono command / exit code / one-line body), with command/output
+// already truncated server-side so the payload stays small.
+export interface TurnContextEvent {
+  id: string;
+  seq: number;
+  type: EventType;
+  actor: string;
+  title: string;
+  text: string | null; // one-line body/title summary (truncated)
+  command: string | null; // truncated
+  output: string | null; // truncated
+  exitCode: number | null;
+  isEvidence: boolean; // this seq is one of the finding's own evidence steps
+}
+
+// The transcript of ONE turn, lazily fetched by /api/turn-context. `turn` is the
+// 1-based turn number (count of user_message at/before the turn head). `headSeq`
+// is the turn's first user_message seq — the deep-link target for "open in
+// session". Events are top-level only (no sub-agent children), capped + flagged
+// when truncated so the inline area never balloons.
+export interface TurnContext {
+  sessionId: string;
+  sessionTitle: string;
+  turn: number;
+  turnCount: number;
+  headSeq: number | null;
+  events: TurnContextEvent[];
+  truncated: boolean; // true when the turn had more events than the cap
+  totalEvents: number;
+}
+
 export interface FindingVerdict {
   id: number;
   findingId: number;

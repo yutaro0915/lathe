@@ -127,6 +127,18 @@ export default function FindingsAxisView({
             resolveEvidence={resolveEvidence}
             initialStatusFilter="pending"
             initialSessionFilter={initialSessionFilter}
+            // SESSION / TURN header jumps deep-link into the owning session's
+            // transcript — the SAME Sessions axis in a different state.
+            onJumpToSession={(sessionId) =>
+              router.push(`/?session=${encodeURIComponent(sessionId)}&tab=transcript`)
+            }
+            onJumpToTurn={(sessionId, _turn, headSeq) =>
+              router.push(
+                `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
+                  headSeq != null ? `&seq=${headSeq}` : ""
+                }`,
+              )
+            }
           />
         </main>
       </div>
