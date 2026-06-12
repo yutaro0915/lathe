@@ -1,0 +1,27 @@
+{
+  "name": "@lathe/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "stdio": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "verify": "tsx src/verify.ts all",
+    "verify:handshake": "tsx src/verify.ts handshake",
+    "verify:read": "tsx src/verify.ts read",
+    "verify:submit": "tsx src/verify.ts submit",
+    "verify:placement": "tsx src/verify.ts placement"
+  },
+  "dependencies": {
+    "@lathe/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "pg": "^8.16.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
