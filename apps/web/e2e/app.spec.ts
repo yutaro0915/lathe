@@ -1682,6 +1682,60 @@ test.describe("Findings tab and verdict oracle", () => {
     await expect(page.locator(`.file-row.active[data-file-id="${FINDING_FIXTURE.fileId}"]`)).toBeVisible();
     await expect(page.locator(`.diff-hunk.active[data-hunk-id="${FINDING_FIXTURE.hunkId}"]`)).toBeVisible();
   });
+
+  test("the Findings tab drops the right event inspector and uses a 2-col layout", async ({
+    page,
+  }) => {
+    // On Transcript the right inspector (RUN JSON / LINKED FILES) is present…
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=transcript`);
+    await expect(page.locator(".layout3 > aside.aside")).toBeVisible();
+
+    // …on Findings it is removed entirely and the grid is 2-column, so the whole
+    // width goes to the findings master-detail (the inspector informs no verdict).
+    await page.locator(".tabs .tab", { hasText: "Findings" }).click();
+    await expect(page.locator(".layout3")).toHaveAttribute("data-tab", "findings");
+    await expect(page.locator(".layout3 > aside.aside")).toHaveCount(0);
+    const cols = await page
+      .locator(".layout3")
+      .evaluate((el) => getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).length);
+    expect(cols).toBe(2);
+  });
+
+  test("evidence cards carry the narrative: SESSION header, USER ASKED, AFTERWARD", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    // the turn-seq finding points at the seq-2 failing command — a deterministic
+    // anchor for the surrounding story in the fixture.
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
+    const card = page
+      .locator(".finding-detail[data-detail-finding-id]")
+      .locator('.finding-evidence-card[data-evidence-kind="turn"]');
+    await expect(card).toHaveAttribute("data-resolved", "true");
+
+    // SESSION — names the run, its runner, and its position in the run.
+    const session = card.locator(".finding-evidence-session");
+    await expect(session).toHaveAttribute("data-session-id", FINDING_FIXTURE.sessionId);
+    await expect(session.locator(".finding-evidence-session-title")).toContainText(
+      "Fixture findings session"
+    );
+    await expect(session.locator(".finding-evidence-session-meta")).toContainText("Codex");
+    await expect(session.locator(".finding-evidence-session-meta")).toContainText("turn 1/1");
+
+    // USER ASKED — the nearest preceding user prompt (seq 1 in the fixture).
+    const trigger = card.locator(".finding-evidence-trigger");
+    await expect(trigger).toContainText("Please inspect the fixture.");
+    await expect(trigger.locator(".finding-evidence-trigger-seq")).toContainText("step 1");
+
+    // 現物 — the existing excerpt still renders the failing command.
+    await expect(card.locator(".finding-excerpt")).toContainText("pnpm test");
+
+    // AFTERWARD — failure_loop escapes to the next non-failure event (the seq-3
+    // assistant message in the fixture).
+    const after = card.locator(".finding-evidence-after");
+    await expect(after).toHaveAttribute("data-after-seq", "3");
+    await expect(after).toContainText("The fixture command failed once.");
+  });
 });
 
 test.describe("Stats tab (in-session)", () => {

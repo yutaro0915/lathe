@@ -186,6 +186,31 @@ export interface FindingEvidenceExcerpt {
   command: string | null;
   output: string | null;
   exitCode: number | null;
+  // Server-resolved "narrative" context so the evidence card reads as a story:
+  // which session/run, what the user asked just before, where in the run it sits,
+  // and what happened afterward. Resolved in the same batched pass as the excerpt
+  // (never per-evidence). Null when the owning session can't be resolved.
+  narrative: FindingEvidenceNarrative | null;
+}
+
+// The story around one piece of evidence: SESSION (run identity) → USER ASKED
+// (the nearest preceding user prompt) → 現物 (command/output, on the excerpt) →
+// AFTERWARD (what the run did next). All fields are derived from transcript_events
+// + sessions, so they are deterministic for a given DB state.
+export interface FindingEvidenceNarrative {
+  sessionId: string;
+  sessionTitle: string;
+  runner: string;
+  model: string | null;
+  startedAt: string;
+  // position of this step within the run
+  turn: number | null; // 1-based turn the step belongs to
+  turnCount: number | null; // total turns in the session
+  minutesFromStart: number | null; // whole minutes from session start to this step
+  // the nearest preceding user_message (the "trigger" of this stretch of work)
+  trigger: { seq: number; text: string } | null;
+  // what happened after this step (the "結末")
+  aftermath: { seq: number; type: string; text: string } | null;
 }
 
 export interface FindingVerdict {

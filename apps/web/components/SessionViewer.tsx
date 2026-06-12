@@ -1414,9 +1414,18 @@ export default function SessionViewer({
       </div>
 
       {/* ===================== Band 4 — 3-col layout ===================== */}
+      {/* Findings is a self-contained master-detail screen: the run/event
+          inspector on the right has no bearing on accept/reject, so we drop the
+          aside column entirely and give its width to the findings detail. */}
       <div
         className="layout3"
-        style={{ gridTemplateColumns: "var(--sidebar-w) minmax(0,1fr) var(--aside-w)" }}
+        data-tab={activeTab}
+        style={{
+          gridTemplateColumns:
+            activeTab === "findings"
+              ? "var(--sidebar-w) minmax(0,1fr)"
+              : "var(--sidebar-w) minmax(0,1fr) var(--aside-w)",
+        }}
       >
         {/* ---------- COLUMN 1: sidebar ---------- */}
         <aside className="sidebar">
@@ -2563,6 +2572,21 @@ export default function SessionViewer({
                               {finding.evidence.map((evidence) => {
                                 const target = resolveEvidence(evidence);
                                 const excerpt = evidence.excerpt;
+                                const narrative = excerpt?.narrative ?? null;
+                                const positionLabel = narrative
+                                  ? [
+                                      narrative.turn != null && narrative.turnCount != null
+                                        ? `turn ${narrative.turn}/${narrative.turnCount}`
+                                        : narrative.turn != null
+                                          ? `turn ${narrative.turn}`
+                                          : null,
+                                      narrative.minutesFromStart != null
+                                        ? `+${narrative.minutesFromStart}m`
+                                        : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")
+                                  : "";
                                 return (
                                   <div
                                     key={evidence.id}
@@ -2571,6 +2595,43 @@ export default function SessionViewer({
                                     data-evidence-id={evidence.id}
                                     data-resolved={target.resolved ? "true" : "false"}
                                   >
+                                    {/* SESSION — which run / runner·model / when, so a finding
+                                        spanning multiple sessions is never ambiguous. */}
+                                    {narrative && (
+                                      <div
+                                        className="finding-evidence-session"
+                                        data-session-id={narrative.sessionId}
+                                      >
+                                        <span className="finding-evidence-microlabel">Session</span>
+                                        <span
+                                          className="finding-evidence-session-title"
+                                          title={narrative.sessionTitle}
+                                        >
+                                          {narrative.sessionTitle}
+                                        </span>
+                                        <span className="finding-evidence-session-meta mono">
+                                          {RUNNER_LABEL[narrative.runner as keyof typeof RUNNER_LABEL] ??
+                                            narrative.runner}
+                                          {narrative.model ? ` · ${shortModel(narrative.model)}` : ""}
+                                          {` · ${parseStamp(narrative.startedAt).date} ${
+                                            parseStamp(narrative.startedAt).time
+                                          }`}
+                                          {positionLabel ? ` · ${positionLabel}` : ""}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {/* USER ASKED — the request this stretch of work answers. */}
+                                    {narrative?.trigger && (
+                                      <div className="finding-evidence-trigger">
+                                        <span className="finding-evidence-microlabel">User asked</span>
+                                        <p className="finding-evidence-trigger-text">
+                                          {narrative.trigger.text}
+                                        </p>
+                                        <span className="finding-evidence-trigger-seq mono">
+                                          step {narrative.trigger.seq}
+                                        </span>
+                                      </div>
+                                    )}
                                     <div className="finding-evidence-cardhead">
                                       <span className="finding-evidence-kind">{evidence.subjectKind}</span>
                                       {target.resolved ? (
@@ -2635,6 +2696,23 @@ export default function SessionViewer({
                                           現物を解決できません（locator 未対応）
                                         </div>
                                       )
+                                    )}
+                                    {/* AFTERWARD — what the run did next (the 結末): the escape
+                                        from a failure loop, or the next message in the thread. */}
+                                    {narrative?.aftermath && (
+                                      <div
+                                        className="finding-evidence-after"
+                                        data-after-seq={narrative.aftermath.seq}
+                                      >
+                                        <span className="finding-evidence-microlabel">Afterward</span>
+                                        <div className="finding-evidence-after-meta mono">
+                                          <span>step {narrative.aftermath.seq}</span>
+                                          <span>{narrative.aftermath.type}</span>
+                                        </div>
+                                        <p className="finding-evidence-after-text">
+                                          {narrative.aftermath.text}
+                                        </p>
+                                      </div>
                                     )}
                                   </div>
                                 );
@@ -2747,7 +2825,11 @@ export default function SessionViewer({
           />
         </main>
 
-        {/* ---------- COLUMN 3: aside / detail ---------- */}
+        {/* ---------- COLUMN 3: aside / detail ----------
+            Hidden on the Findings tab — the event inspector (User message /
+            LINKED FILES / RUN JSON) does not inform a verdict, so the column is
+            removed and its width handed to the findings detail panel. */}
+        {activeTab !== "findings" && (
         <aside className="aside">
           {asideIsLauncherDup ? (
             <div className="detail">
@@ -2974,6 +3056,7 @@ export default function SessionViewer({
           </div>
           )}
         </aside>
+        )}
           </>
         )}
       </div>
