@@ -1,7 +1,7 @@
 ---
 id: 14
 title: Phase 2 データモデル（harness 版数 + findings 系）+ hook 版数採取
-status: todo
+status: done
 assignee: codex (/goal loop)
 depends_on: []
 estimated: large
