@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "description": "Task 16 analyst smoke seeds grounded in real Lathe sessions from the shared local DB.",
+  "incidents": [
+    {
+      "id": "cost-opus-prefix-overcount",
+      "label": "Cost anomaly caused by roughly 3x Opus prefix overcount",
+      "session_id": "f17d32fc-5eaa-49d4-80e4-d44d3a2a011c",
+      "expected_kind": "excess_cost",
+      "conditions": {
+        "title_contains": "Lathe task8 review and merge",
+        "event_contains": ["約 3 倍の過大計上"],
+        "min_cost_multiplier": 3
+      }
+    },
+    {
+      "id": "e2e-data-dependent-flake",
+      "label": "E2E failure identified as data-dependent flake",
+      "session_id": "f17d32fc-5eaa-49d4-80e4-d44d3a2a011c",
+      "expected_kind": "failure_loop",
+      "conditions": {
+        "title_contains": "Lathe task8 review and merge",
+        "event_contains": ["データ依存"]
+      }
+    },
+    {
+      "id": "next-dev-port-collision",
+      "label": "Next.js dev server/cache incident surfaced as EADDRINUSE",
+      "session_id": "f17d32fc-5eaa-49d4-80e4-d44d3a2a011c",
+      "expected_kind": "failure_loop",
+      "conditions": {
+        "title_contains": "Lathe task8 review and merge",
+        "event_contains": ["EADDRINUSE"]
+      }
+    },
+    {
+      "id": "tasks-13-fixture-self-sufficiency",
+      "label": "Task 13 verification passed fixture-shaped data while real links were absent",
+      "session_id": "f17d32fc-5eaa-49d4-80e4-d44d3a2a011c",
+      "expected_kind": "failure_loop",
+      "conditions": {
+        "title_contains": "Lathe task8 review and merge",
+        "event_contains": ["自己充足", "実データリンクは 0 行"]
+      }
+    },
+    {
+      "id": "observation-ingest-bisection-accident",
+      "label": "Observation ingest design notes captured a premature binary framing incident",
+      "session_id": "019eafd2-804a-7190-869a-34bbfd468abe",
+      "expected_kind": "risky_action",
+      "conditions": {
+        "title_contains": "read-only コード探索",
+        "event_contains": ["二分法事故", "存在証明"]
+      }
+    }
+  ]
+}

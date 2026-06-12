@@ -45,6 +45,8 @@
     "build": "next build",
     "start": "next start",
     "ingest": "tsx scripts/ingest.ts",
+    "analyst": "tsx scripts/analyst.ts",
+    "analyst:smoke": "tsx scripts/analyst.ts smoke",
     "coverage": "tsx scripts/coverage_check.ts",
     "verify:commits": "tsx scripts/verify-commits.ts",
     "verify:cost": "tsx scripts/verify-cost.ts",
