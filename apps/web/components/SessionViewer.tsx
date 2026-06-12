@@ -388,12 +388,39 @@ export default function SessionViewer({
         return false;
       return true;
     });
+    // requirement C: the session you are currently viewing must ALWAYS be
+    // identifiable in the rail — even when the active filters/search would have
+    // hidden it (e.g. you deep-linked in from the Findings axis with a stale
+    // filter). Force-include it so "今どれを見ているか" is never lost; the
+    // scroll effect below then brings it into view.
+    if (!list.some((s) => s.id === currentId)) {
+      const current = sessions.find((s) => s.id === currentId);
+      if (current) list = [current, ...list];
+    }
     list = [...list];
     if (sortKey === "recent") list.sort((a, b) => a.seq - b.seq);
     else if (sortKey === "oldest") list.sort((a, b) => b.seq - a.seq);
     else if (sortKey === "tokens") list.sort((a, b) => b.tokenUsage - a.tokenUsage);
     return list;
-  }, [sessions, sessionSearch, modelFilter, errorsFilter, projectFilter, sortKey, sessionProject]);
+  }, [sessions, sessionSearch, modelFilter, errorsFilter, projectFilter, sortKey, sessionProject, currentId]);
+
+  // requirement C: keep the left Sessions rail in sync with the session being
+  // viewed. On any session change — including a fresh deep-link open from the
+  // Findings axis — scroll the active rail item into view so "this session, and
+  // what is around it" is always visible. The item carries `.active` already
+  // (s.id === currentId); here we only ensure it is on screen. Depends on
+  // visibleSessions too, so it re-fires once a force-included current session
+  // (see the force-include above) is actually in the DOM.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const sel =
+      typeof CSS !== "undefined" && CSS.escape
+        ? `.session-list .session-item[data-session-id="${CSS.escape(currentId)}"]`
+        : null;
+    if (!sel) return;
+    const el = document.querySelector(sel);
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [currentId, visibleSessions]);
 
   // ---- derived: filtered timeline events ----------------------------------
   // sub-agent child steps grouped under their launching event id

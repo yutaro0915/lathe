@@ -666,6 +666,27 @@ button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--b
 .finding-excerpt-meta .err{color:var(--red-text);}
 .finding-excerpt-pre{margin:0;max-height:160px;overflow:auto;font-size:11px;}
 .finding-excerpt-empty{font-size:11px;color:var(--muted-2);}
+/* grouped evidence: one card per (session, turn). The group header carries the
+   turn position once and a mono ×N repeats count (neutral — no saturation, per
+   the palette ration); the steps stack as a hairline-separated timeline. */
+.finding-evidence-grouphead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
+.finding-evidence-position{text-transform:uppercase;letter-spacing:.04em;}
+.finding-evidence-repeats{margin-left:auto;border:1px solid var(--border-strong);
+  border-radius:999px;padding:1px 7px;font-size:10px;font-weight:650;color:var(--muted);
+  background:var(--panel-hover);}
+.finding-evidence-steps{display:flex;flex-direction:column;gap:0;}
+.finding-evidence-step{display:flex;flex-direction:column;gap:5px;padding:7px 0;
+  border-top:1px solid var(--border);min-width:0;}
+.finding-evidence-step:first-child{border-top:none;padding-top:2px;}
+.finding-evidence-step.stale{color:var(--muted-2);}
+.finding-evidence-stephead{display:flex;align-items:center;gap:8px;min-width:0;}
+.finding-evidence-stepno{font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--muted);
+  font-variant-numeric:tabular-nums;cursor:help;}
+.finding-evidence-exit{font-size:10px;font-variant-numeric:tabular-nums;}
+.finding-evidence-exit.ok{color:var(--green-text);}
+.finding-evidence-exit.err{color:var(--red-text);}
+.finding-evidence-stepspacer{flex:1 1 auto;min-width:0;}
 .finding-verdict-section .finding-verdict-decided{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   color:var(--muted-2);font-size:11px;}
 .finding-verdict-section .finding-verdict-decided .mono{font-variant-numeric:tabular-nums;}
