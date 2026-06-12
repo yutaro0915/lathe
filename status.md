@@ -6,10 +6,10 @@ current_stage: Phase 2 M3 judgment (awaiting first user verdict)
 
 ## Current
 
-- **Phase 2 実装完了（2026-06-12）**。tasks/14〜18 すべて main 着地（HEAD `d2928d0`）。e2e 75/75 / coverage / verify:chat 8 検査 / verify:mcp / 実 provider smoke すべて GREEN
-- **M3 判定待ち**: hybrid-v1 を実データに実行済み → findings #110-114（failure_loop 5 件）が Findings タブに登録済み。**ユーザーの初採否で M3 成立** → Phase 2 完了ゲート（ROADMAP 更新・hub 記録）
+- **Phase 2 実装完了（2026-06-12）**、UX 改修ラウンド進行中（HEAD `5dd0472`、e2e 96 passed + 既知 issue #7 の 1 件のみ）。実 UX フィードバック起点の merge 済み改修: findings master-detail + narrative evidence / IA 再編（グローバルバー・Findings 軸昇格・session 内限定・chat 休眠 = ROADMAP 論点 #15/#16）/ evidence の turn 単位グループ化 + rail 同期 / Overview v2（rail 撤去・ドリルダウン入口化・要注意パネル）
+- **M3 判定待ち**: findings #110-114 が Findings 軸に pending。**ユーザーの初採否で M3 成立** → Phase 2 完了ゲート（ROADMAP 更新・hub 記録）
 - dev server: tmux `lathe-dev`（port 3000、log /tmp/lathe-dev.log、停止は `tmux kill-session -t lathe-dev`）
-- agent: none（全 loop 撤収済み）
+- agent: none（全 loop / worktree 撤収済み）
 
 ## Last completed
 
