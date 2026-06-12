@@ -12,6 +12,7 @@ import {
   deriveChatTitle,
   getChatThread,
   listChatMessages,
+  MAX_CHAT_MESSAGE_BODY_CHARS,
   setChatThreadTitle,
   updateChatThreadAttachment,
 } from '@/lib/chat-store';
@@ -65,6 +66,12 @@ export async function POST(request: Request) {
   if (!message) {
     return NextResponse.json({ ok: false, error: 'message is required' }, { status: 400 });
   }
+  if (message.length > MAX_CHAT_MESSAGE_BODY_CHARS) {
+    return NextResponse.json(
+      { ok: false, error: `message must be ${MAX_CHAT_MESSAGE_BODY_CHARS} characters or fewer` },
+      { status: 413 },
+    );
+  }
   const requestedProvider = optionalString(body.provider) as ChatProviderName | undefined;
 
   const stream = new ReadableStream<Uint8Array>({
@@ -100,6 +107,9 @@ export async function POST(request: Request) {
         let assistantBody = '';
         for await (const event of streamChatAgent(agentRequest)) {
           if (event.type === 'text') {
+            if (assistantBody.length + event.text.length > MAX_CHAT_MESSAGE_BODY_CHARS) {
+              throw new Error(`assistant message exceeded ${MAX_CHAT_MESSAGE_BODY_CHARS} characters`);
+            }
             assistantBody += event.text;
             send({ type: 'delta', text: event.text });
           } else if (event.type === 'tool_call') {

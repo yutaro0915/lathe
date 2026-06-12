@@ -30,11 +30,14 @@ export const DISALLOWED_AGENT_TOOL_NAMES = [
   'Bash',
   'bash',
   'Shell',
+  'Task',
+  'Agent',
   'Read',
   'Write',
   'Edit',
   'MultiEdit',
   'NotebookEdit',
+  'TodoWrite',
   'Glob',
   'Grep',
   'LS',
@@ -44,6 +47,11 @@ export const DISALLOWED_AGENT_TOOL_NAMES = [
   'file_edit',
   'file_write',
 ] as const;
+
+export function chatAnalystName(provider: string): string {
+  const clean = provider.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase() || 'unknown';
+  return `chat:${clean}`;
+}
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -74,9 +82,9 @@ export function assertAllowedAgentTool(toolName: string): LatheMcpToolName {
   return normalized;
 }
 
-function mapFinding(input: JsonRecord) {
+function mapFinding(input: JsonRecord, provider?: string) {
   return {
-    analyst: String(input.analyst ?? ''),
+    analyst: provider ? chatAnalystName(provider) : String(input.analyst ?? ''),
     kind: String(input.kind ?? '') as FindingKind,
     title: String(input.title ?? ''),
     body: String(input.body ?? ''),
@@ -98,7 +106,11 @@ function mapFinding(input: JsonRecord) {
   };
 }
 
-export async function invokeLatheMcpTool(toolName: string, args: JsonRecord): Promise<unknown> {
+export async function invokeLatheMcpTool(
+  toolName: string,
+  args: JsonRecord,
+  options: { provider?: string } = {},
+): Promise<unknown> {
   const name = assertAllowedAgentTool(toolName);
   if (name === 'list_sessions') {
     const filter = args.filter && typeof args.filter === 'object' ? (args.filter as JsonRecord) : {};
@@ -136,5 +148,5 @@ export async function invokeLatheMcpTool(toolName: string, args: JsonRecord): Pr
     });
   }
   const finding = args.finding && typeof args.finding === 'object' ? (args.finding as JsonRecord) : {};
-  return submitFinding(mapFinding(finding));
+  return submitFinding(mapFinding(finding, options.provider));
 }

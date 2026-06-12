@@ -10,6 +10,7 @@ export interface ProjectIdentity {
 }
 
 const identityCache = new Map<string, ProjectIdentity>();
+const INTERNAL_PROJECT_ID = 'lathe-internal';
 
 function safePackageName(cwd: string): string | null {
   try {
@@ -72,6 +73,20 @@ export function resolveProjectIdentity(cwd: string, fallbackName: string): Proje
   const cacheKey = normalizedCwd || `fallback:${fallbackName}`;
   const cached = identityCache.get(cacheKey);
   if (cached) return cached;
+
+  if (
+    path.basename(normalizedCwd || fallbackName || '') === INTERNAL_PROJECT_ID ||
+    fallbackName === INTERNAL_PROJECT_ID
+  ) {
+    const identity: ProjectIdentity = {
+      id: INTERNAL_PROJECT_ID,
+      displayName: INTERNAL_PROJECT_ID,
+      gitRemote: null,
+      cwdHint: normalizedCwd || null,
+    };
+    identityCache.set(cacheKey, identity);
+    return identity;
+  }
 
   const usableCwd = normalizedCwd && fs.existsSync(normalizedCwd) ? normalizedCwd : '';
   const gitRemote = usableCwd ? getOriginRemote(usableCwd) : null;

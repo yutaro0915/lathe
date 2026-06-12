@@ -4,6 +4,10 @@ import type { ChatMessage, ChatMessageRole, ChatThread } from './types';
 
 type JsonRecord = Record<string, unknown>;
 
+export const MAX_CHAT_THREADS = 250;
+export const MAX_CHAT_MESSAGE_BODY_CHARS = 24_000;
+export const MAX_CHAT_TITLE_CHARS = 80;
+
 interface ChatThreadRow {
   id: string;
   project_id: string | null;
@@ -75,7 +79,22 @@ function cleanString(value: string | null | undefined): string | null {
 export function deriveChatTitle(message: string): string {
   const firstLine = message.replace(/\s+/g, ' ').trim();
   if (!firstLine) return 'New thread';
-  return firstLine.length > 54 ? `${firstLine.slice(0, 51)}...` : firstLine;
+  return firstLine.length > MAX_CHAT_TITLE_CHARS
+    ? `${firstLine.slice(0, MAX_CHAT_TITLE_CHARS - 3)}...`
+    : firstLine;
+}
+
+function assertMessageSize(body: string): void {
+  if (body.length > MAX_CHAT_MESSAGE_BODY_CHARS) {
+    throw new Error(`chat message body must be ${MAX_CHAT_MESSAGE_BODY_CHARS} characters or fewer`);
+  }
+}
+
+async function assertThreadLimit(): Promise<void> {
+  const row = await queryOne<{ n: number }>('SELECT COUNT(*)::int AS n FROM chat_threads');
+  if ((row?.n ?? 0) >= MAX_CHAT_THREADS) {
+    throw new Error(`chat thread limit reached (${MAX_CHAT_THREADS})`);
+  }
 }
 
 async function inferProjectId(input: ChatThreadInput): Promise<string | null> {
@@ -131,6 +150,7 @@ export async function listChatMessages(threadId: string): Promise<ChatMessage[]>
 }
 
 export async function createChatThread(input: ChatThreadInput = {}): Promise<ChatThread> {
+  await assertThreadLimit();
   const id = `chat_${randomUUID()}`;
   const projectId = await inferProjectId(input);
   const title = cleanString(input.title) ?? 'New thread';
@@ -180,6 +200,7 @@ export async function appendChatMessage(input: {
   body: string;
   meta?: JsonRecord | null;
 }): Promise<ChatMessage> {
+  assertMessageSize(input.body);
   const id = `msg_${randomUUID()}`;
   const row = await queryOne<ChatMessageRow>(
     `WITH next_seq AS (

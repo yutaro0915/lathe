@@ -20,10 +20,14 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ ok: false, error: 'invalid JSON body' }, { status: 400 });
   }
-  const thread = await createChatThread({
-    title: optionalString(body.title),
-    sessionId: optionalString(body.sessionId),
-    findingId: optionalFindingId(body.findingId),
-  });
-  return NextResponse.json({ ok: true, thread });
+  try {
+    const thread = await createChatThread({
+      title: optionalString(body.title),
+      sessionId: optionalString(body.sessionId),
+      findingId: optionalFindingId(body.findingId),
+    });
+    return NextResponse.json({ ok: true, thread });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 409 });
+  }
 }

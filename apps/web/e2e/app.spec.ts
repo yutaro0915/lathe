@@ -317,7 +317,7 @@ async function cleanupChatFixtures() {
   await withDb(async (client) => {
     await client.query(
       `DELETE FROM findings
-        WHERE analyst = 'chat-fake-provider'
+        WHERE analyst IN ('chat:fake','chat-fake-provider')
            OR project_id = $1`,
       [CHAT_FIXTURE.projectId]
     );
@@ -402,7 +402,7 @@ async function latestChatFindingTitle(): Promise<string> {
       await client.query<{ title: string }>(
         `SELECT title
            FROM findings
-          WHERE analyst = 'chat-fake-provider'
+          WHERE analyst = 'chat:fake'
           ORDER BY id DESC
           LIMIT 1`
       )
