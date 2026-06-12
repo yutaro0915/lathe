@@ -19,8 +19,7 @@
 // All verdict state (drafts, busy, toast, error, selection) is owned here so the
 // component is self-contained on both screens.
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { parseStamp, shortModel } from "@lathe/shared";
 import type {
@@ -30,6 +29,8 @@ import type {
   FindingVerdict,
   FindingVerdictValue,
   Session,
+  TurnContext,
+  TurnContextEvent,
 } from "@/lib/types";
 
 export type FindingStatusFilter = "pending" | "decided" | "all";
@@ -133,6 +134,67 @@ export function groupEvidence(evidence: FindingEvidence[]): EvidenceGroup[] {
   return groups;
 }
 
+// One compact row in the embedded turn transcript. Visual language is borrowed
+// from the transcript (type micro-label, mono command, error-red only) but this
+// is a deliberately light renderer — it never imports SessionViewer. Clicking a
+// row deep-links the host to that exact step (when a jump handler is supplied).
+const TURN_EVENT_TYPE_LABEL: Record<string, string> = {
+  user_message: "user",
+  assistant_message: "assistant",
+  thinking: "thinking",
+  file_read: "read",
+  file_edit: "edit",
+  file_write: "write",
+  bash: "bash",
+  subagent: "subagent",
+  skill: "skill",
+  commit: "commit",
+  test: "test",
+  error: "error",
+  todo: "todo",
+  memory: "memory",
+  hook: "hook",
+};
+
+function TurnEventRow({
+  event,
+  onClick,
+}: {
+  event: TurnContextEvent;
+  onClick?: () => void;
+}) {
+  const isError = event.type === "error" || (event.exitCode != null && event.exitCode !== 0);
+  const label = TURN_EVENT_TYPE_LABEL[event.type] ?? event.type;
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag
+      type={onClick ? "button" : undefined}
+      role="listitem"
+      className={`finding-turn-event${isError ? " err" : ""}${event.isEvidence ? " evidence" : ""}`}
+      data-seq={event.seq}
+      data-type={event.type}
+      data-evidence={event.isEvidence ? "true" : undefined}
+      onClick={onClick}
+      title={onClick ? "Jump to this step in the transcript" : undefined}
+    >
+      <span className="finding-turn-event-seq mono">{event.seq}</span>
+      <span className="finding-turn-event-type">{label}</span>
+      <span className="finding-turn-event-body">
+        {event.command ? (
+          <code className="finding-turn-event-cmd mono">{event.command}</code>
+        ) : (
+          <span className="finding-turn-event-text">{event.text ?? event.title}</span>
+        )}
+      </span>
+      {event.exitCode != null && (
+        <span className={`finding-turn-event-exit mono ${event.exitCode === 0 ? "ok" : "err"}`}>
+          exit {event.exitCode}
+        </span>
+      )}
+    </Tag>
+  );
+}
+
 export default function FindingsExplorer({
   findings,
   setFindings,
@@ -142,7 +204,8 @@ export default function FindingsExplorer({
   resolveEvidence,
   initialStatusFilter = "pending",
   initialSessionFilter,
-  headerExtra,
+  onJumpToSession,
+  onJumpToTurn,
 }: {
   findings: Finding[];
   setFindings: React.Dispatch<React.SetStateAction<Finding[]>>;
@@ -154,9 +217,14 @@ export default function FindingsExplorer({
   resolveEvidence: (evidence: FindingEvidence) => ResolvedEvidence;
   initialStatusFilter?: FindingStatusFilter;
   initialSessionFilter?: string;
-  // a small slot rendered in the header (e.g. the "全 findings を見る" link from
-  // the session tab into the axis).
-  headerExtra?: React.ReactNode;
+  // Jump from a SESSION header → that session's transcript (requirement A). The
+  // host decides whether that is an in-page tab switch (session viewer, same
+  // session) or a deep-link router.push (axis / cross-session).
+  onJumpToSession?: (sessionId: string) => void;
+  // Jump from a TURN header → the transcript positioned at that turn. `headSeq`
+  // is the turn's first user_message seq (USER ASKED), used as the deep-link
+  // anchor when the host has no richer turn locator.
+  onJumpToTurn?: (sessionId: string, turn: number, headSeq: number | null) => void;
 }) {
   const [statusFilter, setStatusFilter] = useState<FindingStatusFilter>(initialStatusFilter);
   const [sessionFilter, setSessionFilter] = useState<string>(initialSessionFilter ?? "all");
@@ -170,6 +238,63 @@ export default function FindingsExplorer({
     verdict: FindingVerdictValue;
     title: string;
   } | null>(null);
+
+  // Embedded turn transcript (requirement B): which evidence groups are expanded
+  // and a per-(session,turn) cache of the lazily-fetched turn context. Keyed by
+  // `${sessionId}::${turn}` so the same turn is fetched at most once.
+  const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>({});
+  const [turnContexts, setTurnContexts] = useState<
+    Record<string, { loading: boolean; error: string | null; data: TurnContext | null }>
+  >({});
+  const turnFetchSeen = useRef<Set<string>>(new Set());
+
+  const turnKey = useCallback(
+    (sessionId: string, turn: number) => `${sessionId}::${turn}`,
+    [],
+  );
+
+  const fetchTurnContext = useCallback(
+    async (sessionId: string, turn: number, evidenceSeqs: number[]) => {
+      const key = `${sessionId}::${turn}`;
+      if (turnFetchSeen.current.has(key)) return;
+      turnFetchSeen.current.add(key);
+      setTurnContexts((prev) => ({ ...prev, [key]: { loading: true, error: null, data: null } }));
+      try {
+        const qs = new URLSearchParams();
+        qs.set("session", sessionId);
+        qs.set("turn", String(turn));
+        for (const seq of evidenceSeqs) qs.append("seq", String(seq));
+        const response = await fetch(`/api/turn-context?${qs.toString()}`);
+        const payload = (await response.json()) as { ok?: boolean; context?: TurnContext; error?: string };
+        if (!response.ok || !payload.ok || !payload.context) {
+          throw new Error(payload.error ?? "turn context failed");
+        }
+        setTurnContexts((prev) => ({
+          ...prev,
+          [key]: { loading: false, error: null, data: payload.context! },
+        }));
+      } catch (err) {
+        turnFetchSeen.current.delete(key); // allow a retry on re-expand
+        setTurnContexts((prev) => ({
+          ...prev,
+          [key]: { loading: false, error: (err as Error).message, data: null },
+        }));
+      }
+    },
+    [],
+  );
+
+  const toggleTurn = useCallback(
+    (sessionId: string, turn: number, evidenceSeqs: number[]) => {
+      const key = `${sessionId}::${turn}`;
+      setExpandedTurns((prev) => {
+        const next = !prev[key];
+        if (next) void fetchTurnContext(sessionId, turn, evidenceSeqs);
+        return { ...prev, [key]: next };
+      });
+    },
+    [fetchTurnContext],
+  );
 
   useEffect(() => {
     if (initialSessionFilter !== undefined) setSessionFilter(initialSessionFilter);
@@ -220,6 +345,32 @@ export default function FindingsExplorer({
       setSelectedFindingId(selectedFinding.id);
     }
   }, [selectedFinding, selectedFindingId]);
+
+  // Selection is pure client state — no server round-trip, no navigation, so the
+  // detail panel swaps instantly (requirement E). We only mirror the choice into
+  // the URL via history.replaceState (a `finding` query param) so the selection
+  // is shareable / survives reload WITHOUT re-running the route loader.
+  const selectFinding = useCallback((id: number) => {
+    setSelectedFindingId(id);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("finding", String(id));
+      window.history.replaceState(window.history.state, "", url.toString());
+    }
+  }, []);
+
+  // honour an initial ?finding=<id> deep link on mount (one-shot).
+  const initialFindingApplied = useRef(false);
+  useEffect(() => {
+    if (initialFindingApplied.current) return;
+    if (typeof window === "undefined") return;
+    const raw = new URL(window.location.href).searchParams.get("finding");
+    const id = raw ? Number(raw) : NaN;
+    if (Number.isInteger(id) && findings.some((f) => f.id === id)) {
+      initialFindingApplied.current = true;
+      setSelectedFindingId(id);
+    }
+  }, [findings]);
 
   // sessions that actually carry findings — used to populate the axis filter.
   const sessionsWithFindings = useMemo(() => {
@@ -328,7 +479,6 @@ export default function FindingsExplorer({
             </select>
           </label>
         )}
-        {headerExtra}
       </div>
       {recentVerdict && (
         <div
@@ -371,7 +521,7 @@ export default function FindingsExplorer({
                   data-verdict={verdict}
                   data-evidence-count={finding.evidence.length}
                   aria-pressed={isActive}
-                  onClick={() => setSelectedFindingId(finding.id)}
+                  onClick={() => selectFinding(finding.id)}
                 >
                   <div className="finding-mainline">
                     <span className={`finding-kind-chip ${finding.kind}`}>
@@ -459,6 +609,24 @@ export default function FindingsExplorer({
                               .filter(Boolean)
                               .join(" · ")
                           : "";
+                        // turn-level jump + embedded transcript anchors. Both need
+                        // a (session, turn): available only when the group folded
+                        // on a real narrative turn. evidenceSeqs flag this
+                        // finding's own steps inside the inline transcript.
+                        const turnSessionId = group.sessionId;
+                        const turnNumber = group.turn;
+                        const canTurnJump =
+                          turnSessionId != null && turnNumber != null;
+                        const evidenceSeqs = group.members
+                          .map((m) => m.excerpt?.seq)
+                          .filter((s): s is number => typeof s === "number");
+                        const triggerSeq = narrative?.trigger?.seq ?? null;
+                        const tkey =
+                          turnSessionId != null && turnNumber != null
+                            ? turnKey(turnSessionId, turnNumber)
+                            : null;
+                        const turnExpanded = tkey ? !!expandedTurns[tkey] : false;
+                        const turnState = tkey ? turnContexts[tkey] : undefined;
                         return (
                           <div
                             key={group.key}
@@ -470,11 +638,19 @@ export default function FindingsExplorer({
                             data-resolved={anyResolved ? "true" : "false"}
                           >
                             {showSessionHeader && narrative && (
-                              <div
-                                className="finding-evidence-session"
+                              <button
+                                type="button"
+                                className="finding-evidence-session finding-evidence-session-jump"
                                 data-session-id={narrative.sessionId}
+                                title={`${narrative.sessionTitle} — open this session's transcript`}
+                                onClick={() => onJumpToSession?.(narrative.sessionId)}
                               >
-                                <span className="finding-evidence-microlabel">Session</span>
+                                <span className="finding-evidence-session-headline">
+                                  <span className="finding-evidence-microlabel">Session</span>
+                                  <span className="finding-evidence-session-arrow" aria-hidden>
+                                    →
+                                  </span>
+                                </span>
                                 <span
                                   className="finding-evidence-session-title"
                                   title={narrative.sessionTitle}
@@ -489,22 +665,43 @@ export default function FindingsExplorer({
                                     parseStamp(narrative.startedAt).time
                                   }`}
                                 </span>
-                              </div>
+                              </button>
                             )}
-                            {/* group header: turn position (once) + repeat count.
-                                When the session header is hidden (session tab),
-                                this carries the turn/time context that used to
-                                live on the SESSION meta line. */}
-                            {(positionLabel || repeats > 1) && (
+                            {/* group header: turn position (once) + repeat count +
+                                the "open this turn's transcript" toggle. When the
+                                session header is hidden (session tab), the position
+                                carries the turn/time context that used to live on
+                                the SESSION meta line. The TURN position is itself a
+                                jump into the transcript at that turn (requirement
+                                A). */}
+                            {(positionLabel || repeats > 1 || canTurnJump) && (
                               <div className="finding-evidence-grouphead">
-                                {positionLabel && (
-                                  <span
-                                    className="finding-evidence-position mono"
-                                    title="Position of this turn within the run"
-                                  >
-                                    {positionLabel}
-                                  </span>
-                                )}
+                                {positionLabel &&
+                                  (canTurnJump ? (
+                                    <button
+                                      type="button"
+                                      className="finding-evidence-position finding-evidence-turn-jump mono"
+                                      data-turn={turnNumber ?? undefined}
+                                      title="Jump to this turn in the transcript"
+                                      onClick={() =>
+                                        onJumpToTurn?.(
+                                          turnSessionId!,
+                                          turnNumber!,
+                                          triggerSeq,
+                                        )
+                                      }
+                                    >
+                                      <span>{positionLabel}</span>
+                                      <span aria-hidden>→</span>
+                                    </button>
+                                  ) : (
+                                    <span
+                                      className="finding-evidence-position mono"
+                                      title="Position of this turn within the run"
+                                    >
+                                      {positionLabel}
+                                    </span>
+                                  ))}
                                 {repeats > 1 && (
                                   <span
                                     className="finding-evidence-repeats mono"
@@ -513,6 +710,21 @@ export default function FindingsExplorer({
                                   >
                                     ×{repeats} repeats
                                   </span>
+                                )}
+                                {canTurnJump && (
+                                  <button
+                                    type="button"
+                                    className="finding-evidence-turn-toggle mono"
+                                    data-turn={turnNumber ?? undefined}
+                                    aria-expanded={turnExpanded}
+                                    title="Show this turn's transcript inline"
+                                    onClick={() =>
+                                      toggleTurn(turnSessionId!, turnNumber!, evidenceSeqs)
+                                    }
+                                  >
+                                    <span aria-hidden>{turnExpanded ? "▾" : "▸"}</span>
+                                    {turnExpanded ? "hide transcript" : "this turn's transcript"}
+                                  </button>
                                 )}
                               </div>
                             )}
@@ -653,14 +865,86 @@ export default function FindingsExplorer({
                                 </div>
                               );
                             })()}
+                            {/* EMBEDDED TRANSCRIPT (requirement B) — the events of
+                                this very turn, lazily fetched, in a compact bounded
+                                scroll region so the user reads the前後関係 without
+                                leaving the triage screen. */}
+                            {turnExpanded && tkey && (
+                              <div
+                                className="finding-turn-transcript"
+                                data-turn={turnNumber ?? undefined}
+                                data-session-id={turnSessionId ?? undefined}
+                              >
+                                <div className="finding-turn-transcript-head">
+                                  <span className="finding-evidence-microlabel">
+                                    Turn transcript
+                                  </span>
+                                  {canTurnJump && (
+                                    <button
+                                      type="button"
+                                      className="finding-turn-open mono"
+                                      title="Open this turn in the session viewer"
+                                      onClick={() =>
+                                        onJumpToTurn?.(
+                                          turnSessionId!,
+                                          turnNumber!,
+                                          triggerSeq,
+                                        )
+                                      }
+                                    >
+                                      open in session <span aria-hidden>→</span>
+                                    </button>
+                                  )}
+                                </div>
+                                {turnState?.loading && (
+                                  <div className="finding-turn-status mono">loading…</div>
+                                )}
+                                {turnState?.error && (
+                                  <div className="finding-turn-status err mono">
+                                    {turnState.error}
+                                  </div>
+                                )}
+                                {turnState?.data && (
+                                  <>
+                                    <div className="finding-turn-events" role="list">
+                                      {turnState.data.events.map((ev) => (
+                                        <TurnEventRow
+                                          key={ev.id}
+                                          event={ev}
+                                          onClick={
+                                            onJumpToTurn && turnSessionId != null && turnNumber != null
+                                              ? () =>
+                                                  onJumpToTurn(
+                                                    turnSessionId,
+                                                    turnNumber,
+                                                    ev.seq,
+                                                  )
+                                              : undefined
+                                          }
+                                        />
+                                      ))}
+                                    </div>
+                                    {turnState.data.truncated && (
+                                      <div className="finding-turn-status mono">
+                                        showing {turnState.data.events.length} of{" "}
+                                        {turnState.data.totalEvents} steps — open in session for the
+                                        rest
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* verdict — IN the detail panel, beside the evidence */}
-                  <div className="finding-detail-section finding-verdict-section">
+                  {/* verdict — sticky to the detail panel's bottom edge so
+                      Accept/Reject is reachable without scrolling past long
+                      evidence (requirement C); the evidence scrolls beneath it. */}
+                  <div className="finding-detail-section finding-verdict-section finding-verdict-sticky">
                     <div className="finding-section-label">Verdict</div>
                     {finding.verdict ? (
                       <div className="finding-verdict-decided">
