@@ -1,17 +1,21 @@
 ---
-updated: 2026-06-11T22:00+0900
-current_owner: codex-loop
-current_stage: tasks/14 loop running (Phase 2 data model)
+updated: 2026-06-12T15:30+0900
+current_owner: none
+current_stage: Phase 2 M3 judgment (awaiting first user verdict)
 ---
 
 ## Current
 
-- **Phase 1 完了（2026-06-11）**。S1-1〜S1-5 すべて閉鎖、e2e 67/67 / coverage / verify 7 本 GREEN。main = `3f5dcf5`。振り返りは ROADMAP の Phase 1 節
-- 次: Phase 2 開始ゲート — `design/phase2-finding-model.md` の未決 4 点（kind 語彙 / MCP transport / analyst 数 / hook 採取）をユーザーに諮る → ADR 0007 → task 化
-- agent: none
+- **Phase 2 実装完了（2026-06-12）**。tasks/14〜18 すべて main 着地（HEAD `d2928d0`）。e2e 75/75 / coverage / verify:chat 8 検査 / verify:mcp / 実 provider smoke すべて GREEN
+- **M3 判定待ち**: hybrid-v1 を実データに実行済み → findings #110-114（failure_loop 5 件）が Findings タブに登録済み。**ユーザーの初採否で M3 成立** → Phase 2 完了ゲート（ROADMAP 更新・hub 記録）
+- dev server: tmux `lathe-dev`（port 3000、log /tmp/lathe-dev.log、停止は `tmux kill-session -t lathe-dev`）
+- agent: none（全 loop 撤収済み）
 
 ## Last completed
 
+- 2026-06-12 [18] agent チャット view 完走 + Tier A 監査 + merge（`6552d06`）— /chat 専用画面 / CLI provider（claude -p stream-json、stdin prompt）/ 道具制限 = lathe MCP 5 tools のみ。**監査 block → 16 分で修復**: R1 実 provider 不通（`--allowedTools` variadic が positional prompt を飲み込む → stdin 渡しへ）/ R2 flags 多層化（`--strict-mcp-config` + `--tools ""` + `--disallowedTools` + cwd 隔離）/ R3 launch config 網羅 assert / R4 finding 出所をサーバ側で `chat:<provider>` 強制 + §6.5 self-observation 接続 / R5 injection 区切り + サイズ上限。実 smoke GREEN（tools_observed=1）を監査側で独立再現 (codex+claude)
+- 2026-06-12 [16] analyst probes 完走 + Tier B 監査 + merge（`538d074`）— 3 系統（rules/llm/hybrid）+ 実 5 incident smoke replay（recall 5/5, 4/5, 5/5 を監査再実行で同値再現）(codex+claude)
+- 2026-06-12 [17] findings 採否 UI / [15] MCP stdio server / [14] Phase 2 データモデル — いずれも監査 + merge 済み（経緯は log.md）(codex+claude)
 - 2026-06-11 [11] cost 検証 完走 + 監査 + merge（Tier A）— **過大疑いを実証**: 旧実装は Claude family 名 substring で旧 Opus 単価（$15/$75）に解決し、Opus 4.5 以降の値下げ（$5/$25）未反映 = 約 3 倍過大（claude-opus-4-8 合計 $10,341→$3,477）。per-model 単価表 + 最長 prefix 解決へ修正、`verify:cost` 新設、`docs/cost-semantics.md` に意味論 + 公式照合（Anthropic/OpenAI 一次 URL）。監査: ゲート独立再実行 GREEN（verify:cost / e2e 56/56 / coverage）、単価値は監査者知識とも一致、**循環検証の残り（単価解決の直接アサーション欠如）は issue #5**。修正後 cost で G9 式を再シミュレーション → flag 28 件 / 8.9% でほぼ不変、**承認済みパラメータ変更不要**。ff-merge + push（`493f3d8`）(claude+codex)
 - 2026-06-11 [10] 監査 + merge（Tier B、初の loop 監査）— Claude がゲートを独立再実行: build PASS / e2e **56/56** / coverage GREEN。diff 照合: 変更は期待 6 ファイルのみ（スコープ外なし）、新規 E2E 7 件は **DB から期待値を独立算出して UI と突き合わせる independent oracle 構造**で空打ちなし、skip/only なし、既存テストは意図保存（Collapse→Expand/Collapse 往復に更新）、追加コードに TODO/HACK/ts-ignore なし。`main` へ ff-merge + push（`a35cab9`）。loop 運用observed: 承認は「コマンド prefix 永続許可」を 4 種（e2e/playwright/coverage/ingest）に付与して自動化、/goal は CLI 初期プロンプト引数が正、assessor セッション（独立 grader）生成を確認 (claude)
 - 2026-06-11 [10] A-1 turn-first explorer — `SessionViewer` の既存 turn/collapse/filter と `DiffViewer` の attribution リンクを再利用し、初期表示を turn-first に変更。turn 行に `steps / edits / bash / errors / cost / tokens / duration / files` rollup と機械抽出 summary、error turn class/属性、展開 step の時間バー、files chip から Git active file への導線を追加。Diff 側は既存 `linkedEvents` から file header の touched steps を表示し、click で transcript の該当 step へ戻る。type filter は highlight/hide 2 モード化。新 E2E 7 件を追加し、既存 E2E は turn 展開操作を足して意図維持。検証: `pnpm -F web exec tsc --noEmit` PASS、`pnpm -F web build` PASS、`pnpm -F web coverage` GREEN、`pnpm -F web e2e` 56/56 GREEN (codex)
