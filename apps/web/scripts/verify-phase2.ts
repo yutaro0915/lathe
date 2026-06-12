@@ -551,91 +551,102 @@ async function verifyFindings(): Promise<void> {
 async function verifyPersistence(): Promise<void> {
   await applySchema();
   const marker = `phase2-persist-${process.pid}`;
-  await getPool().query(
-    `INSERT INTO projects (id,display_name) VALUES ($1,$1)
-     ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name`,
-    [marker],
-  );
-  const finding = await getPool().query<{ id: number }>(
-    `INSERT INTO findings (analyst,kind,title,body,confidence,project_id)
-     VALUES ('rules-v1','risky_action',$1,'persistent body',0.6,$2)
-     RETURNING id`,
-    [`${marker} finding`, marker],
-  );
-  const findingId = finding.rows[0]?.id ?? fail('persistence finding insert failed');
-  await getPool().query(
-    `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,note)
-     VALUES ($1,'session',$2,$3,'persistent evidence')`,
-    [findingId, marker, { session_id: marker }],
-  );
-  await getPool().query(
-    `INSERT INTO finding_verdicts (finding_id,verdict,reason)
-     VALUES ($1,'reject','persistent verdict')`,
-    [findingId],
-  );
-  await getPool().query(
-    `INSERT INTO chat_threads (id,project_id,title,session_id,finding_id)
-     VALUES ($1,$2,'Persistent thread',$3,$4)`,
-    [`${marker}-thread`, marker, marker, findingId],
-  );
-  await getPool().query(
-    `INSERT INTO chat_messages (id,thread_id,role,body,seq)
-     VALUES ($1,$2,'user','Persistent message',1)`,
-    [`${marker}-message`, `${marker}-thread`],
-  );
-  await getPool().query(
-    `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,seq)
-     VALUES ($1,$2,$2,'Derived annotation marker','codex','codex-test','done','2026-06-11 00:00:00','2026-06-11 00:00:01',1000,-999)`,
-    [marker, marker],
-  );
-  await getPool().query(
-    `INSERT INTO annotations (session_id,at_seq,kind,note)
-     VALUES ($1,7,'note','persistent annotation')`,
-    [marker],
-  );
+  let findingId: number | null = null;
+  try {
+    await getPool().query(
+      `INSERT INTO projects (id,display_name) VALUES ($1,$1)
+       ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name`,
+      [marker],
+    );
+    const finding = await getPool().query<{ id: number }>(
+      `INSERT INTO findings (analyst,kind,title,body,confidence,project_id)
+       VALUES ('rules-v1','risky_action',$1,'persistent body',0.6,$2)
+       RETURNING id`,
+      [`${marker} finding`, marker],
+    );
+    findingId = finding.rows[0]?.id ?? fail('persistence finding insert failed');
+    await getPool().query(
+      `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,note)
+       VALUES ($1,'session',$2,$3,'persistent evidence')`,
+      [findingId, marker, { session_id: marker }],
+    );
+    await getPool().query(
+      `INSERT INTO finding_verdicts (finding_id,verdict,reason)
+       VALUES ($1,'reject','persistent verdict')`,
+      [findingId],
+    );
+    await getPool().query(
+      `INSERT INTO chat_threads (id,project_id,title,session_id,finding_id)
+       VALUES ($1,$2,'Persistent thread',$3,$4)`,
+      [`${marker}-thread`, marker, marker, findingId],
+    );
+    await getPool().query(
+      `INSERT INTO chat_messages (id,thread_id,role,body,seq)
+       VALUES ($1,$2,'user','Persistent message',1)`,
+      [`${marker}-message`, `${marker}-thread`],
+    );
+    await getPool().query(
+      `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,seq)
+       VALUES ($1,$2,$2,'Derived annotation marker','codex','codex-test','done','2026-06-11 00:00:00','2026-06-11 00:00:01',1000,-999)`,
+      [marker, marker],
+    );
+    await getPool().query(
+      `INSERT INTO annotations (session_id,at_seq,kind,note)
+       VALUES ($1,7,'note','persistent annotation')`,
+      [marker],
+    );
 
-  const before = await getPool().query(
-    `SELECT
-       (SELECT COUNT(*)::int FROM findings WHERE id = $1) AS findings,
-       (SELECT COUNT(*)::int FROM finding_verdicts WHERE finding_id = $1) AS verdicts,
-       (SELECT COUNT(*)::int FROM finding_evidence WHERE finding_id = $1) AS evidence,
-       (SELECT COUNT(*)::int FROM chat_threads WHERE id = $2) AS threads,
-       (SELECT COUNT(*)::int FROM chat_messages WHERE thread_id = $2) AS messages,
-       (SELECT COUNT(*)::int FROM annotations WHERE session_id = $3) AS annotations`,
-    [findingId, `${marker}-thread`, marker],
-  );
+    const before = await getPool().query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM findings WHERE id = $1) AS findings,
+         (SELECT COUNT(*)::int FROM finding_verdicts WHERE finding_id = $1) AS verdicts,
+         (SELECT COUNT(*)::int FROM finding_evidence WHERE finding_id = $1) AS evidence,
+         (SELECT COUNT(*)::int FROM chat_threads WHERE id = $2) AS threads,
+         (SELECT COUNT(*)::int FROM chat_messages WHERE thread_id = $2) AS messages,
+         (SELECT COUNT(*)::int FROM annotations WHERE session_id = $3) AS annotations`,
+      [findingId, `${marker}-thread`, marker],
+    );
 
-  const root = findRepoRoot();
-  const ingest = spawnSync('pnpm', ['-F', 'web', 'ingest'], {
-    cwd: root,
-    env: process.env,
-    encoding: 'utf8',
-  });
-  if (ingest.status !== 0) fail(`pnpm -F web ingest failed\n${ingest.stdout}\n${ingest.stderr}`);
+    const root = findRepoRoot();
+    const ingest = spawnSync('pnpm', ['-F', 'web', 'ingest'], {
+      cwd: root,
+      env: process.env,
+      encoding: 'utf8',
+    });
+    if (ingest.status !== 0) fail(`pnpm -F web ingest failed\n${ingest.stdout}\n${ingest.stderr}`);
 
-  const after = await getPool().query(
-    `SELECT
-       (SELECT COUNT(*)::int FROM findings WHERE id = $1) AS findings,
-       (SELECT COUNT(*)::int FROM finding_verdicts WHERE finding_id = $1) AS verdicts,
-       (SELECT COUNT(*)::int FROM finding_evidence WHERE finding_id = $1) AS evidence,
-       (SELECT COUNT(*)::int FROM chat_threads WHERE id = $2) AS threads,
-       (SELECT COUNT(*)::int FROM chat_messages WHERE thread_id = $2) AS messages,
-       (SELECT COUNT(*)::int FROM annotations WHERE session_id = $3) AS annotations,
-       (SELECT COUNT(*)::int FROM sessions) AS sessions,
-       (SELECT COUNT(*)::int FROM transcript_events) AS events`,
-    [findingId, `${marker}-thread`, marker],
-  );
+    const after = await getPool().query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM findings WHERE id = $1) AS findings,
+         (SELECT COUNT(*)::int FROM finding_verdicts WHERE finding_id = $1) AS verdicts,
+         (SELECT COUNT(*)::int FROM finding_evidence WHERE finding_id = $1) AS evidence,
+         (SELECT COUNT(*)::int FROM chat_threads WHERE id = $2) AS threads,
+         (SELECT COUNT(*)::int FROM chat_messages WHERE thread_id = $2) AS messages,
+         (SELECT COUNT(*)::int FROM annotations WHERE session_id = $3) AS annotations,
+         (SELECT COUNT(*)::int FROM sessions) AS sessions,
+         (SELECT COUNT(*)::int FROM transcript_events) AS events`,
+      [findingId, `${marker}-thread`, marker],
+    );
 
-  const beforeRow = before.rows[0];
-  const afterRow = after.rows[0];
-  for (const key of ['findings', 'verdicts', 'evidence', 'threads', 'messages']) {
-    if (beforeRow[key] !== afterRow[key]) fail(`persistent ${key} changed across ingest`);
+    const beforeRow = before.rows[0];
+    const afterRow = after.rows[0];
+    for (const key of ['findings', 'verdicts', 'evidence', 'threads', 'messages']) {
+      if (beforeRow[key] !== afterRow[key]) fail(`persistent ${key} changed across ingest`);
+    }
+    if (beforeRow.annotations !== 1 || afterRow.annotations !== 0) {
+      fail('derived annotations did not get rebuilt from scratch');
+    }
+    if (afterRow.sessions < 1 || afterRow.events < 1) fail('derived session/event rows were not rebuilt');
+    console.log(`[verify-phase2:persistence] ok sessions=${afterRow.sessions} events=${afterRow.events}`);
+  } finally {
+    if (findingId != null) {
+      await getPool().query('DELETE FROM findings WHERE id = $1', [findingId]);
+    }
+    await getPool().query('DELETE FROM chat_threads WHERE id = $1', [`${marker}-thread`]);
+    await getPool().query('DELETE FROM annotations WHERE session_id = $1', [marker]);
+    await getPool().query('DELETE FROM sessions WHERE id = $1', [marker]);
+    await getPool().query('DELETE FROM projects WHERE id = $1', [marker]);
   }
-  if (beforeRow.annotations !== 1 || afterRow.annotations !== 0) {
-    fail('derived annotations did not get rebuilt from scratch');
-  }
-  if (afterRow.sessions < 1 || afterRow.events < 1) fail('derived session/event rows were not rebuilt');
-  console.log(`[verify-phase2:persistence] ok sessions=${afterRow.sessions} events=${afterRow.events}`);
 }
 
 async function resolveEvidence(evidenceId: number): Promise<{ seq: number; title: string; type: string } | null> {

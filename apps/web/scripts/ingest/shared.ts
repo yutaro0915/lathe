@@ -71,6 +71,7 @@ export function pickDefaultTranscriptsDir(): string {
         return { full, mtime, ingestableMtime };
       })
       .filter((x) => x.ingestableMtime > 0)
+      .filter((x) => !path.basename(x.full).includes('lathe-internal'))
       .sort((a, b) => b.ingestableMtime - a.ingestableMtime);
     if (dirs.length) return dirs[0].full;
   } catch { /* ignore */ }
