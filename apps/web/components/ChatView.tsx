@@ -163,19 +163,12 @@ export default function ChatView({
 
   return (
     <>
+      {/* Chat is DORMANT (ROADMAP #16): no nav entry point leads here, and the
+          duplicate Sessions/Overview/PR/Chat bar this view used to render has
+          been removed in favour of the single persistent global bar (rendered by
+          the layout). Direct /chat access still works; only the provider label
+          chip remains as chat-specific chrome. */}
       <div className="tabs">
-        <Link href="/" className="tab">
-          Sessions
-        </Link>
-        <Link href="/overview" className="tab">
-          Overview
-        </Link>
-        <Link href="/pr" className="tab">
-          PR
-        </Link>
-        <Link href="/chat" className="tab active">
-          Chat
-        </Link>
         <span className="tabs-spacer" />
         <span className="tabs-tool">
           <span className="sort-select">{providerLabel(provider)}</span>

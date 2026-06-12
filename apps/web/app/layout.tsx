@@ -1,4 +1,5 @@
 import './globals.css';
+import GlobalNav from '@/components/GlobalNav';
 
 export const metadata = {
   title: 'Lathe',
@@ -10,20 +11,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ja">
       <body>
         <div className="app">
-          <header className="appbar">
-            <div className="brand">
-              <span className="logo">L</span>
-              <span>Lathe</span>
-            </div>
-            <div className="crumb">
-              <span>LLMWiki / lathe</span>
-              <span className="sep">/</span>
-              <span className="cur">Phase 1 viewer</span>
-            </div>
-            <div className="appbar-actions">
-              <span className="badge pro">Phase 1</span>
-            </div>
-          </header>
+          {/* The ONE persistent global bar — on every route. Sessions / Findings
+              / PR / Overview, current axis highlighted. (Chat is dormant — see
+              GlobalNav.) */}
+          <GlobalNav />
           {children}
         </div>
       </body>
