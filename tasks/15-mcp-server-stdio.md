@@ -1,7 +1,7 @@
 ---
 id: 15
 title: MCP server（stdio）— transcript query + finding 提出の界面
-status: in-progress
+status: done
 assignee: codex (/goal loop)
 depends_on: [14]
 estimated: medium
