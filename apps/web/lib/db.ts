@@ -32,6 +32,7 @@ import type {
   PullRequestSummary,
   Finding,
   FindingEvidence,
+  FindingEvidenceExcerpt,
   FindingKind,
   FindingVerdict,
   FindingVerdictValue,
@@ -343,7 +344,116 @@ function toFindingEvidence(r: FindingEvidenceRow): FindingEvidence {
     locator: parseLocator(r.locator),
     subjectId: r.subject_id,
     note: r.note,
+    excerpt: null,
   };
+}
+
+// Read a numeric locator key (analyst-engine writes turn/event evidence as
+// {"seq": <event seq>}; older fixtures may use seq under different keys).
+function locatorSeq(locator: Record<string, unknown>): number | null {
+  for (const key of ['seq', 'at_seq', 'step']) {
+    const value = locator[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+    if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  }
+  return null;
+}
+
+const EVIDENCE_EXCERPT_CHARS = 300;
+
+function truncateExcerpt(value: string | null): string | null {
+  if (value == null) return null;
+  const compact = value.replace(/\s+$/g, '');
+  if (!compact) return null;
+  return compact.length <= EVIDENCE_EXCERPT_CHARS
+    ? compact
+    : `${compact.slice(0, EVIDENCE_EXCERPT_CHARS - 1)}…`;
+}
+
+interface EvidenceEventRow {
+  id: string;
+  session_id: string;
+  seq: number;
+  type: string;
+  title: string;
+  command: string | null;
+  body: string | null;
+  exit_code: number | null;
+}
+
+// Resolve the現物 (transcript event + short excerpt) for every event/turn
+// evidence in one batched pass — never per-evidence (no N+1). Evidence resolves
+// either by its subject_id (event id) or by session_id + locator.seq.
+async function attachEvidenceExcerpts(evidence: FindingEvidence[]): Promise<void> {
+  const byEventId: FindingEvidence[] = [];
+  const bySeq: FindingEvidence[] = [];
+  const eventIds = new Set<string>();
+  const seqPairs: Array<{ sessionId: string; seq: number }> = [];
+  const seenSeqPair = new Set<string>();
+
+  for (const item of evidence) {
+    if (item.subjectKind !== 'event' && item.subjectKind !== 'turn') continue;
+    if (item.subjectId) {
+      byEventId.push(item);
+      eventIds.add(item.subjectId);
+      continue;
+    }
+    const seq = locatorSeq(item.locator);
+    if (item.sessionId && seq != null) {
+      bySeq.push(item);
+      const key = `${item.sessionId} ${seq}`;
+      if (!seenSeqPair.has(key)) {
+        seenSeqPair.add(key);
+        seqPairs.push({ sessionId: item.sessionId, seq });
+      }
+    }
+  }
+
+  if (eventIds.size === 0 && seqPairs.length === 0) return;
+
+  const byId = new Map<string, EvidenceEventRow>();
+  const bySessionSeq = new Map<string, EvidenceEventRow>();
+
+  if (eventIds.size > 0) {
+    const rows = await queryRows<EvidenceEventRow>(
+      `SELECT id, session_id, seq, type, title, command, body, exit_code
+         FROM transcript_events
+        WHERE id = ANY($1::text[])`,
+      [[...eventIds]],
+    );
+    for (const row of rows) byId.set(row.id, row);
+  }
+
+  if (seqPairs.length > 0) {
+    const rows = await queryRows<EvidenceEventRow>(
+      `SELECT te.id, te.session_id, te.seq, te.type, te.title, te.command, te.body, te.exit_code
+         FROM transcript_events te
+         JOIN unnest($1::text[], $2::int[]) AS req(session_id, seq)
+           ON req.session_id = te.session_id AND req.seq = te.seq`,
+      [seqPairs.map((p) => p.sessionId), seqPairs.map((p) => p.seq)],
+    );
+    for (const row of rows) bySessionSeq.set(`${row.session_id} ${row.seq}`, row);
+  }
+
+  const toExcerpt = (row: EvidenceEventRow): FindingEvidenceExcerpt => ({
+    eventId: row.id,
+    seq: row.seq,
+    type: row.type,
+    title: row.title,
+    command: truncateExcerpt(row.command),
+    output: truncateExcerpt(row.body),
+    exitCode: row.exit_code,
+  });
+
+  for (const item of byEventId) {
+    const row = item.subjectId ? byId.get(item.subjectId) : undefined;
+    if (row) item.excerpt = toExcerpt(row);
+  }
+  for (const item of bySeq) {
+    const seq = locatorSeq(item.locator);
+    const row = item.sessionId && seq != null ? bySessionSeq.get(`${item.sessionId} ${seq}`) : undefined;
+    if (row) item.excerpt = toExcerpt(row);
+  }
 }
 
 function toFinding(row: FindingRow, evidence: FindingEvidence[]): Finding {
@@ -622,9 +732,11 @@ export async function listFindings(): Promise<Finding[]> {
       ORDER BY finding_id ASC, id ASC`,
     [rows.map((row) => row.id)],
   );
+  const allEvidence = evidenceRows.map(toFindingEvidence);
+  await attachEvidenceExcerpts(allEvidence);
+
   const evidenceByFinding = new Map<number, FindingEvidence[]>();
-  for (const row of evidenceRows) {
-    const item = toFindingEvidence(row);
+  for (const item of allEvidence) {
     const arr = evidenceByFinding.get(item.findingId);
     if (arr) arr.push(item);
     else evidenceByFinding.set(item.findingId, [item]);
