@@ -1,0 +1,521 @@
+import { execFileSync, spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as http from 'node:http';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { closePool, getPool } from '../lib/postgres';
+import type { Built } from './ingest/built';
+import { insertBuilt, resetDatabase } from './ingest/db';
+import {
+  captureHarnessSnapshot,
+  captureHarnessSnapshotFromGit,
+  harnessVersionId,
+  type HarnessProvider,
+} from './ingest/harness';
+import { ingestNotify, type IngestNotifyPayload } from './ingest/notify';
+import { pickDefaultTranscriptsDir } from './ingest/shared';
+
+const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
+
+function fail(message: string): never {
+  throw new Error(message);
+}
+
+function findRepoRoot(): string {
+  let current = process.cwd();
+  while (current !== path.dirname(current)) {
+    if (fs.existsSync(path.join(current, 'pnpm-workspace.yaml'))) return current;
+    current = path.dirname(current);
+  }
+  return process.cwd();
+}
+
+function execGit(cwd: string, args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+}
+
+function ensureDir(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+async function applySchema(): Promise<void> {
+  await getPool().query(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+}
+
+async function scalar<T = string>(sql: string, params: unknown[] = []): Promise<T> {
+  const result = await getPool().query(sql, params);
+  return result.rows[0] ? (Object.values(result.rows[0])[0] as T) : fail(`no result for ${sql}`);
+}
+
+function firstStableClaudeTranscript(): string {
+  const dir = process.env.LATHE_TRANSCRIPTS_DIR || pickDefaultTranscriptsDir();
+  const files = fs
+    .readdirSync(dir)
+    .filter((file) => file.endsWith('.jsonl'))
+    .map((file) => {
+      const full = path.join(dir, file);
+      return { full, mtimeMs: fs.statSync(full).mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  if (!files.length) fail(`no Claude transcripts found in ${dir}`);
+  const cutoff = Date.now() - 180_000;
+  return (files.find((file) => file.mtimeMs < cutoff) || files[0]).full;
+}
+
+function minimalBuiltSession(id: string, projectId: string, cwd: string | null, sha: string | null): Built {
+  return {
+    session: {
+      id,
+      projectId,
+      project: projectId,
+      projectGitRemote: null,
+      projectCwdHint: cwd,
+      title: id,
+      runner: 'codex',
+      model: 'codex-test',
+      status: 'done',
+      started_at: '2026-06-11 00:00:00',
+      ended_at: '2026-06-11 00:00:01',
+      duration_ms: 1000,
+      turn_count: 1,
+      tool_count: 0,
+      edit_count: 0,
+      bash_count: 0,
+      subagent_count: 0,
+      error_count: 0,
+      token_usage: 0,
+      token_in: 0,
+      token_out: 0,
+      git_branch: null,
+      commit_count: sha ? 1 : 0,
+      cost_usd: null,
+      summary: null,
+      harness_version_id: null,
+      seq: 0,
+      _startMs: Date.now(),
+    },
+    events: [
+      {
+        id: `${id}_1`,
+        session_id: id,
+        seq: 1,
+        ts: '00:00:00',
+        type: 'user_message',
+        actor: 'user',
+        title: 'verify backfill',
+        body: 'verify backfill',
+        file_path: null,
+        command: null,
+        exit_code: null,
+        duration_ms: null,
+        token_usage: null,
+        subagent: null,
+        meta: null,
+        parent_id: null,
+      },
+    ],
+    sessionCommits: sha ? [{ session_id: id, sha, event_id: null, source: 'verify' }] : [],
+    commitShaMissCount: 0,
+    eventFiles: [],
+    changedFiles: [],
+    hunks: [],
+    attributions: [],
+    annotations: [],
+  };
+}
+
+async function verifyHook(): Promise<void> {
+  const root = findRepoRoot();
+  const build = spawnSync('pnpm', ['-F', 'client', 'build'], { cwd: root, encoding: 'utf8' });
+  if (build.status !== 0) fail(`client build failed before hook verify\n${build.stdout}\n${build.stderr}`);
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lathe-hook-phase2-'));
+  ensureDir(path.join(tmp, '.claude'));
+  fs.writeFileSync(path.join(tmp, 'AGENTS.md'), 'shared harness\n', 'utf8');
+  fs.writeFileSync(path.join(tmp, '.claude', 'settings.json'), '{"hooks":{}}\n', 'utf8');
+  fs.writeFileSync(path.join(tmp, 'transcript.jsonl'), '{}\n', 'utf8');
+
+  const received: unknown[] = [];
+  const server = http.createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => (body += chunk));
+    request.on('end', () => {
+      received.push(JSON.parse(body));
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end('{"ok":true}');
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') fail('hook verify server did not expose a port');
+  try {
+    const cli = path.join(root, 'packages', 'client', 'dist', 'cli.js');
+    const init = spawnSync(
+      process.execPath,
+      [cli, 'init', '--cwd', tmp, '--server-url', `http://127.0.0.1:${address.port}`, '--project-id', 'phase2-hook'],
+      { cwd: root, encoding: 'utf8' },
+    );
+    if (init.status !== 0) fail(`lathe-client init failed\n${init.stdout}\n${init.stderr}`);
+
+    const hook = path.join(tmp, '.lathe', 'hook.mjs');
+    const stdin = JSON.stringify({
+      session_id: 'phase2-hook-session',
+      transcript_path: path.join(tmp, 'transcript.jsonl'),
+      cwd: tmp,
+      hook_event_name: 'Stop',
+    });
+    const run = spawnSync(process.execPath, [hook, '--agent', 'claude-code', '--event', 'Stop'], {
+      cwd: tmp,
+      input: stdin,
+      encoding: 'utf8',
+      env: { ...process.env, LATHE_HOOK_DEBUG: '1' },
+    });
+    if (run.status !== 0) fail(`hook exited non-zero\n${run.stdout}\n${run.stderr}`);
+    if (received.length !== 1) {
+      fail(`expected one hook payload, got ${received.length}\nstdout=${run.stdout}\nstderr=${run.stderr}`);
+    }
+    const payload = received[0] as Record<string, any>;
+    if (!payload.harness_hash) fail('payload missing harness_hash');
+    if (payload.harness_hash.overhead_ms >= 50) {
+      fail(`harness hash overhead too high: ${payload.harness_hash.overhead_ms}ms`);
+    }
+    if (!payload.harness_hash.providers?.['claude-code'] || !payload.harness_hash.providers?.codex) {
+      fail('payload harness_hash missing provider hashes');
+    }
+
+    const configPath = path.join(tmp, '.lathe', 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    delete config.notifyToken;
+    config.serverUrl = 'http://127.0.0.1:9';
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    const failOpen = spawnSync(process.execPath, [hook, '--agent', 'claude-code', '--event', 'Stop'], {
+      cwd: tmp,
+      input: stdin,
+      encoding: 'utf8',
+      env: { ...process.env, LATHE_HOOK_DEBUG: '1' },
+    });
+    if (failOpen.status !== 0) fail(`hook did not fail-open without token/server\n${failOpen.stderr}`);
+    console.log(`[verify-phase2:hook] ok overhead_ms=${payload.harness_hash.overhead_ms}`);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+async function verifyNotifyStamp(): Promise<void> {
+  await applySchema();
+  const root = findRepoRoot();
+  const transcript = firstStableClaudeTranscript();
+  process.env.LATHE_NOTIFY_ALLOWED_ROOTS = path.dirname(transcript);
+  const snapshot = captureHarnessSnapshot(root) ?? fail('could not capture harness snapshot');
+  const payload: IngestNotifyPayload = {
+    agent: 'claude-code',
+    transcript_path: transcript,
+    cwd: root,
+    project_id: 'phase2-notify-project',
+    event: 'Stop',
+    harness_hash: snapshot,
+  };
+  const first = await ingestNotify(payload);
+  const firstVersion = await scalar<string>('SELECT harness_version_id FROM sessions WHERE id = $1', [first.sessionId]);
+  if (!firstVersion) fail('session missing harness_version_id after first notify');
+  const second = await ingestNotify(payload);
+  const secondVersion = await scalar<string>('SELECT harness_version_id FROM sessions WHERE id = $1', [second.sessionId]);
+  if (firstVersion !== secondVersion) fail(`notify was not idempotent: ${firstVersion} != ${secondVersion}`);
+  console.log(`[verify-phase2:notify] ok session=${first.sessionId} harness_version_id=${secondVersion}`);
+}
+
+async function verifyBindings(): Promise<void> {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lathe-harness-bindings-'));
+  try {
+    ensureDir(path.join(tmp, '.claude'));
+    fs.writeFileSync(path.join(tmp, 'AGENTS.md'), 'shared v1\n', 'utf8');
+    fs.writeFileSync(path.join(tmp, '.claude', 'settings.json'), '{"env":{"A":"1"}}\n', 'utf8');
+    const base = captureHarnessSnapshot(tmp) ?? fail('base snapshot missing');
+
+    fs.writeFileSync(path.join(tmp, 'AGENTS.md'), 'shared v2\n', 'utf8');
+    const sharedChanged = captureHarnessSnapshot(tmp) ?? fail('shared snapshot missing');
+    if (base.providers['claude-code'] === sharedChanged.providers['claude-code']) {
+      fail('AGENTS.md change did not change claude hash');
+    }
+    if (base.providers.codex === sharedChanged.providers.codex) fail('AGENTS.md change did not change codex hash');
+
+    fs.writeFileSync(path.join(tmp, 'AGENTS.md'), 'shared v1\n', 'utf8');
+    const beforeSettings = captureHarnessSnapshot(tmp) ?? fail('settings base snapshot missing');
+    fs.writeFileSync(path.join(tmp, '.claude', 'settings.json'), '{"env":{"A":"2"}}\n', 'utf8');
+    const settingsChanged = captureHarnessSnapshot(tmp) ?? fail('settings changed snapshot missing');
+    if (beforeSettings.providers['claude-code'] === settingsChanged.providers['claude-code']) {
+      fail('.claude/settings.json change did not change claude hash');
+    }
+    if (beforeSettings.providers.codex !== settingsChanged.providers.codex) {
+      fail('.claude/settings.json change changed codex hash');
+    }
+    console.log('[verify-phase2:bindings] ok shared and provider-specific hashes match ADR 0005');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+async function verifyBackfill(): Promise<void> {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lathe-backfill-repo-'));
+  try {
+    execGit(tmp, ['init']);
+    execGit(tmp, ['config', 'user.email', 'lathe@example.test']);
+    execGit(tmp, ['config', 'user.name', 'Lathe Verify']);
+    fs.writeFileSync(path.join(tmp, 'AGENTS.md'), 'shared v1\n', 'utf8');
+    ensureDir(path.join(tmp, '.codex'));
+    fs.writeFileSync(path.join(tmp, '.codex', 'config.toml'), 'model = "codex"\n', 'utf8');
+    execGit(tmp, ['add', 'AGENTS.md', '.codex/config.toml']);
+    execGit(tmp, ['commit', '-m', 'harness v1']);
+    const firstCommit = execGit(tmp, ['rev-parse', 'HEAD']);
+    fs.writeFileSync(path.join(tmp, 'AGENTS.md'), 'shared v2\n', 'utf8');
+    execGit(tmp, ['add', 'AGENTS.md']);
+    execGit(tmp, ['commit', '-m', 'harness v2']);
+
+    const gitSnapshot = captureHarnessSnapshotFromGit(tmp, firstCommit) ?? fail('could not reconstruct git snapshot');
+    const expected = harnessVersionId('phase2-backfill-project', 'codex', gitSnapshot.providers.codex ?? '');
+    const db = await resetDatabase(SCHEMA_PATH);
+    const reconstructable = minimalBuiltSession('phase2-backfill-ok', 'phase2-backfill-project', tmp, firstCommit);
+    const missing = minimalBuiltSession('phase2-backfill-missing', 'phase2-backfill-project', null, null);
+    await insertBuilt(db, [reconstructable, missing]);
+    const rows = await db.query<{ id: string; harness_version_id: string | null }>(
+      `SELECT id,harness_version_id FROM sessions WHERE id LIKE 'phase2-backfill-%' ORDER BY id`,
+    );
+    const ok = rows.rows.find((row) => row.id === 'phase2-backfill-ok');
+    const bad = rows.rows.find((row) => row.id === 'phase2-backfill-missing');
+    if (ok?.harness_version_id !== expected) {
+      fail(`reconstructed session got wrong harness version: ${ok?.harness_version_id} expected ${expected}`);
+    }
+    if (bad?.harness_version_id !== null) fail('unreconstructable session was stamped');
+    console.log('[verify-phase2:backfill] ok reconstructed=1 unreconstructable=1');
+    await db.end();
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+async function verifyFindings(): Promise<void> {
+  await applySchema();
+  const projectId = `phase2-findings-${process.pid}`;
+  await getPool().query(
+    `INSERT INTO projects (id,display_name) VALUES ($1,$2)
+     ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name`,
+    [projectId, projectId],
+  );
+  const inserted = await getPool().query<{ id: number }>(
+    `INSERT INTO findings (analyst,kind,title,body,confidence,project_id)
+     VALUES ('rules-v1','failure_loop','Loop detected','Repeated failed command',0.8,$1)
+     RETURNING id`,
+    [projectId],
+  );
+  const findingId = inserted.rows[0]?.id ?? fail('finding insert returned no id');
+  await getPool().query(
+    `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
+     VALUES ($1,'turn','session-1',$2,'turn:1','first turn')`,
+    [findingId, { seq: 1 }],
+  );
+  await getPool().query(
+    `INSERT INTO finding_verdicts (finding_id,verdict,reason)
+     VALUES ($1,'accept','actionable')`,
+    [findingId],
+  );
+  const joined = await getPool().query<{ evidence_count: number; verdict_count: number }>(
+    `SELECT
+       (SELECT COUNT(*)::int FROM finding_evidence WHERE finding_id = $1) AS evidence_count,
+       (SELECT COUNT(*)::int FROM finding_verdicts WHERE finding_id = $1) AS verdict_count`,
+    [findingId],
+  );
+  if (joined.rows[0]?.evidence_count !== 1 || joined.rows[0]?.verdict_count !== 1) {
+    fail('finding evidence/verdict query returned wrong counts');
+  }
+
+  let rejected = false;
+  try {
+    await getPool().query(
+      `INSERT INTO findings (analyst,kind,title,body,confidence,project_id)
+       VALUES ('rules-v1','not_a_kind','Bad','Bad',0.5,$1)`,
+      [projectId],
+    );
+  } catch {
+    rejected = true;
+  }
+  if (!rejected) fail('findings.kind CHECK did not reject invalid kind');
+  console.log(`[verify-phase2:findings] ok finding_id=${findingId}`);
+}
+
+async function verifyPersistence(): Promise<void> {
+  await applySchema();
+  const marker = `phase2-persist-${process.pid}`;
+  await getPool().query(
+    `INSERT INTO projects (id,display_name) VALUES ($1,$1)
+     ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name`,
+    [marker],
+  );
+  const finding = await getPool().query<{ id: number }>(
+    `INSERT INTO findings (analyst,kind,title,body,confidence,project_id)
+     VALUES ('rules-v1','risky_action',$1,'persistent body',0.6,$2)
+     RETURNING id`,
+    [`${marker} finding`, marker],
+  );
+  const findingId = finding.rows[0]?.id ?? fail('persistence finding insert failed');
+  await getPool().query(
+    `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,note)
+     VALUES ($1,'session',$2,$3,'persistent evidence')`,
+    [findingId, marker, { session_id: marker }],
+  );
+  await getPool().query(
+    `INSERT INTO finding_verdicts (finding_id,verdict,reason)
+     VALUES ($1,'reject','persistent verdict')`,
+    [findingId],
+  );
+  await getPool().query(
+    `INSERT INTO chat_threads (id,project_id,title,session_id,finding_id)
+     VALUES ($1,$2,'Persistent thread',$3,$4)`,
+    [`${marker}-thread`, marker, marker, findingId],
+  );
+  await getPool().query(
+    `INSERT INTO chat_messages (id,thread_id,role,body,seq)
+     VALUES ($1,$2,'user','Persistent message',1)`,
+    [`${marker}-message`, `${marker}-thread`],
+  );
+  await getPool().query(
+    `INSERT INTO annotations (session_id,at_seq,kind,note)
+     VALUES ($1,7,'note','persistent annotation')`,
+    [marker],
+  );
+
+  const before = await getPool().query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM findings WHERE id = $1) AS findings,
+       (SELECT COUNT(*)::int FROM finding_verdicts WHERE finding_id = $1) AS verdicts,
+       (SELECT COUNT(*)::int FROM finding_evidence WHERE finding_id = $1) AS evidence,
+       (SELECT COUNT(*)::int FROM chat_threads WHERE id = $2) AS threads,
+       (SELECT COUNT(*)::int FROM chat_messages WHERE thread_id = $2) AS messages,
+       (SELECT COUNT(*)::int FROM annotations WHERE session_id = $3) AS annotations`,
+    [findingId, `${marker}-thread`, marker],
+  );
+
+  const root = findRepoRoot();
+  const ingest = spawnSync('pnpm', ['-F', 'web', 'ingest'], {
+    cwd: root,
+    env: process.env,
+    encoding: 'utf8',
+  });
+  if (ingest.status !== 0) fail(`pnpm -F web ingest failed\n${ingest.stdout}\n${ingest.stderr}`);
+
+  const after = await getPool().query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM findings WHERE id = $1) AS findings,
+       (SELECT COUNT(*)::int FROM finding_verdicts WHERE finding_id = $1) AS verdicts,
+       (SELECT COUNT(*)::int FROM finding_evidence WHERE finding_id = $1) AS evidence,
+       (SELECT COUNT(*)::int FROM chat_threads WHERE id = $2) AS threads,
+       (SELECT COUNT(*)::int FROM chat_messages WHERE thread_id = $2) AS messages,
+       (SELECT COUNT(*)::int FROM annotations WHERE session_id = $3) AS annotations,
+       (SELECT COUNT(*)::int FROM sessions) AS sessions,
+       (SELECT COUNT(*)::int FROM transcript_events) AS events`,
+    [findingId, `${marker}-thread`, marker],
+  );
+
+  const beforeRow = before.rows[0];
+  const afterRow = after.rows[0];
+  for (const key of ['findings', 'verdicts', 'evidence', 'threads', 'messages', 'annotations']) {
+    if (beforeRow[key] !== afterRow[key]) fail(`persistent ${key} changed across ingest`);
+  }
+  if (afterRow.sessions < 1 || afterRow.events < 1) fail('derived session/event rows were not rebuilt');
+  console.log(`[verify-phase2:persistence] ok sessions=${afterRow.sessions} events=${afterRow.events}`);
+}
+
+async function resolveEvidence(evidenceId: number): Promise<{ seq: number; title: string; type: string } | null> {
+  const result = await getPool().query<{ seq: number; title: string; type: string }>(
+    `SELECT e.seq,e.title,e.type
+       FROM finding_evidence fe
+       JOIN transcript_events e
+         ON e.session_id = fe.session_id
+        AND e.seq = (fe.locator->>'seq')::int
+      WHERE fe.id = $1`,
+    [evidenceId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function verifyEvidence(): Promise<void> {
+  await applySchema();
+  const root = findRepoRoot();
+  const transcript = firstStableClaudeTranscript();
+  process.env.LATHE_NOTIFY_ALLOWED_ROOTS = path.dirname(transcript);
+  const payload: IngestNotifyPayload = {
+    agent: 'claude-code',
+    transcript_path: transcript,
+    cwd: root,
+    project_id: 'phase2-evidence-project',
+    event: 'Stop',
+    harness_hash: captureHarnessSnapshot(root) ?? undefined,
+  };
+  const first = await ingestNotify(payload);
+  const event = await getPool().query<{ seq: number; title: string; type: string }>(
+    `SELECT seq,title,type
+       FROM transcript_events
+      WHERE session_id = $1
+        AND type IN ('user_message','assistant_message')
+      ORDER BY seq ASC
+      LIMIT 1`,
+    [first.sessionId],
+  );
+  const target = event.rows[0] ?? fail(`no turn-like event found for ${first.sessionId}`);
+  const finding = await getPool().query<{ id: number }>(
+    `INSERT INTO findings (analyst,kind,title,body,confidence,project_id)
+     VALUES ('rules-v1','failure_loop','Evidence verify','Evidence verify',0.9,$1)
+     RETURNING id`,
+    ['phase2-evidence-project'],
+  );
+  const evidence = await getPool().query<{ id: number }>(
+    `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,note)
+     VALUES ($1,'turn',$2,$3,'logical turn coordinate')
+     RETURNING id`,
+    [finding.rows[0]?.id, first.sessionId, { seq: target.seq }],
+  );
+  const evidenceId = evidence.rows[0]?.id ?? fail('evidence insert failed');
+  const before = (await resolveEvidence(evidenceId)) ?? fail('evidence did not resolve before notify replace');
+  await ingestNotify(payload);
+  const after = (await resolveEvidence(evidenceId)) ?? fail('evidence did not resolve after notify replace');
+  if (before.seq !== after.seq || before.title !== after.title || before.type !== after.type) {
+    fail(`evidence resolved to different event after replace: before=${JSON.stringify(before)} after=${JSON.stringify(after)}`);
+  }
+  console.log(`[verify-phase2:evidence] ok session=${first.sessionId} seq=${after.seq}`);
+}
+
+async function main(): Promise<void> {
+  const command = process.argv[2];
+  if (command === 'hook') return verifyHook();
+  if (command === 'notify') return verifyNotifyStamp();
+  if (command === 'bindings') return verifyBindings();
+  if (command === 'backfill') return verifyBackfill();
+  if (command === 'findings') return verifyFindings();
+  if (command === 'persistence') return verifyPersistence();
+  if (command === 'evidence') return verifyEvidence();
+  if (command === 'all') {
+    await verifyHook();
+    await verifyNotifyStamp();
+    await verifyBindings();
+    await verifyBackfill();
+    await verifyFindings();
+    await verifyPersistence();
+    await verifyEvidence();
+    return;
+  }
+  fail('usage: tsx scripts/verify-phase2.ts hook|notify|bindings|backfill|findings|persistence|evidence|all');
+}
+
+main()
+  .catch((error) => {
+    console.error(`[verify-phase2] failed: ${(error as Error).message}`);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await closePool();
+  });

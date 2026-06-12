@@ -155,6 +155,7 @@ function mergeStopHook(settings: JsonRecord, command: string): JsonRecord {
 
 function hookScript(): string {
   return `#!/usr/bin/env node
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -169,6 +170,114 @@ async function readStdin() {
   process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) input += chunk;
   return input;
+}
+
+function normalizeRelPath(value) {
+  return value.split(path.sep).join('/').replace(/^\\.\\/+/, '');
+}
+
+function providersForPath(relPath) {
+  const p = normalizeRelPath(relPath);
+  if (p === 'AGENTS.md') return ['claude-code', 'codex'];
+  if (p === 'CLAUDE.md' || p.startsWith('.claude/')) return ['claude-code'];
+  if (p.startsWith('.codex/')) return ['codex'];
+  if (p.startsWith('skills/')) return ['claude-code', 'codex'];
+  if (p.endsWith('/AGENTS.md')) return ['claude-code', 'codex'];
+  if (p.endsWith('/CLAUDE.md')) return ['claude-code'];
+  return [];
+}
+
+function sha256(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+function addFilePathsFromDir(cwd, relDir, out) {
+  const fullDir = path.join(cwd, relDir);
+  if (!fs.existsSync(fullDir)) return;
+  const stack = [fullDir];
+  while (stack.length) {
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === '.git' || entry.name === 'node_modules') continue;
+        stack.push(full);
+      } else if (entry.isFile()) {
+        out.add(normalizeRelPath(path.relative(cwd, full)));
+      }
+    }
+  }
+}
+
+function providerHash(artifacts, provider) {
+  const hash = crypto.createHash('sha256');
+  hash.update(\`lathe-harness-v1\\0\${provider}\\0\`);
+  for (const artifact of artifacts.filter((item) => item.providers.includes(provider))) {
+    hash.update(artifact.path);
+    hash.update('\\0');
+    hash.update(artifact.sha256);
+    hash.update('\\0');
+  }
+  return hash.digest('hex');
+}
+
+function captureHarnessHash(cwd) {
+  const started = Date.now();
+  try {
+    const root = path.resolve(cwd || process.cwd());
+    const candidates = new Set([
+      'AGENTS.md',
+      'CLAUDE.md',
+      '.claude/settings.json',
+      '.claude/settings.local.json',
+      '.codex/config.toml',
+      '.codex/hooks.json',
+    ]);
+    addFilePathsFromDir(root, '.claude/commands', candidates);
+    addFilePathsFromDir(root, '.claude/agents', candidates);
+    addFilePathsFromDir(root, '.claude/hooks', candidates);
+    addFilePathsFromDir(root, '.codex', candidates);
+    addFilePathsFromDir(root, 'skills', candidates);
+
+    const artifacts = [];
+    for (const relPath of [...candidates].sort()) {
+      const providers = providersForPath(relPath);
+      if (!providers.length) continue;
+      const full = path.join(root, relPath);
+      let stat;
+      try {
+        stat = fs.statSync(full);
+      } catch {
+        continue;
+      }
+      if (!stat.isFile()) continue;
+      const content = fs.readFileSync(full);
+      artifacts.push({
+        path: normalizeRelPath(relPath),
+        providers: [...providers].sort(),
+        sha256: sha256(content),
+        bytes: content.byteLength,
+      });
+    }
+    artifacts.sort((a, b) => a.path.localeCompare(b.path));
+    return {
+      version: 1,
+      artifacts,
+      providers: {
+        'claude-code': providerHash(artifacts, 'claude-code'),
+        codex: providerHash(artifacts, 'codex'),
+      },
+      overhead_ms: Date.now() - started,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 async function main() {
@@ -188,6 +297,8 @@ async function main() {
       project_id: config.projectId,
       event: typeof hook.hook_event_name === 'string' ? hook.hook_event_name : readArg('--event') || 'Stop',
     };
+    const harnessHash = captureHarnessHash(payload.cwd);
+    if (harnessHash) payload.harness_hash = harnessHash;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), Number(config.timeoutMs || 1000));

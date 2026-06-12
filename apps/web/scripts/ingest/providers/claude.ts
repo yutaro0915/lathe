@@ -584,6 +584,7 @@ export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Bu
     commit_count: counts['commit'] || 0,
     cost_usd: costPriced ? costUsd : null, // priced from real tokens (db/pricing.json); null if model unknown
     summary: `${gitBranch ? gitBranch + ' · ' : ''}${version ? 'cc ' + version : ''}`.trim() || null,
+    harness_version_id: null,
     seq: 0,
     _startMs: firstTs ? new Date(firstTs).getTime() : 0,
   };

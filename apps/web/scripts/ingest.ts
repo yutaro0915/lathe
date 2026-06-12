@@ -96,7 +96,7 @@ async function main() {
   await syncPullRequestsCatchup(db);
   await db.end();
   console.log(
-    `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: projects=${counts.projects} sessions=${counts.sessions} events=${counts.events} session_commits=${counts.sessionCommits} commit_sha_misses=${counts.commitShaMisses} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations}`,
+    `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: projects=${counts.projects} sessions=${counts.sessions} events=${counts.events} session_commits=${counts.sessionCommits} commit_sha_misses=${counts.commitShaMisses} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations} harness_versions=${counts.harnessVersions}`,
   );
 }
 
