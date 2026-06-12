@@ -1,4 +1,5 @@
--- Lathe prototype schema — Phase 1: transcript / Git-diff viewer (read-only).
+-- Lathe prototype schema — transcript / Git-diff viewer plus Phase 2 analysis
+-- persistence.
 --
 -- Backs the Phase 1 screens:
 --   A) session viewer
@@ -6,9 +7,6 @@
 --
 -- Entities: session, transcript-event, git-diff (changed_files + diff_hunks),
 -- attribution.
--- Later phases (finding / fixture_run / harness_version / decision_trace) are
--- intentionally NOT created here — Phase 1 is observation only.
---
 -- snake_case columns; the db layer maps to camelCase (see lib/types.ts).
 
 -- A repository-level identity. `id` is the canonical key from ADR 0002:
@@ -22,6 +20,28 @@ CREATE TABLE IF NOT EXISTS projects (
   created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Phase 2 persistent harness inventory. The provider binding is deliberately
+-- shallow: path + providers + provider-subset hash, per ADR 0005.
+CREATE TABLE IF NOT EXISTS harness_artifacts (
+  project_id  TEXT NOT NULL REFERENCES projects(id),
+  path        TEXT NOT NULL,
+  providers   TEXT[] NOT NULL,
+  updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (project_id, path)
+);
+CREATE INDEX IF NOT EXISTS idx_harness_artifacts_project ON harness_artifacts(project_id);
+
+CREATE TABLE IF NOT EXISTS harness_versions (
+  id           TEXT PRIMARY KEY,
+  project_id   TEXT NOT NULL REFERENCES projects(id),
+  provider     TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  captured_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  git_commit   TEXT,
+  UNIQUE (project_id, provider, content_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_harness_versions_project_provider ON harness_versions(project_id, provider);
 
 -- A recorded coding-agent session (one run over a repository).
 CREATE TABLE IF NOT EXISTS sessions (
@@ -48,9 +68,23 @@ CREATE TABLE IF NOT EXISTS sessions (
   commit_count   INTEGER NOT NULL DEFAULT 0,   -- count of commit events
   cost_usd       DOUBLE PRECISION,
   summary        TEXT,
+  harness_version_id TEXT REFERENCES harness_versions(id) ON DELETE SET NULL,
   seq            INTEGER NOT NULL DEFAULT 0    -- ordering in the session list
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
+
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS harness_version_id TEXT;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'sessions_harness_version_id_fkey'
+  ) THEN
+    ALTER TABLE sessions
+      ADD CONSTRAINT sessions_harness_version_id_fkey
+      FOREIGN KEY (harness_version_id) REFERENCES harness_versions(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_sessions_harness_version ON sessions(harness_version_id);
 
 -- Append-only transcript events (the timeline of a session).
 CREATE TABLE IF NOT EXISTS transcript_events (
@@ -119,11 +153,87 @@ CREATE TABLE IF NOT EXISTS event_files (
 -- Minimap markers (bottom density bar of timeline/diff screens).
 CREATE TABLE IF NOT EXISTS annotations (
   id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  session_id TEXT NOT NULL REFERENCES sessions(id),
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   at_seq     INTEGER NOT NULL,           -- position along the timeline
   kind       TEXT NOT NULL,              -- error | test | edit | commit | note
   note       TEXT
 );
+DELETE FROM annotations
+ WHERE NOT EXISTS (
+   SELECT 1 FROM sessions WHERE sessions.id = annotations.session_id
+ );
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'annotations_session_id_fkey'
+  ) THEN
+    ALTER TABLE annotations
+      ADD CONSTRAINT annotations_session_id_fkey
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_annotations_session_seq ON annotations(session_id, at_seq);
+
+-- Phase 2 persistent findings. Evidence uses logical coordinates
+-- (subject_kind + session_id + locator) instead of FK-ing to derived rows.
+CREATE TABLE IF NOT EXISTS findings (
+  id                 INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  created_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  analyst            TEXT NOT NULL,
+  kind               TEXT NOT NULL CHECK (kind IN ('failure_loop', 'unattributed_diff', 'excess_cost', 'risky_action')),
+  title              TEXT NOT NULL,
+  body               TEXT NOT NULL,
+  confidence         DOUBLE PRECISION NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  harness_version_id TEXT REFERENCES harness_versions(id) ON DELETE SET NULL,
+  project_id         TEXT NOT NULL REFERENCES projects(id)
+);
+CREATE INDEX IF NOT EXISTS idx_findings_project_kind ON findings(project_id, kind);
+CREATE INDEX IF NOT EXISTS idx_findings_harness_version ON findings(harness_version_id);
+
+CREATE TABLE IF NOT EXISTS finding_evidence (
+  id           INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  finding_id   INTEGER NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+  subject_kind TEXT NOT NULL CHECK (subject_kind IN ('session', 'event', 'hunk', 'pr', 'turn')),
+  session_id   TEXT,
+  locator      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  subject_id   TEXT,
+  note         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_finding_evidence_finding ON finding_evidence(finding_id);
+CREATE INDEX IF NOT EXISTS idx_finding_evidence_logical ON finding_evidence(subject_kind, session_id);
+
+CREATE TABLE IF NOT EXISTS finding_verdicts (
+  id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  finding_id INTEGER NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+  verdict    TEXT NOT NULL CHECK (verdict IN ('accept', 'reject')),
+  reason     TEXT,
+  decided_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  decided_by TEXT NOT NULL DEFAULT 'user'
+);
+CREATE INDEX IF NOT EXISTS idx_finding_verdicts_finding ON finding_verdicts(finding_id);
+
+CREATE TABLE IF NOT EXISTS chat_threads (
+  id         TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  title      TEXT NOT NULL,
+  session_id TEXT,
+  finding_id INTEGER REFERENCES findings(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_chat_threads_project ON chat_threads(project_id);
+CREATE INDEX IF NOT EXISTS idx_chat_threads_session ON chat_threads(session_id);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id         TEXT PRIMARY KEY,
+  thread_id  TEXT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
+  body       TEXT NOT NULL,
+  seq        INTEGER NOT NULL,
+  meta       JSONB,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_seq ON chat_messages(thread_id, seq);
 
 -- Commit SHAs observed in a session transcript. Populated by provider commit
 -- event parsing in the next G1 item.

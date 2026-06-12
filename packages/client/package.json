@@ -14,6 +14,9 @@
       "default": "./dist/index.js"
     }
   },
+  "dependencies": {
+    "@lathe/shared": "workspace:*"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },

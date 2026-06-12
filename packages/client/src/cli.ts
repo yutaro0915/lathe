@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { HOOK_HARNESS_SOURCE } from '@lathe/shared/hook-harness-source';
 import { LATHE_HOOK_VERSION } from './index.js';
 
 interface InitOptions {
@@ -155,8 +156,10 @@ function mergeStopHook(settings: JsonRecord, command: string): JsonRecord {
 
 function hookScript(): string {
   return `#!/usr/bin/env node
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 function readArg(name) {
@@ -170,6 +173,8 @@ async function readStdin() {
   for await (const chunk of process.stdin) input += chunk;
   return input;
 }
+
+${HOOK_HARNESS_SOURCE}
 
 async function main() {
   try {
@@ -188,6 +193,8 @@ async function main() {
       project_id: config.projectId,
       event: typeof hook.hook_event_name === 'string' ? hook.hook_event_name : readArg('--event') || 'Stop',
     };
+    const harnessHash = captureLiveHarnessSnapshot(payload.cwd);
+    if (harnessHash) payload.harness_hash = harnessHash;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), Number(config.timeoutMs || 1000));

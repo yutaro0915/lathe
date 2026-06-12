@@ -6,6 +6,7 @@ import type { Runner } from '../../lib/types';
 import { getPool } from '../../lib/postgres';
 import type { Built } from './built';
 import { replaceBuiltSession, type InsertCounts } from './db';
+import { captureHarnessSnapshot, type HarnessSnapshot } from './harness';
 import { resolveProjectIdentity } from './project';
 import { buildClaudeSession } from './providers/claude';
 import { CodexProvider } from './providers/codex';
@@ -18,6 +19,7 @@ export interface IngestNotifyPayload {
   cwd?: string;
   project_id?: string;
   event?: string;
+  harness_hash?: HarnessSnapshot;
 }
 
 export interface IngestNotifyResult {
@@ -27,6 +29,15 @@ export interface IngestNotifyResult {
   transcriptPath: string;
   projectId: string | null;
   counts: InsertCounts;
+}
+
+function isHarnessSnapshot(value: unknown): value is HarnessSnapshot {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1) return false;
+  if (!Array.isArray(record.artifacts)) return false;
+  if (!record.providers || typeof record.providers !== 'object') return false;
+  return true;
 }
 
 function buildOptionsFromEnv(): ProviderBuildOptions {
@@ -148,6 +159,7 @@ export function buildNotifyPayloadFromHook(stdinPayload: unknown, agent: string,
     cwd: typeof record.cwd === 'string' ? record.cwd : undefined,
     project_id: projectId,
     event: typeof record.hook_event_name === 'string' ? record.hook_event_name : 'Stop',
+    harness_hash: isHarnessSnapshot(record.harness_hash) ? record.harness_hash : undefined,
   };
 }
 
@@ -160,7 +172,14 @@ export async function ingestNotify(payload: IngestNotifyPayload, pool: Pool = ge
   const allowedTranscriptPath = assertAllowedTranscriptPath(transcriptPath);
   const runner = normalizeRunner(payload.agent, allowedTranscriptPath);
   const built = buildSession(payload, allowedTranscriptPath, runner);
-  const counts = await replaceBuiltSession(pool, built);
+  const harnessSnapshot =
+    isHarnessSnapshot(payload.harness_hash)
+      ? payload.harness_hash
+      : payload.cwd?.trim()
+        ? captureHarnessSnapshot(payload.cwd.trim(), built) ?? undefined
+        : undefined;
+  const harnessSnapshots = harnessSnapshot ? new Map([[built.session.id, harnessSnapshot]]) : undefined;
+  const counts = await replaceBuiltSession(pool, built, { harnessSnapshots });
 
   return {
     ok: true,

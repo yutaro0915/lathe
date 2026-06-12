@@ -2,6 +2,12 @@ import * as fs from 'node:fs';
 import { Pool, type PoolClient } from 'pg';
 import type { Built } from './built';
 import { getDatabaseUrl } from '../../lib/postgres';
+import {
+  backfillHarnessVersions,
+  isHarnessProvider,
+  type HarnessSnapshot,
+  upsertHarnessSnapshot,
+} from './harness';
 
 export interface InsertCounts {
   projects: number;
@@ -14,21 +20,95 @@ export interface InsertCounts {
   attributions: number;
   eventFiles: number;
   annotations: number;
+  harnessVersions: number;
+}
+
+export interface InsertBuiltOptions {
+  harnessSnapshots?: Map<string, HarnessSnapshot>;
+  backfillHarness?: boolean;
+  existingHarnessStamps?: Map<string, string>;
+}
+
+export interface ResetDatabaseOptions {
+  existingHarnessStamps?: Map<string, string>;
 }
 
 function cleanParams(values: unknown[]): unknown[] {
   return values.map((value) => (typeof value === 'string' ? value.replace(/\u0000/g, '') : value));
 }
 
-export async function resetDatabase(schemaPath: string): Promise<Pool> {
+export async function resetDatabase(schemaPath: string, options: ResetDatabaseOptions = {}): Promise<Pool> {
   const pool = new Pool({ connectionString: getDatabaseUrl() });
-  await pool.query('DROP SCHEMA IF EXISTS public CASCADE');
-  await pool.query('CREATE SCHEMA public');
   await pool.query(fs.readFileSync(schemaPath, 'utf8'));
+  if (options.existingHarnessStamps) {
+    const existing = await pool.query<{ id: string; harness_version_id: string }>(
+      `SELECT id,harness_version_id
+         FROM sessions
+        WHERE harness_version_id IS NOT NULL`,
+    );
+    for (const row of existing.rows) options.existingHarnessStamps.set(row.id, row.harness_version_id);
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM event_files');
+    await client.query('DELETE FROM attributions');
+    await client.query('DELETE FROM diff_hunks');
+    await client.query('DELETE FROM changed_files');
+    await client.query('DELETE FROM transcript_events');
+    await client.query('DELETE FROM session_commits');
+    await client.query('DELETE FROM pr_commits');
+    await client.query('DELETE FROM pull_requests');
+    await client.query('DELETE FROM github_pr_sync_state');
+    await client.query('DELETE FROM annotations');
+    await client.query('DELETE FROM sessions');
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
   return pool;
 }
 
-async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<InsertCounts> {
+async function prepareHarnessVersions(
+  client: PoolClient,
+  built: Built[],
+  options: InsertBuiltOptions,
+): Promise<number> {
+  for (const item of built) {
+    const existing = options.existingHarnessStamps?.get(item.session.id);
+    if (existing) item.session.harness_version_id = existing;
+  }
+
+  for (const item of built) {
+    if (item.session.harness_version_id || !isHarnessProvider(item.session.runner)) continue;
+    const supplied = options.harnessSnapshots?.get(item.session.id);
+    if (!supplied) continue;
+    item.session.harness_version_id = await upsertHarnessSnapshot(
+      client,
+      item.session.projectId,
+      item.session.runner,
+      supplied,
+    );
+  }
+
+  if (options.backfillHarness !== false) {
+    const pending = built.filter(
+      (item) => !item.session.harness_version_id && isHarnessProvider(item.session.runner),
+    );
+    if (pending.length) await backfillHarnessVersions(client, pending);
+  }
+
+  return built.filter((item) => !!item.session.harness_version_id).length;
+}
+
+async function insertBuiltRows(
+  client: PoolClient,
+  built: Built[],
+  options: InsertBuiltOptions = {},
+): Promise<InsertCounts> {
   const validEventIds = new Set<string>();
   for (const b of built) for (const e of b.events) validEventIds.add(e.id);
   const projectIds = new Set<string>();
@@ -44,11 +124,11 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
     attributions: 0,
     eventFiles: 0,
     annotations: 0,
+    harnessVersions: 0,
   };
 
   for (const b of built) {
     const s = b.session;
-    counts.commitShaMisses += b.commitShaMissCount;
     await client.query(
       `INSERT INTO projects (id,display_name,git_remote,cwd_hint,updated_at)
        VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP)
@@ -60,11 +140,17 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
       cleanParams([s.projectId, s.project, s.projectGitRemote, s.projectCwdHint]),
     );
     projectIds.add(s.projectId);
-    counts.projects = projectIds.size;
+  }
+  counts.projects = projectIds.size;
+  counts.harnessVersions = await prepareHarnessVersions(client, built, options);
+
+  for (const b of built) {
+    const s = b.session;
+    counts.commitShaMisses += b.commitShaMissCount;
 
     await client.query(
-      `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,seq)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+      `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,harness_version_id,seq)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
       cleanParams([
         s.id,
         s.projectId,
@@ -89,6 +175,7 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
         s.commit_count,
         s.cost_usd,
         s.summary,
+        s.harness_version_id,
         s.seq,
       ]),
     );
@@ -174,7 +261,15 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
     for (const an of b.annotations) {
       await client.query(
         `INSERT INTO annotations (session_id,at_seq,kind,note)
-         VALUES ($1,$2,$3,$4)`,
+         SELECT $1,$2,$3,$4
+         WHERE NOT EXISTS (
+           SELECT 1
+           FROM annotations
+           WHERE session_id = $1
+             AND at_seq = $2
+             AND kind = $3
+             AND note IS NOT DISTINCT FROM $4
+         )`,
         cleanParams([an.session_id, an.at_seq, an.kind, an.note]),
       );
       counts.annotations++;
@@ -184,10 +279,14 @@ async function insertBuiltRows(client: PoolClient, built: Built[]): Promise<Inse
   return counts;
 }
 
-async function insertBuiltWithClient(client: PoolClient, built: Built[]): Promise<InsertCounts> {
+async function insertBuiltWithClient(
+  client: PoolClient,
+  built: Built[],
+  options: InsertBuiltOptions = {},
+): Promise<InsertCounts> {
   await client.query('BEGIN');
   try {
-    const counts = await insertBuiltRows(client, built);
+    const counts = await insertBuiltRows(client, built, options);
     await client.query('COMMIT');
     return counts;
   } catch (error) {
@@ -203,7 +302,6 @@ async function deleteSessionRows(client: PoolClient, sessionId: string): Promise
     [sessionId],
   );
   await client.query('DELETE FROM session_commits WHERE session_id = $1', [sessionId]);
-  await client.query('DELETE FROM annotations WHERE session_id = $1', [sessionId]);
   await client.query(
     `DELETE FROM attributions
      WHERE hunk_id IN (
@@ -222,6 +320,7 @@ async function deleteSessionRows(client: PoolClient, sessionId: string): Promise
   );
   await client.query('DELETE FROM changed_files WHERE session_id = $1', [sessionId]);
   await client.query('DELETE FROM transcript_events WHERE session_id = $1', [sessionId]);
+  await client.query('DELETE FROM annotations WHERE session_id = $1', [sessionId]);
   await client.query('DELETE FROM sessions WHERE id = $1', [sessionId]);
 }
 
@@ -235,22 +334,30 @@ async function seqForReplacement(client: PoolClient, sessionId: string, requeste
   return minSeq == null ? 1 : minSeq - 1;
 }
 
-export async function insertBuilt(pool: Pool, built: Built[]): Promise<InsertCounts> {
+export async function insertBuilt(
+  pool: Pool,
+  built: Built[],
+  options: InsertBuiltOptions = {},
+): Promise<InsertCounts> {
   const client = await pool.connect();
   try {
-    return await insertBuiltWithClient(client, built);
+    return await insertBuiltWithClient(client, built, options);
   } finally {
     client.release();
   }
 }
 
-export async function replaceBuiltSession(pool: Pool, built: Built): Promise<InsertCounts> {
+export async function replaceBuiltSession(
+  pool: Pool,
+  built: Built,
+  options: InsertBuiltOptions = {},
+): Promise<InsertCounts> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     built.session.seq = await seqForReplacement(client, built.session.id, built.session.seq);
     await deleteSessionRows(client, built.session.id);
-    const counts = await insertBuiltRows(client, [built]);
+    const counts = await insertBuiltRows(client, [built], options);
     await client.query('COMMIT');
     return counts;
   } catch (error) {

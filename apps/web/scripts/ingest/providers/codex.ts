@@ -274,6 +274,7 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
     commit_count: counts['commit'] || 0,
     cost_usd: costUsd, // priced from bundled GPT rates; null when model unknown
     summary: meta.cli_version ? `codex ${meta.cli_version}` : 'codex',
+    harness_version_id: null,
     seq: 0,
     _startMs: firstTs ? new Date(firstTs).getTime() : 0,
   };

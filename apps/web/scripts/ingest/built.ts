@@ -36,6 +36,7 @@ export interface BuiltSession {
   commit_count: number;
   cost_usd: number | null;
   summary: string | null;
+  harness_version_id: string | null;
   seq: number;
   _startMs?: number;
 }

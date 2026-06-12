@@ -91,12 +91,13 @@ async function main() {
 
   built.sort((a, b) => (b.session._startMs ?? 0) - (a.session._startMs ?? 0));
   built.forEach((b, i) => (b.session.seq = i + 1));
-  const db = await resetDatabase(SCHEMA_PATH);
-  const counts = await insertBuilt(db, built);
+  const existingHarnessStamps = new Map<string, string>();
+  const db = await resetDatabase(SCHEMA_PATH, { existingHarnessStamps });
+  const counts = await insertBuilt(db, built, { existingHarnessStamps });
   await syncPullRequestsCatchup(db);
   await db.end();
   console.log(
-    `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: projects=${counts.projects} sessions=${counts.sessions} events=${counts.events} session_commits=${counts.sessionCommits} commit_sha_misses=${counts.commitShaMisses} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations}`,
+    `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: projects=${counts.projects} sessions=${counts.sessions} events=${counts.events} session_commits=${counts.sessionCommits} commit_sha_misses=${counts.commitShaMisses} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations} harness_versions=${counts.harnessVersions}`,
   );
 }
 
