@@ -1117,12 +1117,25 @@ test.describe("Cost anomaly detection", () => {
     ).toHaveCount(0);
   });
 
-  test("overview shows the same anomaly chip in scoped session rows", async ({ page }) => {
+  test("overview surfaces the G9 cost flag in the 要注意 cost-alerts list", async ({ page }) => {
     await page.goto("/overview");
     await page.locator(".project-picker").selectOption("(no edits)");
-    await expect(
-      page.locator(`.overview-shell .session-item[data-session-id="${COST_FIXTURE_IDS[1]}"] .anomaly-chip`)
-    ).toHaveText("▲ cost");
+    // Overview v2 has no session rail; the anomalous session is a row in the
+    // attention panel's cost-alerts column, carrying a ▲ cost flag, and links
+    // straight to that session's viewer.
+    const row = page.locator(
+      `[data-attn-group="cost"] .attn-row[data-session-id="${COST_FIXTURE_IDS[1]}"]`
+    );
+    await expect(row).toBeVisible();
+    // the row shows the session cost and an overrun ratio (cost ÷ baseline). Being
+    // in the cost-alerts column already means it is anomalous, so the ▲ flag is
+    // redundant here; the ratio badge is the "how bad" signal.
+    await expect(row.locator(".attn-ratio")).toBeVisible();
+    await expect(row).toContainText("$51.00");
+    await expect(row).toHaveAttribute(
+      "href",
+      `/?session=${encodeURIComponent(COST_FIXTURE_IDS[1])}`
+    );
   });
 
   test("highest-turn jump expands and activates the estimated-cost turn for Claude Code", async ({ page }) => {
@@ -1964,12 +1977,90 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     await expect(page.locator(".chart-card").first()).toBeVisible();
   });
 
-  test("a session in the overview sidebar jumps into the session viewer", async ({
+  test("Overview v2 has NO session rail (it is a full-width canvas, not a 2nd Sessions list)", async ({
     page,
   }) => {
     await page.goto("/overview");
-    await page.locator(".overview-shell .session-list .session-item").first().click();
-    await expect(page).toHaveURL(/\?session=/);
+    // the old rail (sidebar + "Sessions in scope" session-list + back-link) is gone.
+    await expect(page.locator(".overview-page .sidebar")).toHaveCount(0);
+    await expect(page.locator(".overview-page .session-list")).toHaveCount(0);
+    await expect(page.locator(".overview-back")).toHaveCount(0);
+    // it IS the full-width analysis canvas with the attention panel.
+    await expect(page.locator(".overview-canvas")).toBeVisible();
+    await expect(page.locator('[data-panel="attention"]')).toBeVisible();
+  });
+
+  test("the 要注意 panel is shown and a row click navigates to the session viewer", async ({
+    page,
+  }) => {
+    await page.goto("/overview");
+    await page.locator(".project-picker").selectOption("(no edits)");
+    // the cost-alert fixture row is a link straight to that session's viewer.
+    const row = page.locator(
+      `[data-attn-group="cost"] .attn-row[data-session-id="${COST_FIXTURE_IDS[1]}"]`
+    );
+    await expect(row).toBeVisible();
+    await row.click();
+    await expect(page).toHaveURL(
+      new RegExp(`\\?session=${COST_FIXTURE_IDS[1]}`)
+    );
+    // the global bar now reads "Sessions" (axis moved via a real link, back works).
+    await expect(page.locator(".globalnav-tab.active")).toHaveAttribute("data-nav", "sessions");
+  });
+
+  test("biggest-sessions rows carry a status chip set and link to the session viewer", async ({
+    page,
+  }) => {
+    await page.goto("/overview");
+    const biggest = page.locator(".chart-card", { hasText: "Biggest sessions by cost" });
+    await expect(biggest).toBeVisible();
+    const firstRow = biggest.locator(".big-row").first();
+    await expect(firstRow).toBeVisible();
+    // the row is a link (href into the session viewer) and reserves a status slot.
+    await expect(firstRow).toHaveAttribute("href", /\?session=/);
+    await expect(firstRow.locator(".big-status")).toHaveCount(1);
+    // at least one biggest row in the corpus carries an err / pending / cost flag.
+    await expect(biggest.locator(".big-status .badge").first()).toBeVisible();
+  });
+
+  test("a model row drills into the Sessions axis filtered to that model", async ({
+    page,
+  }) => {
+    await page.goto("/overview");
+    const modelChart = page.locator(".chart-card", { hasText: "Cost by model" });
+    // pick a real (linkable) model row and read the model it deep-links to.
+    const modelRow = modelChart.locator(".hbar-link").first();
+    await expect(modelRow).toBeVisible();
+    const model = await modelRow.getAttribute("data-model");
+    expect(model).toBeTruthy();
+    await modelRow.click();
+    await expect(page).toHaveURL(/[?&]model=/);
+    // landed on the Sessions axis with the MODEL filter applied (the Model
+    // <select> is the one whose options include "All models").
+    await expect(page.locator(".globalnav-tab.active")).toHaveAttribute("data-nav", "sessions");
+    const modelSelect = page
+      .locator(".filter-row select")
+      .filter({ has: page.locator('option[value="all"]', { hasText: "All models" }) });
+    await expect(modelSelect).toHaveValue(model!);
+  });
+
+  test("a cost-over-time bar drills into the Sessions axis scoped to that period", async ({
+    page,
+  }) => {
+    await page.goto("/overview");
+    const bar = page.locator(".time-bar-link").first();
+    await expect(bar).toBeVisible();
+    const from = await bar.getAttribute("data-from");
+    const to = await bar.getAttribute("data-to");
+    expect(from).toBeTruthy();
+    await bar.click();
+    await expect(page).toHaveURL(new RegExp(`from=${from}`));
+    await expect(page.locator(".globalnav-tab.active")).toHaveAttribute("data-nav", "sessions");
+    // the active period shows as a clearable banner in the session-list sidebar.
+    const banner = page.locator(".date-range-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveAttribute("data-from", from!);
+    await expect(banner).toHaveAttribute("data-to", to!);
   });
 });
 

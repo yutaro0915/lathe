@@ -329,6 +329,12 @@ export interface StatsBundle {
   models: ModelStat[];
 }
 
+// Per-session pending-findings counts, keyed by session id. The Overview's
+// "要注意" panel needs how many findings are still UNDECIDED for each session;
+// computing this server-side (one batched query, no N+1) keeps the client free
+// of the whole findings corpus.
+export type PendingFindingsBySession = Record<string, number>;
+
 // Everything the client needs to render one session interactively, assembled
 // server-side and passed as serializable props (no db access on the client).
 export interface SessionBundle {

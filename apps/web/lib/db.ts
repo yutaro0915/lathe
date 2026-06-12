@@ -1355,6 +1355,61 @@ export async function getStats(): Promise<StatsBundle> {
   return { totals, projects: projectList, files, skills, subagentTypes, memory, hooks, models };
 }
 
+// Pending-findings count per session, for the Overview "要注意" panel. A finding
+// is "pending" when it has no latest verdict; it "touches" a session when any of
+// its evidence resolves to that session (mirrors FindingsExplorer.evidenceSessionId:
+// evidence.session_id, OR a subject_id when subject_kind='session', OR a locator
+// session key). Two batched queries (findings + their evidence) — no N+1.
+export async function getPendingFindingsBySession(): Promise<Record<string, number>> {
+  const findingRows = await queryRows<{ id: number }>(
+    `WITH latest_verdict AS (
+       SELECT DISTINCT ON (finding_id) finding_id
+         FROM finding_verdicts
+        ORDER BY finding_id, decided_at DESC, id DESC
+     )
+     SELECT f.id
+       FROM findings f
+       LEFT JOIN latest_verdict v ON v.finding_id = f.id
+      WHERE v.finding_id IS NULL`,
+  );
+  if (findingRows.length === 0) return {};
+  const pendingIds = findingRows.map((r) => r.id);
+
+  const evidenceRows = await queryRows<FindingEvidenceRow>(
+    `SELECT id, finding_id, subject_kind, session_id, locator, subject_id, note
+       FROM finding_evidence
+      WHERE finding_id = ANY($1::int[])`,
+    [pendingIds],
+  );
+
+  // resolve each evidence row to a session id, exactly as the client does, then
+  // count DISTINCT pending findings per session (so a finding with two pieces of
+  // evidence in the same session counts once).
+  const findingsBySession = new Map<string, Set<number>>();
+  for (const row of evidenceRows) {
+    const locator = parseLocator(row.locator);
+    const locatorSession = ['session_id', 'sessionId', 'session']
+      .map((k) => locator[k])
+      .find((v): v is string => typeof v === 'string' && v.trim().length > 0);
+    const sessionId =
+      row.session_id ??
+      (row.subject_kind === 'session' ? row.subject_id : null) ??
+      locatorSession ??
+      null;
+    if (!sessionId) continue;
+    let set = findingsBySession.get(sessionId);
+    if (!set) {
+      set = new Set();
+      findingsBySession.set(sessionId, set);
+    }
+    set.add(row.finding_id);
+  }
+
+  const out: Record<string, number> = {};
+  for (const [sessionId, set] of findingsBySession) out[sessionId] = set.size;
+  return out;
+}
+
 export async function getSessionEventCounts(): Promise<Record<string, Record<string, number>>> {
   const rows = await queryRows<{ session_id: string; type: string; n: number }>(
     `SELECT session_id, type, COUNT(*)::int n
