@@ -11,6 +11,7 @@ import { resolveProjectIdentity } from './project';
 import { buildClaudeSession } from './providers/claude';
 import { CodexProvider } from './providers/codex';
 import type { ProviderBuildOptions } from './providers/types';
+import { scheduleRulesAnalystAfterNotify } from '../analyst-engine';
 
 export interface IngestNotifyPayload {
   agent?: string;
@@ -180,6 +181,7 @@ export async function ingestNotify(payload: IngestNotifyPayload, pool: Pool = ge
         : undefined;
   const harnessSnapshots = harnessSnapshot ? new Map([[built.session.id, harnessSnapshot]]) : undefined;
   const counts = await replaceBuiltSession(pool, built, { harnessSnapshots });
+  scheduleRulesAnalystAfterNotify(built.session.id);
 
   return {
     ok: true,
