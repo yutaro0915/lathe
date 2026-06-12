@@ -245,6 +245,7 @@ export default function SessionViewer({
   findings: initialFindings,
   initialTab = "transcript",
   initialFindingsSession,
+  initialSeq,
 }: {
   sessions: Session[];
   bundle: SessionBundle;
@@ -258,6 +259,7 @@ export default function SessionViewer({
   findings: Finding[];
   initialTab?: Tab;
   initialFindingsSession?: string;
+  initialSeq?: number;
 }) {
   const router = useRouter();
 
@@ -281,6 +283,10 @@ export default function SessionViewer({
   const [findingSessionFilter, setFindingSessionFilter] = useState<string>(
     initialFindingsSession ?? "all",
   );
+  // master-detail: which finding's現物 is open in the right detail panel. The
+  // list rows no longer carry accept/reject — the verdict lives in the detail
+  // panel, next to the evidence excerpts, so a decision is never made blind.
+  const [selectedFindingId, setSelectedFindingId] = useState<number | null>(null);
   const [findingReasonDrafts, setFindingReasonDrafts] = useState<Record<number, string>>({});
   const [findingBusy, setFindingBusy] = useState<Record<number, boolean>>({});
   const [findingError, setFindingError] = useState<string | null>(null);
@@ -325,6 +331,10 @@ export default function SessionViewer({
     return first?.id;
   }, [events]);
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>(seedId);
+  // a transiently-flashed step (deep-link / evidence jump): the row gets a brief
+  // outline so the user can SEE where the jump landed. Cleared on a timer.
+  const [flashEventId, setFlashEventId] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     setSelectedEventId(seedId);
   }, [seedId]);
@@ -845,6 +855,24 @@ export default function SessionViewer({
       });
   }, [findingSessionFilter, findingStatusFilter, findings]);
 
+  // the finding open in the detail panel — defaults to (and stays valid within)
+  // the current visible list. When the list changes (filter / new data) and the
+  // selection falls out of view, fall back to the first visible finding.
+  const selectedFinding = useMemo(() => {
+    if (selectedFindingId == null) return visibleFindings[0] ?? null;
+    return (
+      visibleFindings.find((finding) => finding.id === selectedFindingId) ??
+      visibleFindings[0] ??
+      null
+    );
+  }, [selectedFindingId, visibleFindings]);
+  useEffect(() => {
+    if (activeTab !== "findings") return;
+    if (selectedFinding && selectedFinding.id !== selectedFindingId) {
+      setSelectedFindingId(selectedFinding.id);
+    }
+  }, [activeTab, selectedFinding, selectedFindingId]);
+
   const eventById = useMemo(() => {
     const map = new Map<string, TranscriptEvent>();
     for (const event of events) map.set(event.id, event);
@@ -859,6 +887,26 @@ export default function SessionViewer({
     }
     return map;
   }, [events]);
+
+  // seq deep link (cross-session evidence jump): once the requested session's
+  // bundle is loaded, open the transcript, expand the owning turn, select the
+  // step at that seq and flash it. Re-runs only when the session or seq changes.
+  useEffect(() => {
+    if (initialSeq == null) return;
+    const target = eventBySeq.get(initialSeq);
+    if (!target) return;
+    setActiveTab("transcript");
+    expandTurnForEvent(target.id);
+    setSelectedEventId(target.id);
+    flashStep(target.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primary.id, initialSeq, eventBySeq]);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    };
+  }, []);
 
   const hunkTargetById = useMemo(() => {
     const map = new Map<string, { fileId: string; hunkId: string; hunkSeq: number; path: string }>();
@@ -894,7 +942,13 @@ export default function SessionViewer({
       }
     }
 
-    if (evidence.subjectKind === "event") {
+    // event AND turn evidence both point at one transcript step. The analyst
+    // (analyst-engine.ts) writes turn evidence as { subjectKind:"turn",
+    // locator:{ seq } } where `seq` is the EVENT seq — NOT a turn number. So both
+    // kinds resolve through the same locator: subject_id (event id) OR seq.
+    // (Historical fixtures may carry an actual turn number under `turn`; keep
+    // that as a fallback so they still resolve.)
+    if (evidence.subjectKind === "event" || evidence.subjectKind === "turn") {
       const eventId = evidence.subjectId ?? locatorString(evidence, ["event_id", "eventId"]);
       const seq = locatorNumber(evidence, ["seq", "at_seq", "step"]);
       const target = sameSession
@@ -903,7 +957,7 @@ export default function SessionViewer({
       if (target) {
         return {
           resolved: true,
-          kind: "event",
+          kind: evidence.subjectKind,
           label: `step ${target.seq}`,
           title: target.title,
           jump: () => {
@@ -912,39 +966,37 @@ export default function SessionViewer({
           },
         };
       }
+      // same-session turn-number fallback (only meaningful for `turn` evidence
+      // that carries a real turn number rather than an event seq).
+      if (evidence.subjectKind === "turn") {
+        const turn = locatorNumber(evidence, ["turn", "turn_number", "turnNumber"]);
+        const headerId =
+          turn == null
+            ? null
+            : [...turnNumberByEventId.entries()].find(([, value]) => value === turn)?.[0] ?? null;
+        if (sameSession && headerId) {
+          return {
+            resolved: true,
+            kind: "turn",
+            label: `turn ${turn}`,
+            title: `Turn ${turn}`,
+            jump: () => jumpToTurn(headerId),
+          };
+        }
+      }
       if (targetSessionId && targetSessionId !== currentId) {
+        // deep link into the other session's transcript at the same seq; the
+        // destination scrolls + flashes that step (see the seq deep-link effect).
+        const seqParam = seq != null ? `&seq=${seq}` : "";
         return {
           resolved: true,
-          kind: "event",
+          kind: evidence.subjectKind,
           label: seq != null ? `step ${seq} ↗` : "step ↗",
           title: targetSessionId,
-          jump: () => router.push(`/?session=${encodeURIComponent(targetSessionId)}&tab=transcript`),
-        };
-      }
-    }
-
-    if (evidence.subjectKind === "turn") {
-      const turn = locatorNumber(evidence, ["turn", "turn_number", "turnNumber"]);
-      const headerId =
-        turn == null
-          ? null
-          : [...turnNumberByEventId.entries()].find(([, value]) => value === turn)?.[0] ?? null;
-      if (sameSession && headerId) {
-        return {
-          resolved: true,
-          kind: "turn",
-          label: `turn ${turn}`,
-          title: `Turn ${turn}`,
-          jump: () => jumpToTurn(headerId),
-        };
-      }
-      if (targetSessionId && targetSessionId !== currentId) {
-        return {
-          resolved: true,
-          kind: "turn",
-          label: turn != null ? `turn ${turn} ↗` : "turn ↗",
-          title: targetSessionId,
-          jump: () => router.push(`/?session=${encodeURIComponent(targetSessionId)}&tab=transcript`),
+          jump: () =>
+            router.push(
+              `/?session=${encodeURIComponent(targetSessionId)}&tab=transcript${seqParam}`,
+            ),
         };
       }
     }
@@ -1009,11 +1061,14 @@ export default function SessionViewer({
       }
     }
 
+    // Could not map the locator to anything in the current bundle / session
+    // list. Mark it explicitly "未解決" — never echo the kind name as a label
+    // (that read as a meaningless duplicate of the kind tag).
     return {
       resolved: false,
       kind: evidence.subjectKind,
-      label: `${evidence.subjectKind}: 根拠は更新された`,
-      title: evidence.note ?? "根拠は更新された",
+      label: "未解決",
+      title: evidence.note ?? "この根拠は現在のデータに解決できません",
     };
   }
 
@@ -1029,9 +1084,16 @@ export default function SessionViewer({
     });
   }
 
+  function flashStep(eventId: string) {
+    setFlashEventId(eventId);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashEventId(null), 2200);
+  }
+
   function selectTimelineEvent(eventId: string, expandTurn = false) {
     if (expandTurn) expandTurnForEvent(eventId);
     setSelectedEventId(eventId);
+    flashStep(eventId);
   }
 
   function jumpToTurn(headerId: string) {
@@ -1686,7 +1748,8 @@ export default function SessionViewer({
                       data-rollup-files={isTurnHeader ? turnStats.files.length : undefined}
                       data-rollup-duration-ms={isTurnHeader ? rollupDurationMs : undefined}
                       data-turn-has-error={isTurnHeader && turnStats.errors > 0 ? "true" : undefined}
-                      className={`event-row${depth > 0 ? " child-row" : ""}${!isTurnHeader ? " step-row" : ""}${isSel ? " selected" : ""}${isTurnHeader ? " turn-header" : ""}${isTurnHeader && turnStats.errors > 0 ? " turn-has-error" : ""}${isDimmed ? " filter-dimmed" : ""}`}
+                      data-flash={flashEventId === e.id ? "true" : undefined}
+                      className={`event-row${depth > 0 ? " child-row" : ""}${!isTurnHeader ? " step-row" : ""}${isSel ? " selected" : ""}${flashEventId === e.id ? " flash-jump" : ""}${isTurnHeader ? " turn-header" : ""}${isTurnHeader && turnStats.errors > 0 ? " turn-has-error" : ""}${isDimmed ? " filter-dimmed" : ""}`}
                       onClick={() => {
                         if (isTurnHeader) {
                           setSelectedEventId(e.id);
@@ -2344,9 +2407,14 @@ export default function SessionViewer({
             </div>
           )}
 
-          {/* ===== FINDINGS (Phase 2 analyst output + verdict oracle) ===== */}
+          {/* ===== FINDINGS (Phase 2) — master-detail =====
+              Left: a compact, non-actionable list (kind / title / analyst /
+              confidence / evidence count / verdict state — NO accept/reject).
+              Right: the選んだ finding の現物 — body + per-evidence excerpts
+              (the actual command/output at that seq) + the verdict controls.
+              A decision is made looking at evidence, never from the list alone. */}
           {activeTab === "findings" && (
-            <div className="timeline findings-tab" data-pending-count={pendingFindingsCount}>
+            <div className="timeline findings-tab findings-md" data-pending-count={pendingFindingsCount}>
               <div className="findings-tab-head">
                 <div className="findings-title">
                   <span className="findings-label">Findings</span>
@@ -2409,127 +2477,236 @@ export default function SessionViewer({
                   No findings match the current filters.
                 </div>
               ) : (
-                visibleFindings.map((finding) => {
-                  const verdict = finding.verdict?.verdict ?? "pending";
-                  const harnessLabel = finding.harnessVersionId
-                    ? `${finding.harnessProvider ?? "harness"} ${shortHash(
-                        finding.harnessContentHash ?? finding.harnessVersionId,
-                      )}`
-                    : "—";
-                  return (
-                    <div
-                      key={finding.id}
-                      className={`finding-row ${verdict}`}
-                      data-finding-id={finding.id}
-                      data-kind={finding.kind}
-                      data-analyst={finding.analyst}
-                      data-verdict={verdict}
-                      data-evidence-count={finding.evidence.length}
-                    >
-                      <div className="finding-mainline">
-                        <span className={`finding-kind-chip ${finding.kind}`}>
-                          <span className="finding-kind-dot" aria-hidden />
-                          {FINDING_KIND_LABEL[finding.kind]}
-                        </span>
-                        <div className="finding-title-body">
-                          <div className="finding-title-text">{finding.title}</div>
-                          <div className="finding-body-text">{finding.body}</div>
-                        </div>
-                        <span className={`finding-verdict-chip ${verdict}`}>
-                          {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
-                        </span>
-                      </div>
-                      <div className="finding-meta-line">
-                        <span className="mono">{finding.analyst}</span>
-                        <span className="mono">{findingConfidenceLabel(finding.confidence)}</span>
-                        <span className="mono">{finding.evidence.length} evidence</span>
-                        <span className="mono">harness {harnessLabel}</span>
-                        <Link className="finding-discuss-link" href={findingDiscussHref(finding)}>
-                          Discuss
-                        </Link>
-                        {finding.verdict && (
-                          <span className="mono">
-                            {finding.verdict.decidedBy} · {finding.verdict.reason || "no reason"}
-                          </span>
-                        )}
-                      </div>
-                      <div className="finding-evidence-list">
-                        {finding.evidence.map((evidence) => {
-                          const target = resolveEvidence(evidence);
-                          return target.resolved ? (
-                            <button
-                              key={evidence.id}
-                              type="button"
-                              className="finding-evidence"
-                              data-evidence-kind={evidence.subjectKind}
-                              data-evidence-id={evidence.id}
-                              data-resolved="true"
-                              title={evidence.note ?? target.title}
-                              onClick={target.jump}
-                            >
-                              <span className="finding-evidence-kind">{target.kind}</span>
-                              <span className="mono">{target.label}</span>
-                            </button>
-                          ) : (
-                            <span
-                              key={evidence.id}
-                              className="finding-evidence stale"
-                              data-evidence-kind={evidence.subjectKind}
-                              data-evidence-id={evidence.id}
-                              data-resolved="false"
-                              title={target.title}
-                            >
-                              {target.label}
+                <div className="findings-md-grid">
+                  {/* ---- master: compact list ---- */}
+                  <div className="findings-list" role="list">
+                    {visibleFindings.map((finding) => {
+                      const verdict = finding.verdict?.verdict ?? "pending";
+                      const isActive = selectedFinding?.id === finding.id;
+                      return (
+                        <button
+                          key={finding.id}
+                          type="button"
+                          role="listitem"
+                          className={`finding-row ${verdict}${isActive ? " active" : ""}`}
+                          data-finding-id={finding.id}
+                          data-kind={finding.kind}
+                          data-analyst={finding.analyst}
+                          data-verdict={verdict}
+                          data-evidence-count={finding.evidence.length}
+                          aria-pressed={isActive}
+                          onClick={() => setSelectedFindingId(finding.id)}
+                        >
+                          <div className="finding-mainline">
+                            <span className={`finding-kind-chip ${finding.kind}`}>
+                              <span className="finding-kind-dot" aria-hidden />
+                              {FINDING_KIND_LABEL[finding.kind]}
                             </span>
-                          );
-                        })}
-                      </div>
-                      {finding.verdict?.verdict === "accept" && (
-                        <div className="finding-boundary-note">
-                          ハーネス編集はユーザー手動（P2 境界）
+                            <div className="finding-title-body">
+                              <div className="finding-title-text">{finding.title}</div>
+                            </div>
+                            <span className={`finding-verdict-chip ${verdict}`}>
+                              {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
+                            </span>
+                          </div>
+                          <div className="finding-meta-line">
+                            <span className="mono">{finding.analyst}</span>
+                            <span className="mono">{findingConfidenceLabel(finding.confidence)}</span>
+                            <span className="mono">{finding.evidence.length} evidence</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* ---- detail: the現物 + verdict ---- */}
+                  {selectedFinding ? (
+                    (() => {
+                      const finding = selectedFinding;
+                      const verdict = finding.verdict?.verdict ?? "pending";
+                      const harnessLabel = finding.harnessVersionId
+                        ? `${finding.harnessProvider ?? "harness"} ${shortHash(
+                            finding.harnessContentHash ?? finding.harnessVersionId,
+                          )}`
+                        : "—";
+                      return (
+                        <div
+                          className={`finding-detail ${verdict}`}
+                          data-detail-finding-id={finding.id}
+                          data-verdict={verdict}
+                        >
+                          <div className="finding-detail-head">
+                            <span className={`finding-kind-chip ${finding.kind}`}>
+                              <span className="finding-kind-dot" aria-hidden />
+                              {FINDING_KIND_LABEL[finding.kind]}
+                            </span>
+                            <span className={`finding-verdict-chip ${verdict}`}>
+                              {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
+                            </span>
+                          </div>
+                          <h3 className="finding-detail-title">{finding.title}</h3>
+                          <div className="finding-detail-meta">
+                            <span className="mono">{finding.analyst}</span>
+                            <span className="mono">conf {findingConfidenceLabel(finding.confidence)}</span>
+                            <span className="mono">harness {harnessLabel}</span>
+                            <Link className="finding-discuss-link" href={findingDiscussHref(finding)}>
+                              Discuss
+                            </Link>
+                          </div>
+                          {finding.body && <p className="finding-detail-body">{finding.body}</p>}
+
+                          <div className="finding-detail-section">
+                            <div className="finding-section-label">
+                              Evidence · {finding.evidence.length}
+                            </div>
+                            <div className="finding-evidence-cards">
+                              {finding.evidence.map((evidence) => {
+                                const target = resolveEvidence(evidence);
+                                const excerpt = evidence.excerpt;
+                                return (
+                                  <div
+                                    key={evidence.id}
+                                    className={`finding-evidence-card${target.resolved ? "" : " stale"}`}
+                                    data-evidence-kind={evidence.subjectKind}
+                                    data-evidence-id={evidence.id}
+                                    data-resolved={target.resolved ? "true" : "false"}
+                                  >
+                                    <div className="finding-evidence-cardhead">
+                                      <span className="finding-evidence-kind">{evidence.subjectKind}</span>
+                                      {target.resolved ? (
+                                        <button
+                                          type="button"
+                                          className="finding-evidence finding-evidence-jump"
+                                          data-evidence-kind={evidence.subjectKind}
+                                          data-evidence-id={evidence.id}
+                                          data-resolved="true"
+                                          title={`${target.title} — jump to the Transcript`}
+                                          onClick={target.jump}
+                                        >
+                                          <span className="mono">{target.label}</span>
+                                          <span aria-hidden>→</span>
+                                        </button>
+                                      ) : (
+                                        <span
+                                          className="finding-evidence stale"
+                                          data-evidence-kind={evidence.subjectKind}
+                                          data-evidence-id={evidence.id}
+                                          data-resolved="false"
+                                          title={target.title}
+                                        >
+                                          {target.label}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {evidence.note && (
+                                      <div className="finding-evidence-note">{evidence.note}</div>
+                                    )}
+                                    {excerpt ? (
+                                      <div className="finding-excerpt" data-excerpt-seq={excerpt.seq}>
+                                        <div className="finding-excerpt-meta mono">
+                                          <span>step {excerpt.seq}</span>
+                                          <span>{excerpt.type}</span>
+                                          {excerpt.exitCode != null && (
+                                            <span className={excerpt.exitCode === 0 ? "ok" : "err"}>
+                                              exit {excerpt.exitCode}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {excerpt.command && (
+                                          <pre className="code-block cmd finding-excerpt-pre">
+                                            {excerpt.command}
+                                          </pre>
+                                        )}
+                                        {excerpt.output ? (
+                                          <pre className="code-block output finding-excerpt-pre">
+                                            {excerpt.output}
+                                          </pre>
+                                        ) : (
+                                          !excerpt.command && (
+                                            <div className="finding-excerpt-empty mono">
+                                              {excerpt.title || "(no command / output captured)"}
+                                            </div>
+                                          )
+                                        )}
+                                      </div>
+                                    ) : (
+                                      !target.resolved && (
+                                        <div className="finding-excerpt-empty mono">
+                                          現物を解決できません（locator 未対応）
+                                        </div>
+                                      )
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* verdict — IN the detail panel, beside the evidence */}
+                          <div className="finding-detail-section finding-verdict-section">
+                            <div className="finding-section-label">Verdict</div>
+                            {finding.verdict ? (
+                              <div className="finding-verdict-decided">
+                                <span className={`finding-verdict-chip ${verdict}`}>
+                                  {findingVerdictLabel(finding.verdict.verdict)}
+                                </span>
+                                <span className="mono">
+                                  {finding.verdict.decidedBy} · {finding.verdict.reason || "no reason"}
+                                </span>
+                                {finding.verdict.verdict === "accept" && (
+                                  <div className="finding-boundary-note">
+                                    ハーネス編集はユーザー手動（P2 境界）
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="finding-verdict-controls">
+                                <input
+                                  className="finding-verdict-reason"
+                                  value={findingReasonDrafts[finding.id] ?? ""}
+                                  onChange={(event) =>
+                                    setFindingReasonDrafts((prev) => ({
+                                      ...prev,
+                                      [finding.id]: event.target.value,
+                                    }))
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void submitFindingVerdict(finding, "accept");
+                                    }
+                                  }}
+                                  placeholder="reason"
+                                  aria-label={`Reason for ${finding.title}`}
+                                />
+                                <button
+                                  type="button"
+                                  className="finding-verdict-btn accept"
+                                  disabled={!!findingBusy[finding.id]}
+                                  onClick={() => void submitFindingVerdict(finding, "accept")}
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  type="button"
+                                  className="finding-verdict-btn reject"
+                                  disabled={!!findingBusy[finding.id]}
+                                  onClick={() => void submitFindingVerdict(finding, "reject")}
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      )}
-                      {!finding.verdict && (
-                        <div className="finding-verdict-controls">
-                          <input
-                            className="finding-verdict-reason"
-                            value={findingReasonDrafts[finding.id] ?? ""}
-                            onChange={(event) =>
-                              setFindingReasonDrafts((prev) => ({
-                                ...prev,
-                                [finding.id]: event.target.value,
-                              }))
-                            }
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                void submitFindingVerdict(finding, "accept");
-                              }
-                            }}
-                            placeholder="reason"
-                            aria-label={`Reason for ${finding.title}`}
-                          />
-                          <button
-                            type="button"
-                            className="finding-verdict-btn accept"
-                            disabled={!!findingBusy[finding.id]}
-                            onClick={() => void submitFindingVerdict(finding, "accept")}
-                          >
-                            Accept
-                          </button>
-                          <button
-                            type="button"
-                            className="finding-verdict-btn reject"
-                            disabled={!!findingBusy[finding.id]}
-                            onClick={() => void submitFindingVerdict(finding, "reject")}
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      )}
+                      );
+                    })()
+                  ) : (
+                    <div className="finding-detail finding-detail-empty">
+                      <div className="detail-placeholder">Select a finding to inspect its evidence</div>
                     </div>
-                  );
-                })
+                  )}
+                </div>
               )}
             </div>
           )}

@@ -78,6 +78,10 @@ const FINDING_FIXTURE = {
     jump: "Fixture failure loop pending",
     verdict: "Fixture excess cost pending",
     decided: "Fixture risky action accepted",
+    // exercises the analyst's real contract: subjectKind="turn" with a
+    // locator of { seq } where seq is an EVENT seq (the bug that used to leave
+    // these unresolved). Its evidence excerpt must surface the seq-2 command.
+    turnSeq: "Fixture turn-seq locator pending",
   },
 };
 
@@ -518,6 +522,22 @@ async function seedFindingFixtures() {
         [verdictFinding, FINDING_FIXTURE.sessionId, JSON.stringify({ turn: 1 })]
       );
 
+      // turn-kind evidence whose locator is { seq: <event seq> } — the exact
+      // shape analyst-engine.ts writes. Before the fix this resolved to nothing.
+      const turnSeqFinding = (
+        await client.query<{ id: number }>(
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
+           VALUES ('rules-v1','failure_loop',$1,'Repeated failed command pattern (turn-seq locator).',0.7,$2,$3)
+           RETURNING id`,
+          [FINDING_FIXTURE.titles.turnSeq, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
+         VALUES ($1,'turn',$2,$3::jsonb,NULL,'first failed command in repeated pattern')`,
+        [turnSeqFinding, FINDING_FIXTURE.sessionId, JSON.stringify({ seq: 2 })]
+      );
+
       const decidedFinding = (
         await client.query<{ id: number }>(
           `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
@@ -937,8 +957,10 @@ test.describe("Agent chat view (/chat)", () => {
     await page.goto(`/?session=${CHAT_FIXTURE.sessionId}&tab=findings&findingSession=${CHAT_FIXTURE.sessionId}`);
     const row = page.locator(".finding-row", { hasText: title });
     await expect(row).toBeVisible();
-    await row.locator(".finding-verdict-reason").fill("chat verified");
-    await row.locator(".finding-verdict-btn.accept").click();
+    await row.click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    await detail.locator(".finding-verdict-reason").fill("chat verified");
+    await detail.locator(".finding-verdict-btn.accept").click();
     await expect(page.locator(".finding-verdict-toast.accept")).toContainText("Accepted");
     await expect.poll(async () => verdictCountForFinding(title)).toBe(1);
   });
@@ -1535,6 +1557,26 @@ test.describe("Findings tab and verdict oracle", () => {
     await expect(row).toHaveAttribute("data-verdict", "pending");
     await expect(row).toHaveAttribute("data-evidence-count", String(oracle.evidence_count));
     await expect(row).toContainText(FINDING_FIXTURE.titles.jump);
+
+    // master-detail: list rows carry NO accept/reject button — the decision
+    // lives in the detail panel only, so it is never made from the list alone.
+    await expect(row.locator(".finding-verdict-btn")).toHaveCount(0);
+  });
+
+  test("clicking a list row opens its detail panel with verdict controls", async ({
+    page,
+  }) => {
+    const title = FINDING_FIXTURE.titles.verdict;
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+
+    const row = page.locator(".finding-row", { hasText: title });
+    await row.click();
+    await expect(row).toHaveClass(/active/);
+
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    await expect(detail).toContainText(title);
+    await expect(detail.locator(".finding-verdict-btn.accept")).toBeVisible();
+    await expect(detail.locator(".finding-verdict-btn.reject")).toBeVisible();
   });
 
   test("Accept with a short reason inserts a verdict and Undo removes it", async ({
@@ -1543,10 +1585,10 @@ test.describe("Findings tab and verdict oracle", () => {
     const title = FINDING_FIXTURE.titles.jump;
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
 
-    const row = page.locator(".finding-row", { hasText: title });
-    await expect(row).toBeVisible();
-    await row.locator(".finding-verdict-reason").fill("valid fixture");
-    await row.locator(".finding-verdict-btn.accept").click();
+    await page.locator(".finding-row", { hasText: title }).click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    await detail.locator(".finding-verdict-reason").fill("valid fixture");
+    await detail.locator(".finding-verdict-btn.accept").click();
 
     await expect(page.locator(".finding-verdict-toast.accept")).toContainText("Accepted");
     await expect.poll(async () => verdictCountForFinding(title)).toBe(1);
@@ -1556,12 +1598,19 @@ test.describe("Findings tab and verdict oracle", () => {
     await expect(page.locator(".finding-row", { hasText: title })).toHaveAttribute("data-verdict", "pending");
   });
 
-  test("verdict completion stays within one click plus optional typing and Enter", async ({
+  test("verdict completion stays within one selecting click plus typing and Enter", async ({
     page,
   }) => {
     const title = FINDING_FIXTURE.titles.verdict;
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
 
+    // open the detail panel for this finding (the one click the flow needs)…
+    await page.locator(".finding-row", { hasText: title }).click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    await expect(detail).toContainText(title);
+
+    // …then count any FURTHER clicks: the verdict itself must complete with no
+    // additional button click — just typing a reason and pressing Enter.
     await page.evaluate(() => {
       (window as typeof window & { __findingClicks?: number }).__findingClicks = 0;
       document.addEventListener(
@@ -1577,9 +1626,7 @@ test.describe("Findings tab and verdict oracle", () => {
       );
     });
 
-    const row = page.locator(".finding-row", { hasText: title });
-    await expect(row).toBeVisible();
-    const input = row.locator(".finding-verdict-reason");
+    const input = detail.locator(".finding-verdict-reason");
     await input.fill("enter accepted");
     await input.press("Enter");
 
@@ -1587,21 +1634,50 @@ test.describe("Findings tab and verdict oracle", () => {
     const clicks = await page.evaluate(
       () => (window as typeof window & { __findingClicks?: number }).__findingClicks ?? 0
     );
-    expect(clicks).toBeLessThanOrEqual(1);
+    expect(clicks).toBe(0);
+  });
+
+  test("detail evidence excerpt shows the現物 command from the seq", async ({ page }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    // turn-kind evidence with a { seq } locator — the analyst's real contract.
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const card = detail.locator('.finding-evidence-card[data-evidence-kind="turn"]');
+    await expect(card).toHaveAttribute("data-resolved", "true");
+    // the seq-2 fixture event is `pnpm test` exiting 1 — its command must render.
+    await expect(card.locator(".finding-excerpt")).toContainText("pnpm test");
+    await expect(card.locator(".finding-excerpt-meta")).toContainText("step 2");
+  });
+
+  test("seq-locator turn evidence jumps to and flashes the transcript step", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    await detail.locator('.finding-evidence-card[data-evidence-kind="turn"] .finding-evidence-jump').click();
+
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
+    const target = page.locator(`.event-row[data-eid="${FINDING_FIXTURE.eventId}"]`);
+    await expect(target).toHaveClass(/selected/);
+    await expect(target).toHaveAttribute("data-flash", "true");
   });
 
   test("evidence clicks activate the transcript step and the diff hunk", async ({
     page,
   }) => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
-    const row = page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.jump });
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.jump }).click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
 
-    await row.locator('.finding-evidence[data-evidence-kind="event"]').click();
+    await detail.locator('.finding-evidence-card[data-evidence-kind="event"] .finding-evidence-jump').click();
     await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
     await expect(page.locator(`.event-row.selected[data-eid="${FINDING_FIXTURE.eventId}"]`)).toBeVisible();
 
     await page.locator(".tabs .tab", { hasText: "Findings" }).click();
-    await row.locator('.finding-evidence[data-evidence-kind="hunk"]').click();
+    // the detail panel keeps the same finding selected, so the hunk evidence
+    // card is still present — its jump opens the Git tab on that hunk.
+    await detail.locator('.finding-evidence-card[data-evidence-kind="hunk"] .finding-evidence-jump').click();
     await expect(page.locator(".tabs .tab.active")).toHaveText(/Git/);
     await expect(page.locator(`.file-row.active[data-file-id="${FINDING_FIXTURE.fileId}"]`)).toBeVisible();
     await expect(page.locator(`.diff-hunk.active[data-hunk-id="${FINDING_FIXTURE.hunkId}"]`)).toBeVisible();

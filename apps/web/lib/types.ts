@@ -171,6 +171,21 @@ export interface FindingEvidence {
   locator: Record<string, unknown>;
   subjectId: string | null;
   note: string | null;
+  // Server-resolved current of the evidence: the transcript event the
+  // locator points at (by event id, or session_id+seq), with a short command /
+  // output excerpt so the Findings detail panel can show the現物 without a
+  // round-trip. Null when the locator does not resolve to an event.
+  excerpt: FindingEvidenceExcerpt | null;
+}
+
+export interface FindingEvidenceExcerpt {
+  eventId: string;
+  seq: number;
+  type: string;
+  title: string;
+  command: string | null;
+  output: string | null;
+  exitCode: number | null;
 }
 
 export interface FindingVerdict {
