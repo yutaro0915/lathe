@@ -4,7 +4,43 @@ import * as path from 'node:path';
 
 export type LooseRecord = Record<string, any>;
 
-// Default to the user's most-recently-active Claude project.
+function textFromClaudeContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((item) => item?.type === 'text' && typeof item.text === 'string')
+    .map((item) => item.text)
+    .join('\n');
+}
+
+function hasIngestableClaudeEvent(file: string): boolean {
+  try {
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      let record: LooseRecord;
+      try {
+        record = JSON.parse(line) as LooseRecord;
+      } catch {
+        continue;
+      }
+      if (record.type === 'user') {
+        if (textFromClaudeContent(record.message?.content).replace(/<[^>]+>/g, ' ').trim()) return true;
+      } else if (record.type === 'assistant' && Array.isArray(record.message?.content)) {
+        for (const item of record.message.content) {
+          if (item?.type === 'text' && typeof item.text === 'string' && item.text.trim()) return true;
+          if (item?.type === 'thinking' && typeof item.thinking === 'string' && item.thinking.trim()) return true;
+          if (item?.type === 'tool_use') return true;
+        }
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+// Default to the user's most-recently-active Claude project that contains at
+// least one transcript the ingester can turn into a session.
 export function pickDefaultTranscriptsDir(): string {
   const base = path.join(os.homedir(), '.claude', 'projects');
   try {
@@ -14,18 +50,21 @@ export function pickDefaultTranscriptsDir(): string {
       .map((d) => {
         const full = path.join(base, d.name);
         let mtime = 0;
+        let ingestableMtime = 0;
         try {
           for (const f of fs.readdirSync(full)) {
             if (f.endsWith('.jsonl')) {
-              const m = fs.statSync(path.join(full, f)).mtimeMs;
+              const file = path.join(full, f);
+              const m = fs.statSync(file).mtimeMs;
               if (m > mtime) mtime = m;
+              if (hasIngestableClaudeEvent(file) && m > ingestableMtime) ingestableMtime = m;
             }
           }
         } catch { /* ignore */ }
-        return { full, mtime };
+        return { full, mtime, ingestableMtime };
       })
-      .filter((x) => x.mtime > 0)
-      .sort((a, b) => b.mtime - a.mtime);
+      .filter((x) => x.ingestableMtime > 0)
+      .sort((a, b) => b.ingestableMtime - a.ingestableMtime);
     if (dirs.length) return dirs[0].full;
   } catch { /* ignore */ }
   return base;

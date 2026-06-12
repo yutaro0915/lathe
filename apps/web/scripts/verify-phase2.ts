@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
@@ -13,9 +13,11 @@ import {
   type HarnessProvider,
 } from './ingest/harness';
 import { ingestNotify, type IngestNotifyPayload } from './ingest/notify';
+import { buildClaudeSession } from './ingest/providers/claude';
 import { pickDefaultTranscriptsDir } from './ingest/shared';
 
 const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
+const VERIFY_BUILD_OPTIONS = { maxEvents: 100000, maxFiles: 100000, maxHunkLines: 200 };
 
 function fail(message: string): never {
   throw new Error(message);
@@ -41,6 +43,50 @@ function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function claudeTranscriptDirs(): string[] {
+  if (process.env.LATHE_TRANSCRIPTS_DIR) return [process.env.LATHE_TRANSCRIPTS_DIR];
+
+  const dirs: string[] = [];
+  const base = path.join(os.homedir(), '.claude', 'projects');
+  try {
+    for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
+      if (entry.isDirectory()) dirs.push(path.join(base, entry.name));
+    }
+  } catch {
+    // Fall back to the ingester's default below.
+  }
+
+  dirs.push(pickDefaultTranscriptsDir());
+  return [...new Set(dirs)];
+}
+
+async function runChild(
+  command: string,
+  args: string[],
+  options: {
+    cwd?: string;
+    input?: string;
+    env?: NodeJS.ProcessEnv;
+  } = {},
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => (stdout += chunk));
+    child.stderr.on('data', (chunk) => (stderr += chunk));
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+    if (options.input) child.stdin.end(options.input);
+    else child.stdin.end();
+  });
+}
+
 async function applySchema(): Promise<void> {
   await getPool().query(fs.readFileSync(SCHEMA_PATH, 'utf8'));
 }
@@ -51,18 +97,35 @@ async function scalar<T = string>(sql: string, params: unknown[] = []): Promise<
 }
 
 function firstStableClaudeTranscript(): string {
-  const dir = process.env.LATHE_TRANSCRIPTS_DIR || pickDefaultTranscriptsDir();
-  const files = fs
-    .readdirSync(dir)
-    .filter((file) => file.endsWith('.jsonl'))
-    .map((file) => {
-      const full = path.join(dir, file);
-      return { full, mtimeMs: fs.statSync(full).mtimeMs };
+  const dirs = claudeTranscriptDirs();
+  const files = dirs
+    .flatMap((dir) => {
+      try {
+        return fs
+          .readdirSync(dir)
+          .filter((file) => file.endsWith('.jsonl'))
+          .map((file) => {
+            const full = path.join(dir, file);
+            return { full, mtimeMs: fs.statSync(full).mtimeMs };
+          });
+      } catch {
+        return [];
+      }
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
-  if (!files.length) fail(`no Claude transcripts found in ${dir}`);
+  if (!files.length) fail(`no Claude transcripts found in ${dirs.join(', ')}`);
   const cutoff = Date.now() - 180_000;
-  return (files.find((file) => file.mtimeMs < cutoff) || files[0]).full;
+  const stable = files.filter((file) => file.mtimeMs < cutoff);
+  const candidates = stable.length ? [...stable, ...files.filter((file) => file.mtimeMs >= cutoff)] : files;
+  const ingestable = candidates.find((file) => {
+    try {
+      return (buildClaudeSession(file.full, VERIFY_BUILD_OPTIONS)?.events.length ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  });
+  if (!ingestable) fail(`no ingestable Claude transcripts found in ${dirs.join(', ')}`);
+  return ingestable.full;
 }
 
 function minimalBuiltSession(id: string, projectId: string, cwd: string | null, sha: string | null): Built {
@@ -169,10 +232,9 @@ async function verifyHook(): Promise<void> {
       cwd: tmp,
       hook_event_name: 'Stop',
     });
-    const run = spawnSync(process.execPath, [hook, '--agent', 'claude-code', '--event', 'Stop'], {
+    const run = await runChild(process.execPath, [hook, '--agent', 'claude-code', '--event', 'Stop'], {
       cwd: tmp,
       input: stdin,
-      encoding: 'utf8',
       env: { ...process.env, LATHE_HOOK_DEBUG: '1' },
     });
     if (run.status !== 0) fail(`hook exited non-zero\n${run.stdout}\n${run.stderr}`);
@@ -193,10 +255,9 @@ async function verifyHook(): Promise<void> {
     delete config.notifyToken;
     config.serverUrl = 'http://127.0.0.1:9';
     fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-    const failOpen = spawnSync(process.execPath, [hook, '--agent', 'claude-code', '--event', 'Stop'], {
+    const failOpen = await runChild(process.execPath, [hook, '--agent', 'claude-code', '--event', 'Stop'], {
       cwd: tmp,
       input: stdin,
-      encoding: 'utf8',
       env: { ...process.env, LATHE_HOOK_DEBUG: '1' },
     });
     if (failOpen.status !== 0) fail(`hook did not fail-open without token/server\n${failOpen.stderr}`);
@@ -437,6 +498,8 @@ async function resolveEvidence(evidenceId: number): Promise<{ seq: number; title
        JOIN transcript_events e
          ON e.session_id = fe.session_id
         AND e.seq = (fe.locator->>'seq')::int
+        AND (fe.locator->>'type' IS NULL OR e.type = fe.locator->>'type')
+        AND (fe.locator->>'title' IS NULL OR e.title = fe.locator->>'title')
       WHERE fe.id = $1`,
     [evidenceId],
   );
@@ -459,10 +522,10 @@ async function verifyEvidence(): Promise<void> {
   const first = await ingestNotify(payload);
   const event = await getPool().query<{ seq: number; title: string; type: string }>(
     `SELECT seq,title,type
-       FROM transcript_events
+      FROM transcript_events
       WHERE session_id = $1
         AND type IN ('user_message','assistant_message')
-      ORDER BY seq ASC
+      ORDER BY seq ASC, id ASC
       LIMIT 1`,
     [first.sessionId],
   );
@@ -477,7 +540,7 @@ async function verifyEvidence(): Promise<void> {
     `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,note)
      VALUES ($1,'turn',$2,$3,'logical turn coordinate')
      RETURNING id`,
-    [finding.rows[0]?.id, first.sessionId, { seq: target.seq }],
+    [finding.rows[0]?.id, first.sessionId, { seq: target.seq, type: target.type, title: target.title }],
   );
   const evidenceId = evidence.rows[0]?.id ?? fail('evidence insert failed');
   const before = (await resolveEvidence(evidenceId)) ?? fail('evidence did not resolve before notify replace');
