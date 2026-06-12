@@ -1,7 +1,7 @@
 ---
 id: 17
 title: findings 表示 + 採否 UI（1 クリック + 理由一言）
-status: in-progress
+status: done
 assignee: codex (/goal loop)
 depends_on: [14]   # 15/16 と並行可（表示は DB 直読み）
 estimated: medium
