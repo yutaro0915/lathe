@@ -222,6 +222,7 @@ export default function SessionViewer({
   findings: initialFindings,
   initialTab = "transcript",
   initialSeq,
+  initialFromFinding,
   initialModel,
   initialFrom,
   initialTo,
@@ -239,6 +240,9 @@ export default function SessionViewer({
   findings: Finding[];
   initialTab?: Tab;
   initialSeq?: number;
+  // Originating finding id when a finding's evidence jumped here (requirement D):
+  // drives the dismissible "JUMPED TO STEP N — from finding #M" landing banner.
+  initialFromFinding?: number;
   // Overview drill-down deep links (all optional): seed the session-list MODEL /
   // date-range / ERRORS filters so an Overview click lands here pre-scoped.
   initialModel?: string;
@@ -311,6 +315,15 @@ export default function SessionViewer({
   // outline so the user can SEE where the jump landed. Cleared on a timer.
   const [flashEventId, setFlashEventId] = useState<string | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // landing banner (requirement D): when arriving via a finding's evidence jump
+  // (?fromFinding=N, optionally with &seq=), show a small dismissible banner that
+  // says where we came from and which step/turn we landed on. Persists (no timer)
+  // until the user dismisses it, unlike the transient flash outline.
+  const [landing, setLanding] = useState<{ seq: number | null; fromFinding: number | null } | null>(
+    initialFromFinding != null || initialSeq != null
+      ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null }
+      : null,
+  );
   useEffect(() => {
     setSelectedEventId(seedId);
   }, [seedId]);
@@ -416,7 +429,7 @@ export default function SessionViewer({
     // requirement C: the session you are currently viewing must ALWAYS be
     // identifiable in the rail — even when the active filters/search would have
     // hidden it (e.g. you deep-linked in from the Findings axis with a stale
-    // filter). Force-include it so "今どれを見ているか" is never lost; the
+    // filter). Force-include it so "which one am I viewing" is never lost; the
     // scroll effect below then brings it into view.
     if (!list.some((s) => s.id === currentId)) {
       const current = sessions.find((s) => s.id === currentId);
@@ -876,8 +889,29 @@ export default function SessionViewer({
     expandTurnForEvent(target.id);
     setSelectedEventId(target.id);
     flashStep(target.id);
+    // ensure the landed step is centred even if the selection-scroll effect
+    // raced the turn expansion (requirement D: scroll + highlight on landing).
+    if (typeof document !== "undefined") {
+      requestAnimationFrame(() => {
+        const sel =
+          typeof CSS !== "undefined" && CSS.escape
+            ? `[data-eid="${CSS.escape(target.id)}"]`
+            : null;
+        const el = sel ? document.querySelector(sel) : null;
+        if (el) el.scrollIntoView({ block: "center" });
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primary.id, initialSeq, eventBySeq]);
+
+  // keep the landing banner in sync if the deep-link props change (client nav).
+  useEffect(() => {
+    setLanding(
+      initialFromFinding != null || initialSeq != null
+        ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null }
+        : null,
+    );
+  }, [primary.id, initialSeq, initialFromFinding]);
 
   useEffect(() => {
     return () => {
@@ -1037,13 +1071,13 @@ export default function SessionViewer({
     }
 
     // Could not map the locator to anything in the current bundle / session
-    // list. Mark it explicitly "未解決" — never echo the kind name as a label
-    // (that read as a meaningless duplicate of the kind tag).
+    // list. Mark it explicitly "unresolved" — never echo the kind name as a
+    // label (that read as a meaningless duplicate of the kind tag).
     return {
       resolved: false,
       kind: evidence.subjectKind,
-      label: "未解決",
-      title: evidence.note ?? "この根拠は現在のデータに解決できません",
+      label: "unresolved",
+      title: evidence.note ?? "This evidence cannot be resolved against the current data",
     };
   }
 
@@ -1080,28 +1114,43 @@ export default function SessionViewer({
   // Findings SESSION-header jump (requirement A). Same session → switch to the
   // transcript in-page; a different session → deep-link into that session's
   // viewer (the same Sessions axis, new state).
-  function jumpToFindingSession(sessionId: string) {
+  function jumpToFindingSession(sessionId: string, findingId?: number) {
     if (sessionId === currentId) {
       setActiveTab("transcript");
+      // same-session jump: still surface the landing banner (requirement D) so
+      // the user sees where they came from even without a page navigation.
+      if (findingId != null) setLanding({ seq: null, fromFinding: findingId });
       return;
     }
-    router.push(`/?session=${encodeURIComponent(sessionId)}&tab=transcript`);
+    router.push(
+      `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
+        findingId != null ? `&fromFinding=${findingId}` : ""
+      }`,
+    );
   }
 
   // Findings TURN-header / embedded-row jump (requirement A/B). `headSeq` is the
   // step to land on (turn head or a specific row). Same session → select that
   // step in-page; otherwise deep-link with &seq= so the destination flashes it.
-  function jumpToFindingTurn(sessionId: string, _turn: number, headSeq: number | null) {
+  function jumpToFindingTurn(
+    sessionId: string,
+    _turn: number,
+    headSeq: number | null,
+    findingId?: number,
+  ) {
     if (sessionId === currentId) {
       setActiveTab("transcript");
       const target = headSeq != null ? eventBySeq.get(headSeq) : undefined;
       if (target) selectTimelineEvent(target.id, true);
+      if (findingId != null || headSeq != null) {
+        setLanding({ seq: headSeq, fromFinding: findingId ?? null });
+      }
       return;
     }
     router.push(
       `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
         headSeq != null ? `&seq=${headSeq}` : ""
-      }`,
+      }${findingId != null ? `&fromFinding=${findingId}` : ""}`,
     );
   }
 
@@ -1242,7 +1291,7 @@ export default function SessionViewer({
                 }
                 onClick={() => jumpToTurn(highestTurnJump.headerId)}
               >
-                最も高い turn へ
+                {highestTurnJump.basis === "cost" ? "COSTLIEST TURN" : "LONGEST TURN"}
               </button>
             )}
             {firstErrorTurnJump && (
@@ -1254,7 +1303,7 @@ export default function SessionViewer({
                 title={`Jump to turn ${firstErrorTurnJump.turn} with ${firstErrorTurnJump.errors} error(s)`}
                 onClick={() => jumpToTurn(firstErrorTurnJump.headerId)}
               >
-                エラー turn へ
+                FIRST ERROR TURN
               </button>
             )}
           </span>
@@ -1626,6 +1675,30 @@ export default function SessionViewer({
           <>
         {/* ---------- COLUMN 2: main / timeline ---------- */}
         <main className="main">
+          {/* landing banner (requirement D): shows where this jump came from and
+              which step/turn it landed on, directly under the header. Dismissible;
+              persists until closed so "where am I / where did I come from" is
+              answered at a glance. */}
+          {landing && (landing.fromFinding != null || landing.seq != null) && (
+            <div className="jump-landing-banner" data-from-finding={landing.fromFinding ?? undefined}>
+              <span className="jump-landing-dot" aria-hidden>
+                ▸
+              </span>
+              <span className="jump-landing-text mono">
+                {landing.seq != null ? `JUMPED TO STEP ${landing.seq}` : "JUMPED TO THIS SESSION"}
+                {landing.fromFinding != null ? ` — from finding #${landing.fromFinding}` : ""}
+              </span>
+              <button
+                type="button"
+                className="jump-landing-dismiss"
+                title="Dismiss"
+                aria-label="Dismiss landing banner"
+                onClick={() => setLanding(null)}
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {/* transcript search lives above the timeline (only for transcript tab) */}
           {activeTab === "transcript" && (
             <div
@@ -2381,7 +2454,7 @@ export default function SessionViewer({
               current session appear (IA principle 2026-06-12 — the cross-session
               list is the Findings AXIS's job, not this tab). Reuses the same
               master-detail component as the axis. The cross-session axis is
-              reached from the global bar, so no in-tab "全 findings" link is
+              reached from the global bar, so no in-tab "all findings" link is
               needed (requirement F). */}
           {activeTab === "findings" && (
             <FindingsExplorer

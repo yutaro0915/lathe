@@ -219,12 +219,19 @@ export default function FindingsExplorer({
   initialSessionFilter?: string;
   // Jump from a SESSION header → that session's transcript (requirement A). The
   // host decides whether that is an in-page tab switch (session viewer, same
-  // session) or a deep-link router.push (axis / cross-session).
-  onJumpToSession?: (sessionId: string) => void;
+  // session) or a deep-link router.push (axis / cross-session). `findingId` lets
+  // the host record where the jump came from (landing banner, requirement D).
+  onJumpToSession?: (sessionId: string, findingId?: number) => void;
   // Jump from a TURN header → the transcript positioned at that turn. `headSeq`
   // is the turn's first user_message seq (USER ASKED), used as the deep-link
-  // anchor when the host has no richer turn locator.
-  onJumpToTurn?: (sessionId: string, turn: number, headSeq: number | null) => void;
+  // anchor when the host has no richer turn locator. `findingId` is carried so
+  // the landing transcript can show "from finding #N".
+  onJumpToTurn?: (
+    sessionId: string,
+    turn: number,
+    headSeq: number | null,
+    findingId?: number,
+  ) => void;
 }) {
   const [statusFilter, setStatusFilter] = useState<FindingStatusFilter>(initialStatusFilter);
   const [sessionFilter, setSessionFilter] = useState<string>(initialSessionFilter ?? "all");
@@ -545,7 +552,7 @@ export default function FindingsExplorer({
             })}
           </div>
 
-          {/* ---- detail: the現物 + verdict ---- */}
+          {/* ---- detail: the evidence + verdict ---- */}
           {selectedFinding ? (
             (() => {
               const finding = selectedFinding;
@@ -642,8 +649,8 @@ export default function FindingsExplorer({
                                 type="button"
                                 className="finding-evidence-session finding-evidence-session-jump"
                                 data-session-id={narrative.sessionId}
-                                title={`${narrative.sessionTitle} — open this session's transcript`}
-                                onClick={() => onJumpToSession?.(narrative.sessionId)}
+                                title={`Open the full transcript for "${narrative.sessionTitle}" (same as VIEW SESSION)`}
+                                onClick={() => onJumpToSession?.(narrative.sessionId, finding.id)}
                               >
                                 <span className="finding-evidence-session-headline">
                                   <span className="finding-evidence-microlabel">Session</span>
@@ -667,41 +674,26 @@ export default function FindingsExplorer({
                                 </span>
                               </button>
                             )}
-                            {/* group header: turn position (once) + repeat count +
-                                the "open this turn's transcript" toggle. When the
-                                session header is hidden (session tab), the position
-                                carries the turn/time context that used to live on
-                                the SESSION meta line. The TURN position is itself a
-                                jump into the transcript at that turn (requirement
-                                A). */}
-                            {(positionLabel || repeats > 1 || canTurnJump) && (
+                            {/* group header: turn position label (once) + repeat
+                                count, then TWO always-visible primary actions —
+                                VIEW TURN (transcript positioned at this turn) and
+                                VIEW SESSION (the full transcript). Both carry a
+                                title attribute spelling out the destination
+                                (requirement C). The inline-transcript toggle is a
+                                secondary, lower-priority control. */}
+                            {(positionLabel ||
+                              repeats > 1 ||
+                              canTurnJump ||
+                              narrative?.sessionId) && (
                               <div className="finding-evidence-grouphead">
-                                {positionLabel &&
-                                  (canTurnJump ? (
-                                    <button
-                                      type="button"
-                                      className="finding-evidence-position finding-evidence-turn-jump mono"
-                                      data-turn={turnNumber ?? undefined}
-                                      title="Jump to this turn in the transcript"
-                                      onClick={() =>
-                                        onJumpToTurn?.(
-                                          turnSessionId!,
-                                          turnNumber!,
-                                          triggerSeq,
-                                        )
-                                      }
-                                    >
-                                      <span>{positionLabel}</span>
-                                      <span aria-hidden>→</span>
-                                    </button>
-                                  ) : (
-                                    <span
-                                      className="finding-evidence-position mono"
-                                      title="Position of this turn within the run"
-                                    >
-                                      {positionLabel}
-                                    </span>
-                                  ))}
+                                {positionLabel && (
+                                  <span
+                                    className="finding-evidence-position mono"
+                                    title="Position of this turn within the run"
+                                  >
+                                    {positionLabel}
+                                  </span>
+                                )}
                                 {repeats > 1 && (
                                   <span
                                     className="finding-evidence-repeats mono"
@@ -711,19 +703,55 @@ export default function FindingsExplorer({
                                     ×{repeats} repeats
                                   </span>
                                 )}
+                                <span className="finding-evidence-grouphead-spacer" />
+                                <div className="finding-evidence-actions">
+                                  {canTurnJump && (
+                                    <button
+                                      type="button"
+                                      className="finding-evidence-action finding-evidence-action-turn"
+                                      data-turn={turnNumber ?? undefined}
+                                      title="Open the transcript at this turn"
+                                      onClick={() =>
+                                        onJumpToTurn?.(
+                                          turnSessionId!,
+                                          turnNumber!,
+                                          triggerSeq,
+                                          finding.id,
+                                        )
+                                      }
+                                    >
+                                      <span>VIEW TURN</span>
+                                      <span aria-hidden>→</span>
+                                    </button>
+                                  )}
+                                  {narrative?.sessionId && (
+                                    <button
+                                      type="button"
+                                      className="finding-evidence-action finding-evidence-action-session"
+                                      data-session-id={narrative.sessionId}
+                                      title="Open the full session transcript"
+                                      onClick={() =>
+                                        onJumpToSession?.(narrative.sessionId, finding.id)
+                                      }
+                                    >
+                                      <span>VIEW SESSION</span>
+                                      <span aria-hidden>→</span>
+                                    </button>
+                                  )}
+                                </div>
                                 {canTurnJump && (
                                   <button
                                     type="button"
                                     className="finding-evidence-turn-toggle mono"
                                     data-turn={turnNumber ?? undefined}
                                     aria-expanded={turnExpanded}
-                                    title="Show this turn's transcript inline"
+                                    title="Show this turn's transcript inline, without leaving this screen"
                                     onClick={() =>
                                       toggleTurn(turnSessionId!, turnNumber!, evidenceSeqs)
                                     }
                                   >
                                     <span aria-hidden>{turnExpanded ? "▾" : "▸"}</span>
-                                    {turnExpanded ? "hide transcript" : "this turn's transcript"}
+                                    {turnExpanded ? "hide transcript" : "inline transcript"}
                                   </button>
                                 )}
                               </div>
@@ -834,7 +862,7 @@ export default function FindingsExplorer({
                                     ) : (
                                       !target.resolved && (
                                         <div className="finding-excerpt-empty mono">
-                                          現物を解決できません（locator 未対応）
+                                          evidence not resolvable (no locator)
                                         </div>
                                       )
                                     )}
@@ -867,8 +895,8 @@ export default function FindingsExplorer({
                             })()}
                             {/* EMBEDDED TRANSCRIPT (requirement B) — the events of
                                 this very turn, lazily fetched, in a compact bounded
-                                scroll region so the user reads the前後関係 without
-                                leaving the triage screen. */}
+                                scroll region so the user reads the surrounding
+                                context without leaving the triage screen. */}
                             {turnExpanded && tkey && (
                               <div
                                 className="finding-turn-transcript"
@@ -879,22 +907,10 @@ export default function FindingsExplorer({
                                   <span className="finding-evidence-microlabel">
                                     Turn transcript
                                   </span>
-                                  {canTurnJump && (
-                                    <button
-                                      type="button"
-                                      className="finding-turn-open mono"
-                                      title="Open this turn in the session viewer"
-                                      onClick={() =>
-                                        onJumpToTurn?.(
-                                          turnSessionId!,
-                                          turnNumber!,
-                                          triggerSeq,
-                                        )
-                                      }
-                                    >
-                                      open in session <span aria-hidden>→</span>
-                                    </button>
-                                  )}
+                                  {/* No "open in session" here — VIEW TURN /
+                                      VIEW SESSION in the group header are the
+                                      single, always-visible way out (requirement
+                                      C: the duplicate link is removed). */}
                                 </div>
                                 {turnState?.loading && (
                                   <div className="finding-turn-status mono">loading…</div>
@@ -927,7 +943,7 @@ export default function FindingsExplorer({
                                     {turnState.data.truncated && (
                                       <div className="finding-turn-status mono">
                                         showing {turnState.data.events.length} of{" "}
-                                        {turnState.data.totalEvents} steps — open in session for the
+                                        {turnState.data.totalEvents} steps — use VIEW SESSION for the
                                         rest
                                       </div>
                                     )}
@@ -956,7 +972,7 @@ export default function FindingsExplorer({
                         </span>
                         {finding.verdict.verdict === "accept" && (
                           <div className="finding-boundary-note">
-                            ハーネス編集はユーザー手動（P2 境界）
+                            Harness edits are manual (P2 boundary)
                           </div>
                         )}
                       </div>

@@ -96,8 +96,8 @@ export default function FindingsAxisView({
     return {
       resolved: false,
       kind: evidence.subjectKind,
-      label: "未解決",
-      title: evidence.note ?? "この根拠は現在のデータに解決できません",
+      label: "unresolved",
+      title: evidence.note ?? "This evidence cannot be resolved against the current data",
     };
   }
 
@@ -128,15 +128,21 @@ export default function FindingsAxisView({
             initialStatusFilter="pending"
             initialSessionFilter={initialSessionFilter}
             // SESSION / TURN header jumps deep-link into the owning session's
-            // transcript — the SAME Sessions axis in a different state.
-            onJumpToSession={(sessionId) =>
-              router.push(`/?session=${encodeURIComponent(sessionId)}&tab=transcript`)
+            // transcript — the SAME Sessions axis in a different state. `from`
+            // carries the originating finding id so the destination transcript
+            // shows a "from finding #N" landing banner (requirement D).
+            onJumpToSession={(sessionId, findingId) =>
+              router.push(
+                `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
+                  findingId != null ? `&fromFinding=${findingId}` : ""
+                }`,
+              )
             }
-            onJumpToTurn={(sessionId, _turn, headSeq) =>
+            onJumpToTurn={(sessionId, _turn, headSeq, findingId) =>
               router.push(
                 `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
                   headSeq != null ? `&seq=${headSeq}` : ""
-                }`,
+                }${findingId != null ? `&fromFinding=${findingId}` : ""}`,
               )
             }
           />
