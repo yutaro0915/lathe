@@ -493,6 +493,61 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .annotation.annotation-tab-row{padding:7px 4px;border-top:1px solid var(--border-faint);}
 .annotation.annotation-tab-row:hover{background:var(--panel-hover);}
 
+/* ---- Findings tab ---------------------------------------------------------*/
+.chip-sub{margin-left:6px;color:var(--muted-2);font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;}
+.findings-session-chip{gap:6px;}
+.findings-tab{padding:12px 14px;gap:0;}
+.findings-tab-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
+.findings-title{display:inline-flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
+.findings-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.findings-title .count,.finding-pending-count{color:var(--muted-2);font-size:11px;font-variant-numeric:tabular-nums;}
+.findings-filter{flex:0 0 auto;}
+.finding-verdict-toast{display:flex;align-items:center;gap:8px;padding:7px 8px;margin:0 0 8px;
+  border:1px solid var(--border);background:var(--panel-hover);font-size:11.5px;color:var(--text-soft);}
+.finding-verdict-toast .finding-status-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:0 0 auto;}
+.finding-verdict-toast.accept .finding-status-dot{background:var(--green-text);}
+.finding-verdict-toast.reject .finding-status-dot{background:var(--red-text);}
+.finding-error{padding:7px 8px;margin:0 0 8px;border:1px solid var(--red-chip);background:var(--red-bg);
+  color:var(--red-text);font-size:11.5px;}
+.finding-row{display:flex;flex-direction:column;gap:7px;padding:9px 6px;border-top:1px solid var(--border-faint);}
+.finding-row:hover{background:var(--panel-hover);}
+.finding-mainline{display:grid;grid-template-columns:max-content minmax(0,1fr) max-content;align-items:start;gap:10px;}
+.finding-kind-chip{display:inline-flex;align-items:center;gap:6px;min-height:18px;border:1px solid var(--border);
+  border-radius:4px;background:var(--panel);padding:1px 6px;color:var(--muted);font-size:9px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;}
+.finding-kind-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:0 0 auto;}
+.finding-kind-chip.failure_loop .finding-kind-dot{background:var(--k-error);}
+.finding-kind-chip.unattributed_diff .finding-kind-dot{background:var(--k-uncertain);}
+.finding-kind-chip.excess_cost .finding-kind-dot{background:var(--cat-message);}
+.finding-kind-chip.risky_action .finding-kind-dot{background:var(--cat-subagent);}
+.finding-title-body{min-width:0;display:flex;flex-direction:column;gap:2px;}
+.finding-title-text{font-size:12.5px;font-weight:650;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.finding-body-text{font-size:11px;color:var(--text-soft);line-height:1.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.finding-verdict-chip{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);
+  border-radius:4px;background:var(--panel);color:var(--muted);padding:2px 6px;font-size:10px;font-weight:650;
+  text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;}
+.finding-verdict-chip.pending{border-color:var(--accent-ring);color:var(--text);}
+.finding-verdict-chip.accept{color:var(--green-text);border-color:var(--green-chip);}
+.finding-verdict-chip.reject{color:var(--red-text);border-color:var(--red-chip);}
+.finding-meta-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted-2);font-size:10.5px;}
+.finding-meta-line .mono{font-variant-numeric:tabular-nums;}
+.finding-evidence-list{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.finding-evidence{display:inline-flex;align-items:center;gap:6px;min-height:22px;border:1px solid var(--border);
+  border-radius:4px;background:var(--panel);color:var(--text-soft);padding:2px 7px;font-size:11px;cursor:pointer;}
+button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--border-strong);}
+.finding-evidence.stale{cursor:default;color:var(--muted-2);border-style:dashed;}
+.finding-evidence-kind{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+.finding-boundary-note{font-size:11px;color:var(--muted);border-left:2px solid var(--border-strong);padding-left:8px;}
+.finding-verdict-controls{display:grid;grid-template-columns:minmax(120px,1fr) max-content max-content;gap:6px;align-items:center;}
+.finding-verdict-reason{min-width:0;border:1px solid var(--border);border-radius:4px;background:var(--panel);
+  color:var(--text);font:inherit;font-size:12px;padding:5px 7px;}
+.finding-verdict-reason:focus{outline:2px solid var(--accent-ring);outline-offset:1px;}
+.finding-verdict-btn{border:1px solid var(--border);border-radius:4px;background:var(--panel);color:var(--text-soft);
+  font:inherit;font-size:11px;font-weight:650;padding:5px 8px;cursor:pointer;}
+.finding-verdict-btn.accept{border-color:var(--green-chip);color:var(--green-text);}
+.finding-verdict-btn.reject{border-color:var(--red-chip);color:var(--red-text);}
+.finding-verdict-btn:disabled{opacity:.55;cursor:wait;}
+
 /* ---- scrollbars + responsive ---------------------------------------------*/
 ::-webkit-scrollbar{width:9px;height:9px;}
 ::-webkit-scrollbar-thumb{background:#d4d9df;border-radius:6px;border:2px solid transparent;background-clip:padding-box;}

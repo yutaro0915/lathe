@@ -30,6 +30,8 @@ export type AttributionMethod =
   | 'dirty_worktree';
 export type EventFileRole = 'read' | 'edit' | 'write';
 export type AnnotationKind = 'error' | 'test' | 'edit' | 'commit' | 'note';
+export type FindingKind = 'failure_loop' | 'unattributed_diff' | 'excess_cost' | 'risky_action';
+export type FindingVerdictValue = 'accept' | 'reject';
 
 export interface Session {
   id: string;
@@ -159,6 +161,42 @@ export interface Annotation {
   atSeq: number;
   kind: AnnotationKind;
   note: string | null;
+}
+
+export interface FindingEvidence {
+  id: number;
+  findingId: number;
+  subjectKind: 'session' | 'event' | 'hunk' | 'pr' | 'turn';
+  sessionId: string | null;
+  locator: Record<string, unknown>;
+  subjectId: string | null;
+  note: string | null;
+}
+
+export interface FindingVerdict {
+  id: number;
+  findingId: number;
+  verdict: FindingVerdictValue;
+  reason: string | null;
+  decidedAt: string;
+  decidedBy: string;
+}
+
+export interface Finding {
+  id: number;
+  createdAt: string;
+  analyst: string;
+  kind: FindingKind;
+  title: string;
+  body: string;
+  confidence: number;
+  harnessVersionId: string | null;
+  harnessProvider: string | null;
+  harnessContentHash: string | null;
+  harnessGitCommit: string | null;
+  projectId: string;
+  evidence: FindingEvidence[];
+  verdict: FindingVerdict | null;
 }
 
 // Convenience shape for screen B's "Linked Events" panel.

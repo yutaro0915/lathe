@@ -30,6 +30,11 @@ import type {
   PullRequestSessionLink,
   PullRequestState,
   PullRequestSummary,
+  Finding,
+  FindingEvidence,
+  FindingKind,
+  FindingVerdict,
+  FindingVerdictValue,
 } from './types';
 import { queryOne, queryRows } from './postgres';
 import { COST_ANOMALY_BASELINE } from '@lathe/shared';
@@ -125,6 +130,36 @@ interface AnnotationRow {
   session_id: string;
   at_seq: number;
   kind: string;
+  note: string | null;
+}
+
+interface FindingRow {
+  id: number;
+  created_at: string;
+  analyst: string;
+  kind: string;
+  title: string;
+  body: string;
+  confidence: number;
+  harness_version_id: string | null;
+  project_id: string;
+  harness_provider: string | null;
+  harness_content_hash: string | null;
+  harness_git_commit: string | null;
+  verdict_id: number | null;
+  verdict: string | null;
+  reason: string | null;
+  decided_at: string | null;
+  decided_by: string | null;
+}
+
+interface FindingEvidenceRow {
+  id: number;
+  finding_id: number;
+  subject_kind: string;
+  session_id: string | null;
+  locator: string | Record<string, unknown> | null;
+  subject_id: string | null;
   note: string | null;
 }
 
@@ -283,6 +318,61 @@ function toAnnotation(r: AnnotationRow): Annotation {
     atSeq: r.at_seq,
     kind: r.kind as AnnotationKind,
     note: r.note,
+  };
+}
+
+function parseLocator(value: FindingEvidenceRow['locator']): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value !== 'string') return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function toFindingEvidence(r: FindingEvidenceRow): FindingEvidence {
+  return {
+    id: r.id,
+    findingId: r.finding_id,
+    subjectKind: r.subject_kind as FindingEvidence['subjectKind'],
+    sessionId: r.session_id,
+    locator: parseLocator(r.locator),
+    subjectId: r.subject_id,
+    note: r.note,
+  };
+}
+
+function toFinding(row: FindingRow, evidence: FindingEvidence[]): Finding {
+  const verdict: FindingVerdict | null =
+    row.verdict_id == null || row.verdict == null || row.decided_at == null || row.decided_by == null
+      ? null
+      : {
+          id: row.verdict_id,
+          findingId: row.id,
+          verdict: row.verdict as FindingVerdictValue,
+          reason: row.reason,
+          decidedAt: row.decided_at,
+          decidedBy: row.decided_by,
+        };
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    analyst: row.analyst,
+    kind: row.kind as FindingKind,
+    title: row.title,
+    body: row.body,
+    confidence: row.confidence,
+    harnessVersionId: row.harness_version_id,
+    harnessProvider: row.harness_provider,
+    harnessContentHash: row.harness_content_hash,
+    harnessGitCommit: row.harness_git_commit,
+    projectId: row.project_id,
+    evidence,
+    verdict,
   };
 }
 
@@ -494,6 +584,53 @@ export async function getAnnotations(sessionId: string): Promise<Annotation[]> {
     [sessionId],
   );
   return rows.map(toAnnotation);
+}
+
+export async function listFindings(): Promise<Finding[]> {
+  const rows = await queryRows<FindingRow>(
+    `WITH latest_verdict AS (
+       SELECT DISTINCT ON (finding_id)
+              id, finding_id, verdict, reason, decided_at, decided_by
+         FROM finding_verdicts
+        ORDER BY finding_id, decided_at DESC, id DESC
+     )
+     SELECT f.id, f.created_at, f.analyst, f.kind, f.title, f.body, f.confidence,
+            f.harness_version_id, f.project_id,
+            hv.provider AS harness_provider,
+            hv.content_hash AS harness_content_hash,
+            hv.git_commit AS harness_git_commit,
+            v.id AS verdict_id,
+            v.verdict,
+            v.reason,
+            v.decided_at,
+            v.decided_by
+       FROM findings f
+       LEFT JOIN harness_versions hv ON hv.id = f.harness_version_id
+       LEFT JOIN latest_verdict v ON v.finding_id = f.id
+      ORDER BY
+            CASE WHEN v.id IS NULL THEN 0 ELSE 1 END ASC,
+            f.confidence DESC,
+            f.created_at DESC,
+            f.id DESC`,
+  );
+  if (rows.length === 0) return [];
+
+  const evidenceRows = await queryRows<FindingEvidenceRow>(
+    `SELECT id, finding_id, subject_kind, session_id, locator, subject_id, note
+       FROM finding_evidence
+      WHERE finding_id = ANY($1::int[])
+      ORDER BY finding_id ASC, id ASC`,
+    [rows.map((row) => row.id)],
+  );
+  const evidenceByFinding = new Map<number, FindingEvidence[]>();
+  for (const row of evidenceRows) {
+    const item = toFindingEvidence(row);
+    const arr = evidenceByFinding.get(item.findingId);
+    if (arr) arr.push(item);
+    else evidenceByFinding.set(item.findingId, [item]);
+  }
+
+  return rows.map((row) => toFinding(row, evidenceByFinding.get(row.id) ?? []));
 }
 
 // ---- git diff queries ------------------------------------------------------

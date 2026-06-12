@@ -12,10 +12,11 @@ import {
   listSessions,
   getStats,
   getSessionPrSummary,
+  listFindings,
 } from "@/lib/db";
 import SessionViewer from "@/components/SessionViewer";
 
-const TABS = ["transcript", "tools", "git", "skills", "subagents", "annotations", "raw", "stats"] as const;
+const TABS = ["transcript", "tools", "git", "skills", "subagents", "annotations", "findings", "raw", "stats"] as const;
 type Tab = (typeof TABS)[number];
 
 export default async function Page({
@@ -32,7 +33,7 @@ export default async function Page({
   // Project list is only used by the sidebar's session-list scope selector here.
   // Cross-session ANALYTICS (charts) live on /overview, not in the viewer — the
   // viewer is per-session, and cross-session aggregates would be off-topic in it.
-  const [stats, sessionPrs] = await Promise.all([getStats(), getSessionPrSummary()]);
+  const [stats, sessionPrs, findings] = await Promise.all([getStats(), getSessionPrSummary(), listFindings()]);
   const projects = stats.projects.map((p) => ({
     project: p.project,
     sessions: p.sessions,
@@ -45,6 +46,8 @@ export default async function Page({
     typeof sp.tab === "string" && (TABS as readonly string[]).includes(sp.tab)
       ? (sp.tab as Tab)
       : "transcript";
+  const initialFindingsSession =
+    typeof sp.findingSession === "string" && sp.findingSession.trim() ? sp.findingSession : undefined;
   return (
     <SessionViewer
       sessions={sessions}
@@ -53,7 +56,9 @@ export default async function Page({
       projects={projects}
       sessionProject={sessionProject}
       sessionPrs={sessionPrs}
+      findings={findings}
       initialTab={initialTab}
+      initialFindingsSession={initialFindingsSession}
     />
   );
 }

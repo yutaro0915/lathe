@@ -40,6 +40,13 @@ type CostAnomalyExpectation = {
   cost_anomaly_threshold_usd: number;
   cost_anomaly: boolean;
 };
+type FindingOracle = {
+  pending_count: number;
+  id: number;
+  analyst: string;
+  kind: string;
+  evidence_count: number;
+};
 
 const turnCache = new Map<string, Promise<TurnExpectation[]>>();
 const COST_FIXTURE_IDS = [
@@ -57,6 +64,21 @@ const PR_FIXTURE = {
   sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   shaPrefix: "aaaaaaa",
   branch: "feature/g1-pr-linkage-fixture",
+};
+
+const FINDING_FIXTURE = {
+  projectId: "fixture:s2-finding-ui",
+  sessionId: "fixture-finding-ui-session",
+  harnessId: "fixture-finding-ui-harness",
+  eventId: "fixture-finding-ui-session-event-2",
+  fileId: "fixture-finding-ui-file-1",
+  hunkId: "fixture-finding-ui-hunk-1",
+  path: "/tmp/lathe-finding-ui/src/app.ts",
+  titles: {
+    jump: "Fixture failure loop pending",
+    verdict: "Fixture excess cost pending",
+    decided: "Fixture risky action accepted",
+  },
 };
 
 function fmtCompactForTest(n: number): string {
@@ -257,6 +279,214 @@ async function withDb<T>(fn: (client: Client) => Promise<T>): Promise<T> {
   }
 }
 
+async function cleanupFindingFixtures() {
+  await withDb(async (client) => {
+    await client.query(
+      `DELETE FROM finding_verdicts
+        USING findings
+       WHERE finding_verdicts.finding_id = findings.id
+         AND findings.project_id = $1`,
+      [FINDING_FIXTURE.projectId]
+    );
+    await client.query(
+      `DELETE FROM finding_evidence
+        USING findings
+       WHERE finding_evidence.finding_id = findings.id
+         AND findings.project_id = $1`,
+      [FINDING_FIXTURE.projectId]
+    );
+    await client.query("DELETE FROM findings WHERE project_id = $1", [FINDING_FIXTURE.projectId]);
+    await client.query("DELETE FROM attributions WHERE hunk_id = $1", [FINDING_FIXTURE.hunkId]);
+    await client.query("DELETE FROM diff_hunks WHERE id = $1", [FINDING_FIXTURE.hunkId]);
+    await client.query("DELETE FROM changed_files WHERE id = $1", [FINDING_FIXTURE.fileId]);
+    await client.query("DELETE FROM event_files WHERE event_id = $1", [FINDING_FIXTURE.eventId]);
+    await client.query("DELETE FROM transcript_events WHERE session_id = $1", [FINDING_FIXTURE.sessionId]);
+    await client.query("DELETE FROM sessions WHERE id = $1", [FINDING_FIXTURE.sessionId]);
+    await client.query("DELETE FROM harness_versions WHERE id = $1", [FINDING_FIXTURE.harnessId]);
+    await client.query("DELETE FROM projects WHERE id = $1", [FINDING_FIXTURE.projectId]);
+  });
+}
+
+async function seedFindingFixtures() {
+  await cleanupFindingFixtures();
+  await withDb(async (client) => {
+    await client.query("BEGIN");
+    try {
+      await client.query(
+        "INSERT INTO projects (id,display_name,git_remote,cwd_hint) VALUES ($1,$2,$3,$4)",
+        [
+          FINDING_FIXTURE.projectId,
+          "S2 Finding UI Fixture",
+          "https://github.com/lathe-fixture/finding-ui.git",
+          "/tmp/lathe-finding-ui",
+        ]
+      );
+      await client.query(
+        `INSERT INTO harness_versions (id,project_id,provider,content_hash,git_commit)
+         VALUES ($1,$2,'codex','fixture-finding-ui-hash','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')`,
+        [FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+      );
+      await client.query(
+        `INSERT INTO sessions (
+           id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,
+           edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,
+           cost_usd,summary,harness_version_id,seq
+         )
+         VALUES ($1,$2,'S2 Finding UI Fixture','Fixture findings session','codex','<synthetic>','done',
+           '2026-06-12 00:00:00','2026-06-12 00:00:03',3000,1,1,1,1,0,1,100,60,40,
+           'loop/17-finding-ui',0,0.02,'fixture',$3,910017)`,
+        [FINDING_FIXTURE.sessionId, FINDING_FIXTURE.projectId, FINDING_FIXTURE.harnessId]
+      );
+      await client.query(
+        `INSERT INTO transcript_events
+          (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta,parent_id)
+         VALUES
+          ($1,$2,1,'00:00:00','user_message','user','Fixture prompt','Please inspect the fixture.',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+          ($3,$2,2,'00:00:01','bash','assistant','Fixture failed command','exit 1 from fixture',NULL,'pnpm test',1,1200,80,NULL,NULL,NULL),
+          ($4,$2,3,'00:00:03','assistant_message','assistant','Fixture summary','The fixture command failed once.',NULL,NULL,NULL,300,20,NULL,NULL,NULL)`,
+        [
+          `${FINDING_FIXTURE.sessionId}-event-1`,
+          FINDING_FIXTURE.sessionId,
+          FINDING_FIXTURE.eventId,
+          `${FINDING_FIXTURE.sessionId}-event-3`,
+        ]
+      );
+      await client.query(
+        `INSERT INTO changed_files (id,session_id,path,status,additions,deletions,language,seq)
+         VALUES ($1,$2,$3,'modified',1,1,'ts',1)`,
+        [FINDING_FIXTURE.fileId, FINDING_FIXTURE.sessionId, FINDING_FIXTURE.path]
+      );
+      await client.query(
+        `INSERT INTO diff_hunks (id,file_id,seq,header,content)
+         VALUES ($1,$2,1,'@@ -1,3 +1,3 @@',$3)`,
+        [
+          FINDING_FIXTURE.hunkId,
+          FINDING_FIXTURE.fileId,
+          " const ok = true;\n-console.log('old');\n+console.log('new');",
+        ]
+      );
+      await client.query(
+        `INSERT INTO attributions (id,hunk_id,event_id,confidence,method,note)
+         VALUES ($1,$2,$3,'high','shell_inferred','fixture hunk attribution')`,
+        [`${FINDING_FIXTURE.hunkId}-attr`, FINDING_FIXTURE.hunkId, FINDING_FIXTURE.eventId]
+      );
+      await client.query(
+        `INSERT INTO event_files (event_id,path,role)
+         VALUES ($1,$2,'edit')`,
+        [FINDING_FIXTURE.eventId, FINDING_FIXTURE.path]
+      );
+
+      const jumpFinding = (
+        await client.query<{ id: number }>(
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
+           VALUES ('rules-v1','failure_loop',$1,'Repeated failing command in a single turn.',0.92,$2,$3)
+           RETURNING id`,
+          [FINDING_FIXTURE.titles.jump, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
+         VALUES
+          ($1,'event',$2,$3::jsonb,$4,'failed command step'),
+          ($1,'hunk',$2,$5::jsonb,$6,'diff hunk from the failed step')`,
+        [
+          jumpFinding,
+          FINDING_FIXTURE.sessionId,
+          JSON.stringify({ seq: 2 }),
+          FINDING_FIXTURE.eventId,
+          JSON.stringify({ path: FINDING_FIXTURE.path, hunk_seq: 1 }),
+          FINDING_FIXTURE.hunkId,
+        ]
+      );
+
+      const verdictFinding = (
+        await client.query<{ id: number }>(
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
+           VALUES ('llm-v1','excess_cost',$1,'Token cost crossed the review threshold.',0.81,$2,$3)
+           RETURNING id`,
+          [FINDING_FIXTURE.titles.verdict, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
+         VALUES ($1,'turn',$2,$3::jsonb,NULL,'turn-level cost signal')`,
+        [verdictFinding, FINDING_FIXTURE.sessionId, JSON.stringify({ turn: 1 })]
+      );
+
+      const decidedFinding = (
+        await client.query<{ id: number }>(
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
+           VALUES ('hybrid-v1','risky_action',$1,'Fixture decided finding.',0.44,$2,$3)
+           RETURNING id`,
+          [FINDING_FIXTURE.titles.decided, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
+         VALUES ($1,'session',$2,$3::jsonb,$2,'session-level evidence')`,
+        [decidedFinding, FINDING_FIXTURE.sessionId, JSON.stringify({ session_id: FINDING_FIXTURE.sessionId })]
+      );
+      await client.query(
+        `INSERT INTO finding_verdicts (finding_id,verdict,reason,decided_by)
+         VALUES ($1,'accept','fixture pre-decided','user')`,
+        [decidedFinding]
+      );
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+async function getFindingOracle(title = FINDING_FIXTURE.titles.jump): Promise<FindingOracle> {
+  return withDb(async (client) => {
+    const row = (
+      await client.query<FindingOracle>(
+        `WITH latest_verdict AS (
+           SELECT DISTINCT ON (finding_id) finding_id, id
+             FROM finding_verdicts
+            ORDER BY finding_id, decided_at DESC, id DESC
+         ),
+         pending AS (
+           SELECT COUNT(*)::int AS pending_count
+             FROM findings f
+             LEFT JOIN latest_verdict v ON v.finding_id = f.id
+            WHERE v.id IS NULL
+         )
+         SELECT (SELECT pending_count FROM pending) AS pending_count,
+                f.id,
+                f.analyst,
+                f.kind,
+                COUNT(fe.id)::int AS evidence_count
+           FROM findings f
+           LEFT JOIN finding_evidence fe ON fe.finding_id = f.id
+          WHERE f.title = $1
+          GROUP BY f.id, f.analyst, f.kind`,
+        [title]
+      )
+    ).rows[0];
+    if (!row) throw new Error(`finding oracle missing for ${title}`);
+    return row;
+  });
+}
+
+async function verdictCountForFinding(title: string): Promise<number> {
+  return withDb(async (client) => {
+    const row = (
+      await client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n
+           FROM finding_verdicts fv
+           JOIN findings f ON f.id = fv.finding_id
+          WHERE f.title = $1`,
+        [title]
+      )
+    ).rows[0];
+    return row?.n ?? 0;
+  });
+}
+
 async function seedCostFallbackFixtures() {
   const { absoluteFloorUsd } = COST_ANOMALY_BASELINE;
   await withDb(async (client) => {
@@ -433,9 +663,11 @@ async function expectTurnJump(
 
 test.beforeAll(async () => {
   await seedCostFallbackFixtures();
+  await seedFindingFixtures();
 });
 
 test.afterAll(async () => {
+  await cleanupFindingFixtures();
   await cleanupCostFallbackFixtures();
 });
 
@@ -1101,6 +1333,98 @@ test.describe("Annotations tab (moved out of the right aside)", () => {
       const sorted = [...seqs].sort((a, b) => a - b);
       expect(seqs).toEqual(sorted);
     }
+  });
+});
+
+test.describe("Findings tab and verdict oracle", () => {
+  test("fixture findings are listed and the pending badge matches the DB oracle", async ({
+    page,
+  }) => {
+    const oracle = await getFindingOracle();
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+
+    const tab = page.locator(".tabs .tab", { hasText: "Findings" });
+    await expect(tab).toBeVisible();
+    await expect(tab).toHaveClass(/active/);
+    await expect(tab.locator(".tab-count")).toHaveText(String(oracle.pending_count));
+
+    const row = page.locator(`.finding-row[data-finding-id="${oracle.id}"]`);
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute("data-kind", oracle.kind);
+    await expect(row).toHaveAttribute("data-analyst", oracle.analyst);
+    await expect(row).toHaveAttribute("data-verdict", "pending");
+    await expect(row).toHaveAttribute("data-evidence-count", String(oracle.evidence_count));
+    await expect(row).toContainText(FINDING_FIXTURE.titles.jump);
+  });
+
+  test("Accept with a short reason inserts a verdict and Undo removes it", async ({
+    page,
+  }) => {
+    const title = FINDING_FIXTURE.titles.jump;
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+
+    const row = page.locator(".finding-row", { hasText: title });
+    await expect(row).toBeVisible();
+    await row.locator(".finding-verdict-reason").fill("valid fixture");
+    await row.locator(".finding-verdict-btn.accept").click();
+
+    await expect(page.locator(".finding-verdict-toast.accept")).toContainText("Accepted");
+    await expect.poll(async () => verdictCountForFinding(title)).toBe(1);
+
+    await page.locator(".finding-verdict-toast .btn", { hasText: "Undo" }).click();
+    await expect.poll(async () => verdictCountForFinding(title)).toBe(0);
+    await expect(page.locator(".finding-row", { hasText: title })).toHaveAttribute("data-verdict", "pending");
+  });
+
+  test("verdict completion stays within one click plus optional typing and Enter", async ({
+    page,
+  }) => {
+    const title = FINDING_FIXTURE.titles.verdict;
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+
+    await page.evaluate(() => {
+      (window as typeof window & { __findingClicks?: number }).__findingClicks = 0;
+      document.addEventListener(
+        "click",
+        (event) => {
+          const target = event.target;
+          if (target instanceof Element && target.closest(".findings-tab")) {
+            (window as typeof window & { __findingClicks?: number }).__findingClicks =
+              ((window as typeof window & { __findingClicks?: number }).__findingClicks ?? 0) + 1;
+          }
+        },
+        { capture: true, once: false }
+      );
+    });
+
+    const row = page.locator(".finding-row", { hasText: title });
+    await expect(row).toBeVisible();
+    const input = row.locator(".finding-verdict-reason");
+    await input.fill("enter accepted");
+    await input.press("Enter");
+
+    await expect.poll(async () => verdictCountForFinding(title)).toBe(1);
+    const clicks = await page.evaluate(
+      () => (window as typeof window & { __findingClicks?: number }).__findingClicks ?? 0
+    );
+    expect(clicks).toBeLessThanOrEqual(1);
+  });
+
+  test("evidence clicks activate the transcript step and the diff hunk", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    const row = page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.jump });
+
+    await row.locator('.finding-evidence[data-evidence-kind="event"]').click();
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
+    await expect(page.locator(`.event-row.selected[data-eid="${FINDING_FIXTURE.eventId}"]`)).toBeVisible();
+
+    await page.locator(".tabs .tab", { hasText: "Findings" }).click();
+    await row.locator('.finding-evidence[data-evidence-kind="hunk"]').click();
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Git/);
+    await expect(page.locator(`.file-row.active[data-file-id="${FINDING_FIXTURE.fileId}"]`)).toBeVisible();
+    await expect(page.locator(`.diff-hunk.active[data-hunk-id="${FINDING_FIXTURE.hunkId}"]`)).toBeVisible();
   });
 });
 

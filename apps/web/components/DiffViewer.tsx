@@ -271,10 +271,13 @@ interface Props {
   //    edit's diff"), open the file + hunk that this event produced.
   //  • focusFileId — when the user jumps from a turn rollup's files chip,
   //    open that changed file without inventing a separate link model.
+  //  • focusHunkId — when a finding's logical evidence resolves to a hunk,
+  //    open the containing file and mark that hunk active.
   //  • onJumpToEvent — jump back out ("which step produced this diff"): the host
   //    switches to the Transcript tab and selects the given event.
   focusEventId?: string;
   focusFileId?: string;
+  focusHunkId?: string;
   onJumpToEvent?: (eventId: string) => void;
 }
 
@@ -285,7 +288,16 @@ interface Props {
 const HUNK_PAGE = 40; // hunks rendered per page
 const HUNK_LINE_CAP = 500; // lines rendered for one hunk before "show more lines"
 
-export default function DiffViewer({ sessions, bundle, currentId, embedded = false, focusEventId, focusFileId, onJumpToEvent }: Props) {
+export default function DiffViewer({
+  sessions,
+  bundle,
+  currentId,
+  embedded = false,
+  focusEventId,
+  focusFileId,
+  focusHunkId,
+  onJumpToEvent,
+}: Props) {
   const router = useRouter();
   const s = bundle.session;
   const files = bundle.changedFiles;
@@ -295,16 +307,26 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
   // The file + hunk a given event produced (via attribution) — powers the
   // transcript→diff jump (focusEventId) and the diff→transcript back-link.
   const focusHit = useMemo(() => {
+    if (focusHunkId) {
+      for (const f of files) {
+        const hs = bundle.hunks[f.id] ?? [];
+        const hi = hs.findIndex((h) => h.id === focusHunkId);
+        if (hi >= 0) {
+          const eventId = (bundle.attributions[hs[hi].id] ?? []).find((a) => a.eventId)?.eventId ?? null;
+          return { fileId: f.id, hunkIndex: hi, hunkId: hs[hi].id, eventId };
+        }
+      }
+    }
     if (!focusEventId) return null;
     for (const f of files) {
       const hs = bundle.hunks[f.id] ?? [];
       const hi = hs.findIndex((h) =>
         (bundle.attributions[h.id] ?? []).some((a) => a.eventId === focusEventId)
       );
-      if (hi >= 0) return { fileId: f.id, hunkIndex: hi };
+      if (hi >= 0) return { fileId: f.id, hunkIndex: hi, hunkId: hs[hi].id, eventId: focusEventId };
     }
     return null;
-  }, [focusEventId, files, bundle.hunks, bundle.attributions]);
+  }, [focusEventId, focusHunkId, files, bundle.hunks, bundle.attributions]);
 
   // Active file: the focused event's file if we jumped in; else a mixed-confidence
   // file; else the first.
@@ -322,7 +344,7 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
   // OTHER turns so the selected step's change stands alone. Toggle to All.
   const [showAllHunks, setShowAllHunks] = useState<boolean>(false);
   const [selectedLinkedEventId, setSelectedLinkedEventId] =
-    useState<string | null>(focusEventId ?? null);
+    useState<string | null>(focusHit?.eventId ?? focusEventId ?? null);
   const [showRawJson, setShowRawJson] = useState<boolean>(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
     () => new Set()
@@ -339,11 +361,11 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
   useEffect(() => {
     setActiveFileId(initialFileId);
     setHunkIndex(focusHit?.hunkIndex ?? 0);
-    setSelectedLinkedEventId(focusEventId ?? null);
+    setSelectedLinkedEventId(focusHit?.eventId ?? focusEventId ?? null);
     setShowRawJson(false);
-    setShowAllHunks(false);
+    setShowAllHunks(!!focusHunkId);
     setCollapsedFolders(new Set());
-  }, [currentId, initialFileId, focusHit, focusEventId, focusFileId]);
+  }, [currentId, initialFileId, focusHit, focusEventId, focusFileId, focusHunkId]);
 
   /* ---- derived: active file + its hunks / attributions / events ---------- */
 
@@ -871,6 +893,8 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
                     <div
                       key={h.id}
                       className="diff-hunk collapsed"
+                      data-hunk-id={h.id}
+                      data-hunk-seq={h.seq}
                       role="button"
                       tabIndex={0}
                       onClick={() => hunkEventId && setSelectedLinkedEventId(hunkEventId)}
@@ -894,6 +918,8 @@ export default function DiffViewer({ sessions, bundle, currentId, embedded = fal
                   <div
                     className={`diff-hunk${isCurrent ? " active" : ""}`}
                     key={h.id}
+                    data-hunk-id={h.id}
+                    data-hunk-seq={h.seq}
                     ref={(el) => {
                       hunkRefs.current[hi] = el;
                     }}

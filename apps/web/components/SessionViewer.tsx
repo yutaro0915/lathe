@@ -35,6 +35,10 @@ import type {
   EventType,
   AnnotationKind,
   PullRequestSummary,
+  Finding,
+  FindingEvidence,
+  FindingVerdict,
+  FindingVerdictValue,
 } from "@/lib/types";
 
 function durLabel(ms: number | null): string {
@@ -94,9 +98,10 @@ const ALL_TYPES: EventType[] = [
 // Tools tab shows these "tool-ish" event types.
 const TOOL_TYPES: EventType[] = ["bash", "file_read", "file_edit", "file_write", "test", "commit"];
 
-type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "annotations" | "raw" | "stats";
+type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "annotations" | "findings" | "raw" | "stats";
 type SortKey = "recent" | "oldest" | "tokens";
 type FilterMode = "highlight" | "hide";
+type FindingStatusFilter = "pending" | "decided" | "all";
 
 type TurnFile = { id: string; path: string };
 type TurnRollup = {
@@ -118,6 +123,55 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const LS_PINS = "lathe.pins";
 const LS_NOTES = "lathe.notes";
+
+const FINDING_KIND_LABEL: Record<Finding["kind"], string> = {
+  failure_loop: "failure loop",
+  unattributed_diff: "unattributed diff",
+  excess_cost: "excess cost",
+  risky_action: "risky action",
+};
+
+function findingConfidenceLabel(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function findingVerdictLabel(value: FindingVerdictValue): string {
+  return value === "accept" ? "Accepted" : "Rejected";
+}
+
+function shortHash(value: string | null): string {
+  return value ? value.slice(0, 10) : "—";
+}
+
+function locatorString(evidence: FindingEvidence, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = evidence.locator[key];
+    if (typeof value === "string" && value.trim()) return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return null;
+}
+
+function locatorNumber(evidence: FindingEvidence, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = evidence.locator[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  }
+  return null;
+}
+
+function evidenceSessionId(evidence: FindingEvidence): string | null {
+  return (
+    evidence.sessionId ??
+    (evidence.subjectKind === "session" ? evidence.subjectId : null) ??
+    locatorString(evidence, ["session_id", "sessionId", "session"])
+  );
+}
+
+function findingTouchesSession(finding: Finding, sessionId: string): boolean {
+  return finding.evidence.some((evidence) => evidenceSessionId(evidence) === sessionId);
+}
 
 function firstNonEmptyLine(text: string | null | undefined): string {
   return (text ?? "").split("\n").map((line) => line.trim()).find(Boolean) ?? "";
@@ -188,7 +242,9 @@ export default function SessionViewer({
   projects,
   sessionProject,
   sessionPrs,
+  findings: initialFindings,
   initialTab = "transcript",
+  initialFindingsSession,
 }: {
   sessions: Session[];
   bundle: SessionBundle;
@@ -199,7 +255,9 @@ export default function SessionViewer({
   projects: { project: string; sessions: number; cost: number; costKnown: boolean }[];
   sessionProject: Record<string, string>;
   sessionPrs: Record<string, PullRequestSummary[]>;
+  findings: Finding[];
   initialTab?: Tab;
+  initialFindingsSession?: string;
 }) {
   const router = useRouter();
 
@@ -208,6 +266,7 @@ export default function SessionViewer({
   const events = bundle.events;
   const typeCounts = bundle.typeCounts;
   const annotations = bundle.annotations;
+  const [findings, setFindings] = useState<Finding[]>(initialFindings);
 
   // ---- session-list controls (sidebar) -----------------------------------
   const [sessionSearch, setSessionSearch] = useState("");
@@ -218,6 +277,19 @@ export default function SessionViewer({
 
   // ---- timeline / tab / selection state -----------------------------------
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  const [findingStatusFilter, setFindingStatusFilter] = useState<FindingStatusFilter>("pending");
+  const [findingSessionFilter, setFindingSessionFilter] = useState<string>(
+    initialFindingsSession ?? "all",
+  );
+  const [findingReasonDrafts, setFindingReasonDrafts] = useState<Record<number, string>>({});
+  const [findingBusy, setFindingBusy] = useState<Record<number, boolean>>({});
+  const [findingError, setFindingError] = useState<string | null>(null);
+  const [recentFindingVerdict, setRecentFindingVerdict] = useState<{
+    findingId: number;
+    verdictId: number;
+    verdict: FindingVerdictValue;
+    title: string;
+  } | null>(null);
   const [typeFilter, setTypeFilter] = useState<Set<EventType>>(() => new Set(ALL_TYPES));
   const [filterMode, setFilterMode] = useState<FilterMode>("hide");
   const [transcriptSearch, setTranscriptSearch] = useState("");
@@ -235,6 +307,14 @@ export default function SessionViewer({
   // "see this edit's diff" action; cleared when Git is opened from the tab bar.
   const [gitFocusEvent, setGitFocusEvent] = useState<string | undefined>(undefined);
   const [gitFocusFileId, setGitFocusFileId] = useState<string | undefined>(undefined);
+  const [gitFocusHunkId, setGitFocusHunkId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    setFindings(initialFindings);
+  }, [initialFindings]);
+  useEffect(() => {
+    setFindingSessionFilter(initialFindingsSession ?? "all");
+  }, [initialFindingsSession]);
 
   // Selected event seed: the failing build (bash, exit != 0) is most
   // informative; fall back gracefully. Re-seed whenever the session changes.
@@ -736,6 +816,207 @@ export default function SessionViewer({
       }
     : {};
 
+  const pendingFindingsCount = useMemo(
+    () => findings.filter((finding) => !finding.verdict).length,
+    [findings],
+  );
+  const currentSessionFindings = useMemo(
+    () => findings.filter((finding) => findingTouchesSession(finding, currentId)),
+    [currentId, findings],
+  );
+  const currentSessionPendingFindings = useMemo(
+    () => currentSessionFindings.filter((finding) => !finding.verdict),
+    [currentSessionFindings],
+  );
+  const visibleFindings = useMemo(() => {
+    return findings
+      .filter((finding) => {
+        if (findingStatusFilter === "pending" && finding.verdict) return false;
+        if (findingStatusFilter === "decided" && !finding.verdict) return false;
+        if (findingSessionFilter !== "all" && !findingTouchesSession(finding, findingSessionFilter)) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (!a.verdict && b.verdict) return -1;
+        if (a.verdict && !b.verdict) return 1;
+        return b.confidence - a.confidence || b.id - a.id;
+      });
+  }, [findingSessionFilter, findingStatusFilter, findings]);
+
+  const eventById = useMemo(() => {
+    const map = new Map<string, TranscriptEvent>();
+    for (const event of events) map.set(event.id, event);
+    return map;
+  }, [events]);
+
+  const eventBySeq = useMemo(() => {
+    const map = new Map<number, TranscriptEvent>();
+    for (const event of events) {
+      if (!event.parentId && !map.has(event.seq)) map.set(event.seq, event);
+      if (!map.has(event.seq)) map.set(event.seq, event);
+    }
+    return map;
+  }, [events]);
+
+  const hunkTargetById = useMemo(() => {
+    const map = new Map<string, { fileId: string; hunkId: string; hunkSeq: number; path: string }>();
+    for (const file of bundle.changedFiles) {
+      for (const hunk of bundle.hunks[file.id] ?? []) {
+        map.set(hunk.id, { fileId: file.id, hunkId: hunk.id, hunkSeq: hunk.seq, path: file.path });
+      }
+    }
+    return map;
+  }, [bundle.changedFiles, bundle.hunks]);
+
+  function resolveEvidence(evidence: FindingEvidence):
+    | { resolved: true; kind: FindingEvidence["subjectKind"]; label: string; title: string; jump: () => void }
+    | { resolved: false; kind: FindingEvidence["subjectKind"]; label: string; title: string } {
+    const targetSessionId = evidenceSessionId(evidence);
+    const sameSession = !targetSessionId || targetSessionId === currentId;
+
+    if (evidence.subjectKind === "session") {
+      if (!targetSessionId || sessions.some((session) => session.id === targetSessionId)) {
+        return {
+          resolved: true,
+          kind: "session",
+          label: targetSessionId === currentId || !targetSessionId ? "session" : "session ↗",
+          title: targetSessionId ?? currentId,
+          jump: () => {
+            if (targetSessionId && targetSessionId !== currentId) {
+              router.push(`/?session=${encodeURIComponent(targetSessionId)}&tab=transcript`);
+              return;
+            }
+            setActiveTab("transcript");
+          },
+        };
+      }
+    }
+
+    if (evidence.subjectKind === "event") {
+      const eventId = evidence.subjectId ?? locatorString(evidence, ["event_id", "eventId"]);
+      const seq = locatorNumber(evidence, ["seq", "at_seq", "step"]);
+      const target = sameSession
+        ? (eventId ? eventById.get(eventId) : undefined) ?? (seq != null ? eventBySeq.get(seq) : undefined)
+        : undefined;
+      if (target) {
+        return {
+          resolved: true,
+          kind: "event",
+          label: `step ${target.seq}`,
+          title: target.title,
+          jump: () => {
+            setActiveTab("transcript");
+            selectTimelineEvent(target.id, true);
+          },
+        };
+      }
+      if (targetSessionId && targetSessionId !== currentId) {
+        return {
+          resolved: true,
+          kind: "event",
+          label: seq != null ? `step ${seq} ↗` : "step ↗",
+          title: targetSessionId,
+          jump: () => router.push(`/?session=${encodeURIComponent(targetSessionId)}&tab=transcript`),
+        };
+      }
+    }
+
+    if (evidence.subjectKind === "turn") {
+      const turn = locatorNumber(evidence, ["turn", "turn_number", "turnNumber"]);
+      const headerId =
+        turn == null
+          ? null
+          : [...turnNumberByEventId.entries()].find(([, value]) => value === turn)?.[0] ?? null;
+      if (sameSession && headerId) {
+        return {
+          resolved: true,
+          kind: "turn",
+          label: `turn ${turn}`,
+          title: `Turn ${turn}`,
+          jump: () => jumpToTurn(headerId),
+        };
+      }
+      if (targetSessionId && targetSessionId !== currentId) {
+        return {
+          resolved: true,
+          kind: "turn",
+          label: turn != null ? `turn ${turn} ↗` : "turn ↗",
+          title: targetSessionId,
+          jump: () => router.push(`/?session=${encodeURIComponent(targetSessionId)}&tab=transcript`),
+        };
+      }
+    }
+
+    if (evidence.subjectKind === "hunk") {
+      const hunkId = evidence.subjectId ?? locatorString(evidence, ["hunk_id", "hunkId"]);
+      const path = locatorString(evidence, ["path", "file_path", "filePath"]);
+      const hunkSeq = locatorNumber(evidence, ["hunk_seq", "hunkSeq", "seq"]);
+      let target = hunkId ? hunkTargetById.get(hunkId) : undefined;
+      if (!target && path && hunkSeq != null) {
+        for (const file of bundle.changedFiles) {
+          if (file.path !== path) continue;
+          const hunk = (bundle.hunks[file.id] ?? []).find((item) => item.seq === hunkSeq);
+          if (hunk) {
+            target = { fileId: file.id, hunkId: hunk.id, hunkSeq: hunk.seq, path: file.path };
+            break;
+          }
+        }
+      }
+      if (sameSession && target) {
+        return {
+          resolved: true,
+          kind: "hunk",
+          label: `hunk ${target.hunkSeq}`,
+          title: target.path,
+          jump: () => {
+            setGitFocusFileId(target.fileId);
+            setGitFocusHunkId(target.hunkId);
+            setGitFocusEvent(undefined);
+            setActiveTab("git");
+          },
+        };
+      }
+      if (targetSessionId && targetSessionId !== currentId) {
+        return {
+          resolved: true,
+          kind: "hunk",
+          label: hunkSeq != null ? `hunk ${hunkSeq} ↗` : "hunk ↗",
+          title: targetSessionId,
+          jump: () => router.push(`/?session=${encodeURIComponent(targetSessionId)}&tab=git`),
+        };
+      }
+    }
+
+    if (evidence.subjectKind === "pr") {
+      const prId = evidence.subjectId ?? locatorString(evidence, ["pr_id", "prId"]);
+      const prNumber = locatorNumber(evidence, ["number", "pr_number", "prNumber"]);
+      const pr = prId
+        ? primaryPrs.find((item) => item.id === prId)
+        : prNumber != null
+          ? primaryPrs.find((item) => item.number === prNumber)
+          : undefined;
+      const targetPrId = prId ?? pr?.id;
+      if (targetPrId) {
+        return {
+          resolved: true,
+          kind: "pr",
+          label: pr ? `PR #${pr.number}` : "PR ↗",
+          title: pr?.title ?? targetPrId,
+          jump: () => router.push(`/pr?pr=${encodeURIComponent(targetPrId)}`),
+        };
+      }
+    }
+
+    return {
+      resolved: false,
+      kind: evidence.subjectKind,
+      label: `${evidence.subjectKind}: 根拠は更新された`,
+      title: evidence.note ?? "根拠は更新された",
+    };
+  }
+
   // ---- handlers ------------------------------------------------------------
   function expandTurnForEvent(eventId: string) {
     const headerId = turnHeaderIds.get(eventId);
@@ -762,6 +1043,7 @@ export default function SessionViewer({
   function openTurnFile(fileId: string) {
     setGitFocusFileId(fileId);
     setGitFocusEvent(undefined);
+    setGitFocusHunkId(undefined);
     setActiveTab("git");
   }
 
@@ -833,6 +1115,66 @@ export default function SessionViewer({
     router.push(`/pr?pr=${encodeURIComponent(prId)}`);
   }
 
+  async function submitFindingVerdict(finding: Finding, verdict: FindingVerdictValue) {
+    if (findingBusy[finding.id]) return;
+    setFindingError(null);
+    setFindingBusy((prev) => ({ ...prev, [finding.id]: true }));
+    try {
+      const response = await fetch(`/api/findings/${finding.id}/verdict`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          verdict,
+          reason: findingReasonDrafts[finding.id] ?? "",
+        }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; verdict?: FindingVerdict; error?: string };
+      if (!response.ok || !payload.ok || !payload.verdict) {
+        throw new Error(payload.error ?? "verdict failed");
+      }
+      setFindings((prev) =>
+        prev.map((item) => (item.id === finding.id ? { ...item, verdict: payload.verdict! } : item)),
+      );
+      setFindingReasonDrafts((prev) => ({ ...prev, [finding.id]: "" }));
+      setRecentFindingVerdict({
+        findingId: finding.id,
+        verdictId: payload.verdict.id,
+        verdict,
+        title: finding.title,
+      });
+    } catch (error) {
+      setFindingError((error as Error).message);
+    } finally {
+      setFindingBusy((prev) => ({ ...prev, [finding.id]: false }));
+    }
+  }
+
+  async function undoFindingVerdict() {
+    if (!recentFindingVerdict) return;
+    const recent = recentFindingVerdict;
+    setFindingError(null);
+    try {
+      const response = await fetch(
+        `/api/findings/${recent.findingId}/verdict?verdictId=${recent.verdictId}`,
+        { method: "DELETE" },
+      );
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "undo failed");
+      setFindings((prev) =>
+        prev.map((item) => (item.id === recent.findingId ? { ...item, verdict: null } : item)),
+      );
+      setRecentFindingVerdict(null);
+    } catch (error) {
+      setFindingError((error as Error).message);
+    }
+  }
+
+  function openCurrentSessionFindings() {
+    setFindingSessionFilter(currentId);
+    setActiveTab("findings");
+    router.push(`/?session=${encodeURIComponent(currentId)}&tab=findings&findingSession=${encodeURIComponent(currentId)}`);
+  }
+
   return (
     <>
       {/* ===================== Band 2 — metrics ===================== */}
@@ -855,6 +1197,21 @@ export default function SessionViewer({
             {sessionDate} {parseStamp(primary.startedAt).time}
           </span>
           <CostAnomalyChip session={primary} />
+          {currentSessionFindings.length > 0 && (
+            <button
+              type="button"
+              className="chip jump-chip findings-session-chip"
+              data-finding-session-count={currentSessionFindings.length}
+              data-finding-session-pending={currentSessionPendingFindings.length}
+              title="Show findings attached to this session"
+              onClick={openCurrentSessionFindings}
+            >
+              {currentSessionFindings.length} finding{currentSessionFindings.length === 1 ? "" : "s"}
+              {currentSessionPendingFindings.length > 0 && (
+                <span className="chip-sub mono">{currentSessionPendingFindings.length} pending</span>
+              )}
+            </button>
+          )}
           <span className="sessbar-jumps">
             {highestTurnJump && (
               <button
@@ -945,6 +1302,7 @@ export default function SessionViewer({
             ["skills", "Skills"],
             ["subagents", "Subagents"],
             ["annotations", "Annotations"],
+            ["findings", "Findings"],
             ["raw", "Raw JSON"],
             ["stats", "Stats"],
           ] as const
@@ -958,12 +1316,16 @@ export default function SessionViewer({
               if (key === "git") {
                 setGitFocusEvent(undefined);
                 setGitFocusFileId(undefined);
+                setGitFocusHunkId(undefined);
               }
             }}
           >
             {label}
             {key === "annotations" && annotations.length > 0 && (
               <span className="tab-count">{annotations.length}</span>
+            )}
+            {key === "findings" && pendingFindingsCount > 0 && (
+              <span className="tab-count">{pendingFindingsCount}</span>
             )}
           </button>
         ))}
@@ -1202,11 +1564,13 @@ export default function SessionViewer({
             currentId={currentId}
             focusEventId={gitFocusEvent}
             focusFileId={gitFocusFileId}
+            focusHunkId={gitFocusHunkId}
             onJumpToEvent={(eid) => {
               setActiveTab("transcript");
               selectTimelineEvent(eid, true);
               setGitFocusEvent(undefined);
               setGitFocusFileId(undefined);
+              setGitFocusHunkId(undefined);
             }}
           />
         ) : activeTab === "stats" ? (
@@ -1964,6 +2328,193 @@ export default function SessionViewer({
             </div>
           )}
 
+          {/* ===== FINDINGS (Phase 2 analyst output + verdict oracle) ===== */}
+          {activeTab === "findings" && (
+            <div className="timeline findings-tab" data-pending-count={pendingFindingsCount}>
+              <div className="findings-tab-head">
+                <div className="findings-title">
+                  <span className="findings-label">Findings</span>
+                  <span className="count mono">{visibleFindings.length}</span>
+                  <span className="finding-pending-count mono">{pendingFindingsCount} pending</span>
+                </div>
+                <span className="segmented findings-filter" title="Verdict filter">
+                  {(
+                    [
+                      ["pending", "Pending"],
+                      ["decided", "Decided"],
+                      ["all", "All"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={findingStatusFilter === key ? "active" : ""}
+                      onClick={() => setFindingStatusFilter(key)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </span>
+                <span className="segmented findings-filter" title="Session filter">
+                  <button
+                    type="button"
+                    className={findingSessionFilter === "all" ? "active" : ""}
+                    onClick={() => setFindingSessionFilter("all")}
+                  >
+                    All sessions
+                  </button>
+                  <button
+                    type="button"
+                    className={findingSessionFilter === currentId ? "active" : ""}
+                    onClick={() => setFindingSessionFilter(currentId)}
+                  >
+                    This session
+                  </button>
+                </span>
+              </div>
+              {recentFindingVerdict && (
+                <div
+                  className={`finding-verdict-toast ${recentFindingVerdict.verdict}`}
+                  data-finding-id={recentFindingVerdict.findingId}
+                  data-verdict-id={recentFindingVerdict.verdictId}
+                >
+                  <span className="finding-status-dot" aria-hidden />
+                  <span>
+                    {findingVerdictLabel(recentFindingVerdict.verdict)} · {recentFindingVerdict.title}
+                  </span>
+                  <button type="button" className="btn btn-sm" onClick={undoFindingVerdict}>
+                    Undo
+                  </button>
+                </div>
+              )}
+              {findingError && <div className="finding-error">{findingError}</div>}
+              {visibleFindings.length === 0 ? (
+                <div className="empty" style={{ padding: "16px" }}>
+                  No findings match the current filters.
+                </div>
+              ) : (
+                visibleFindings.map((finding) => {
+                  const verdict = finding.verdict?.verdict ?? "pending";
+                  const harnessLabel = finding.harnessVersionId
+                    ? `${finding.harnessProvider ?? "harness"} ${shortHash(
+                        finding.harnessContentHash ?? finding.harnessVersionId,
+                      )}`
+                    : "—";
+                  return (
+                    <div
+                      key={finding.id}
+                      className={`finding-row ${verdict}`}
+                      data-finding-id={finding.id}
+                      data-kind={finding.kind}
+                      data-analyst={finding.analyst}
+                      data-verdict={verdict}
+                      data-evidence-count={finding.evidence.length}
+                    >
+                      <div className="finding-mainline">
+                        <span className={`finding-kind-chip ${finding.kind}`}>
+                          <span className="finding-kind-dot" aria-hidden />
+                          {FINDING_KIND_LABEL[finding.kind]}
+                        </span>
+                        <div className="finding-title-body">
+                          <div className="finding-title-text">{finding.title}</div>
+                          <div className="finding-body-text">{finding.body}</div>
+                        </div>
+                        <span className={`finding-verdict-chip ${verdict}`}>
+                          {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
+                        </span>
+                      </div>
+                      <div className="finding-meta-line">
+                        <span className="mono">{finding.analyst}</span>
+                        <span className="mono">{findingConfidenceLabel(finding.confidence)}</span>
+                        <span className="mono">{finding.evidence.length} evidence</span>
+                        <span className="mono">harness {harnessLabel}</span>
+                        {finding.verdict && (
+                          <span className="mono">
+                            {finding.verdict.decidedBy} · {finding.verdict.reason || "no reason"}
+                          </span>
+                        )}
+                      </div>
+                      <div className="finding-evidence-list">
+                        {finding.evidence.map((evidence) => {
+                          const target = resolveEvidence(evidence);
+                          return target.resolved ? (
+                            <button
+                              key={evidence.id}
+                              type="button"
+                              className="finding-evidence"
+                              data-evidence-kind={evidence.subjectKind}
+                              data-evidence-id={evidence.id}
+                              data-resolved="true"
+                              title={evidence.note ?? target.title}
+                              onClick={target.jump}
+                            >
+                              <span className="finding-evidence-kind">{target.kind}</span>
+                              <span className="mono">{target.label}</span>
+                            </button>
+                          ) : (
+                            <span
+                              key={evidence.id}
+                              className="finding-evidence stale"
+                              data-evidence-kind={evidence.subjectKind}
+                              data-evidence-id={evidence.id}
+                              data-resolved="false"
+                              title={target.title}
+                            >
+                              {target.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      {finding.verdict?.verdict === "accept" && (
+                        <div className="finding-boundary-note">
+                          ハーネス編集はユーザー手動（P2 境界）
+                        </div>
+                      )}
+                      {!finding.verdict && (
+                        <div className="finding-verdict-controls">
+                          <input
+                            className="finding-verdict-reason"
+                            value={findingReasonDrafts[finding.id] ?? ""}
+                            onChange={(event) =>
+                              setFindingReasonDrafts((prev) => ({
+                                ...prev,
+                                [finding.id]: event.target.value,
+                              }))
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void submitFindingVerdict(finding, "accept");
+                              }
+                            }}
+                            placeholder="reason"
+                            aria-label={`Reason for ${finding.title}`}
+                          />
+                          <button
+                            type="button"
+                            className="finding-verdict-btn accept"
+                            disabled={!!findingBusy[finding.id]}
+                            onClick={() => void submitFindingVerdict(finding, "accept")}
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            className="finding-verdict-btn reject"
+                            disabled={!!findingBusy[finding.id]}
+                            onClick={() => void submitFindingVerdict(finding, "reject")}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
           {/* Git is handled above as an embedded DiffViewer (in-page tab),
               so there is no changed-files block inside <main> anymore. */}
 
@@ -2047,6 +2598,7 @@ export default function SessionViewer({
                   onClick={() => {
                     setGitFocusEvent(selected.id);
                     setGitFocusFileId(undefined);
+                    setGitFocusHunkId(undefined);
                     setActiveTab("git");
                   }}
                   title="See the Git diff this edit produced (jump to the Git tab)"
