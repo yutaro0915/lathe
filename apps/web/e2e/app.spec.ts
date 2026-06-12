@@ -393,6 +393,24 @@ async function findCompactCodexSession(): Promise<string> {
   throw new Error("No compact Codex session with a non-zero wall-clock turn duration");
 }
 
+async function findMultiFileDiffSession(): Promise<string> {
+  const row = await withDb(async (client) =>
+    (
+      await client.query<{ id: string }>(
+        `SELECT s.id
+           FROM sessions s
+           JOIN changed_files cf ON cf.session_id = s.id
+          GROUP BY s.id, s.seq, s.started_at
+         HAVING COUNT(DISTINCT cf.path) > 1
+          ORDER BY s.seq DESC NULLS LAST, s.started_at DESC NULLS LAST
+          LIMIT 1`
+      )
+    ).rows[0]
+  );
+  if (!row) throw new Error("No session with multiple changed files");
+  return row.id;
+}
+
 async function expectTurnJump(
   page: Page,
   sessionId: string,
@@ -684,7 +702,8 @@ test.describe("Diff viewer (/diff)", () => {
   });
 
   test("selecting a file updates the diff path", async ({ page }) => {
-    await page.goto("/diff");
+    const sessionId = await findMultiFileDiffSession();
+    await page.goto(`/diff?session=${encodeURIComponent(sessionId)}`);
     const before = await page.locator(".fpath").innerText();
     const files = page.locator(".file-row:not(.is-folder)");
     const count = await files.count();

@@ -3,7 +3,7 @@ import { Pool, type PoolClient } from 'pg';
 import type { Built } from './built';
 import { getDatabaseUrl } from '../../lib/postgres';
 import {
-  backfillHarnessSnapshot,
+  backfillHarnessVersions,
   isHarnessProvider,
   type HarnessSnapshot,
   upsertHarnessSnapshot,
@@ -26,15 +26,28 @@ export interface InsertCounts {
 export interface InsertBuiltOptions {
   harnessSnapshots?: Map<string, HarnessSnapshot>;
   backfillHarness?: boolean;
+  existingHarnessStamps?: Map<string, string>;
+}
+
+export interface ResetDatabaseOptions {
+  existingHarnessStamps?: Map<string, string>;
 }
 
 function cleanParams(values: unknown[]): unknown[] {
   return values.map((value) => (typeof value === 'string' ? value.replace(/\u0000/g, '') : value));
 }
 
-export async function resetDatabase(schemaPath: string): Promise<Pool> {
+export async function resetDatabase(schemaPath: string, options: ResetDatabaseOptions = {}): Promise<Pool> {
   const pool = new Pool({ connectionString: getDatabaseUrl() });
   await pool.query(fs.readFileSync(schemaPath, 'utf8'));
+  if (options.existingHarnessStamps) {
+    const existing = await pool.query<{ id: string; harness_version_id: string }>(
+      `SELECT id,harness_version_id
+         FROM sessions
+        WHERE harness_version_id IS NOT NULL`,
+    );
+    for (const row of existing.rows) options.existingHarnessStamps.set(row.id, row.harness_version_id);
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -47,6 +60,7 @@ export async function resetDatabase(schemaPath: string): Promise<Pool> {
     await client.query('DELETE FROM pr_commits');
     await client.query('DELETE FROM pull_requests');
     await client.query('DELETE FROM github_pr_sync_state');
+    await client.query('DELETE FROM annotations');
     await client.query('DELETE FROM sessions');
     await client.query('COMMIT');
   } catch (error) {
@@ -58,18 +72,36 @@ export async function resetDatabase(schemaPath: string): Promise<Pool> {
   return pool;
 }
 
-async function resolveHarnessVersionId(
+async function prepareHarnessVersions(
   client: PoolClient,
-  built: Built,
+  built: Built[],
   options: InsertBuiltOptions,
-): Promise<string | null> {
-  const runner = built.session.runner;
-  if (!isHarnessProvider(runner)) return null;
+): Promise<number> {
+  for (const item of built) {
+    const existing = options.existingHarnessStamps?.get(item.session.id);
+    if (existing) item.session.harness_version_id = existing;
+  }
 
-  const supplied = options.harnessSnapshots?.get(built.session.id);
-  const snapshot = supplied ?? (options.backfillHarness === false ? null : backfillHarnessSnapshot(built));
-  if (!snapshot) return null;
-  return upsertHarnessSnapshot(client, built.session.projectId, runner, snapshot);
+  for (const item of built) {
+    if (item.session.harness_version_id || !isHarnessProvider(item.session.runner)) continue;
+    const supplied = options.harnessSnapshots?.get(item.session.id);
+    if (!supplied) continue;
+    item.session.harness_version_id = await upsertHarnessSnapshot(
+      client,
+      item.session.projectId,
+      item.session.runner,
+      supplied,
+    );
+  }
+
+  if (options.backfillHarness !== false) {
+    const pending = built.filter(
+      (item) => !item.session.harness_version_id && isHarnessProvider(item.session.runner),
+    );
+    if (pending.length) await backfillHarnessVersions(client, pending);
+  }
+
+  return built.filter((item) => !!item.session.harness_version_id).length;
 }
 
 async function insertBuiltRows(
@@ -97,7 +129,6 @@ async function insertBuiltRows(
 
   for (const b of built) {
     const s = b.session;
-    counts.commitShaMisses += b.commitShaMissCount;
     await client.query(
       `INSERT INTO projects (id,display_name,git_remote,cwd_hint,updated_at)
        VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP)
@@ -109,11 +140,13 @@ async function insertBuiltRows(
       cleanParams([s.projectId, s.project, s.projectGitRemote, s.projectCwdHint]),
     );
     projectIds.add(s.projectId);
-    counts.projects = projectIds.size;
+  }
+  counts.projects = projectIds.size;
+  counts.harnessVersions = await prepareHarnessVersions(client, built, options);
 
-    const harnessVersionId = await resolveHarnessVersionId(client, b, options);
-    if (harnessVersionId) counts.harnessVersions++;
-    s.harness_version_id = harnessVersionId;
+  for (const b of built) {
+    const s = b.session;
+    counts.commitShaMisses += b.commitShaMissCount;
 
     await client.query(
       `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,harness_version_id,seq)
@@ -287,6 +320,7 @@ async function deleteSessionRows(client: PoolClient, sessionId: string): Promise
   );
   await client.query('DELETE FROM changed_files WHERE session_id = $1', [sessionId]);
   await client.query('DELETE FROM transcript_events WHERE session_id = $1', [sessionId]);
+  await client.query('DELETE FROM annotations WHERE session_id = $1', [sessionId]);
   await client.query('DELETE FROM sessions WHERE id = $1', [sessionId]);
 }
 

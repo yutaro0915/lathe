@@ -15,23 +15,30 @@ function textFromClaudeContent(content: unknown): string {
 
 function hasIngestableClaudeEvent(file: string): boolean {
   try {
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-      if (!line.trim()) continue;
-      let record: LooseRecord;
-      try {
-        record = JSON.parse(line) as LooseRecord;
-      } catch {
-        continue;
-      }
-      if (record.type === 'user') {
-        if (textFromClaudeContent(record.message?.content).replace(/<[^>]+>/g, ' ').trim()) return true;
-      } else if (record.type === 'assistant' && Array.isArray(record.message?.content)) {
-        for (const item of record.message.content) {
-          if (item?.type === 'text' && typeof item.text === 'string' && item.text.trim()) return true;
-          if (item?.type === 'thinking' && typeof item.thinking === 'string' && item.thinking.trim()) return true;
-          if (item?.type === 'tool_use') return true;
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buffer = Buffer.alloc(64 * 1024);
+      const bytes = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      for (const line of buffer.subarray(0, bytes).toString('utf8').split('\n')) {
+        if (!line.trim()) continue;
+        let record: LooseRecord;
+        try {
+          record = JSON.parse(line) as LooseRecord;
+        } catch {
+          continue;
+        }
+        if (record.type === 'user') {
+          if (textFromClaudeContent(record.message?.content).replace(/<[^>]+>/g, ' ').trim()) return true;
+        } else if (record.type === 'assistant' && Array.isArray(record.message?.content)) {
+          for (const item of record.message.content) {
+            if (item?.type === 'text' && typeof item.text === 'string' && item.text.trim()) return true;
+            if (item?.type === 'thinking' && typeof item.thinking === 'string' && item.thinking.trim()) return true;
+            if (item?.type === 'tool_use') return true;
+          }
         }
       }
+    } finally {
+      fs.closeSync(fd);
     }
   } catch {
     return false;

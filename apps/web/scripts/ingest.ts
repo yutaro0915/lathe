@@ -91,8 +91,9 @@ async function main() {
 
   built.sort((a, b) => (b.session._startMs ?? 0) - (a.session._startMs ?? 0));
   built.forEach((b, i) => (b.session.seq = i + 1));
-  const db = await resetDatabase(SCHEMA_PATH);
-  const counts = await insertBuilt(db, built);
+  const existingHarnessStamps = new Map<string, string>();
+  const db = await resetDatabase(SCHEMA_PATH, { existingHarnessStamps });
+  const counts = await insertBuilt(db, built, { existingHarnessStamps });
   await syncPullRequestsCatchup(db);
   await db.end();
   console.log(

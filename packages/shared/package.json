@@ -9,6 +9,14 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./harness": {
+      "types": "./src/harness.ts",
+      "default": "./src/harness.ts"
+    },
+    "./hook-harness-source": {
+      "types": "./src/hook-harness-source.d.ts",
+      "default": "./src/hook-harness-source.js"
     }
   }
 }

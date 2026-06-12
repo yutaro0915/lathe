@@ -1,4 +1,5 @@
--- Lathe prototype schema — Phase 1: transcript / Git-diff viewer (read-only).
+-- Lathe prototype schema — transcript / Git-diff viewer plus Phase 2 analysis
+-- persistence.
 --
 -- Backs the Phase 1 screens:
 --   A) session viewer
@@ -6,9 +7,6 @@
 --
 -- Entities: session, transcript-event, git-diff (changed_files + diff_hunks),
 -- attribution.
--- Later phases (finding / fixture_run / harness_version / decision_trace) are
--- intentionally NOT created here — Phase 1 is observation only.
---
 -- snake_case columns; the db layer maps to camelCase (see lib/types.ts).
 
 -- A repository-level identity. `id` is the canonical key from ADR 0002:
@@ -155,12 +153,25 @@ CREATE TABLE IF NOT EXISTS event_files (
 -- Minimap markers (bottom density bar of timeline/diff screens).
 CREATE TABLE IF NOT EXISTS annotations (
   id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  session_id TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   at_seq     INTEGER NOT NULL,           -- position along the timeline
   kind       TEXT NOT NULL,              -- error | test | edit | commit | note
   note       TEXT
 );
-ALTER TABLE annotations DROP CONSTRAINT IF EXISTS annotations_session_id_fkey;
+DELETE FROM annotations
+ WHERE NOT EXISTS (
+   SELECT 1 FROM sessions WHERE sessions.id = annotations.session_id
+ );
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'annotations_session_id_fkey'
+  ) THEN
+    ALTER TABLE annotations
+      ADD CONSTRAINT annotations_session_id_fkey
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE;
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_annotations_session_seq ON annotations(session_id, at_seq);
 
 -- Phase 2 persistent findings. Evidence uses logical coordinates

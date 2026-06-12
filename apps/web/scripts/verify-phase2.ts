@@ -1,15 +1,16 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { closePool, getPool } from '../lib/postgres';
+import { Pool } from 'pg';
+import { closePool, DEFAULT_DATABASE_URL, getPool } from '../lib/postgres';
 import type { Built } from './ingest/built';
-import { insertBuilt, resetDatabase } from './ingest/db';
+import { insertBuilt } from './ingest/db';
 import {
   captureHarnessSnapshot,
   captureHarnessSnapshotFromGit,
-  harnessVersionId,
   type HarnessProvider,
 } from './ingest/harness';
 import { ingestNotify, type IngestNotifyPayload } from './ingest/notify';
@@ -18,6 +19,7 @@ import { pickDefaultTranscriptsDir } from './ingest/shared';
 
 const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
 const VERIFY_BUILD_OPTIONS = { maxEvents: 100000, maxFiles: 100000, maxHunkLines: 200 };
+const ORIGINAL_DATABASE_URL = process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 
 function fail(message: string): never {
   throw new Error(message);
@@ -41,6 +43,28 @@ function execGit(cwd: string, args: string[]): string {
 
 function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+function scratchDatabaseUrl(schema: string): string {
+  const url = new URL(ORIGINAL_DATABASE_URL);
+  url.searchParams.set('options', `-c search_path=${schema},public`);
+  return url.toString();
+}
+
+async function withScratchDatabase<T>(fn: () => Promise<T>): Promise<T> {
+  const schema = `phase2_verify_${process.pid}_${Date.now()}`.replace(/[^a-zA-Z0-9_]/g, '_');
+  const admin = new Pool({ connectionString: ORIGINAL_DATABASE_URL });
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = scratchDatabaseUrl(schema);
+  try {
+    return await fn();
+  } finally {
+    await closePool();
+    process.env.DATABASE_URL = previousDatabaseUrl;
+    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+    await admin.end();
+  }
 }
 
 function claudeTranscriptDirs(): string[] {
@@ -190,6 +214,27 @@ function minimalBuiltSession(id: string, projectId: string, cwd: string | null, 
   };
 }
 
+function independentSha256(value: string): string {
+  return crypto.createHash('sha256').update(Buffer.from(value, 'utf8')).digest('hex');
+}
+
+function independentProviderHash(
+  artifacts: Array<{ path: string; providers: HarnessProvider[]; sha256: string }>,
+  provider: HarnessProvider,
+): string {
+  const hash = crypto.createHash('sha256');
+  hash.update(`lathe-harness-v1\0${provider}\0`);
+  for (const artifact of artifacts
+    .filter((item) => item.providers.includes(provider))
+    .sort((a, b) => a.path.localeCompare(b.path))) {
+    hash.update(artifact.path);
+    hash.update('\0');
+    hash.update(artifact.sha256);
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
 async function verifyHook(): Promise<void> {
   const root = findRepoRoot();
   const build = spawnSync('pnpm', ['-F', 'client', 'build'], { cwd: root, encoding: 'utf8' });
@@ -197,9 +242,20 @@ async function verifyHook(): Promise<void> {
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lathe-hook-phase2-'));
   ensureDir(path.join(tmp, '.claude'));
+  ensureDir(path.join(tmp, 'nested'));
+  ensureDir(path.join(tmp, '.codex'));
   fs.writeFileSync(path.join(tmp, 'AGENTS.md'), 'shared harness\n', 'utf8');
+  fs.writeFileSync(path.join(tmp, 'nested', 'AGENTS.md'), 'nested shared harness\n', 'utf8');
   fs.writeFileSync(path.join(tmp, '.claude', 'settings.json'), '{"hooks":{}}\n', 'utf8');
+  fs.writeFileSync(path.join(tmp, '.claude', 'settings.local.json'), '{"machine":"local"}\n', 'utf8');
+  fs.writeFileSync(path.join(tmp, '.codex', 'untracked-config.toml'), 'model = "untracked"\n', 'utf8');
   fs.writeFileSync(path.join(tmp, 'transcript.jsonl'), '{}\n', 'utf8');
+  execGit(tmp, ['init']);
+  execGit(tmp, ['config', 'user.email', 'lathe@example.test']);
+  execGit(tmp, ['config', 'user.name', 'Lathe Verify']);
+  execGit(tmp, ['add', 'AGENTS.md', 'nested/AGENTS.md', '.claude/settings.json']);
+  execGit(tmp, ['add', '-f', '.claude/settings.local.json']);
+  execGit(tmp, ['commit', '-m', 'tracked harness']);
 
   const received: unknown[] = [];
   const server = http.createServer((request, response) => {
@@ -249,6 +305,22 @@ async function verifyHook(): Promise<void> {
     if (!payload.harness_hash.providers?.['claude-code'] || !payload.harness_hash.providers?.codex) {
       fail('payload harness_hash missing provider hashes');
     }
+    const artifacts = payload.harness_hash.artifacts as Array<{ path: string; providers: string[] }>;
+    const rootAgents = artifacts.find((item) => item.path === 'AGENTS.md');
+    const nestedAgents = artifacts.find((item) => item.path === 'nested/AGENTS.md');
+    const settings = artifacts.find((item) => item.path === '.claude/settings.json');
+    if (!rootAgents?.providers.includes('claude-code') || !rootAgents.providers.includes('codex')) {
+      fail('hook payload AGENTS.md binding is not shared');
+    }
+    if (!nestedAgents?.providers.includes('claude-code') || !nestedAgents.providers.includes('codex')) {
+      fail('hook payload nested AGENTS.md binding is not shared');
+    }
+    if (!settings?.providers.includes('claude-code') || settings.providers.includes('codex')) {
+      fail('hook payload .claude/settings.json binding is not claude-only');
+    }
+    if (artifacts.some((item) => item.path.includes('.local.') || item.path.includes('untracked'))) {
+      fail('hook payload included local or untracked harness artifact');
+    }
 
     const configPath = path.join(tmp, '.lathe', 'config.json');
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -288,16 +360,56 @@ async function verifyNotifyStamp(): Promise<void> {
   const second = await ingestNotify(payload);
   const secondVersion = await scalar<string>('SELECT harness_version_id FROM sessions WHERE id = $1', [second.sessionId]);
   if (firstVersion !== secondVersion) fail(`notify was not idempotent: ${firstVersion} != ${secondVersion}`);
-  console.log(`[verify-phase2:notify] ok session=${first.sessionId} harness_version_id=${secondVersion}`);
+  const sweep = spawnSync('pnpm', ['-F', 'web', 'ingest'], {
+    cwd: root,
+    env: { ...process.env, LATHE_TRANSCRIPTS_DIR: path.dirname(transcript) },
+    encoding: 'utf8',
+  });
+  if (sweep.status !== 0) fail(`notify preservation sweep failed\n${sweep.stdout}\n${sweep.stderr}`);
+  const sweepVersion = await scalar<string>('SELECT harness_version_id FROM sessions WHERE id = $1', [first.sessionId]);
+  if (sweepVersion !== firstVersion) fail(`sweep overwrote notify stamp: ${sweepVersion} != ${firstVersion}`);
+  console.log(`[verify-phase2:notify] ok session=${first.sessionId} harness_version_id=${secondVersion} sweep_preserved=true`);
 }
 
 async function verifyBindings(): Promise<void> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lathe-harness-bindings-'));
   try {
     ensureDir(path.join(tmp, '.claude'));
+    ensureDir(path.join(tmp, 'nested'));
+    ensureDir(path.join(tmp, '.codex'));
     fs.writeFileSync(path.join(tmp, 'AGENTS.md'), 'shared v1\n', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'nested', 'AGENTS.md'), 'nested shared v1\n', 'utf8');
     fs.writeFileSync(path.join(tmp, '.claude', 'settings.json'), '{"env":{"A":"1"}}\n', 'utf8');
+    fs.writeFileSync(path.join(tmp, '.claude', 'settings.local.json'), '{"env":{"LOCAL":"1"}}\n', 'utf8');
+    fs.writeFileSync(path.join(tmp, '.codex', 'untracked.toml'), 'model = "untracked"\n', 'utf8');
+    execGit(tmp, ['init']);
+    execGit(tmp, ['config', 'user.email', 'lathe@example.test']);
+    execGit(tmp, ['config', 'user.name', 'Lathe Verify']);
+    execGit(tmp, ['add', 'AGENTS.md', 'nested/AGENTS.md', '.claude/settings.json']);
+    execGit(tmp, ['add', '-f', '.claude/settings.local.json']);
+    execGit(tmp, ['commit', '-m', 'tracked harness v1']);
+    const commit = execGit(tmp, ['rev-parse', 'HEAD']);
     const base = captureHarnessSnapshot(tmp) ?? fail('base snapshot missing');
+    const fromGit = captureHarnessSnapshotFromGit(tmp, commit) ?? fail('git snapshot missing');
+    if (base.providers['claude-code'] !== fromGit.providers['claude-code'] || base.providers.codex !== fromGit.providers.codex) {
+      fail('live and git harness hashes diverged for the same repo state');
+    }
+    if (!base.artifacts.some((item) => item.path === 'nested/AGENTS.md')) fail('nested AGENTS.md missing from harness artifacts');
+    if (base.artifacts.some((item) => item.path.includes('.local.') || item.path.includes('untracked'))) {
+      fail('local or untracked artifact was included in harness snapshot');
+    }
+    const observed = minimalBuiltSession('phase2-bindings-observed', 'phase2-bindings-project', tmp, commit);
+    observed.session.runner = 'codex';
+    observed.events = [
+      {
+        ...observed.events[0],
+        type: 'skill',
+        file_path: path.join(tmp, '.claude', 'settings.json'),
+      },
+    ];
+    const observedSnapshot = captureHarnessSnapshot(tmp, observed) ?? fail('observed binding snapshot missing');
+    const observedSettings = observedSnapshot.artifacts.find((item) => item.path === '.claude/settings.json');
+    if (!observedSettings?.providers.includes('codex')) fail('observed provider binding did not supplement filename convention');
 
     fs.writeFileSync(path.join(tmp, 'AGENTS.md'), 'shared v2\n', 'utf8');
     const sharedChanged = captureHarnessSnapshot(tmp) ?? fail('shared snapshot missing');
@@ -316,13 +428,14 @@ async function verifyBindings(): Promise<void> {
     if (beforeSettings.providers.codex !== settingsChanged.providers.codex) {
       fail('.claude/settings.json change changed codex hash');
     }
-    console.log('[verify-phase2:bindings] ok shared and provider-specific hashes match ADR 0005');
+    console.log('[verify-phase2:bindings] ok shared/provider-specific hashes and live/git canonicality match ADR 0005');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
 async function verifyBackfill(): Promise<void> {
+  await applySchema();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lathe-backfill-repo-'));
   try {
     execGit(tmp, ['init']);
@@ -338,23 +451,49 @@ async function verifyBackfill(): Promise<void> {
     execGit(tmp, ['add', 'AGENTS.md']);
     execGit(tmp, ['commit', '-m', 'harness v2']);
 
-    const gitSnapshot = captureHarnessSnapshotFromGit(tmp, firstCommit) ?? fail('could not reconstruct git snapshot');
-    const expected = harnessVersionId('phase2-backfill-project', 'codex', gitSnapshot.providers.codex ?? '');
-    const db = await resetDatabase(SCHEMA_PATH);
+    const expectedContentHash = independentProviderHash(
+      [
+        { path: '.codex/config.toml', providers: ['codex'], sha256: independentSha256('model = "codex"\n') },
+        { path: 'AGENTS.md', providers: ['claude-code', 'codex'], sha256: independentSha256('shared v1\n') },
+      ],
+      'codex',
+    );
+    const db = getPool();
     const reconstructable = minimalBuiltSession('phase2-backfill-ok', 'phase2-backfill-project', tmp, firstCommit);
     const missing = minimalBuiltSession('phase2-backfill-missing', 'phase2-backfill-project', null, null);
-    await insertBuilt(db, [reconstructable, missing]);
-    const rows = await db.query<{ id: string; harness_version_id: string | null }>(
-      `SELECT id,harness_version_id FROM sessions WHERE id LIKE 'phase2-backfill-%' ORDER BY id`,
+    const branchOnly = minimalBuiltSession('phase2-backfill-branch-only', 'phase2-backfill-project', tmp, null);
+    branchOnly.session.git_branch = 'main';
+    await insertBuilt(db, [branchOnly, reconstructable, missing]);
+    const rows = await db.query<{ id: string; harness_version_id: string | null; content_hash: string | null }>(
+      `SELECT s.id,s.harness_version_id,hv.content_hash
+         FROM sessions s
+         LEFT JOIN harness_versions hv ON hv.id = s.harness_version_id
+        WHERE s.id LIKE 'phase2-backfill-%'
+        ORDER BY s.id`,
     );
     const ok = rows.rows.find((row) => row.id === 'phase2-backfill-ok');
     const bad = rows.rows.find((row) => row.id === 'phase2-backfill-missing');
-    if (ok?.harness_version_id !== expected) {
-      fail(`reconstructed session got wrong harness version: ${ok?.harness_version_id} expected ${expected}`);
+    const branch = rows.rows.find((row) => row.id === 'phase2-backfill-branch-only');
+    if (!ok?.harness_version_id || ok.content_hash !== expectedContentHash) {
+      fail(`reconstructed session got wrong harness content hash: ${ok?.content_hash} expected ${expectedContentHash}`);
     }
     if (bad?.harness_version_id !== null) fail('unreconstructable session was stamped');
-    console.log('[verify-phase2:backfill] ok reconstructed=1 unreconstructable=1');
-    await db.end();
+    if (branch?.harness_version_id !== null) fail('branch-only session was stamped');
+
+    const root = findRepoRoot();
+    const ingest = spawnSync('pnpm', ['-F', 'web', 'ingest'], {
+      cwd: root,
+      env: process.env,
+      encoding: 'utf8',
+    });
+    if (ingest.status !== 0) fail(`real backfill ingest failed\n${ingest.stdout}\n${ingest.stderr}`);
+    const realStamped = await scalar<number>(
+      `SELECT COUNT(*)::int
+         FROM sessions
+        WHERE harness_version_id IS NOT NULL`,
+    );
+    if (realStamped <= 0) fail('real transcript sweep did not stamp any harness versions');
+    console.log(`[verify-phase2:backfill] ok reconstructed=1 unreconstructable=2 real_stamped=${realStamped}`);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -445,6 +584,11 @@ async function verifyPersistence(): Promise<void> {
     [`${marker}-message`, `${marker}-thread`],
   );
   await getPool().query(
+    `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,seq)
+     VALUES ($1,$2,$2,'Derived annotation marker','codex','codex-test','done','2026-06-11 00:00:00','2026-06-11 00:00:01',1000,-999)`,
+    [marker, marker],
+  );
+  await getPool().query(
     `INSERT INTO annotations (session_id,at_seq,kind,note)
      VALUES ($1,7,'note','persistent annotation')`,
     [marker],
@@ -484,8 +628,11 @@ async function verifyPersistence(): Promise<void> {
 
   const beforeRow = before.rows[0];
   const afterRow = after.rows[0];
-  for (const key of ['findings', 'verdicts', 'evidence', 'threads', 'messages', 'annotations']) {
+  for (const key of ['findings', 'verdicts', 'evidence', 'threads', 'messages']) {
     if (beforeRow[key] !== afterRow[key]) fail(`persistent ${key} changed across ingest`);
+  }
+  if (beforeRow.annotations !== 1 || afterRow.annotations !== 0) {
+    fail('derived annotations did not get rebuilt from scratch');
   }
   if (afterRow.sessions < 1 || afterRow.events < 1) fail('derived session/event rows were not rebuilt');
   console.log(`[verify-phase2:persistence] ok sessions=${afterRow.sessions} events=${afterRow.events}`);
@@ -552,8 +699,7 @@ async function verifyEvidence(): Promise<void> {
   console.log(`[verify-phase2:evidence] ok session=${first.sessionId} seq=${after.seq}`);
 }
 
-async function main(): Promise<void> {
-  const command = process.argv[2];
+async function runVerifyCommand(command: string | undefined): Promise<void> {
   if (command === 'hook') return verifyHook();
   if (command === 'notify') return verifyNotifyStamp();
   if (command === 'bindings') return verifyBindings();
@@ -572,6 +718,10 @@ async function main(): Promise<void> {
     return;
   }
   fail('usage: tsx scripts/verify-phase2.ts hook|notify|bindings|backfill|findings|persistence|evidence|all');
+}
+
+async function main(): Promise<void> {
+  await withScratchDatabase(() => runVerifyCommand(process.argv[2]));
 }
 
 main()
