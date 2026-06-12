@@ -1,6 +1,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  FINDING_BODY_MAX_LENGTH,
+  FINDING_EVIDENCE_MAX_ITEMS,
+  FINDING_LOCATOR_MAX_LENGTH,
+  FINDING_NOTE_MAX_LENGTH,
+  FINDING_TITLE_MAX_LENGTH,
+  submitFinding,
+  type SubmitFindingInput,
+} from '../../../apps/web/lib/mcp.js';
 import { closePool, getPool } from '../../../apps/web/lib/postgres.js';
 
 type JsonRecord = Record<string, any>;
@@ -57,6 +66,15 @@ function assertToolError(response: JsonRecord, label: string): void {
   const result = response.result;
   if (result?.isError === true) return;
   fail(`${label} was not rejected: ${JSON.stringify(response)}`);
+}
+
+async function assertRejects(fn: () => Promise<unknown>, label: string): Promise<void> {
+  try {
+    await fn();
+  } catch {
+    return;
+  }
+  fail(`${label} was not rejected`);
 }
 
 class StdioRpcClient {
@@ -313,6 +331,7 @@ async function verifyReadTools(): Promise<void> {
 async function verifySubmitFinding(): Promise<void> {
   const event = await firstEvent();
   const analyst = `mcp-verify-${process.pid}-${Date.now()}`;
+  const strictAnalyst = `${analyst}-primary`;
   const validFinding = {
     analyst,
     kind: 'failure_loop',
@@ -330,8 +349,58 @@ async function verifySubmitFinding(): Promise<void> {
       },
     ],
   };
+  const validLibFinding: SubmitFindingInput = {
+    analyst,
+    kind: 'failure_loop',
+    title: 'MCP verify finding',
+    body: 'MCP verify body',
+    confidence: 0.75,
+    projectId: event.project_id,
+    evidence: [
+      {
+        subjectKind: 'event',
+        subjectId: event.id,
+        sessionId: event.session_id,
+        locator: { seq: event.seq },
+        note: 'verify evidence',
+      },
+    ],
+  };
 
   try {
+    await assertRejects(
+      () => submitFinding({ ...validLibFinding, title: 't'.repeat(FINDING_TITLE_MAX_LENGTH + 1) }),
+      'submitFinding title limit',
+    );
+    await assertRejects(
+      () => submitFinding({ ...validLibFinding, body: 'b'.repeat(FINDING_BODY_MAX_LENGTH + 1) }),
+      'submitFinding body limit',
+    );
+    await assertRejects(
+      () =>
+        submitFinding({
+          ...validLibFinding,
+          evidence: [{ ...validLibFinding.evidence[0], note: 'n'.repeat(FINDING_NOTE_MAX_LENGTH + 1) }],
+        }),
+      'submitFinding note limit',
+    );
+    await assertRejects(
+      () =>
+        submitFinding({
+          ...validLibFinding,
+          evidence: [{ ...validLibFinding.evidence[0], locator: { payload: 'x'.repeat(FINDING_LOCATOR_MAX_LENGTH) } }],
+        }),
+      'submitFinding locator limit',
+    );
+    await assertRejects(
+      () =>
+        submitFinding({
+          ...validLibFinding,
+          evidence: Array.from({ length: FINDING_EVIDENCE_MAX_ITEMS + 1 }, () => validLibFinding.evidence[0]),
+        }),
+      'submitFinding evidence count limit',
+    );
+
     await withClient(async (client) => {
       assertToolError(
         await client.callTool('submit_finding', {
@@ -345,12 +414,63 @@ async function verifySubmitFinding(): Promise<void> {
         }),
         'submit_finding with invalid kind',
       );
+      assertToolError(
+        await client.callTool('submit_finding', {
+          finding: { ...validFinding, title: 't'.repeat(FINDING_TITLE_MAX_LENGTH + 1) },
+        }),
+        'submit_finding with title over limit',
+      );
+      assertToolError(
+        await client.callTool('submit_finding', {
+          finding: { ...validFinding, body: 'b'.repeat(FINDING_BODY_MAX_LENGTH + 1) },
+        }),
+        'submit_finding with body over limit',
+      );
+      assertToolError(
+        await client.callTool('submit_finding', {
+          finding: {
+            ...validFinding,
+            evidence: [{ ...validFinding.evidence[0], note: 'n'.repeat(FINDING_NOTE_MAX_LENGTH + 1) }],
+          },
+        }),
+        'submit_finding with note over limit',
+      );
+      assertToolError(
+        await client.callTool('submit_finding', {
+          finding: {
+            ...validFinding,
+            evidence: [{ ...validFinding.evidence[0], locator: { payload: 'x'.repeat(FINDING_LOCATOR_MAX_LENGTH) } }],
+          },
+        }),
+        'submit_finding with locator over limit',
+      );
+      assertToolError(
+        await client.callTool('submit_finding', {
+          finding: {
+            ...validFinding,
+            evidence: Array.from({ length: FINDING_EVIDENCE_MAX_ITEMS + 1 }, () => validFinding.evidence[0]),
+          },
+        }),
+        'submit_finding with too many evidence items',
+      );
 
       const first = parseToolResult(await client.callTool('submit_finding', { finding: validFinding })) as JsonRecord;
       const second = parseToolResult(await client.callTool('submit_finding', { finding: validFinding })) as JsonRecord;
       if (first.created !== true) fail(`first submit did not create: ${JSON.stringify(first)}`);
       if (second.created !== false) fail(`second submit was not idempotent: ${JSON.stringify(second)}`);
       if (first.findingId !== second.findingId) fail(`idempotent resend returned different ids: ${first.findingId} ${second.findingId}`);
+      const changed = parseToolResult(
+        await client.callTool('submit_finding', {
+          finding: { ...validFinding, title: 'MCP verify finding changed', body: 'MCP verify body changed' },
+        }),
+      ) as JsonRecord;
+      if (changed.created !== false || changed.findingId !== first.findingId) {
+        fail(`changed resend was not idempotent: ${JSON.stringify(changed)}`);
+      }
+      const changedFields = (changed.idempotencyDiff as JsonRecord | null | undefined)?.changedFields;
+      if (!Array.isArray(changedFields) || !changedFields.includes('title') || !changedFields.includes('body')) {
+        fail(`changed resend did not report title/body differences: ${JSON.stringify(changed)}`);
+      }
 
       const counts = await getPool().query<{ findings: number; evidence: number }>(
         `SELECT
@@ -364,9 +484,55 @@ async function verifySubmitFinding(): Promise<void> {
       if (counts.rows[0]?.findings !== 1 || counts.rows[0]?.evidence !== 1) {
         fail(`submit_finding inserted wrong counts: ${JSON.stringify(counts.rows[0])}`);
       }
+
+      const primaryEvidence = {
+        ...validFinding.evidence[0],
+        locator: { seq: event.seq, role: 'primary' },
+        note: 'primary evidence',
+      };
+      const secondaryEvidence = {
+        ...validFinding.evidence[0],
+        locator: { seq: event.seq, role: 'secondary' },
+        note: 'secondary evidence',
+      };
+      const strictFirst = parseToolResult(
+        await client.callTool('submit_finding', {
+          finding: {
+            ...validFinding,
+            analyst: strictAnalyst,
+            title: 'MCP primary evidence finding',
+            evidence: [primaryEvidence, secondaryEvidence],
+          },
+        }),
+      ) as JsonRecord;
+      const strictSecond = parseToolResult(
+        await client.callTool('submit_finding', {
+          finding: {
+            ...validFinding,
+            analyst: strictAnalyst,
+            title: 'MCP secondary as primary finding',
+            evidence: [secondaryEvidence],
+          },
+        }),
+      ) as JsonRecord;
+      if (strictFirst.created !== true || strictSecond.created !== true || strictFirst.findingId === strictSecond.findingId) {
+        fail(`primary evidence idempotency was not strict: ${JSON.stringify({ strictFirst, strictSecond })}`);
+      }
+      const strictCounts = await getPool().query<{ findings: number; evidence: number }>(
+        `SELECT
+           (SELECT COUNT(*)::int FROM findings WHERE analyst = $1) AS findings,
+           (SELECT COUNT(*)::int
+              FROM finding_evidence fe
+              JOIN findings f ON f.id = fe.finding_id
+             WHERE f.analyst = $1) AS evidence`,
+        [strictAnalyst],
+      );
+      if (strictCounts.rows[0]?.findings !== 2 || strictCounts.rows[0]?.evidence !== 3) {
+        fail(`strict primary evidence inserted wrong counts: ${JSON.stringify(strictCounts.rows[0])}`);
+      }
     });
   } finally {
-    await getPool().query('DELETE FROM findings WHERE analyst = $1', [analyst]);
+    await getPool().query('DELETE FROM findings WHERE analyst IN ($1, $2)', [analyst, strictAnalyst]);
   }
   console.log('[verify-mcp:3-submit-finding] GREEN');
 }

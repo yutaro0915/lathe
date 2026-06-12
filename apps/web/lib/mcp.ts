@@ -6,6 +6,11 @@ import type { SessionBundle } from './types';
 export const FINDING_KINDS = ['failure_loop', 'unattributed_diff', 'excess_cost', 'risky_action'] as const;
 export const EVIDENCE_SUBJECT_KINDS = ['session', 'event', 'hunk', 'pr', 'turn'] as const;
 export const VERDICT_FILTERS = ['accept', 'reject', 'unreviewed', 'any'] as const;
+export const FINDING_TITLE_MAX_LENGTH = 500;
+export const FINDING_BODY_MAX_LENGTH = 20_000;
+export const FINDING_NOTE_MAX_LENGTH = 2_000;
+export const FINDING_LOCATOR_MAX_LENGTH = 2_000;
+export const FINDING_EVIDENCE_MAX_ITEMS = 50;
 
 export type FindingKind = (typeof FINDING_KINDS)[number];
 export type EvidenceSubjectKind = (typeof EVIDENCE_SUBJECT_KINDS)[number];
@@ -127,6 +132,12 @@ function assertSubjectKind(kind: string): asserts kind is EvidenceSubjectKind {
   }
 }
 
+function assertMaxLength(label: string, value: string | undefined, max: number): void {
+  if (value !== undefined && value.length > max) {
+    throw new Error(`${label} must be ${max} characters or fewer`);
+  }
+}
+
 function parseLocator(value: EvidenceRow['locator'] | undefined): Record<string, unknown> {
   if (!value) return {};
   if (typeof value === 'string') {
@@ -161,6 +172,13 @@ function idempotencyKey(analyst: string, kind: FindingKind, evidence: FindingEvi
     locator: evidence.locator ?? {},
   };
   return crypto.createHash('sha256').update(stableJson(payload)).digest('hex');
+}
+
+function assertLocatorLength(locator: Record<string, unknown>): void {
+  const serialized = stableJson(locator);
+  if (serialized.length > FINDING_LOCATOR_MAX_LENGTH) {
+    throw new Error(`evidence.locator must be ${FINDING_LOCATOR_MAX_LENGTH} characters or fewer`);
+  }
 }
 
 function toSessionSummary(row: SessionSummaryRow): McpSessionSummary {
@@ -225,12 +243,15 @@ function validateEvidenceInput(evidence: FindingEvidenceInput): FindingEvidenceI
   } else if (evidence.subjectKind === 'turn') {
     if (!subjectId && !sessionId) throw new Error('turn evidence requires subject_id or session_id');
   }
+  assertLocatorLength(locator);
+  const note = cleanString(evidence.note);
+  assertMaxLength('evidence.note', note, FINDING_NOTE_MAX_LENGTH);
   return {
     subjectKind: evidence.subjectKind,
     subjectId,
     sessionId,
     locator,
-    note: cleanString(evidence.note),
+    note,
   };
 }
 
@@ -420,11 +441,16 @@ export async function submitFinding(input: SubmitFindingInput) {
   assertFindingKind(input.kind);
   if (!title) throw new Error('finding.title is required');
   if (!body) throw new Error('finding.body is required');
+  assertMaxLength('finding.title', title, FINDING_TITLE_MAX_LENGTH);
+  assertMaxLength('finding.body', body, FINDING_BODY_MAX_LENGTH);
   if (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1) {
     throw new Error('finding.confidence must be between 0 and 1');
   }
   if (!Array.isArray(input.evidence) || input.evidence.length === 0) {
     throw new Error('finding.evidence must contain at least one item');
+  }
+  if (input.evidence.length > FINDING_EVIDENCE_MAX_ITEMS) {
+    throw new Error(`finding.evidence must contain ${FINDING_EVIDENCE_MAX_ITEMS} items or fewer`);
   }
 
   const evidence = input.evidence.map(validateEvidenceInput);
@@ -440,27 +466,46 @@ export async function submitFinding(input: SubmitFindingInput) {
   try {
     await client.query('BEGIN');
     await client.query('LOCK TABLE findings, finding_evidence IN SHARE ROW EXCLUSIVE MODE');
-    const duplicate = await client.query<{ id: number }>(
+    const duplicate = await client.query<{ id: number; title: string; body: string }>(
       `SELECT f.id
+              ,f.title
+              ,f.body
          FROM findings f
-         JOIN finding_evidence fe ON fe.finding_id = f.id
+         JOIN LATERAL (
+           SELECT fe.*
+             FROM finding_evidence fe
+            WHERE fe.finding_id = f.id
+            ORDER BY fe.id ASC
+            LIMIT 1
+         ) primary_fe ON true
         WHERE f.analyst = $1
           AND f.kind = $2
-          AND fe.subject_kind = $3
-          AND COALESCE(fe.session_id, '') = $4
-          AND COALESCE(fe.subject_id, '') = $5
-          AND fe.locator = $6::jsonb
+          AND primary_fe.subject_kind = $3
+          AND COALESCE(primary_fe.session_id, '') = $4
+          AND COALESCE(primary_fe.subject_id, '') = $5
+          AND primary_fe.locator = $6::jsonb
         ORDER BY f.id ASC
         LIMIT 1`,
       [analyst, input.kind, primary.subjectKind, primary.sessionId ?? '', primary.subjectId ?? '', primary.locator ?? {}],
     );
-    const duplicateId = duplicate.rows[0]?.id;
+    const duplicateRow = duplicate.rows[0];
+    const duplicateId = duplicateRow?.id;
     if (duplicateId) {
+      const changedFields = [
+        duplicateRow.title !== title ? 'title' : undefined,
+        duplicateRow.body !== body ? 'body' : undefined,
+      ].filter((field): field is 'title' | 'body' => Boolean(field));
       await client.query('COMMIT');
       return {
         findingId: duplicateId,
         created: false,
         idempotencyKey: key,
+        idempotencyDiff: changedFields.length
+          ? {
+              message: 'existing finding matched idempotency key, but submitted title/body differed; existing finding returned',
+              changedFields,
+            }
+          : null,
         finding: await queryFindingById(duplicateId),
       };
     }

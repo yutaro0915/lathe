@@ -19,7 +19,11 @@ declare global {
 
 export function getPool(): Pool {
   if (!globalThis.__lathePgPool) {
-    globalThis.__lathePgPool = new Pool({ connectionString: getDatabaseUrl() });
+    const pool = new Pool({ connectionString: getDatabaseUrl() });
+    pool.on('error', (error) => {
+      console.error(`[lathe-postgres] idle client error: ${(error as Error).stack ?? String(error)}`);
+    });
+    globalThis.__lathePgPool = pool;
   }
   return globalThis.__lathePgPool;
 }

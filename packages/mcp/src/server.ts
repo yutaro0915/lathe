@@ -3,7 +3,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import * as z from 'zod/v4';
 import {
   EVIDENCE_SUBJECT_KINDS,
+  FINDING_BODY_MAX_LENGTH,
+  FINDING_EVIDENCE_MAX_ITEMS,
   FINDING_KINDS,
+  FINDING_LOCATOR_MAX_LENGTH,
+  FINDING_NOTE_MAX_LENGTH,
+  FINDING_TITLE_MAX_LENGTH,
   VERDICT_FILTERS,
   getEvidenceContext,
   getMcpSessionBundle,
@@ -36,6 +41,16 @@ function optionalLocator(value: unknown): JsonRecord | undefined {
   return value as JsonRecord;
 }
 
+function serializedJsonLength(value: unknown): number {
+  return JSON.stringify(value)?.length ?? 0;
+}
+
+const locatorSchema = z
+  .record(z.string(), z.unknown())
+  .refine((locator) => serializedJsonLength(locator) <= FINDING_LOCATOR_MAX_LENGTH, {
+    message: `locator must be ${FINDING_LOCATOR_MAX_LENGTH} characters or fewer`,
+  });
+
 function mapFinding(input: JsonRecord) {
   return {
     analyst: String(input.analyst ?? ''),
@@ -43,18 +58,15 @@ function mapFinding(input: JsonRecord) {
     title: String(input.title ?? ''),
     body: String(input.body ?? ''),
     confidence: Number(input.confidence),
-    projectId: optionalString(input.project_id) ?? optionalString(input.projectId),
-    harnessVersionId:
-      input.harness_version_id === null || input.harnessVersionId === null
-        ? null
-        : optionalString(input.harness_version_id) ?? optionalString(input.harnessVersionId),
+    projectId: optionalString(input.project_id),
+    harnessVersionId: input.harness_version_id === null ? null : optionalString(input.harness_version_id),
     evidence: Array.isArray(input.evidence)
       ? input.evidence.map((item) => {
           const record = item && typeof item === 'object' ? (item as JsonRecord) : {};
           return {
-            subjectKind: String(record.subject_kind ?? record.subjectKind ?? '') as EvidenceSubjectKind,
-            subjectId: optionalString(record.subject_id) ?? optionalString(record.subjectId),
-            sessionId: optionalString(record.session_id) ?? optionalString(record.sessionId),
+            subjectKind: String(record.subject_kind ?? '') as EvidenceSubjectKind,
+            subjectId: optionalString(record.subject_id),
+            sessionId: optionalString(record.session_id),
             locator: optionalLocator(record.locator),
             note: optionalString(record.note),
           };
@@ -178,21 +190,24 @@ function createServer(): McpServer {
       inputSchema: {
         finding: z.object({
           analyst: z.string().min(1),
-          kind: z.string().min(1),
-          title: z.string().min(1),
-          body: z.string().min(1),
+          kind: z.enum(FINDING_KINDS),
+          title: z.string().min(1).max(FINDING_TITLE_MAX_LENGTH),
+          body: z.string().min(1).max(FINDING_BODY_MAX_LENGTH),
           confidence: z.number().min(0).max(1),
           project_id: z.string().optional(),
           harness_version_id: z.string().nullable().optional(),
-          evidence: z.array(
-            z.object({
-              subject_kind: z.string().min(1),
-              subject_id: z.string().optional(),
-              session_id: z.string().optional(),
-              locator: z.record(z.string(), z.unknown()).optional(),
-              note: z.string().optional(),
-            }),
-          ),
+          evidence: z
+            .array(
+              z.object({
+                subject_kind: z.enum(EVIDENCE_SUBJECT_KINDS),
+                subject_id: z.string().optional(),
+                session_id: z.string().optional(),
+                locator: locatorSchema.optional(),
+                note: z.string().max(FINDING_NOTE_MAX_LENGTH).optional(),
+              }),
+            )
+            .min(1)
+            .max(FINDING_EVIDENCE_MAX_ITEMS),
         }),
       },
       annotations: { readOnlyHint: false, openWorldHint: false },
