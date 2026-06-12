@@ -46,8 +46,6 @@ export default async function Page({
     typeof sp.tab === "string" && (TABS as readonly string[]).includes(sp.tab)
       ? (sp.tab as Tab)
       : "transcript";
-  const initialFindingsSession =
-    typeof sp.findingSession === "string" && sp.findingSession.trim() ? sp.findingSession : undefined;
   // seq deep link: a finding's evidence in ANOTHER session links here with
   // ?session=…&tab=transcript&seq=N; the viewer scrolls to + flashes that step.
   const seqRaw = typeof sp.seq === "string" ? Number(sp.seq) : NaN;
@@ -62,7 +60,6 @@ export default async function Page({
       sessionPrs={sessionPrs}
       findings={findings}
       initialTab={initialTab}
-      initialFindingsSession={initialFindingsSession}
       initialSeq={initialSeq}
     />
   );

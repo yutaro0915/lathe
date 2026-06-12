@@ -76,6 +76,20 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .icon-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:1px solid transparent;
   border-radius:var(--radius-sm);color:var(--muted);background:transparent;cursor:pointer;}
 .icon-btn:hover{background:var(--panel-hover);color:var(--text-soft);}
+
+/* ---- global nav (the ONE persistent bar, on every route) ------------------*/
+.globalnav{position:sticky;top:0;z-index:30;flex:0 0 var(--appbar-h);height:var(--appbar-h);
+  display:flex;align-items:stretch;background:var(--panel);border-bottom:1px solid var(--border);}
+.globalnav-brand{flex:0 0 auto;width:auto;min-width:var(--sidebar-w);}
+.globalnav-brand:hover{text-decoration:none;}
+.globalnav-tabs{display:flex;align-items:stretch;gap:0;flex:1 1 auto;min-width:0;padding-left:4px;}
+.globalnav-tab{display:inline-flex;align-items:center;height:100%;padding:0 14px;
+  border-bottom:2px solid transparent;color:var(--muted);font-size:12.5px;font-weight:500;
+  font-family:var(--sans);letter-spacing:.01em;}
+.globalnav-tab:hover{color:var(--text-soft);text-decoration:none;}
+.globalnav-tab.active{color:var(--text);font-weight:650;border-bottom-color:var(--accent);}
+.globalnav-actions{display:flex;align-items:center;gap:6px;padding-right:14px;}
+
 .appnav{display:flex;align-items:center;gap:14px;height:var(--appbar-h);padding:0 16px;background:var(--panel);
   border-bottom:1px solid var(--border);font-size:12.5px;}
 .appnav a{color:var(--muted);} .appnav a:hover{color:var(--text);text-decoration:none;}
@@ -540,6 +554,17 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .findings-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
 .findings-title .count,.finding-pending-count{color:var(--muted-2);font-size:11px;font-variant-numeric:tabular-nums;}
 .findings-filter{flex:0 0 auto;}
+/* axis-only session filter (dropdown), and the tab→axis link */
+.findings-session-select{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
+.findings-session-select .finding-section-label{margin:0;}
+.findings-session-select .project-picker{height:24px;font-size:11.5px;}
+.findings-axis-link{flex:0 0 auto;font-size:11.5px;color:var(--accent);font-family:var(--mono);}
+.findings-axis-link:hover{text-decoration:underline;}
+/* the Findings AXIS screen (route /findings) reuses the same chrome bands */
+.findings-axis-page{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;}
+.findings-axis-shell{flex:1 1 auto;min-height:0;}
+.findings-axis-main{min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+.findings-axis-main .findings-tab{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
 .finding-verdict-toast{display:flex;align-items:center;gap:8px;padding:7px 8px;margin:0 0 8px;
   border:1px solid var(--border);background:var(--panel-hover);font-size:11.5px;color:var(--text-soft);}
 .finding-verdict-toast .finding-status-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:0 0 auto;}

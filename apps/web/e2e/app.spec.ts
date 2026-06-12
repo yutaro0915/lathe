@@ -597,6 +597,26 @@ async function getFindingOracle(title = FINDING_FIXTURE.titles.jump): Promise<Fi
   });
 }
 
+// pending findings ATTACHED to one session — the session viewer's Findings tab
+// is session-scoped (IA principle 2026-06-12), so its badge counts these, not
+// the project-wide pending total.
+async function pendingFindingsForSession(sessionId: string): Promise<number> {
+  return withDb(async (client) => {
+    const row = (
+      await client.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM findings f
+          WHERE EXISTS (
+                  SELECT 1 FROM finding_evidence fe
+                   WHERE fe.finding_id = f.id AND fe.session_id = $1)
+            AND NOT EXISTS (
+                  SELECT 1 FROM finding_verdicts v WHERE v.finding_id = f.id)`,
+        [sessionId],
+      )
+    ).rows[0];
+    return row?.n ?? 0;
+  });
+}
+
 async function verdictCountForFinding(title: string): Promise<number> {
   return withDb(async (client) => {
     const row = (
@@ -1543,12 +1563,15 @@ test.describe("Findings tab and verdict oracle", () => {
     page,
   }) => {
     const oracle = await getFindingOracle();
+    // the tab is session-scoped, so its badge = pending findings ON THIS session
+    // (not the project-wide pending total).
+    const sessionPending = await pendingFindingsForSession(FINDING_FIXTURE.sessionId);
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
 
     const tab = page.locator(".tabs .tab", { hasText: "Findings" });
     await expect(tab).toBeVisible();
     await expect(tab).toHaveClass(/active/);
-    await expect(tab.locator(".tab-count")).toHaveText(String(oracle.pending_count));
+    await expect(tab.locator(".tab-count")).toHaveText(String(sessionPending));
 
     const row = page.locator(`.finding-row[data-finding-id="${oracle.id}"]`);
     await expect(row).toBeVisible();
@@ -1735,6 +1758,149 @@ test.describe("Findings tab and verdict oracle", () => {
     const after = card.locator(".finding-evidence-after");
     await expect(after).toHaveAttribute("data-after-seq", "3");
     await expect(after).toContainText("The fixture command failed once.");
+  });
+});
+
+// ---- IA: one persistent global bar + Findings as a cross-session axis -------
+// (design/ui-design-language.md, IA principle 2026-06-12). Three guarantees:
+//   1. every route shows the SAME global bar with the current axis highlighted
+//   2. the Findings AXIS (/findings) drives the cross-session master-detail
+//   3. the session viewer's Findings TAB shows ONLY findings attached to that
+//      one session (cross-session is the axis's job)
+
+// Find a finding whose evidence touches exactly one session, plus another
+// session that the SAME finding does NOT touch — the scoping oracle. Works on
+// fixture and real data alike (no hard-coded session ids).
+async function findScopingOracle(): Promise<{
+  findingId: number;
+  title: string;
+  ownerSession: string;
+  otherSession: string;
+}> {
+  return withDb(async (client) => {
+    // a PENDING finding whose evidence is tied to exactly one session — pending
+    // so it is visible under the tab's default "Pending" filter.
+    const single = (
+      await client.query<{ finding_id: number; title: string; session_id: string }>(
+        `SELECT finding_id, title, session_id FROM (
+           SELECT fe.finding_id, f.title, MIN(fe.session_id) AS session_id,
+                  COUNT(DISTINCT fe.session_id) AS n
+             FROM finding_evidence fe
+             JOIN findings f ON f.id = fe.finding_id
+            WHERE fe.session_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM finding_verdicts v WHERE v.finding_id = f.id)
+            GROUP BY fe.finding_id, f.title
+         ) t WHERE n = 1 ORDER BY finding_id LIMIT 1`,
+      )
+    ).rows[0];
+    if (!single) throw new Error("no single-session pending finding to use as a scoping oracle");
+    const other = await client.query<{ session_id: string }>(
+      `SELECT fe.session_id
+         FROM finding_evidence fe
+        WHERE fe.session_id IS NOT NULL
+          AND fe.session_id <> $1
+          AND fe.finding_id <> $2
+        LIMIT 1`,
+      [single.session_id, single.finding_id],
+    );
+    if (!other.rows[0]) throw new Error("no other session with findings for the negative case");
+    return {
+      findingId: single.finding_id,
+      title: single.title,
+      ownerSession: single.session_id,
+      otherSession: other.rows[0].session_id,
+    };
+  });
+}
+
+test.describe("Global nav & IA axes", () => {
+  for (const route of ["/", "/findings", "/pr", "/overview", "/chat"]) {
+    test(`the persistent global bar is present on ${route}`, async ({ page }) => {
+      await page.goto(route);
+      const nav = page.locator(".globalnav");
+      await expect(nav).toBeVisible();
+      // the four axes are always there; chat is never a bar item (dormant).
+      await expect(nav.locator('.globalnav-tab[data-nav="sessions"]')).toBeVisible();
+      await expect(nav.locator('.globalnav-tab[data-nav="findings"]')).toBeVisible();
+      await expect(nav.locator('.globalnav-tab[data-nav="pr"]')).toBeVisible();
+      await expect(nav.locator('.globalnav-tab[data-nav="overview"]')).toBeVisible();
+      await expect(nav.locator('.globalnav-tab', { hasText: "Chat" })).toHaveCount(0);
+    });
+  }
+
+  test("the current axis is highlighted on each route", async ({ page }) => {
+    const cases: [string, string][] = [
+      ["/", "sessions"],
+      ["/findings", "findings"],
+      ["/pr", "pr"],
+      ["/overview", "overview"],
+    ];
+    for (const [route, nav] of cases) {
+      await page.goto(route);
+      const active = page.locator(".globalnav-tab.active");
+      await expect(active).toHaveCount(1);
+      await expect(active).toHaveAttribute("data-nav", nav);
+    }
+  });
+
+  test("no Chat entry point survives in the session viewer (chat dormant)", async ({ page }) => {
+    await page.goto("/");
+    // neither the old tab nor the sessbar Discuss chip exist anymore.
+    await expect(page.locator(".tabs .tab", { hasText: "Chat" })).toHaveCount(0);
+    await expect(page.locator(".chat-session-chip")).toHaveCount(0);
+  });
+
+  test("the Findings axis renders the cross-session master-detail and decides a verdict", async ({
+    page,
+  }) => {
+    const oracle = await getFindingOracle();
+    await page.goto("/findings");
+    await expect(page.locator(".globalnav-tab.active")).toHaveAttribute("data-nav", "findings");
+
+    // the same master-detail component as the tab, in axis mode
+    await expect(page.locator('.findings-tab[data-findings-mode="axis"]')).toBeVisible();
+    const row = page.locator(`.finding-row[data-finding-id="${oracle.id}"]`);
+    await expect(row).toBeVisible();
+    await row.click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    await expect(detail).toBeVisible();
+    await detail.locator(".finding-verdict-reason").fill("axis verified");
+    await detail.locator(".finding-verdict-btn.accept").click();
+    await expect(page.locator(".finding-verdict-toast.accept")).toContainText("Accepted");
+    await expect.poll(async () => verdictCountForFinding(FINDING_FIXTURE.titles.jump)).toBe(1);
+
+    // restore the fixture to pending so the shared seed is not contaminated for
+    // later tests (findings are seeded once in beforeAll).
+    await page.locator(".finding-verdict-toast .btn", { hasText: "Undo" }).click();
+    await expect.poll(async () => verdictCountForFinding(FINDING_FIXTURE.titles.jump)).toBe(0);
+  });
+
+  test("the session Findings tab shows only findings attached to THIS session", async ({
+    page,
+  }) => {
+    const oracle = await findScopingOracle();
+
+    // owner session: the finding IS attached → its row is present
+    await page.goto(`/?session=${encodeURIComponent(oracle.ownerSession)}&tab=findings`);
+    await expect(page.locator('.findings-tab[data-findings-mode="session"]')).toBeVisible();
+    await expect(
+      page.locator(`.finding-row[data-finding-id="${oracle.findingId}"]`),
+    ).toBeVisible();
+    // the session tab no longer carries the All/This cross-session toggle
+    await expect(page.locator(".findings-tab", { hasText: "All sessions" })).toHaveCount(0);
+    // there IS a link up to the cross-session axis
+    await expect(page.locator(".findings-axis-link")).toBeVisible();
+
+    // other session: the SAME finding is NOT attached → its row is absent
+    await page.goto(`/?session=${encodeURIComponent(oracle.otherSession)}&tab=findings`);
+    await expect(page.locator('.findings-tab[data-findings-mode="session"]')).toBeVisible();
+    await expect(
+      page.locator(`.finding-row[data-finding-id="${oracle.findingId}"]`),
+    ).toHaveCount(0);
+    // …but on the axis it is reachable regardless of which session you came from
+    await page.goto("/findings");
+    await page.locator('.findings-filter button', { hasText: "All" }).click();
+    await expect(page.locator(`.finding-row[data-finding-id="${oracle.findingId}"]`)).toBeVisible();
   });
 });
 

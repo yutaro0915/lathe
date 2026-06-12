@@ -16,6 +16,11 @@ import TimeRibbon from "@/components/TimeRibbon";
 import DiffViewer from "@/components/DiffViewer";
 import SessionStatsView from "@/components/SessionStatsView";
 import CostAnomalyChip from "@/components/CostAnomalyChip";
+import FindingsExplorer, {
+  evidenceSessionId,
+  findingTouchesSession,
+  type ResolvedEvidence,
+} from "@/components/FindingsExplorer";
 import Link from "next/link";
 import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
 import {
@@ -37,8 +42,6 @@ import type {
   PullRequestSummary,
   Finding,
   FindingEvidence,
-  FindingVerdict,
-  FindingVerdictValue,
 } from "@/lib/types";
 
 function durLabel(ms: number | null): string {
@@ -101,7 +104,6 @@ const TOOL_TYPES: EventType[] = ["bash", "file_read", "file_edit", "file_write",
 type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "annotations" | "findings" | "raw" | "stats";
 type SortKey = "recent" | "oldest" | "tokens";
 type FilterMode = "highlight" | "hide";
-type FindingStatusFilter = "pending" | "decided" | "all";
 
 type TurnFile = { id: string; path: string };
 type TurnRollup = {
@@ -124,24 +126,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const LS_PINS = "lathe.pins";
 const LS_NOTES = "lathe.notes";
 
-const FINDING_KIND_LABEL: Record<Finding["kind"], string> = {
-  failure_loop: "failure loop",
-  unattributed_diff: "unattributed diff",
-  excess_cost: "excess cost",
-  risky_action: "risky action",
-};
-
-function findingConfidenceLabel(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
-
-function findingVerdictLabel(value: FindingVerdictValue): string {
-  return value === "accept" ? "Accepted" : "Rejected";
-}
-
-function shortHash(value: string | null): string {
-  return value ? value.slice(0, 10) : "—";
-}
+// Finding kind/verdict/confidence/hash label helpers now live in
+// FindingsExplorer (where the findings master-detail is rendered).
 
 function locatorString(evidence: FindingEvidence, keys: string[]): string | null {
   for (const key of keys) {
@@ -161,17 +147,8 @@ function locatorNumber(evidence: FindingEvidence, keys: string[]): number | null
   return null;
 }
 
-function evidenceSessionId(evidence: FindingEvidence): string | null {
-  return (
-    evidence.sessionId ??
-    (evidence.subjectKind === "session" ? evidence.subjectId : null) ??
-    locatorString(evidence, ["session_id", "sessionId", "session"])
-  );
-}
-
-function findingTouchesSession(finding: Finding, sessionId: string): boolean {
-  return finding.evidence.some((evidence) => evidenceSessionId(evidence) === sessionId);
-}
+// `evidenceSessionId` / `findingTouchesSession` are imported from
+// FindingsExplorer (single source of truth, shared with the Findings axis).
 
 function firstNonEmptyLine(text: string | null | undefined): string {
   return (text ?? "").split("\n").map((line) => line.trim()).find(Boolean) ?? "";
@@ -244,7 +221,6 @@ export default function SessionViewer({
   sessionPrs,
   findings: initialFindings,
   initialTab = "transcript",
-  initialFindingsSession,
   initialSeq,
 }: {
   sessions: Session[];
@@ -258,7 +234,6 @@ export default function SessionViewer({
   sessionPrs: Record<string, PullRequestSummary[]>;
   findings: Finding[];
   initialTab?: Tab;
-  initialFindingsSession?: string;
   initialSeq?: number;
 }) {
   const router = useRouter();
@@ -279,23 +254,10 @@ export default function SessionViewer({
 
   // ---- timeline / tab / selection state -----------------------------------
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const [findingStatusFilter, setFindingStatusFilter] = useState<FindingStatusFilter>("pending");
-  const [findingSessionFilter, setFindingSessionFilter] = useState<string>(
-    initialFindingsSession ?? "all",
-  );
-  // master-detail: which finding's現物 is open in the right detail panel. The
-  // list rows no longer carry accept/reject — the verdict lives in the detail
-  // panel, next to the evidence excerpts, so a decision is never made blind.
-  const [selectedFindingId, setSelectedFindingId] = useState<number | null>(null);
-  const [findingReasonDrafts, setFindingReasonDrafts] = useState<Record<number, string>>({});
-  const [findingBusy, setFindingBusy] = useState<Record<number, boolean>>({});
-  const [findingError, setFindingError] = useState<string | null>(null);
-  const [recentFindingVerdict, setRecentFindingVerdict] = useState<{
-    findingId: number;
-    verdictId: number;
-    verdict: FindingVerdictValue;
-    title: string;
-  } | null>(null);
+  // Findings master-detail state (filters, selection, verdict drafts/busy/toast)
+  // now lives inside <FindingsExplorer>, shared with the cross-session Findings
+  // axis. The viewer only keeps `findings` (for the per-session tab + the sessbar
+  // chip) and the bundle-aware `resolveEvidence` it hands the explorer.
   const [typeFilter, setTypeFilter] = useState<Set<EventType>>(() => new Set(ALL_TYPES));
   const [filterMode, setFilterMode] = useState<FilterMode>("hide");
   const [transcriptSearch, setTranscriptSearch] = useState("");
@@ -318,9 +280,6 @@ export default function SessionViewer({
   useEffect(() => {
     setFindings(initialFindings);
   }, [initialFindings]);
-  useEffect(() => {
-    setFindingSessionFilter(initialFindingsSession ?? "all");
-  }, [initialFindingsSession]);
 
   // Selected event seed: the failing build (bash, exit != 0) is most
   // informative; fall back gracefully. Re-seed whenever the session changes.
@@ -826,10 +785,8 @@ export default function SessionViewer({
       }
     : {};
 
-  const pendingFindingsCount = useMemo(
-    () => findings.filter((finding) => !finding.verdict).length,
-    [findings],
-  );
+  // findings attached to THIS session — drives both the per-session Findings tab
+  // (via FindingsExplorer's session scope) and the sessbar chip / tab badge.
   const currentSessionFindings = useMemo(
     () => findings.filter((finding) => findingTouchesSession(finding, currentId)),
     [currentId, findings],
@@ -838,40 +795,8 @@ export default function SessionViewer({
     () => currentSessionFindings.filter((finding) => !finding.verdict),
     [currentSessionFindings],
   );
-  const visibleFindings = useMemo(() => {
-    return findings
-      .filter((finding) => {
-        if (findingStatusFilter === "pending" && finding.verdict) return false;
-        if (findingStatusFilter === "decided" && !finding.verdict) return false;
-        if (findingSessionFilter !== "all" && !findingTouchesSession(finding, findingSessionFilter)) {
-          return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (!a.verdict && b.verdict) return -1;
-        if (a.verdict && !b.verdict) return 1;
-        return b.confidence - a.confidence || b.id - a.id;
-      });
-  }, [findingSessionFilter, findingStatusFilter, findings]);
-
-  // the finding open in the detail panel — defaults to (and stays valid within)
-  // the current visible list. When the list changes (filter / new data) and the
-  // selection falls out of view, fall back to the first visible finding.
-  const selectedFinding = useMemo(() => {
-    if (selectedFindingId == null) return visibleFindings[0] ?? null;
-    return (
-      visibleFindings.find((finding) => finding.id === selectedFindingId) ??
-      visibleFindings[0] ??
-      null
-    );
-  }, [selectedFindingId, visibleFindings]);
-  useEffect(() => {
-    if (activeTab !== "findings") return;
-    if (selectedFinding && selectedFinding.id !== selectedFindingId) {
-      setSelectedFindingId(selectedFinding.id);
-    }
-  }, [activeTab, selectedFinding, selectedFindingId]);
+  // tab badge = pending findings FOR THIS SESSION (the tab is session-scoped).
+  const pendingFindingsCount = currentSessionPendingFindings.length;
 
   const eventById = useMemo(() => {
     const map = new Map<string, TranscriptEvent>();
@@ -918,9 +843,7 @@ export default function SessionViewer({
     return map;
   }, [bundle.changedFiles, bundle.hunks]);
 
-  function resolveEvidence(evidence: FindingEvidence):
-    | { resolved: true; kind: FindingEvidence["subjectKind"]; label: string; title: string; jump: () => void }
-    | { resolved: false; kind: FindingEvidence["subjectKind"]; label: string; title: string } {
+  function resolveEvidence(evidence: FindingEvidence): ResolvedEvidence {
     const targetSessionId = evidenceSessionId(evidence);
     const sameSession = !targetSessionId || targetSessionId === currentId;
 
@@ -1177,70 +1100,10 @@ export default function SessionViewer({
     router.push(`/pr?pr=${encodeURIComponent(prId)}`);
   }
 
-  async function submitFindingVerdict(finding: Finding, verdict: FindingVerdictValue) {
-    if (findingBusy[finding.id]) return;
-    setFindingError(null);
-    setFindingBusy((prev) => ({ ...prev, [finding.id]: true }));
-    try {
-      const response = await fetch(`/api/findings/${finding.id}/verdict`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          verdict,
-          reason: findingReasonDrafts[finding.id] ?? "",
-        }),
-      });
-      const payload = (await response.json()) as { ok?: boolean; verdict?: FindingVerdict; error?: string };
-      if (!response.ok || !payload.ok || !payload.verdict) {
-        throw new Error(payload.error ?? "verdict failed");
-      }
-      setFindings((prev) =>
-        prev.map((item) => (item.id === finding.id ? { ...item, verdict: payload.verdict! } : item)),
-      );
-      setFindingReasonDrafts((prev) => ({ ...prev, [finding.id]: "" }));
-      setRecentFindingVerdict({
-        findingId: finding.id,
-        verdictId: payload.verdict.id,
-        verdict,
-        title: finding.title,
-      });
-    } catch (error) {
-      setFindingError((error as Error).message);
-    } finally {
-      setFindingBusy((prev) => ({ ...prev, [finding.id]: false }));
-    }
-  }
-
-  async function undoFindingVerdict() {
-    if (!recentFindingVerdict) return;
-    const recent = recentFindingVerdict;
-    setFindingError(null);
-    try {
-      const response = await fetch(
-        `/api/findings/${recent.findingId}/verdict?verdictId=${recent.verdictId}`,
-        { method: "DELETE" },
-      );
-      const payload = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "undo failed");
-      setFindings((prev) =>
-        prev.map((item) => (item.id === recent.findingId ? { ...item, verdict: null } : item)),
-      );
-      setRecentFindingVerdict(null);
-    } catch (error) {
-      setFindingError((error as Error).message);
-    }
-  }
-
+  // The sessbar chip opens the (already session-scoped) Findings tab in-page —
+  // same screen, different tab. Cross-session lives on the Findings axis.
   function openCurrentSessionFindings() {
-    setFindingSessionFilter(currentId);
     setActiveTab("findings");
-    router.push(`/?session=${encodeURIComponent(currentId)}&tab=findings&findingSession=${encodeURIComponent(currentId)}`);
-  }
-
-  function findingDiscussHref(finding: Finding): string {
-    const sessionId =
-      finding.evidence.map(evidenceSessionId).find((id): id is string => Boolean(id)) ?? currentId;
-    return `/chat?finding=${finding.id}&session=${encodeURIComponent(sessionId)}`;
   }
 
   return (
@@ -1280,13 +1143,8 @@ export default function SessionViewer({
               )}
             </button>
           )}
-          <Link
-            href={`/chat?session=${encodeURIComponent(currentId)}`}
-            className="chip jump-chip chat-session-chip"
-            title="Discuss this session"
-          >
-            Discuss
-          </Link>
+          {/* "Discuss" (chat) removed — chat is dormant (ROADMAP #16); the /chat
+              route stays but has no nav entry point. */}
           <span className="sessbar-jumps">
             {highestTurnJump && (
               <button
@@ -1404,9 +1262,7 @@ export default function SessionViewer({
             )}
           </button>
         ))}
-        <Link href="/chat" className="tab">
-          Chat
-        </Link>
+        {/* Chat tab removed — chat is dormant (ROADMAP #16). */}
         <span className="tabs-spacer" />
         <span className="tabs-tool">
           <span className="sort-select">{visibleEvents.length} shown</span>
@@ -2416,377 +2272,27 @@ export default function SessionViewer({
             </div>
           )}
 
-          {/* ===== FINDINGS (Phase 2) — master-detail =====
-              Left: a compact, non-actionable list (kind / title / analyst /
-              confidence / evidence count / verdict state — NO accept/reject).
-              Right: the選んだ finding の現物 — body + per-evidence excerpts
-              (the actual command/output at that seq) + the verdict controls.
-              A decision is made looking at evidence, never from the list alone. */}
+          {/* ===== FINDINGS — per-session tab =====
+              Scoped to THIS session: only findings whose evidence touches the
+              current session appear (IA principle 2026-06-12 — the cross-session
+              list is the Findings AXIS's job, not this tab). Reuses the same
+              master-detail component as the axis; the header carries a small link
+              up to the axis for "全 findings を見る". */}
           {activeTab === "findings" && (
-            <div className="timeline findings-tab findings-md" data-pending-count={pendingFindingsCount}>
-              <div className="findings-tab-head">
-                <div className="findings-title">
-                  <span className="findings-label">Findings</span>
-                  <span className="count mono">{visibleFindings.length}</span>
-                  <span className="finding-pending-count mono">{pendingFindingsCount} pending</span>
-                </div>
-                <span className="segmented findings-filter" title="Verdict filter">
-                  {(
-                    [
-                      ["pending", "Pending"],
-                      ["decided", "Decided"],
-                      ["all", "All"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={findingStatusFilter === key ? "active" : ""}
-                      onClick={() => setFindingStatusFilter(key)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </span>
-                <span className="segmented findings-filter" title="Session filter">
-                  <button
-                    type="button"
-                    className={findingSessionFilter === "all" ? "active" : ""}
-                    onClick={() => setFindingSessionFilter("all")}
-                  >
-                    All sessions
-                  </button>
-                  <button
-                    type="button"
-                    className={findingSessionFilter === currentId ? "active" : ""}
-                    onClick={() => setFindingSessionFilter(currentId)}
-                  >
-                    This session
-                  </button>
-                </span>
-              </div>
-              {recentFindingVerdict && (
-                <div
-                  className={`finding-verdict-toast ${recentFindingVerdict.verdict}`}
-                  data-finding-id={recentFindingVerdict.findingId}
-                  data-verdict-id={recentFindingVerdict.verdictId}
-                >
-                  <span className="finding-status-dot" aria-hidden />
-                  <span>
-                    {findingVerdictLabel(recentFindingVerdict.verdict)} · {recentFindingVerdict.title}
-                  </span>
-                  <button type="button" className="btn btn-sm" onClick={undoFindingVerdict}>
-                    Undo
-                  </button>
-                </div>
-              )}
-              {findingError && <div className="finding-error">{findingError}</div>}
-              {visibleFindings.length === 0 ? (
-                <div className="empty" style={{ padding: "16px" }}>
-                  No findings match the current filters.
-                </div>
-              ) : (
-                <div className="findings-md-grid">
-                  {/* ---- master: compact list ---- */}
-                  <div className="findings-list" role="list">
-                    {visibleFindings.map((finding) => {
-                      const verdict = finding.verdict?.verdict ?? "pending";
-                      const isActive = selectedFinding?.id === finding.id;
-                      return (
-                        <button
-                          key={finding.id}
-                          type="button"
-                          role="listitem"
-                          className={`finding-row ${verdict}${isActive ? " active" : ""}`}
-                          data-finding-id={finding.id}
-                          data-kind={finding.kind}
-                          data-analyst={finding.analyst}
-                          data-verdict={verdict}
-                          data-evidence-count={finding.evidence.length}
-                          aria-pressed={isActive}
-                          onClick={() => setSelectedFindingId(finding.id)}
-                        >
-                          <div className="finding-mainline">
-                            <span className={`finding-kind-chip ${finding.kind}`}>
-                              <span className="finding-kind-dot" aria-hidden />
-                              {FINDING_KIND_LABEL[finding.kind]}
-                            </span>
-                            <div className="finding-title-body">
-                              <div className="finding-title-text">{finding.title}</div>
-                            </div>
-                            <span className={`finding-verdict-chip ${verdict}`}>
-                              {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
-                            </span>
-                          </div>
-                          <div className="finding-meta-line">
-                            <span className="mono">{finding.analyst}</span>
-                            <span className="mono">{findingConfidenceLabel(finding.confidence)}</span>
-                            <span className="mono">{finding.evidence.length} evidence</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* ---- detail: the現物 + verdict ---- */}
-                  {selectedFinding ? (
-                    (() => {
-                      const finding = selectedFinding;
-                      const verdict = finding.verdict?.verdict ?? "pending";
-                      const harnessLabel = finding.harnessVersionId
-                        ? `${finding.harnessProvider ?? "harness"} ${shortHash(
-                            finding.harnessContentHash ?? finding.harnessVersionId,
-                          )}`
-                        : "—";
-                      return (
-                        <div
-                          className={`finding-detail ${verdict}`}
-                          data-detail-finding-id={finding.id}
-                          data-verdict={verdict}
-                        >
-                          <div className="finding-detail-head">
-                            <span className={`finding-kind-chip ${finding.kind}`}>
-                              <span className="finding-kind-dot" aria-hidden />
-                              {FINDING_KIND_LABEL[finding.kind]}
-                            </span>
-                            <span className={`finding-verdict-chip ${verdict}`}>
-                              {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
-                            </span>
-                          </div>
-                          <h3 className="finding-detail-title">{finding.title}</h3>
-                          <div className="finding-detail-meta">
-                            <span className="mono">{finding.analyst}</span>
-                            <span className="mono">conf {findingConfidenceLabel(finding.confidence)}</span>
-                            <span className="mono">harness {harnessLabel}</span>
-                            <Link className="finding-discuss-link" href={findingDiscussHref(finding)}>
-                              Discuss
-                            </Link>
-                          </div>
-                          {finding.body && <p className="finding-detail-body">{finding.body}</p>}
-
-                          <div className="finding-detail-section">
-                            <div className="finding-section-label">
-                              Evidence · {finding.evidence.length}
-                            </div>
-                            <div className="finding-evidence-cards">
-                              {finding.evidence.map((evidence) => {
-                                const target = resolveEvidence(evidence);
-                                const excerpt = evidence.excerpt;
-                                const narrative = excerpt?.narrative ?? null;
-                                const positionLabel = narrative
-                                  ? [
-                                      narrative.turn != null && narrative.turnCount != null
-                                        ? `turn ${narrative.turn}/${narrative.turnCount}`
-                                        : narrative.turn != null
-                                          ? `turn ${narrative.turn}`
-                                          : null,
-                                      narrative.minutesFromStart != null
-                                        ? `+${narrative.minutesFromStart}m`
-                                        : null,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" · ")
-                                  : "";
-                                return (
-                                  <div
-                                    key={evidence.id}
-                                    className={`finding-evidence-card${target.resolved ? "" : " stale"}`}
-                                    data-evidence-kind={evidence.subjectKind}
-                                    data-evidence-id={evidence.id}
-                                    data-resolved={target.resolved ? "true" : "false"}
-                                  >
-                                    {/* SESSION — which run / runner·model / when, so a finding
-                                        spanning multiple sessions is never ambiguous. */}
-                                    {narrative && (
-                                      <div
-                                        className="finding-evidence-session"
-                                        data-session-id={narrative.sessionId}
-                                      >
-                                        <span className="finding-evidence-microlabel">Session</span>
-                                        <span
-                                          className="finding-evidence-session-title"
-                                          title={narrative.sessionTitle}
-                                        >
-                                          {narrative.sessionTitle}
-                                        </span>
-                                        <span className="finding-evidence-session-meta mono">
-                                          {RUNNER_LABEL[narrative.runner as keyof typeof RUNNER_LABEL] ??
-                                            narrative.runner}
-                                          {narrative.model ? ` · ${shortModel(narrative.model)}` : ""}
-                                          {` · ${parseStamp(narrative.startedAt).date} ${
-                                            parseStamp(narrative.startedAt).time
-                                          }`}
-                                          {positionLabel ? ` · ${positionLabel}` : ""}
-                                        </span>
-                                      </div>
-                                    )}
-                                    {/* USER ASKED — the request this stretch of work answers. */}
-                                    {narrative?.trigger && (
-                                      <div className="finding-evidence-trigger">
-                                        <span className="finding-evidence-microlabel">User asked</span>
-                                        <p className="finding-evidence-trigger-text">
-                                          {narrative.trigger.text}
-                                        </p>
-                                        <span className="finding-evidence-trigger-seq mono">
-                                          step {narrative.trigger.seq}
-                                        </span>
-                                      </div>
-                                    )}
-                                    <div className="finding-evidence-cardhead">
-                                      <span className="finding-evidence-kind">{evidence.subjectKind}</span>
-                                      {target.resolved ? (
-                                        <button
-                                          type="button"
-                                          className="finding-evidence finding-evidence-jump"
-                                          data-evidence-kind={evidence.subjectKind}
-                                          data-evidence-id={evidence.id}
-                                          data-resolved="true"
-                                          title={`${target.title} — jump to the Transcript`}
-                                          onClick={target.jump}
-                                        >
-                                          <span className="mono">{target.label}</span>
-                                          <span aria-hidden>→</span>
-                                        </button>
-                                      ) : (
-                                        <span
-                                          className="finding-evidence stale"
-                                          data-evidence-kind={evidence.subjectKind}
-                                          data-evidence-id={evidence.id}
-                                          data-resolved="false"
-                                          title={target.title}
-                                        >
-                                          {target.label}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {evidence.note && (
-                                      <div className="finding-evidence-note">{evidence.note}</div>
-                                    )}
-                                    {excerpt ? (
-                                      <div className="finding-excerpt" data-excerpt-seq={excerpt.seq}>
-                                        <div className="finding-excerpt-meta mono">
-                                          <span>step {excerpt.seq}</span>
-                                          <span>{excerpt.type}</span>
-                                          {excerpt.exitCode != null && (
-                                            <span className={excerpt.exitCode === 0 ? "ok" : "err"}>
-                                              exit {excerpt.exitCode}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {excerpt.command && (
-                                          <pre className="code-block cmd finding-excerpt-pre">
-                                            {excerpt.command}
-                                          </pre>
-                                        )}
-                                        {excerpt.output ? (
-                                          <pre className="code-block output finding-excerpt-pre">
-                                            {excerpt.output}
-                                          </pre>
-                                        ) : (
-                                          !excerpt.command && (
-                                            <div className="finding-excerpt-empty mono">
-                                              {excerpt.title || "(no command / output captured)"}
-                                            </div>
-                                          )
-                                        )}
-                                      </div>
-                                    ) : (
-                                      !target.resolved && (
-                                        <div className="finding-excerpt-empty mono">
-                                          現物を解決できません（locator 未対応）
-                                        </div>
-                                      )
-                                    )}
-                                    {/* AFTERWARD — what the run did next (the 結末): the escape
-                                        from a failure loop, or the next message in the thread. */}
-                                    {narrative?.aftermath && (
-                                      <div
-                                        className="finding-evidence-after"
-                                        data-after-seq={narrative.aftermath.seq}
-                                      >
-                                        <span className="finding-evidence-microlabel">Afterward</span>
-                                        <div className="finding-evidence-after-meta mono">
-                                          <span>step {narrative.aftermath.seq}</span>
-                                          <span>{narrative.aftermath.type}</span>
-                                        </div>
-                                        <p className="finding-evidence-after-text">
-                                          {narrative.aftermath.text}
-                                        </p>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* verdict — IN the detail panel, beside the evidence */}
-                          <div className="finding-detail-section finding-verdict-section">
-                            <div className="finding-section-label">Verdict</div>
-                            {finding.verdict ? (
-                              <div className="finding-verdict-decided">
-                                <span className={`finding-verdict-chip ${verdict}`}>
-                                  {findingVerdictLabel(finding.verdict.verdict)}
-                                </span>
-                                <span className="mono">
-                                  {finding.verdict.decidedBy} · {finding.verdict.reason || "no reason"}
-                                </span>
-                                {finding.verdict.verdict === "accept" && (
-                                  <div className="finding-boundary-note">
-                                    ハーネス編集はユーザー手動（P2 境界）
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="finding-verdict-controls">
-                                <input
-                                  className="finding-verdict-reason"
-                                  value={findingReasonDrafts[finding.id] ?? ""}
-                                  onChange={(event) =>
-                                    setFindingReasonDrafts((prev) => ({
-                                      ...prev,
-                                      [finding.id]: event.target.value,
-                                    }))
-                                  }
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                      event.preventDefault();
-                                      void submitFindingVerdict(finding, "accept");
-                                    }
-                                  }}
-                                  placeholder="reason"
-                                  aria-label={`Reason for ${finding.title}`}
-                                />
-                                <button
-                                  type="button"
-                                  className="finding-verdict-btn accept"
-                                  disabled={!!findingBusy[finding.id]}
-                                  onClick={() => void submitFindingVerdict(finding, "accept")}
-                                >
-                                  Accept
-                                </button>
-                                <button
-                                  type="button"
-                                  className="finding-verdict-btn reject"
-                                  disabled={!!findingBusy[finding.id]}
-                                  onClick={() => void submitFindingVerdict(finding, "reject")}
-                                >
-                                  Reject
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })()
-                  ) : (
-                    <div className="finding-detail finding-detail-empty">
-                      <div className="detail-placeholder">Select a finding to inspect its evidence</div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <FindingsExplorer
+              findings={findings}
+              setFindings={setFindings}
+              sessions={sessions}
+              mode="session"
+              scopeSessionId={currentId}
+              resolveEvidence={resolveEvidence}
+              initialStatusFilter="pending"
+              headerExtra={
+                <Link href="/findings" className="findings-axis-link" title="全 findings（横断軸）を見る">
+                  全 findings を見る →
+                </Link>
+              }
+            />
           )}
 
           {/* Git is handled above as an embedded DiffViewer (in-page tab),
