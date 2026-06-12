@@ -26,6 +26,7 @@ import { parseStamp, shortModel } from "@lathe/shared";
 import type {
   Finding,
   FindingEvidence,
+  FindingEvidenceNarrative,
   FindingVerdict,
   FindingVerdictValue,
   Session,
@@ -78,6 +79,58 @@ export function evidenceSessionId(evidence: FindingEvidence): string | null {
 
 export function findingTouchesSession(finding: Finding, sessionId: string): boolean {
   return finding.evidence.some((evidence) => evidenceSessionId(evidence) === sessionId);
+}
+
+// One evidence group: a stretch of evidence that shares the same (session, turn).
+// The user's complaint was 4 near-identical cards differing only by `step`; this
+// collapses them into ONE card whose header is the session + turn position + the
+// single USER ASKED prompt, with one row per step inside. Evidence that lacks a
+// resolvable (sessionId, turn) — e.g. session-kind or unresolved locators — each
+// become a singleton group so nothing regresses.
+//
+// Grouping is a pure VIEW transform over finding.evidence; the data contract
+// (finding_evidence) is untouched (requirement B).
+export interface EvidenceGroup {
+  key: string;
+  // narrative shared by the group (taken from the first member that has one).
+  // null for singleton groups whose evidence carries no narrative.
+  narrative: FindingEvidenceNarrative | null;
+  sessionId: string | null;
+  turn: number | null;
+  members: FindingEvidence[];
+}
+
+export function groupEvidence(evidence: FindingEvidence[]): EvidenceGroup[] {
+  const groups: EvidenceGroup[] = [];
+  const byKey = new Map<string, EvidenceGroup>();
+  for (const item of evidence) {
+    const narrative = item.excerpt?.narrative ?? null;
+    const sessionId = narrative?.sessionId ?? evidenceSessionId(item);
+    const turn = narrative?.turn ?? null;
+    // Only fold together when BOTH the session and a turn number are known and a
+    // narrative is present (so the shared header is meaningful). Otherwise the
+    // evidence stands alone — keyed by its own id so it is never merged.
+    const groupable = narrative != null && sessionId != null && turn != null;
+    const key = groupable ? `t:${sessionId}::${turn}` : `e:${item.id}`;
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, narrative, sessionId, turn, members: [] };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    if (!group.narrative && narrative) group.narrative = narrative;
+    group.members.push(item);
+  }
+  // step order inside each group: by excerpt seq (the session-wide step index),
+  // falling back to evidence id so the order is always deterministic.
+  for (const group of groups) {
+    group.members.sort((a, b) => {
+      const sa = a.excerpt?.seq ?? Number.MAX_SAFE_INTEGER;
+      const sb = b.excerpt?.seq ?? Number.MAX_SAFE_INTEGER;
+      return sa - sb || a.id - b.id;
+    });
+  }
+  return groups;
 }
 
 export default function FindingsExplorer({
@@ -378,10 +431,20 @@ export default function FindingsExplorer({
                   <div className="finding-detail-section">
                     <div className="finding-section-label">Evidence · {finding.evidence.length}</div>
                     <div className="finding-evidence-cards">
-                      {finding.evidence.map((evidence) => {
-                        const target = resolveEvidence(evidence);
-                        const excerpt = evidence.excerpt;
-                        const narrative = excerpt?.narrative ?? null;
+                      {groupEvidence(finding.evidence).map((group) => {
+                        const narrative = group.narrative;
+                        // a group is "resolved" if any of its members resolves —
+                        // the whole card is stale only when every step is.
+                        const anyResolved = group.members.some(
+                          (member) => resolveEvidence(member).resolved,
+                        );
+                        const repeats = group.members.length;
+                        // session header is suppressed inside the session viewer
+                        // (requirement A): every finding shown there already
+                        // belongs to this session, so the SESSION row is noise.
+                        // The cross-session AXIS keeps it (you may be looking at
+                        // many sessions at once).
+                        const showSessionHeader = mode === "axis" && narrative != null;
                         const positionLabel = narrative
                           ? [
                               narrative.turn != null && narrative.turnCount != null
@@ -398,13 +461,15 @@ export default function FindingsExplorer({
                           : "";
                         return (
                           <div
-                            key={evidence.id}
-                            className={`finding-evidence-card${target.resolved ? "" : " stale"}`}
-                            data-evidence-kind={evidence.subjectKind}
-                            data-evidence-id={evidence.id}
-                            data-resolved={target.resolved ? "true" : "false"}
+                            key={group.key}
+                            className={`finding-evidence-card${anyResolved ? "" : " stale"}`}
+                            data-evidence-kind={group.members[0].subjectKind}
+                            data-evidence-id={group.members[0].id}
+                            data-group-key={group.key}
+                            data-group-size={repeats}
+                            data-resolved={anyResolved ? "true" : "false"}
                           >
-                            {narrative && (
+                            {showSessionHeader && narrative && (
                               <div
                                 className="finding-evidence-session"
                                 data-session-id={narrative.sessionId}
@@ -423,10 +488,36 @@ export default function FindingsExplorer({
                                   {` · ${parseStamp(narrative.startedAt).date} ${
                                     parseStamp(narrative.startedAt).time
                                   }`}
-                                  {positionLabel ? ` · ${positionLabel}` : ""}
                                 </span>
                               </div>
                             )}
+                            {/* group header: turn position (once) + repeat count.
+                                When the session header is hidden (session tab),
+                                this carries the turn/time context that used to
+                                live on the SESSION meta line. */}
+                            {(positionLabel || repeats > 1) && (
+                              <div className="finding-evidence-grouphead">
+                                {positionLabel && (
+                                  <span
+                                    className="finding-evidence-position mono"
+                                    title="Position of this turn within the run"
+                                  >
+                                    {positionLabel}
+                                  </span>
+                                )}
+                                {repeats > 1 && (
+                                  <span
+                                    className="finding-evidence-repeats mono"
+                                    data-repeats={repeats}
+                                    title={`This finding fired ${repeats} times in the same turn — the same instruction kept repeating`}
+                                  >
+                                    ×{repeats} repeats
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {/* USER ASKED — the trigger prompt, shown once for the
+                                whole group (it is identical across the steps). */}
                             {narrative?.trigger && (
                               <div className="finding-evidence-trigger">
                                 <span className="finding-evidence-microlabel">User asked</span>
@@ -438,86 +529,130 @@ export default function FindingsExplorer({
                                 </span>
                               </div>
                             )}
-                            <div className="finding-evidence-cardhead">
-                              <span className="finding-evidence-kind">{evidence.subjectKind}</span>
-                              {target.resolved ? (
-                                <button
-                                  type="button"
-                                  className="finding-evidence finding-evidence-jump"
-                                  data-evidence-kind={evidence.subjectKind}
-                                  data-evidence-id={evidence.id}
-                                  data-resolved="true"
-                                  title={`${target.title} — jump to the Transcript`}
-                                  onClick={target.jump}
-                                >
-                                  <span className="mono">{target.label}</span>
-                                  <span aria-hidden>→</span>
-                                </button>
-                              ) : (
-                                <span
-                                  className="finding-evidence stale"
-                                  data-evidence-kind={evidence.subjectKind}
-                                  data-evidence-id={evidence.id}
-                                  data-resolved="false"
-                                  title={target.title}
-                                >
-                                  {target.label}
-                                </span>
-                              )}
-                            </div>
-                            {evidence.note && (
-                              <div className="finding-evidence-note">{evidence.note}</div>
-                            )}
-                            {excerpt ? (
-                              <div className="finding-excerpt" data-excerpt-seq={excerpt.seq}>
-                                <div className="finding-excerpt-meta mono">
-                                  <span>step {excerpt.seq}</span>
-                                  <span>{excerpt.type}</span>
-                                  {excerpt.exitCode != null && (
-                                    <span className={excerpt.exitCode === 0 ? "ok" : "err"}>
-                                      exit {excerpt.exitCode}
-                                    </span>
-                                  )}
-                                </div>
-                                {excerpt.command && (
-                                  <pre className="code-block cmd finding-excerpt-pre">
-                                    {excerpt.command}
-                                  </pre>
-                                )}
-                                {excerpt.output ? (
-                                  <pre className="code-block output finding-excerpt-pre">
-                                    {excerpt.output}
-                                  </pre>
-                                ) : (
-                                  !excerpt.command && (
-                                    <div className="finding-excerpt-empty mono">
-                                      {excerpt.title || "(no command / output captured)"}
+                            {/* one row per step (the seq is the session-wide step
+                                index; hover spells that out). */}
+                            <div className="finding-evidence-steps">
+                              {group.members.map((evidence, stepIndex) => {
+                                const target = resolveEvidence(evidence);
+                                const excerpt = evidence.excerpt;
+                                const stepSeq = excerpt?.seq ?? null;
+                                const stepLabel =
+                                  stepSeq != null
+                                    ? `STEP ${stepSeq}`
+                                    : `STEP ${stepIndex + 1}`;
+                                return (
+                                  <div
+                                    key={evidence.id}
+                                    className={`finding-evidence-step${target.resolved ? "" : " stale"}`}
+                                    data-evidence-kind={evidence.subjectKind}
+                                    data-evidence-id={evidence.id}
+                                    data-step-seq={stepSeq ?? undefined}
+                                    data-resolved={target.resolved ? "true" : "false"}
+                                  >
+                                    <div className="finding-evidence-stephead">
+                                      <span
+                                        className="finding-evidence-stepno mono"
+                                        title="Session-wide step number (the step's seq within the whole run)"
+                                      >
+                                        {stepLabel}
+                                      </span>
+                                      <span className="finding-evidence-kind">
+                                        {evidence.subjectKind}
+                                      </span>
+                                      {excerpt?.exitCode != null && (
+                                        <span
+                                          className={`finding-evidence-exit mono ${
+                                            excerpt.exitCode === 0 ? "ok" : "err"
+                                          }`}
+                                        >
+                                          exit {excerpt.exitCode}
+                                        </span>
+                                      )}
+                                      <span className="finding-evidence-stepspacer" />
+                                      {target.resolved ? (
+                                        <button
+                                          type="button"
+                                          className="finding-evidence finding-evidence-jump"
+                                          data-evidence-kind={evidence.subjectKind}
+                                          data-evidence-id={evidence.id}
+                                          data-resolved="true"
+                                          title={`${target.title} — jump to the Transcript`}
+                                          onClick={target.jump}
+                                        >
+                                          <span className="mono">{target.label}</span>
+                                          <span aria-hidden>→</span>
+                                        </button>
+                                      ) : (
+                                        <span
+                                          className="finding-evidence stale"
+                                          data-evidence-kind={evidence.subjectKind}
+                                          data-evidence-id={evidence.id}
+                                          data-resolved="false"
+                                          title={target.title}
+                                        >
+                                          {target.label}
+                                        </span>
+                                      )}
                                     </div>
-                                  )
-                                )}
-                              </div>
-                            ) : (
-                              !target.resolved && (
-                                <div className="finding-excerpt-empty mono">
-                                  現物を解決できません（locator 未対応）
+                                    {evidence.note && (
+                                      <div className="finding-evidence-note">{evidence.note}</div>
+                                    )}
+                                    {excerpt ? (
+                                      <div
+                                        className="finding-excerpt"
+                                        data-excerpt-seq={excerpt.seq}
+                                      >
+                                        {excerpt.command && (
+                                          <pre className="code-block cmd finding-excerpt-pre">
+                                            {excerpt.command}
+                                          </pre>
+                                        )}
+                                        {excerpt.output ? (
+                                          <pre className="code-block output finding-excerpt-pre">
+                                            {excerpt.output}
+                                          </pre>
+                                        ) : (
+                                          !excerpt.command && (
+                                            <div className="finding-excerpt-empty mono">
+                                              {excerpt.title || "(no command / output captured)"}
+                                            </div>
+                                          )
+                                        )}
+                                      </div>
+                                    ) : (
+                                      !target.resolved && (
+                                        <div className="finding-excerpt-empty mono">
+                                          現物を解決できません（locator 未対応）
+                                        </div>
+                                      )
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {/* AFTERWARD — once for the group, after the last step
+                                (requirement B). Use the aftermath of the last
+                                member that carries one. */}
+                            {(() => {
+                              const last = [...group.members]
+                                .reverse()
+                                .find((member) => member.excerpt?.narrative?.aftermath);
+                              const aftermath = last?.excerpt?.narrative?.aftermath;
+                              if (!aftermath) return null;
+                              return (
+                                <div
+                                  className="finding-evidence-after"
+                                  data-after-seq={aftermath.seq}
+                                >
+                                  <span className="finding-evidence-microlabel">Afterward</span>
+                                  <div className="finding-evidence-after-meta mono">
+                                    <span>step {aftermath.seq}</span>
+                                    <span>{aftermath.type}</span>
+                                  </div>
+                                  <p className="finding-evidence-after-text">{aftermath.text}</p>
                                 </div>
-                              )
-                            )}
-                            {narrative?.aftermath && (
-                              <div
-                                className="finding-evidence-after"
-                                data-after-seq={narrative.aftermath.seq}
-                              >
-                                <span className="finding-evidence-microlabel">Afterward</span>
-                                <div className="finding-evidence-after-meta mono">
-                                  <span>step {narrative.aftermath.seq}</span>
-                                  <span>{narrative.aftermath.type}</span>
-                                </div>
-                                <p className="finding-evidence-after-text">
-                                  {narrative.aftermath.text}
-                                </p>
-                              </div>
-                            )}
+                              );
+                            })()}
                           </div>
                         );
                       })}

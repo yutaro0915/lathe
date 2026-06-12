@@ -82,6 +82,10 @@ const FINDING_FIXTURE = {
     // locator of { seq } where seq is an EVENT seq (the bug that used to leave
     // these unresolved). Its evidence excerpt must surface the seq-2 command.
     turnSeq: "Fixture turn-seq locator pending",
+    // multiple evidence rows in the SAME (session, turn) — must collapse into ONE
+    // group card with one step row per seq (requirement B). Mirrors real finding
+    // #113 (ripgrep, 4 same-turn evidence).
+    grouped: "Fixture repeated same-turn pending",
   },
 };
 
@@ -536,6 +540,30 @@ async function seedFindingFixtures() {
         `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
          VALUES ($1,'turn',$2,$3::jsonb,NULL,'first failed command in repeated pattern')`,
         [turnSeqFinding, FINDING_FIXTURE.sessionId, JSON.stringify({ seq: 2 })]
+      );
+
+      // a finding whose evidence repeats within ONE turn: two `turn` rows at
+      // seqs 2 and 3 (both turn 1 in the fixture session). These must fold into a
+      // single group card with two STEP rows (requirement B).
+      const groupedFinding = (
+        await client.query<{ id: number }>(
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
+           VALUES ('rules-v1','failure_loop',$1,'Same instruction repeated within one turn.',0.66,$2,$3)
+           RETURNING id`,
+          [FINDING_FIXTURE.titles.grouped, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
+         VALUES
+          ($1,'turn',$2,$3::jsonb,NULL,'first occurrence'),
+          ($1,'turn',$2,$4::jsonb,NULL,'second occurrence')`,
+        [
+          groupedFinding,
+          FINDING_FIXTURE.sessionId,
+          JSON.stringify({ seq: 2 }),
+          JSON.stringify({ seq: 3 }),
+        ]
       );
 
       const decidedFinding = (
@@ -1032,7 +1060,11 @@ test.describe("Session viewer (/)", () => {
     const before = await page.locator(".session-item").count();
     const box = page.getByPlaceholder(/Search sessions/i);
     await box.fill("zzz-no-such-session-zzz");
-    await expect(page.locator(".session-item")).toHaveCount(0);
+    // requirement C: a no-match search hides every OTHER session but the session
+    // currently being viewed is force-included so it is never lost — so the list
+    // collapses to exactly the one active row, not to zero.
+    await expect(page.locator(".session-item")).toHaveCount(1);
+    await expect(page.locator(".session-item.active")).toHaveCount(1);
     await box.fill("");
     await expect(page.locator(".session-item")).toHaveCount(before);
   });
@@ -1105,7 +1137,12 @@ test.describe("Cost anomaly detection", () => {
 
     await page.goto("/");
     await page.getByPlaceholder(/Search sessions/i).fill("E2E fallback cost");
-    await expect(page.locator(".session-list .session-item")).toHaveCount(3);
+    // the three cost fixtures match the search. (The session currently being
+    // viewed is force-included for rail sync — requirement C — so the total row
+    // count may be 3 or 4; assert on the three fixture rows specifically.)
+    for (const id of COST_FIXTURE_IDS) {
+      await expect(page.locator(`.session-item[data-session-id="${id}"]`)).toHaveCount(1);
+    }
     await expect(
       page.locator(`.session-item[data-session-id="${COST_FIXTURE_IDS[1]}"] .anomaly-chip`)
     ).toHaveText("▲ cost");
@@ -1669,7 +1706,9 @@ test.describe("Findings tab and verdict oracle", () => {
     await expect(card).toHaveAttribute("data-resolved", "true");
     // the seq-2 fixture event is `pnpm test` exiting 1 — its command must render.
     await expect(card.locator(".finding-excerpt")).toContainText("pnpm test");
-    await expect(card.locator(".finding-excerpt-meta")).toContainText("step 2");
+    // the step number now rides the step row header (session-wide step index).
+    await expect(card.locator(".finding-evidence-stepno")).toContainText("STEP 2");
+    await expect(card.locator(".finding-evidence-exit")).toContainText("exit 1");
   });
 
   test("seq-locator turn evidence jumps to and flashes the transcript step", async ({
@@ -1724,7 +1763,7 @@ test.describe("Findings tab and verdict oracle", () => {
     expect(cols).toBe(2);
   });
 
-  test("evidence cards carry the narrative: SESSION header, USER ASKED, AFTERWARD", async ({
+  test("session tab evidence: NO SESSION header, but turn position + USER ASKED + AFTERWARD", async ({
     page,
   }) => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
@@ -1736,21 +1775,23 @@ test.describe("Findings tab and verdict oracle", () => {
       .locator('.finding-evidence-card[data-evidence-kind="turn"]');
     await expect(card).toHaveAttribute("data-resolved", "true");
 
-    // SESSION — names the run, its runner, and its position in the run.
-    const session = card.locator(".finding-evidence-session");
-    await expect(session).toHaveAttribute("data-session-id", FINDING_FIXTURE.sessionId);
-    await expect(session.locator(".finding-evidence-session-title")).toContainText(
-      "Fixture findings session"
+    // requirement A: inside the session viewer every finding already belongs to
+    // this session, so the SESSION header (title / runner / start time) is noise
+    // and is suppressed.
+    await expect(card.locator(".finding-evidence-session")).toHaveCount(0);
+
+    // …but the turn POSITION that used to ride on the session meta line moves to
+    // the group header, so "where in the run" is still legible.
+    await expect(card.locator(".finding-evidence-grouphead .finding-evidence-position")).toContainText(
+      "turn 1/1"
     );
-    await expect(session.locator(".finding-evidence-session-meta")).toContainText("Codex");
-    await expect(session.locator(".finding-evidence-session-meta")).toContainText("turn 1/1");
 
     // USER ASKED — the nearest preceding user prompt (seq 1 in the fixture).
     const trigger = card.locator(".finding-evidence-trigger");
     await expect(trigger).toContainText("Please inspect the fixture.");
     await expect(trigger.locator(".finding-evidence-trigger-seq")).toContainText("step 1");
 
-    // 現物 — the existing excerpt still renders the failing command.
+    // 現物 — the step's excerpt still renders the failing command.
     await expect(card.locator(".finding-excerpt")).toContainText("pnpm test");
 
     // AFTERWARD — failure_loop escapes to the next non-failure event (the seq-3
@@ -1758,6 +1799,57 @@ test.describe("Findings tab and verdict oracle", () => {
     const after = card.locator(".finding-evidence-after");
     await expect(after).toHaveAttribute("data-after-seq", "3");
     await expect(after).toContainText("The fixture command failed once.");
+  });
+
+  test("the cross-session axis DOES show the SESSION header (it spans many runs)", async ({
+    page,
+  }) => {
+    await page.goto("/findings");
+    await page.locator(".findings-filter button", { hasText: "All" }).click();
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
+    const card = page
+      .locator(".finding-detail[data-detail-finding-id]")
+      .locator('.finding-evidence-card[data-evidence-kind="turn"]');
+    const session = card.locator(".finding-evidence-session");
+    await expect(session).toHaveAttribute("data-session-id", FINDING_FIXTURE.sessionId);
+    await expect(session.locator(".finding-evidence-session-title")).toContainText(
+      "Fixture findings session"
+    );
+    await expect(session.locator(".finding-evidence-session-meta")).toContainText("Codex");
+  });
+
+  test("evidence in the same (session, turn) collapses into ONE group with one row per step", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.grouped }).click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+
+    // two same-turn evidence rows (seqs 2 and 3) → exactly ONE group card…
+    const cards = detail.locator(".finding-evidence-card");
+    await expect(cards).toHaveCount(1);
+    const card = cards.first();
+    await expect(card).toHaveAttribute("data-group-size", "2");
+
+    // …carrying a mono repeat count…
+    await expect(card.locator(".finding-evidence-repeats")).toContainText("×2 repeats");
+
+    // …USER ASKED shown once for the whole group…
+    await expect(card.locator(".finding-evidence-trigger")).toHaveCount(1);
+
+    // …and one STEP row per seq, in time order (236-style session-wide step no.).
+    const steps = card.locator(".finding-evidence-step");
+    await expect(steps).toHaveCount(2);
+    await expect(steps.nth(0).locator(".finding-evidence-stepno")).toContainText("STEP 2");
+    await expect(steps.nth(1).locator(".finding-evidence-stepno")).toContainText("STEP 3");
+    // the step number is annotated with what "step" means (session-wide index).
+    await expect(steps.nth(0).locator(".finding-evidence-stepno")).toHaveAttribute(
+      "title",
+      /Session-wide step number/
+    );
+
+    // AFTERWARD appears once, at the end of the group (not per step).
+    await expect(card.locator(".finding-evidence-after")).toHaveCount(1);
   });
 });
 
@@ -1901,6 +1993,45 @@ test.describe("Global nav & IA axes", () => {
     await page.goto("/findings");
     await page.locator('.findings-filter button', { hasText: "All" }).click();
     await expect(page.locator(`.finding-row[data-finding-id="${oracle.findingId}"]`)).toBeVisible();
+  });
+
+  test("the left Sessions rail stays in sync with the session being viewed", async ({
+    page,
+  }) => {
+    const oracle = await findScopingOracle();
+
+    // deep-link straight into one session (as the Findings axis jump does). The
+    // rail's active item must be THIS session — selected and present in the list.
+    await page.goto(`/?session=${encodeURIComponent(oracle.ownerSession)}&tab=transcript`);
+    const railActive = page.locator(".session-list .session-item.active");
+    await expect(railActive).toHaveCount(1);
+    await expect(railActive).toHaveAttribute("data-session-id", oracle.ownerSession);
+    await expect(railActive).toBeVisible();
+
+    // switching to another session moves the active marker with it — the rail
+    // never shows a stale or empty selection.
+    await page.goto(`/?session=${encodeURIComponent(oracle.otherSession)}&tab=transcript`);
+    const railActive2 = page.locator(".session-list .session-item.active");
+    await expect(railActive2).toHaveCount(1);
+    await expect(railActive2).toHaveAttribute("data-session-id", oracle.otherSession);
+    await expect(railActive2).toBeVisible();
+  });
+
+  test("a current session hidden by a rail filter is force-included so it stays identifiable", async ({
+    page,
+  }) => {
+    const oracle = await findScopingOracle();
+    await page.goto(`/?session=${encodeURIComponent(oracle.ownerSession)}&tab=transcript`);
+
+    // type a search that cannot match the current session's title, so the filter
+    // would normally drop it from the list.
+    await page.getByPlaceholder(/Search sessions/i).fill("zzz-no-such-session-title-zzz");
+
+    // the current session is still present AND marked active (requirement C):
+    // "今どれを見ているか" must never be lost to a filter.
+    const railActive = page.locator(".session-list .session-item.active");
+    await expect(railActive).toHaveCount(1);
+    await expect(railActive).toHaveAttribute("data-session-id", oracle.ownerSession);
   });
 });
 
