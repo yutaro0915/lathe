@@ -50,6 +50,12 @@ export default async function Page({
   // ?session=…&tab=transcript&seq=N; the viewer scrolls to + flashes that step.
   const seqRaw = typeof sp.seq === "string" ? Number(sp.seq) : NaN;
   const initialSeq = Number.isInteger(seqRaw) && seqRaw > 0 ? seqRaw : undefined;
+  // fromFinding: the originating finding id when a finding's evidence jumped here
+  // (requirement D). The viewer shows a dismissible "from finding #N" landing
+  // banner so the user knows where they came from and where they landed.
+  const fromFindingRaw = typeof sp.fromFinding === "string" ? Number(sp.fromFinding) : NaN;
+  const initialFromFinding =
+    Number.isInteger(fromFindingRaw) && fromFindingRaw > 0 ? fromFindingRaw : undefined;
   // Overview drill-down deep links: ?model=…, ?from=&to=, ?errors=yes seed the
   // session-list filters so a click on /overview lands the Sessions axis already
   // scoped. These are STATE of this screen (a filtered session list), not a
@@ -70,6 +76,7 @@ export default async function Page({
       findings={findings}
       initialTab={initialTab}
       initialSeq={initialSeq}
+      initialFromFinding={initialFromFinding}
       initialModel={initialModel}
       initialFrom={initialFrom}
       initialTo={initialTo}
