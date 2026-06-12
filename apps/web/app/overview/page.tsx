@@ -9,14 +9,20 @@
 
 export const dynamic = "force-dynamic";
 
-import { getStats, listSessions, getSessionEventCounts } from "@/lib/db";
+import {
+  getStats,
+  listSessions,
+  getSessionEventCounts,
+  getPendingFindingsBySession,
+} from "@/lib/db";
 import OverviewView from "@/components/OverviewView";
 
 export default async function Page() {
-  const [sessions, stats, eventCounts] = await Promise.all([
+  const [sessions, stats, eventCounts, pendingFindings] = await Promise.all([
     listSessions(),
     getStats(),
     getSessionEventCounts(),
+    getPendingFindingsBySession(),
   ]);
   // session -> primary project, computed from stats so the overview's project
   // selector scopes a consistent session set (matching the SessionViewer rule).
@@ -28,6 +34,7 @@ export default async function Page() {
       stats={stats}
       eventCounts={eventCounts}
       sessionProject={sessionProject}
+      pendingFindings={pendingFindings}
     />
   );
 }

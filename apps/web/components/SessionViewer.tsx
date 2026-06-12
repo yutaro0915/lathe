@@ -222,6 +222,10 @@ export default function SessionViewer({
   findings: initialFindings,
   initialTab = "transcript",
   initialSeq,
+  initialModel,
+  initialFrom,
+  initialTo,
+  initialErrors,
 }: {
   sessions: Session[];
   bundle: SessionBundle;
@@ -235,6 +239,12 @@ export default function SessionViewer({
   findings: Finding[];
   initialTab?: Tab;
   initialSeq?: number;
+  // Overview drill-down deep links (all optional): seed the session-list MODEL /
+  // date-range / ERRORS filters so an Overview click lands here pre-scoped.
+  initialModel?: string;
+  initialFrom?: string; // YYYY-MM-DD inclusive
+  initialTo?: string; // YYYY-MM-DD inclusive
+  initialErrors?: "yes" | "no";
 }) {
   const router = useRouter();
 
@@ -246,11 +256,18 @@ export default function SessionViewer({
   const [findings, setFindings] = useState<Finding[]>(initialFindings);
 
   // ---- session-list controls (sidebar) -----------------------------------
+  // model / errors / date-range can be seeded by an Overview drill-down deep
+  // link (initial* props); they are plain local state thereafter.
   const [sessionSearch, setSessionSearch] = useState("");
-  const [modelFilter, setModelFilter] = useState("all");
-  const [errorsFilter, setErrorsFilter] = useState("any");
+  const [modelFilter, setModelFilter] = useState(initialModel ?? "all");
+  const [errorsFilter, setErrorsFilter] = useState(initialErrors ?? "any");
   const [projectFilter, setProjectFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
+  // date-range filter (YYYY-MM-DD inclusive). Only the Overview "cost over time"
+  // drill-down sets this today; there is no sidebar control for it yet, so when
+  // active it shows as a small clearable banner above the list.
+  const [dateFrom, setDateFrom] = useState<string | null>(initialFrom ?? null);
+  const [dateTo, setDateTo] = useState<string | null>(initialTo ?? null);
 
   // ---- timeline / tab / selection state -----------------------------------
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
@@ -386,6 +403,14 @@ export default function SessionViewer({
       if (errorsFilter === "no" && s.errorCount > 0) return false;
       if (projectFilter !== "all" && (sessionProject[s.id] ?? "(no edits)") !== projectFilter)
         return false;
+      // date-range (Overview "cost over time" drill-down). startedAt begins with
+      // YYYY-MM-DD; the range is inclusive on both ends.
+      if (dateFrom || dateTo) {
+        const day = (s.startedAt ?? "").slice(0, 10);
+        if (!day) return false;
+        if (dateFrom && day < dateFrom) return false;
+        if (dateTo && day > dateTo) return false;
+      }
       return true;
     });
     // requirement C: the session you are currently viewing must ALWAYS be
@@ -402,7 +427,7 @@ export default function SessionViewer({
     else if (sortKey === "oldest") list.sort((a, b) => b.seq - a.seq);
     else if (sortKey === "tokens") list.sort((a, b) => b.tokenUsage - a.tokenUsage);
     return list;
-  }, [sessions, sessionSearch, modelFilter, errorsFilter, projectFilter, sortKey, sessionProject, currentId]);
+  }, [sessions, sessionSearch, modelFilter, errorsFilter, projectFilter, sortKey, sessionProject, currentId, dateFrom, dateTo]);
 
   // requirement C: keep the left Sessions rail in sync with the session being
   // viewed. On any session change — including a fresh deep-link open from the
@@ -1086,6 +1111,8 @@ export default function SessionViewer({
     setFilterMode("hide");
     setSessionSearch("");
     setTranscriptSearch("");
+    setDateFrom(null);
+    setDateTo(null);
   }
 
   function togglePin() {
@@ -1418,6 +1445,28 @@ export default function SessionViewer({
                 <option value="no">Clean (0 errors)</option>
               </select>
             </div>
+
+            {(dateFrom || dateTo) && (
+              <div className="filter-row">
+                <span className="flabel">Period</span>
+                <span className="date-range-banner" data-from={dateFrom ?? ""} data-to={dateTo ?? ""}>
+                  <span className="mono">
+                    {dateFrom ?? "…"}
+                    {dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    className="clear"
+                    onClick={() => {
+                      setDateFrom(null);
+                      setDateTo(null);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="session-head">

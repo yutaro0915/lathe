@@ -16,6 +16,7 @@
 //   4. Biggest sessions by cost
 // Phase-1 observation only (no AI / harness evaluation — that's Phase 2).
 
+import Link from "next/link";
 import { EVENT_COLOR, EVENT_LABEL } from "@/lib/event-display";
 import { fmtCompact, fmtCost, fmtInt, shortModel } from "@lathe/shared";
 import type { EventType, Session } from "@/lib/types";
@@ -38,16 +39,32 @@ type TimeBar = {
   tokens: number;
   sessions: number;
   title: string;
+  // the bar's calendar span (YYYY-MM-DD inclusive) — used to deep-link the
+  // Sessions axis to "?from=&to=" so clicking a bar drills into that period.
+  fromDay: string;
+  toDay: string;
 };
 
 export default function StatsView({
   scopeSessions,
   eventCounts,
   scopeLabel,
+  // Overview drill-down wiring (all optional). When omitted — e.g. the
+  // SessionViewer "Stats" tab, which is per-session — the charts render as plain
+  // read-only graphics. When supplied (the /overview canvas), each chart becomes
+  // an entry point into the Sessions axis and biggest-session rows carry status.
+  pendingFindings,
+  modelHref,
+  periodHref,
+  sessionHref,
 }: {
   scopeSessions: Session[];
   eventCounts: Record<string, Record<string, number>>;
   scopeLabel: string;
+  pendingFindings?: Record<string, number>;
+  modelHref?: (model: string) => string;
+  periodHref?: (fromDay: string, toDay: string) => string;
+  sessionHref?: (sessionId: string) => string;
 }) {
   // chronological order for the time axis: oldest → newest. seq is assigned with
   // the most-recent session = smallest seq, so oldest-first is DESCENDING seq.
@@ -108,15 +125,20 @@ export default function StatsView({
   let bucketDays = 1;
   let timeBars: TimeBar[];
   if (chrono.length <= BAR_TARGET) {
-    timeBars = chrono.map((s) => ({
-      key: s.id,
-      label: parseDate(s.startedAt),
-      cost: s.costUsd ?? 0,
-      costKnown: s.costUsd != null,
-      tokens: s.tokenUsage ?? 0,
-      sessions: 1,
-      title: `${s.title}\n${parseDate(s.startedAt)} · ${fmtCost(s.costUsd)} · ${fmtCompact(s.tokenUsage)} tok`,
-    }));
+    timeBars = chrono.map((s) => {
+      const day = dayOf(s.startedAt);
+      return {
+        key: s.id,
+        label: parseDate(s.startedAt),
+        cost: s.costUsd ?? 0,
+        costKnown: s.costUsd != null,
+        tokens: s.tokenUsage ?? 0,
+        sessions: 1,
+        title: `${s.title}\n${parseDate(s.startedAt)} · ${fmtCost(s.costUsd)} · ${fmtCompact(s.tokenUsage)} tok`,
+        fromDay: day,
+        toDay: day,
+      };
+    });
   } else {
     // True min/max day across the scope (don't assume seq order == date order),
     // so the bucket count stays bounded by BAR_TARGET no matter the data.
@@ -134,7 +156,7 @@ export default function StatsView({
       const idx = Number.isNaN(ms) ? 0 : Math.floor((ms - firstMs) / step);
       let b = buckets.get(idx);
       if (!b) {
-        b = { key: `b${idx}`, label: "", cost: 0, costKnown: false, tokens: 0, sessions: 0, title: "", startMs: firstMs + idx * step };
+        b = { key: `b${idx}`, label: "", cost: 0, costKnown: false, tokens: 0, sessions: 0, title: "", fromDay: "", toDay: "", startMs: firstMs + idx * step };
         buckets.set(idx, b);
       }
       if (s.costUsd != null) { b.cost += s.costUsd; b.costKnown = true; }
@@ -144,12 +166,16 @@ export default function StatsView({
     timeBars = [...buckets.values()]
       .sort((a, b) => a.startMs - b.startMs)
       .map(({ startMs, ...b }) => {
-        const start = parseDate(new Date(startMs).toISOString().slice(0, 10));
-        const end = parseDate(new Date(startMs + (bucketDays - 1) * DAY_MS).toISOString().slice(0, 10));
+        const fromDay = new Date(startMs).toISOString().slice(0, 10);
+        const toDay = new Date(startMs + (bucketDays - 1) * DAY_MS).toISOString().slice(0, 10);
+        const start = parseDate(fromDay);
+        const end = parseDate(toDay);
         const range = bucketDays === 1 ? start : `${start}–${end}`;
         return {
           ...b,
           label: start,
+          fromDay,
+          toDay,
           title: `${range}\n${b.sessions} session${b.sessions === 1 ? "" : "s"} · ${b.costKnown ? fmtCost(b.cost) : "—"} · ${fmtCompact(b.tokens)} tok`,
         };
       });
@@ -201,9 +227,8 @@ export default function StatsView({
                 ))}
                 {timeBars.map((b, i) => {
                   const h = (b.cost / maxCost) * (H - 16);
-                  return (
+                  const rect = (
                     <rect
-                      key={b.key}
                       x={pad + i * bw}
                       y={H - h}
                       width={Math.max(0.6, bw - 0.6)}
@@ -214,6 +239,22 @@ export default function StatsView({
                       <title>{b.title}</title>
                     </rect>
                   );
+                  // Drill-down: clicking a bar scopes the Sessions axis to that
+                  // bar's calendar span. Plain <a> (back button returns here).
+                  if (periodHref && b.fromDay && b.toDay) {
+                    return (
+                      <a
+                        key={b.key}
+                        href={periodHref(b.fromDay, b.toDay)}
+                        className="time-bar-link"
+                        data-from={b.fromDay}
+                        data-to={b.toDay}
+                      >
+                        {rect}
+                      </a>
+                    );
+                  }
+                  return <g key={b.key}>{rect}</g>;
                 })}
                 {n > 1 && (
                   <polyline points={tokLine} fill="none" stroke="var(--chart-line)" strokeWidth={1.3} opacity={0.9} />
@@ -228,21 +269,37 @@ export default function StatsView({
             </div>
           </section>
 
-          {/* 2. cost by model */}
+          {/* 2. cost by model — each row drills into the Sessions axis filtered
+              to that model (deep link to the sidebar MODEL filter). */}
           <section className="chart-card">
             <div className="chart-h">Cost by model</div>
             <div className="chart-body bars">
-              {models.map((m) => (
-                <div className="hbar-row" key={m.name}>
-                  <span className="hbar-label mono" title={`${m.name} · ${m.sessions} ses · ${fmtCompact(m.tokens)} tok`}>
-                    {shortModel(m.name)}
-                  </span>
-                  <span className="hbar-track">
-                    <span className="hbar-fill" style={{ width: `${(m.cost / maxModelCost) * 100}%`, background: "var(--chart-bar)" }} />
-                  </span>
-                  <span className="hbar-val">{m.costKnown ? fmtCost(m.cost) : "—"}</span>
-                </div>
-              ))}
+              {models.map((m) => {
+                const inner = (
+                  <>
+                    <span className="hbar-label mono" title={`${m.name} · ${m.sessions} ses · ${fmtCompact(m.tokens)} tok`}>
+                      {shortModel(m.name)}
+                    </span>
+                    <span className="hbar-track">
+                      <span className="hbar-fill" style={{ width: `${(m.cost / maxModelCost) * 100}%`, background: "var(--chart-bar)" }} />
+                    </span>
+                    <span className="hbar-val">{m.costKnown ? fmtCost(m.cost) : "—"}</span>
+                  </>
+                );
+                // link only for real models; "(unknown)" has no model filter value.
+                if (modelHref && m.name !== "(unknown)") {
+                  return (
+                    <Link key={m.name} href={modelHref(m.name)} className="hbar-row hbar-link" data-model={m.name}>
+                      {inner}
+                    </Link>
+                  );
+                }
+                return (
+                  <div className="hbar-row" key={m.name}>
+                    {inner}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -265,21 +322,51 @@ export default function StatsView({
             </div>
           </section>
 
-          {/* 4. biggest sessions by cost */}
+          {/* 4. biggest sessions by cost — each row carries a status chip set
+              (errors / pending findings / G9 cost flag) and links to that
+              session's viewer. Color is rationed: only `err` is red; pending
+              findings and the cost flag stay neutral (design language rule 1). */}
           <section className="chart-card chart-wide">
             <div className="chart-h">
               Biggest sessions by cost <span className="muted small">— top {biggest.length}</span>
             </div>
             <div className="chart-body bars">
-              {biggest.map((s) => (
-                <div className="hbar-row" key={s.id}>
-                  <span className="hbar-label ttl" title={s.title}>{s.title}</span>
-                  <span className="hbar-track">
-                    <span className="hbar-fill" style={{ width: `${((s.costUsd ?? 0) / maxBig) * 100}%`, background: "var(--chart-bar)" }} />
+              {biggest.map((s) => {
+                const pending = pendingFindings?.[s.id] ?? 0;
+                const status = (
+                  <span className="big-status">
+                    {s.errorCount > 0 && <span className="badge err">{s.errorCount} err</span>}
+                    {pending > 0 && <span className="badge neutral">{pending} pending</span>}
+                    {s.costAnomaly && (
+                      <span className="badge neutral" title="G9 cost anomaly flag">▲ cost</span>
+                    )}
                   </span>
-                  <span className="hbar-val">{fmtCost(s.costUsd)}</span>
-                </div>
-              ))}
+                );
+                const inner = (
+                  <>
+                    <span className="hbar-label ttl big-ttl" title={s.title}>
+                      {s.title}
+                      {status}
+                    </span>
+                    <span className="hbar-track">
+                      <span className="hbar-fill" style={{ width: `${((s.costUsd ?? 0) / maxBig) * 100}%`, background: "var(--chart-bar)" }} />
+                    </span>
+                    <span className="hbar-val">{fmtCost(s.costUsd)}</span>
+                  </>
+                );
+                if (sessionHref) {
+                  return (
+                    <Link key={s.id} href={sessionHref(s.id)} className="hbar-row hbar-link big-row" data-session-id={s.id}>
+                      {inner}
+                    </Link>
+                  );
+                }
+                return (
+                  <div className="hbar-row big-row" key={s.id} data-session-id={s.id}>
+                    {inner}
+                  </div>
+                );
+              })}
               {biggest.length === 0 && <div className="empty">No priceable sessions in scope.</div>}
             </div>
           </section>

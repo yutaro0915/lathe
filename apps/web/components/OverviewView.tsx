@@ -1,36 +1,67 @@
 "use client";
 
-// components/OverviewView.tsx — the Overview / Home screen.
+// components/OverviewView.tsx — the Overview / Home screen (v2: a funnel, not a
+// dashboard).
 //
-// The right place to ask "where did the work go across projects?". Picking a
-// project here scopes the session list AND the cross-session charts (cost &
-// tokens over time, cost by model, event composition, biggest sessions).
+// Overview answers "where do I dig next?" — not "here are some totals". It is a
+// FULL-WIDTH analysis canvas with NO session rail: a rail that just jumped to the
+// Sessions axis was a redundant second Sessions list (the user's complaint). The
+// only navigation-bearing controls here are the project scope (an analysis
+// condition, kept in the header) and the drill-downs baked into every panel.
+//
+// Every click is an ordinary link that moves the GLOBAL bar's current location
+// (Sessions or Findings), so the browser back button always returns here — no
+// implicit axis-crossing via a sidebar (design/ui-design-language.md IA, 2026-06-12).
+//
+//   1. 要注意 (Attention) — THE point of the screen, placed first: G9 cost alerts,
+//      error-heavy sessions, and pending findings. Each row links to the session
+//      viewer / Findings axis. This is the "next places to dig" list.
+//   2. The cross-session charts, now drill-down entry points (a model row scopes
+//      the Sessions axis to that model; a time bar scopes it to that period;
+//      a biggest-session row opens that session, with a status chip inline).
 //
 // In-session analytics — what one specific run did — live on the SessionViewer
-// "Stats" tab (SessionStatsView). Don't put cross-session aggregates there:
-// they're irrelevant to the session the user is inspecting.
+// "Stats" tab (SessionStatsView). Cross-session aggregates do not belong there.
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import StatsView from "@/components/StatsView";
-import CostAnomalyChip from "@/components/CostAnomalyChip";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
 import type { Session, StatsBundle } from "@/lib/types";
+
+// ---- Sessions-axis deep links (every drill-down is a plain link) -----------
+// The Sessions axis (app/page.tsx → SessionViewer) seeds its session-list
+// filters from these query params, so an Overview drill-down lands on the
+// Sessions axis already scoped. Built here so the contract is in one place.
+function sessionsHrefForModel(model: string): string {
+  return `/?model=${encodeURIComponent(model)}`;
+}
+function sessionsHrefForPeriod(fromDay: string, toDay: string): string {
+  return `/?from=${encodeURIComponent(fromDay)}&to=${encodeURIComponent(toDay)}`;
+}
+function sessionHref(id: string): string {
+  return `/?session=${encodeURIComponent(id)}`;
+}
+function findingsHrefForSession(id: string): string {
+  return `/findings?session=${encodeURIComponent(id)}`;
+}
 
 export default function OverviewView({
   sessions,
   stats,
   eventCounts,
   sessionProject,
+  pendingFindings,
 }: {
   sessions: Session[];
   stats: StatsBundle;
   eventCounts: Record<string, Record<string, number>>;
   sessionProject: Record<string, string>;
+  pendingFindings: Record<string, number>;
 }) {
   const [projectFilter, setProjectFilter] = useState<string>("all");
 
-  // sessions in the current scope (project) — drives the charts and the list.
+  // sessions in the current scope (project) — drives the charts and the panels.
   const scopeSessions = useMemo(() => {
     if (projectFilter === "all") return sessions;
     return sessions.filter((s) => (sessionProject[s.id] ?? "(no edits)") === projectFilter);
@@ -49,15 +80,76 @@ export default function OverviewView({
 
   const scopeLabel = projectFilter === "all" ? "All projects" : projectFilter;
 
+  // ---- 要注意 panel data (all derived from the in-scope sessions) ----------
+  // ① G9 cost alerts: anomalous sessions, worst overrun first. The overrun ratio
+  // (cost ÷ baseline threshold) is the "how bad" number the user reads at a glance.
+  const costAlerts = useMemo(
+    () =>
+      scopeSessions
+        .filter((s) => s.costAnomaly && s.costUsd != null)
+        .map((s) => ({
+          session: s,
+          ratio:
+            s.costAnomalyThresholdUsd > 0 ? (s.costUsd ?? 0) / s.costAnomalyThresholdUsd : null,
+        }))
+        .sort((a, b) => (b.ratio ?? 0) - (a.ratio ?? 0))
+        .slice(0, 8),
+    [scopeSessions],
+  );
+
+  // ② error-heavy sessions: most failed tool calls first (zero-error excluded).
+  const errorSessions = useMemo(
+    () =>
+      scopeSessions
+        .filter((s) => s.errorCount > 0)
+        .sort((a, b) => b.errorCount - a.errorCount)
+        .slice(0, 8),
+    [scopeSessions],
+  );
+
+  // ③ pending findings: sessions with the most undecided findings first, plus the
+  // scope-wide pending total (the導線 into the Findings axis).
+  const pendingSessions = useMemo(
+    () =>
+      scopeSessions
+        .map((s) => ({ session: s, pending: pendingFindings[s.id] ?? 0 }))
+        .filter((r) => r.pending > 0)
+        .sort((a, b) => b.pending - a.pending)
+        .slice(0, 8),
+    [scopeSessions, pendingFindings],
+  );
+  const pendingTotal = useMemo(
+    () => scopeSessions.reduce((acc, s) => acc + (pendingFindings[s.id] ?? 0), 0),
+    [scopeSessions, pendingFindings],
+  );
+
+  const attentionEmpty =
+    costAlerts.length === 0 && errorSessions.length === 0 && pendingSessions.length === 0;
+
   return (
     <div className="overview-page">
-      {/* sessbar-like header (matches the session viewer so the chrome stays consistent) */}
+      {/* Header — mirrors the session viewer's sessbar so the chrome stays
+          consistent. The project scope lives here (an analysis condition, not a
+          navigation control), alongside the scope totals. */}
       <div className="sessbar">
         <div className="sessbar-id">
           <span className="sessbar-title">Overview</span>
-          <span className="sessbar-meta">
-            {scopeLabel} · sessions across projects, grouped by the directory each one changed most
-          </span>
+          <div className="project-select overview-scope" title="Scope every panel to one project">
+            <span aria-hidden>⊞</span>
+            <select
+              className="project-picker"
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+            >
+              <option value="all">All projects · {sessions.length} sessions</option>
+              {stats.projects.map((p) => (
+                <option key={p.project} value={p.project}>
+                  {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
+                </option>
+              ))}
+            </select>
+          </div>
+          <span className="sessbar-meta">where to dig next, then the cross-session breakdown</span>
         </div>
         <div className="sessbar-stats">
           <div className="kstat">
@@ -83,91 +175,122 @@ export default function OverviewView({
         </div>
       </div>
 
-      <div
-        className="layout3 overview-shell"
-        style={{ gridTemplateColumns: "var(--sidebar-w) minmax(0,1fr)" }}
-      >
-        {/* Left rail: project picker + a recent-sessions glance. Picking a session
-            jumps to the SessionViewer (where in-session analytics live). */}
-        <aside className="sidebar">
-          <Link href="/" className="overview-back" title="Back to the session viewer">
-            ← Session viewer
-          </Link>
-          <div className="project-select">
-            <span aria-hidden>⊞</span>
-            <select
-              className="project-picker"
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-              title="Scope the overview charts to one project"
-            >
-              <option value="all">All projects · {sessions.length} sessions</option>
-              {stats.projects.map((p) => (
-                <option key={p.project} value={p.project}>
-                  {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
-                </option>
-              ))}
-            </select>
+      {/* Full-width analysis canvas — no rail. */}
+      <div className="overview-canvas" data-overview-version="2">
+        {/* ======================= 要注意 (the主役) ======================= */}
+        <section className="attn-panel" data-panel="attention">
+          <div className="attn-head">
+            <span className="attn-title">要注意 — 次に掘る場所</span>
+            <span className="muted small">{scopeLabel}</span>
           </div>
 
-          <div className="session-head">
-            <span>
-              <span className="title">Sessions in scope</span>
-              <span className="count">{scopeSessions.length}</span>
-            </span>
-          </div>
-          <div className="sidebar-scroll">
-            <div className="session-list">
-              {scopeSessions.slice(0, 60).map((s) => (
-                <Link
-                  key={s.id}
-                  href={`/?session=${encodeURIComponent(s.id)}`}
-                  data-session-id={s.id}
-                  className="session-item"
-                  style={{ textAlign: "left", display: "block" }}
-                >
-                  <div className="si-top">
-                    <span className="si-title">{s.title}</span>
-                    <span className="si-flags">
-                      <CostAnomalyChip session={s} />
-                      {s.errorCount > 0 && (
-                        <span className="badge err">{s.errorCount} err</span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="si-meta">
-                    <span>{s.durationMs != null && s.durationMs > 0 ? humanizeDuration(s.durationMs) : "—"}</span>
-                    <span className="dot">·</span>
-                    <span>{s.model ?? "—"}</span>
-                  </div>
-                  <div className="si-stats">
-                    <span className="chip token">{fmtCompact(s.tokenUsage)} tok</span>
-                    <span className="chip cost">
-                      {s.costUsd != null ? `$${s.costUsd.toFixed(2)}` : "—"}
-                    </span>
-                  </div>
-                </Link>
-              ))}
-              {scopeSessions.length === 0 && (
-                <div className="empty" style={{ padding: 12 }}>No sessions in this scope.</div>
-              )}
-              {scopeSessions.length > 60 && (
-                <div className="muted small" style={{ padding: "8px 12px" }}>
-                  showing first 60 of {scopeSessions.length}
-                </div>
-              )}
+          {attentionEmpty ? (
+            <div className="empty attn-empty">
+              この scope に cost alert・エラー・pending findings はありません。
             </div>
-          </div>
-        </aside>
+          ) : (
+            <div className="attn-cols">
+              {/* ① G9 cost alerts */}
+              <div className="attn-col" data-attn-group="cost">
+                <div className="attn-col-head">
+                  <span>G9 cost alerts</span>
+                  <span className="attn-count mono">{costAlerts.length}</span>
+                </div>
+                {costAlerts.length === 0 ? (
+                  <div className="attn-none">なし</div>
+                ) : (
+                  costAlerts.map(({ session: s, ratio }) => (
+                    <Link
+                      key={s.id}
+                      href={sessionHref(s.id)}
+                      className="attn-row"
+                      data-session-id={s.id}
+                    >
+                      <span className="attn-row-title" title={s.title}>{s.title}</span>
+                      <span className="attn-row-meta">
+                        <span className="mono">{fmtCost(s.costUsd)}</span>
+                        {ratio != null && (
+                          <span className="badge neutral attn-ratio" title="cost ÷ baseline threshold">
+                            ×{ratio.toFixed(1)}
+                          </span>
+                        )}
+                      </span>
+                    </Link>
+                  ))
+                )}
+              </div>
 
-        <main className="main">
-          {/* Reuse the same cross-session charts, scoped to the chosen project. */}
-          <StatsView
-            scopeSessions={scopeSessions}
-            eventCounts={eventCounts}
-            scopeLabel={scopeLabel}
-          />
-        </main>
+              {/* ② error-heavy sessions */}
+              <div className="attn-col" data-attn-group="errors">
+                <div className="attn-col-head">
+                  <span>エラー多発 session</span>
+                  <span className="attn-count mono">{errorSessions.length}</span>
+                </div>
+                {errorSessions.length === 0 ? (
+                  <div className="attn-none">なし</div>
+                ) : (
+                  errorSessions.map((s) => (
+                    <Link
+                      key={s.id}
+                      href={sessionHref(s.id)}
+                      className="attn-row"
+                      data-session-id={s.id}
+                    >
+                      <span className="attn-row-title" title={s.title}>{s.title}</span>
+                      <span className="attn-row-meta">
+                        <span className="badge err">{s.errorCount} err</span>
+                      </span>
+                    </Link>
+                  ))
+                )}
+              </div>
+
+              {/* ③ pending findings */}
+              <div className="attn-col" data-attn-group="findings">
+                <div className="attn-col-head">
+                  <span>pending findings</span>
+                  <Link
+                    href="/findings"
+                    className="attn-count-link mono"
+                    title="Findings 軸で未判定をすべて見る"
+                  >
+                    {pendingTotal} →
+                  </Link>
+                </div>
+                {pendingSessions.length === 0 ? (
+                  <div className="attn-none">なし</div>
+                ) : (
+                  pendingSessions.map(({ session: s, pending }) => (
+                    <Link
+                      key={s.id}
+                      href={findingsHrefForSession(s.id)}
+                      className="attn-row"
+                      data-session-id={s.id}
+                    >
+                      <span className="attn-row-title" title={s.title}>{s.title}</span>
+                      <span className="attn-row-meta">
+                        <span className="badge neutral">{pending} pending</span>
+                      </span>
+                    </Link>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* ===================== cross-session charts ===================== */}
+        {/* Same four charts, scoped to the project, but every one is now a
+            drill-down entry point (links to the Sessions axis). */}
+        <StatsView
+          scopeSessions={scopeSessions}
+          eventCounts={eventCounts}
+          scopeLabel={scopeLabel}
+          pendingFindings={pendingFindings}
+          modelHref={sessionsHrefForModel}
+          periodHref={sessionsHrefForPeriod}
+          sessionHref={sessionHref}
+        />
       </div>
     </div>
   );

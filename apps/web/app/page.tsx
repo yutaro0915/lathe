@@ -50,6 +50,15 @@ export default async function Page({
   // ?session=…&tab=transcript&seq=N; the viewer scrolls to + flashes that step.
   const seqRaw = typeof sp.seq === "string" ? Number(sp.seq) : NaN;
   const initialSeq = Number.isInteger(seqRaw) && seqRaw > 0 ? seqRaw : undefined;
+  // Overview drill-down deep links: ?model=…, ?from=&to=, ?errors=yes seed the
+  // session-list filters so a click on /overview lands the Sessions axis already
+  // scoped. These are STATE of this screen (a filtered session list), not a
+  // separate screen — the global bar still shows "Sessions".
+  const initialModel = typeof sp.model === "string" && sp.model.trim() ? sp.model : undefined;
+  const initialFrom = typeof sp.from === "string" && sp.from.trim() ? sp.from : undefined;
+  const initialTo = typeof sp.to === "string" && sp.to.trim() ? sp.to : undefined;
+  const initialErrors =
+    sp.errors === "yes" ? "yes" : sp.errors === "no" ? "no" : undefined;
   return (
     <SessionViewer
       sessions={sessions}
@@ -61,6 +70,10 @@ export default async function Page({
       findings={findings}
       initialTab={initialTab}
       initialSeq={initialSeq}
+      initialModel={initialModel}
+      initialFrom={initialFrom}
+      initialTo={initialTo}
+      initialErrors={initialErrors}
     />
   );
 }
