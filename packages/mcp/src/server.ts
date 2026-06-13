@@ -41,18 +41,6 @@ function optionalLocator(value: unknown): JsonRecord | undefined {
   return value as JsonRecord;
 }
 
-function chatAnalystName(provider: string): string {
-  const clean = provider.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase() || 'unknown';
-  return `chat:${clean}`;
-}
-
-function analystForProcess(input: JsonRecord): string {
-  if (process.env.LATHE_INTERNAL_AGENT === 'chat') {
-    return chatAnalystName(process.env.LATHE_CHAT_PROVIDER || 'unknown');
-  }
-  return String(input.analyst ?? '');
-}
-
 function serializedJsonLength(value: unknown): number {
   return JSON.stringify(value)?.length ?? 0;
 }
@@ -65,7 +53,7 @@ const locatorSchema = z
 
 function mapFinding(input: JsonRecord) {
   return {
-    analyst: analystForProcess(input),
+    analyst: String(input.analyst ?? ''),
     kind: String(input.kind ?? '') as FindingKind,
     title: String(input.title ?? ''),
     body: String(input.body ?? ''),
