@@ -1,8 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// E2E runs against a production build on a dedicated port (3211) so it never
-// collides with the dev preview server (3210) or its .next cache.
-const PORT = 3211;
+// E2E runs against a production build on a dedicated port (default 3211) so it
+// never collides with the dev preview server (3210) or its .next cache.
+// Override with E2E_PORT so parallel worktrees don't fight over the same port.
+const PORT = Number(process.env.E2E_PORT) || 3211;
 
 export default defineConfig({
   testDir: "./e2e",
