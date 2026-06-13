@@ -99,6 +99,24 @@ function loadCodexTitles(): Map<string, string> {
   return m;
 }
 
+function parseSpawnAgentOutput(outText: string): { agentId: string | null; nickname: string | null } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(outText);
+  } catch {
+    const m = /"agent_id"\s*:\s*"([^"]+)"/.exec(outText);
+    return { agentId: m?.[1] ?? null, nickname: null };
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { agentId: null, nickname: null };
+  }
+  const record = parsed as LooseRecord;
+  return {
+    agentId: typeof record.agent_id === 'string' ? record.agent_id : null,
+    nickname: typeof record.nickname === 'string' ? record.nickname : null,
+  };
+}
+
 export function buildCodexSession(file: string, titles: Map<string, string>, opts: ProviderBuildOptions): Built | null {
   const { maxFiles, maxHunkLines } = opts;
   const recs: LooseRecord[] = [];
@@ -206,7 +224,8 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
       } else if (name === 'update_plan') {
         addEvent({ ts, type: 'todo', actor: 'assistant', title: 'Plan update', body: preview(JSON.stringify(args.plan ?? args), 400), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: 'update_plan' }) });
       } else if (name === 'spawn_agent') {
-        addEvent({ ts, type: 'subagent', actor: 'assistant', title: `Sub-agent · ${args.agent_type ?? ''}`, body: preview(JSON.stringify(args), 300), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, subagent: args.agent_type || 'sub-agent', meta: JSON.stringify({ tool: 'spawn_agent' }) });
+        const spawned = parseSpawnAgentOutput(outText);
+        addEvent({ ts, type: 'subagent', actor: 'assistant', title: `Sub-agent · ${args.agent_type ?? ''}`, body: preview(JSON.stringify(args), 300), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, subagent: args.agent_type || 'sub-agent', meta: JSON.stringify({ tool: 'spawn_agent', agent_id: spawned.agentId, nickname: spawned.nickname }) });
       } else {
         addEvent({ ts, type: 'bash', actor: 'assistant', title: name, body: outText.slice(0, 1000) || preview(JSON.stringify(args), 200), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: JSON.stringify({ tool: name }) });
       }
@@ -275,6 +294,8 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
     cost_usd: costUsd, // priced from bundled GPT rates; null when model unknown
     summary: meta.cli_version ? `codex ${meta.cli_version}` : 'codex',
     harness_version_id: null,
+    parent_session_id: null,
+    spawned_by_seq: null,
     seq: 0,
     _startMs: firstTs ? new Date(firstTs).getTime() : 0,
   };

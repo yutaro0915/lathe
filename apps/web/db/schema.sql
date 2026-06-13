@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   cost_usd       DOUBLE PRECISION,
   summary        TEXT,
   harness_version_id TEXT REFERENCES harness_versions(id) ON DELETE SET NULL,
+  parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  spawned_by_seq INTEGER,
   seq            INTEGER NOT NULL DEFAULT 0    -- ordering in the session list
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
@@ -85,6 +87,20 @@ BEGIN
   END IF;
 END $$;
 CREATE INDEX IF NOT EXISTS idx_sessions_harness_version ON sessions(harness_version_id);
+
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS parent_session_id TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS spawned_by_seq INTEGER;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'sessions_parent_session_id_fkey'
+  ) THEN
+    ALTER TABLE sessions
+      ADD CONSTRAINT sessions_parent_session_id_fkey
+      FOREIGN KEY (parent_session_id) REFERENCES sessions(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_sessions_parent_session ON sessions(parent_session_id);
 
 -- Append-only transcript events (the timeline of a session).
 CREATE TABLE IF NOT EXISTS transcript_events (

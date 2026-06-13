@@ -267,6 +267,7 @@ export default function SessionViewer({
   const [errorsFilter, setErrorsFilter] = useState(initialErrors ?? "any");
   const [projectFilter, setProjectFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
+  const [showSubSessions, setShowSubSessions] = useState(false);
   // date-range filter (YYYY-MM-DD inclusive). Only the Overview "cost over time"
   // drill-down sets this today; there is no sidebar control for it yet, so when
   // active it shows as a small clearable banner above the list.
@@ -410,6 +411,7 @@ export default function SessionViewer({
   const visibleSessions = useMemo(() => {
     const q = sessionSearch.trim().toLowerCase();
     let list = sessions.filter((s) => {
+      if (!showSubSessions && s.parentSessionId) return false;
       if (q && !s.title.toLowerCase().includes(q)) return false;
       if (modelFilter !== "all" && s.model !== modelFilter) return false;
       if (errorsFilter === "yes" && s.errorCount === 0) return false;
@@ -440,7 +442,7 @@ export default function SessionViewer({
     else if (sortKey === "oldest") list.sort((a, b) => b.seq - a.seq);
     else if (sortKey === "tokens") list.sort((a, b) => b.tokenUsage - a.tokenUsage);
     return list;
-  }, [sessions, sessionSearch, modelFilter, errorsFilter, projectFilter, sortKey, sessionProject, currentId, dateFrom, dateTo]);
+  }, [sessions, sessionSearch, showSubSessions, modelFilter, errorsFilter, projectFilter, sortKey, sessionProject, currentId, dateFrom, dateTo]);
 
   // requirement C: keep the left Sessions rail in sync with the session being
   // viewed. On any session change — including a fresh deep-link open from the
@@ -475,6 +477,12 @@ export default function SessionViewer({
     return m;
   }, [events]);
 
+  const sessionById = useMemo(() => {
+    const m = new Map<string, Session>();
+    for (const s of sessions) m.set(s.id, s);
+    return m;
+  }, [sessions]);
+
   // ---- sub-agent invocations -----------------------------------------------
   // One top-level `subagent` launcher = one distinct sub-agent RUN. The old tab
   // grouped by agent *type name* ("general-purpose"), mashing many separate runs
@@ -504,15 +512,24 @@ export default function SessionViewer({
     let model: string | undefined;
     let costUsd: number | undefined;
     let tokens: number | undefined;
+    let agentId: string | undefined;
+    let childSessionId: string | undefined;
     try {
       const m = launcher.meta ? JSON.parse(launcher.meta) : {};
       if (typeof m.toolUses === "number") toolUses = m.toolUses;
       if (typeof m.model === "string") model = m.model; // the model the sub-agent ran on
       if (typeof m.costUsd === "number") costUsd = m.costUsd; // priced from the sub-agent's own usage
       if (typeof m.tokens === "number") tokens = m.tokens; // same usage the cost was priced from
+      if (typeof m.agent_id === "string") agentId = m.agent_id;
+      if (typeof m.child_session_id === "string") childSessionId = m.child_session_id;
     } catch {
       /* ignore */
     }
+    const linkedChild = childSessionId
+      ? sessionById.get(childSessionId)
+      : agentId
+        ? sessionById.get(agentId)
+        : undefined;
     // Result = the RUN's own verdict (the launcher's is_error / exit), NOT a
     // roll-up of child failures. A grep that exits 1 mid-run does not make the
     // whole run "error". `failedSteps` is the separate, factual count of child
@@ -532,7 +549,7 @@ export default function SessionViewer({
     const observedTools = kids.filter(
       (k) => !["user_message", "assistant_message", "thinking"].includes(k.type),
     ).length;
-    return { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools };
+    return { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools, linkedChild };
   }
 
   // The agent's own one-line summary of what it did (its result), else its title.
@@ -1174,6 +1191,10 @@ export default function SessionViewer({
     setSelectedEventId(launcherId);
   }
 
+  function openSubSession(id: string) {
+    router.push(`/?session=${encodeURIComponent(id)}&tab=transcript`);
+  }
+
   function toggleType(t: EventType) {
     setTypeFilter((prev) => {
       const next = new Set(prev);
@@ -1188,6 +1209,7 @@ export default function SessionViewer({
     setFilterMode("hide");
     setSessionSearch("");
     setTranscriptSearch("");
+    setShowSubSessions(false);
     setDateFrom(null);
     setDateTo(null);
   }
@@ -1523,6 +1545,17 @@ export default function SessionViewer({
               </select>
             </div>
 
+            <div className="filter-row">
+              <label className="sub-session-toggle">
+                <input
+                  type="checkbox"
+                  checked={showSubSessions}
+                  onChange={(e) => setShowSubSessions(e.target.checked)}
+                />
+                <span>show sub-sessions</span>
+              </label>
+            </div>
+
             {(dateFrom || dateTo) && (
               <div className="filter-row">
                 <span className="flabel">Period</span>
@@ -1580,6 +1613,14 @@ export default function SessionViewer({
                     <div className="si-top">
                       <span className="si-title">{s.title}</span>
                       <span className="si-flags">
+                        {s.parentSessionId && (
+                          <span
+                            className="badge neutral sub-session-badge"
+                            title={`Spawned by ${s.parentSessionId}`}
+                          >
+                            SUB
+                          </span>
+                        )}
                         <CostAnomalyChip session={s} />
                         {s.errorCount > 0 && (
                           <span className="badge err" title={`${s.errorCount} failed tool call(s)`}>
@@ -2149,21 +2190,29 @@ export default function SessionViewer({
                     {subAgentTab === "overview" ? (
                       /* ---------- OVERVIEW: chronological spine of every run ---------- */
                       invocations.map((e, i) => {
-                        const { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools } = summarizeInvocation(e);
+                        const { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools, linkedChild } = summarizeInvocation(e);
+                        const displaySteps = linkedChild ? linkedChild.stepCount : kids.length;
+                        const displayTools = linkedChild ? linkedChild.toolCount : (toolUses ?? observedTools);
+                        const displayModel = linkedChild?.model ?? model;
+                        const displayDuration = linkedChild?.durationMs ?? e.durationMs;
+                        const displayTokens = linkedChild ? linkedChild.tokenUsage : (e.tokenUsage ?? tokens ?? null);
+                        const displayCost = linkedChild ? linkedChild.costUsd : costUsd;
+                        const unlinkedNoSteps = !linkedChild && kids.length === 0;
                         return (
                           <button
                             key={e.id}
                             type="button"
                             className="sa-card"
-                            onClick={() => openAgent(e.id)}
+                            onClick={() => (linkedChild ? openSubSession(linkedChild.id) : openAgent(e.id))}
                           >
                             <span className="sa-card-idx">{i + 1}</span>
                             <div className="sa-card-main">
                               <div className="sa-card-top">
                                 <span className="event-type-badge subagent">⌥ {e.subagent ?? "sub-agent"}</span>
-                                {model && <span className="sa-model" title="model the sub-agent ran on">{shortModel(model)}</span>}
+                                {displayModel && <span className="sa-model" title="model the sub-agent ran on">{shortModel(displayModel)}</span>}
                                 <span className="sa-card-time">{e.ts}</span>
                                 {runFailed && <span className="badge failed">error</span>}
+                                {linkedChild && <span className="badge neutral">linked</span>}
                                 {failedSteps > 0 && (
                                   <span
                                     className="chip failed-steps-chip"
@@ -2190,12 +2239,18 @@ export default function SessionViewer({
                               )}
                             </div>
                             <span className="sa-card-meta">
-                              <span className="chip">{kids.length} steps</span>
-                              <span className="chip">{toolUses ?? observedTools} tools</span>
-                              {e.durationMs != null && <span className="dur">{durLabel(e.durationMs)}</span>}
-                              {(e.tokenUsage ?? tokens) != null && <span className="tok">{fmtTok((e.tokenUsage ?? tokens)!)} tok</span>}
-                              {costUsd != null && <span className="sa-cost">{fmtCost(costUsd)}</span>}
-                              <span className="sa-go">Open →</span>
+                              {unlinkedNoSteps ? (
+                                <span className="sa-capture-note">internal steps not captured</span>
+                              ) : (
+                                <>
+                                  <span className="chip">{displaySteps} steps</span>
+                                  <span className="chip">{displayTools} tools</span>
+                                  {displayDuration != null && <span className="dur">{durLabel(displayDuration)}</span>}
+                                  {displayTokens != null && <span className="tok">{fmtTok(displayTokens)} tok</span>}
+                                  {displayCost != null && <span className="sa-cost">{fmtCost(displayCost)}</span>}
+                                </>
+                              )}
+                              <span className="sa-go">{linkedChild ? "OPEN SUB-SESSION →" : "Open →"}</span>
                             </span>
                           </button>
                         );
@@ -2205,8 +2260,13 @@ export default function SessionViewer({
                       (() => {
                         const e = invocations.find((x) => x.id === subAgentTab);
                         if (!e) return null;
-                        const { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools } = summarizeInvocation(e);
-                        const tokensShown = e.tokenUsage ?? tokens ?? null;
+                        const { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools, linkedChild } = summarizeInvocation(e);
+                        const displaySteps = linkedChild ? linkedChild.stepCount : kids.length;
+                        const displayTools = linkedChild ? linkedChild.toolCount : (toolUses ?? observedTools);
+                        const displayModel = linkedChild?.model ?? model ?? null;
+                        const displayDuration = linkedChild?.durationMs ?? e.durationMs;
+                        const tokensShown = linkedChild ? linkedChild.tokenUsage : (e.tokenUsage ?? tokens ?? null);
+                        const displayCost = linkedChild ? linkedChild.costUsd : costUsd;
                         return (
                           <div className="sa-detail">
                             {/* run selection / back / position all live in the .sa-tabbar above —
@@ -2220,7 +2280,7 @@ export default function SessionViewer({
                               <div className="stat">
                                 <span className="stat-k">Steps</span>
                                 <span className="stat-v">
-                                  {kids.length}
+                                  {displaySteps}
                                   {failedSteps > 0 && (
                                     <span
                                       className="stat-note failed-steps-note"
@@ -2233,27 +2293,27 @@ export default function SessionViewer({
                               </div>
                               <div className="stat">
                                 <span className="stat-k">Tool calls</span>
-                                {toolUses != null ? (
-                                  <span className="stat-v">{toolUses}</span>
+                                {linkedChild || toolUses != null ? (
+                                  <span className="stat-v">{displayTools}</span>
                                 ) : (
                                   <span
                                     className="stat-v"
                                     title="not reported by the run; counted from observed tool steps in the transcript"
                                   >
-                                    {observedTools}
+                                    {displayTools}
                                   </span>
                                 )}
                               </div>
                               <div className="stat">
                                 <span className="stat-k">Model</span>
-                                <span className="stat-v" style={{ fontSize: "12.5px" }} title={model ?? "not recorded in the transcript"}>
-                                  {model ? shortModel(model) : "—"}
+                                <span className="stat-v" style={{ fontSize: "12.5px" }} title={displayModel ?? "not recorded in the transcript"}>
+                                  {displayModel ? shortModel(displayModel) : "—"}
                                 </span>
                               </div>
                               <div className="stat">
                                 <span className="stat-k">Duration</span>
-                                <span className="stat-v" title={e.durationMs == null ? "not recorded in the transcript" : undefined}>
-                                  {e.durationMs != null ? fmtDur2(e.durationMs) : "—"}
+                                <span className="stat-v" title={displayDuration == null ? "not recorded in the transcript" : undefined}>
+                                  {displayDuration != null ? fmtDur2(displayDuration) : "—"}
                                 </span>
                               </div>
                               <div className="stat">
@@ -2273,8 +2333,8 @@ export default function SessionViewer({
                               </div>
                               <div className="stat">
                                 <span className="stat-k">Cost</span>
-                                <span className="stat-v" title={costUsd == null ? "model or token usage not recorded — cost is not invented" : undefined}>
-                                  {costUsd != null ? fmtCost(costUsd) : "—"}
+                                <span className="stat-v" title={displayCost == null ? "model or token usage not recorded — cost is not invented" : undefined}>
+                                  {displayCost != null ? fmtCost(displayCost) : "—"}
                                 </span>
                               </div>
                               <div className="stat">
@@ -2318,11 +2378,25 @@ export default function SessionViewer({
                             )}
 
                             <div className="panel-title" style={{ padding: "10px 14px 0" }}>
-                              Execution <span className="count">({kids.length} steps)</span>
+                              Execution <span className="count">({displaySteps} steps)</span>
                             </div>
-                            {kids.length === 0 ? (
+                            {linkedChild ? (
+                              <div className="sa-linked-session" style={{ margin: "8px 14px 14px" }}>
+                                <div className="sa-linked-title">{linkedChild.title}</div>
+                                <div className="muted small">
+                                  Open the linked sub-session to inspect its captured transcript.
+                                </div>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() => openSubSession(linkedChild.id)}
+                                >
+                                  OPEN SUB-SESSION →
+                                </button>
+                              </div>
+                            ) : kids.length === 0 ? (
                               <div className="empty" style={{ padding: "8px 16px 16px" }}>
-                                No internal steps were captured for this run.
+                                internal steps not captured
                               </div>
                             ) : (
                               kids.map((k) => {

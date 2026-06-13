@@ -35,6 +35,7 @@ type TurnExpectation = {
 };
 type CostAnomalyExpectation = {
   session_id: string;
+  parent_session_id: string | null;
   runner: string;
   cost_usd: number | null;
   cost_anomaly_group_size: number;
@@ -71,6 +72,7 @@ const PR_FIXTURE = {
 const FINDING_FIXTURE = {
   projectId: "fixture:s2-finding-ui",
   sessionId: "fixture-finding-ui-session",
+  otherSessionId: "fixture-finding-ui-other-session",
   harnessId: "fixture-finding-ui-harness",
   eventId: "fixture-finding-ui-session-event-2",
   fileId: "fixture-finding-ui-file-1",
@@ -109,6 +111,15 @@ const CHAT_FIXTURE = {
   projectId: "fixture:s2-chat-view",
   sessionId: "fixture-chat-session",
   title: "Fixture chat session",
+};
+
+const SUBAGENT_FIXTURE = {
+  projectId: "fixture:subagent-session-linking",
+  parentId: "fixture-subagent-parent-session",
+  childId: "fixture-subagent-child-session",
+  missingAgentId: "fixture-subagent-missing-session",
+  linkedLauncherId: "fixture-subagent-parent-session-event-2",
+  unlinkedLauncherId: "fixture-subagent-parent-session-event-3",
 };
 
 function fmtCompactForTest(n: number): string {
@@ -330,8 +341,14 @@ async function cleanupFindingFixtures() {
     await client.query("DELETE FROM diff_hunks WHERE id = $1", [FINDING_FIXTURE.hunkId]);
     await client.query("DELETE FROM changed_files WHERE id = $1", [FINDING_FIXTURE.fileId]);
     await client.query("DELETE FROM event_files WHERE event_id = $1", [FINDING_FIXTURE.eventId]);
-    await client.query("DELETE FROM transcript_events WHERE session_id = $1", [FINDING_FIXTURE.sessionId]);
-    await client.query("DELETE FROM sessions WHERE id = $1", [FINDING_FIXTURE.sessionId]);
+    await client.query("DELETE FROM transcript_events WHERE session_id IN ($1,$2)", [
+      FINDING_FIXTURE.sessionId,
+      FINDING_FIXTURE.otherSessionId,
+    ]);
+    await client.query("DELETE FROM sessions WHERE id IN ($1,$2)", [
+      FINDING_FIXTURE.sessionId,
+      FINDING_FIXTURE.otherSessionId,
+    ]);
     await client.query("DELETE FROM harness_versions WHERE id = $1", [FINDING_FIXTURE.harnessId]);
     await client.query("DELETE FROM projects WHERE id = $1", [FINDING_FIXTURE.projectId]);
   });
@@ -392,6 +409,104 @@ async function seedChatFixtures() {
           `${CHAT_FIXTURE.sessionId}-event-1`,
           CHAT_FIXTURE.sessionId,
           `${CHAT_FIXTURE.sessionId}-event-2`,
+        ]
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+async function cleanupSubagentFixtures() {
+  await withDb(async (client) => {
+    await client.query("DELETE FROM transcript_events WHERE session_id IN ($1,$2)", [
+      SUBAGENT_FIXTURE.parentId,
+      SUBAGENT_FIXTURE.childId,
+    ]);
+    await client.query("DELETE FROM sessions WHERE id IN ($1,$2)", [
+      SUBAGENT_FIXTURE.childId,
+      SUBAGENT_FIXTURE.parentId,
+    ]);
+    await client.query("DELETE FROM projects WHERE id = $1", [SUBAGENT_FIXTURE.projectId]);
+  });
+}
+
+async function seedSubagentFixtures() {
+  await cleanupSubagentFixtures();
+  await withDb(async (client) => {
+    await client.query("BEGIN");
+    try {
+      await client.query(
+        "INSERT INTO projects (id,display_name,git_remote,cwd_hint) VALUES ($1,$2,$3,$4)",
+        [
+          SUBAGENT_FIXTURE.projectId,
+          "Sub-agent Session Linking Fixture",
+          "https://github.com/lathe-fixture/subagent-session-linking.git",
+          "/tmp/lathe-subagent-linking",
+        ]
+      );
+      await client.query(
+        `INSERT INTO sessions (
+           id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,
+           edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,
+           cost_usd,summary,seq
+         )
+         VALUES ($1,$2,'Sub-agent Session Linking Fixture','Fixture parent with sub-agent links','codex','gpt-5.3-codex','done',
+           '2026-06-12 02:00:00','2026-06-12 02:00:10',10000,1,2,0,0,2,0,120,70,50,
+           'loop/19-subagent-linking',0,0.03,'fixture parent',930019)`,
+        [SUBAGENT_FIXTURE.parentId, SUBAGENT_FIXTURE.projectId]
+      );
+      await client.query(
+        `INSERT INTO sessions (
+           id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,
+           edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,
+           cost_usd,summary,parent_session_id,spawned_by_seq,seq
+         )
+         VALUES ($1,$2,'Sub-agent Session Linking Fixture','Fixture linked sub-session','codex','gpt-5.3-codex-spark','done',
+           '2026-06-12 02:00:02','2026-06-12 02:00:07',5000,1,2,0,1,0,0,333,222,111,
+           'loop/19-subagent-linking',0,0.13,'fixture child',$3,2,930020)`,
+        [SUBAGENT_FIXTURE.childId, SUBAGENT_FIXTURE.projectId, SUBAGENT_FIXTURE.parentId]
+      );
+      await client.query(
+        `INSERT INTO transcript_events
+          (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta,parent_id)
+         VALUES
+          ($1,$2,1,'02:00:00','user_message','user','Fixture parent prompt','Spawn fixture sub-agents.',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+          ($3,$2,2,'02:00:01','subagent','assistant','Sub-agent · explorer','Linked fixture subagent task',NULL,NULL,NULL,5000,NULL,'explorer',$4::jsonb,NULL),
+          ($5,$2,3,'02:00:08','subagent','assistant','Sub-agent · explorer','Missing fixture subagent task',NULL,NULL,NULL,NULL,NULL,'explorer',$6::jsonb,NULL)`,
+        [
+          `${SUBAGENT_FIXTURE.parentId}-event-1`,
+          SUBAGENT_FIXTURE.parentId,
+          SUBAGENT_FIXTURE.linkedLauncherId,
+          JSON.stringify({
+            tool: "spawn_agent",
+            agent_id: SUBAGENT_FIXTURE.childId,
+            child_session_id: SUBAGENT_FIXTURE.childId,
+            nickname: "FixtureLinked",
+          }),
+          SUBAGENT_FIXTURE.unlinkedLauncherId,
+          JSON.stringify({
+            tool: "spawn_agent",
+            agent_id: SUBAGENT_FIXTURE.missingAgentId,
+            nickname: "FixtureMissing",
+          }),
+        ]
+      );
+      await client.query(
+        `INSERT INTO transcript_events
+          (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta,parent_id)
+         VALUES
+          ($1,$2,1,'02:00:02','user_message','user','Fixture child prompt','Inspect linked child work.',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+          ($3,$2,2,'02:00:03','bash','assistant','Fixture child command','child command output',NULL,'pnpm test',0,1500,123,NULL,$4::jsonb,NULL),
+          ($5,$2,3,'02:00:05','assistant_message','assistant','Fixture child summary','Child session completed.',NULL,NULL,NULL,500,210,NULL,NULL,NULL)`,
+        [
+          `${SUBAGENT_FIXTURE.childId}-event-1`,
+          SUBAGENT_FIXTURE.childId,
+          `${SUBAGENT_FIXTURE.childId}-event-2`,
+          JSON.stringify({ tool: "exec_command" }),
+          `${SUBAGENT_FIXTURE.childId}-event-3`,
         ]
       );
       await client.query("COMMIT");
@@ -481,6 +596,29 @@ async function seedFindingFixtures() {
           `${FINDING_FIXTURE.sessionId}-event-3`,
           `${FINDING_FIXTURE.sessionId}-event-4`,
           FINDING_FIXTURE.longCommand,
+        ]
+      );
+      await client.query(
+        `INSERT INTO sessions (
+           id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,
+           edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,
+           cost_usd,summary,harness_version_id,seq
+         )
+         VALUES ($1,$2,'S2 Finding UI Fixture','Fixture other findings session','codex','<synthetic>','done',
+           '2026-06-12 00:10:00','2026-06-12 00:10:03',3000,1,1,0,1,0,0,50,30,20,
+           'loop/17-finding-ui',0,0.01,'fixture other',$3,910018)`,
+        [FINDING_FIXTURE.otherSessionId, FINDING_FIXTURE.projectId, FINDING_FIXTURE.harnessId]
+      );
+      await client.query(
+        `INSERT INTO transcript_events
+          (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta,parent_id)
+         VALUES
+          ($1,$2,1,'00:10:00','user_message','user','Fixture other prompt','Please inspect the other fixture.',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+          ($3,$2,2,'00:10:01','bash','assistant','Fixture other command','other fixture output',NULL,'pnpm lint',0,800,50,NULL,NULL,NULL)`,
+        [
+          `${FINDING_FIXTURE.otherSessionId}-event-1`,
+          FINDING_FIXTURE.otherSessionId,
+          `${FINDING_FIXTURE.otherSessionId}-event-2`,
         ]
       );
       await client.query(
@@ -619,6 +757,25 @@ async function seedFindingFixtures() {
         `INSERT INTO finding_verdicts (finding_id,verdict,reason,decided_by)
          VALUES ($1,'accept','fixture pre-decided','user')`,
         [decidedFinding]
+      );
+
+      const otherFinding = (
+        await client.query<{ id: number }>(
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
+           VALUES ('rules-v1','risky_action','Fixture other session pending','Separate pending finding for scoping negative cases.',0.61,$1,$2)
+           RETURNING id`,
+          [FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
+         VALUES ($1,'event',$2,$3::jsonb,$4,'other session evidence')`,
+        [
+          otherFinding,
+          FINDING_FIXTURE.otherSessionId,
+          JSON.stringify({ seq: 2 }),
+          `${FINDING_FIXTURE.otherSessionId}-event-2`,
+        ]
       );
 
       await client.query("COMMIT");
@@ -772,6 +929,7 @@ async function getCostAnomalyExpectations(
        ),
        scored AS (
          SELECT s.id AS session_id,
+                s.parent_session_id,
                 s.runner,
                 s.cost_usd,
                 COALESCE(b.cost_anomaly_group_size, 0)::int AS cost_anomaly_group_size,
@@ -874,9 +1032,11 @@ test.beforeAll(async () => {
   await seedCostFallbackFixtures();
   await seedFindingFixtures();
   await seedChatFixtures();
+  await seedSubagentFixtures();
 });
 
 test.afterAll(async () => {
+  await cleanupSubagentFixtures();
   await cleanupChatFixtures();
   await cleanupFindingFixtures();
   await cleanupCostFallbackFixtures();
@@ -1138,7 +1298,7 @@ test.describe("Cost anomaly detection", () => {
   test("session-list anomaly chips match an independent DB baseline oracle", async ({ page }) => {
     const oracle = await getCostAnomalyExpectations();
     const expected = oracle
-      .filter((r) => r.cost_anomaly)
+      .filter((r) => r.cost_anomaly && !r.parent_session_id)
       .map((r) => r.session_id)
       .sort();
 
@@ -1426,6 +1586,42 @@ test.describe("Sub-agent expansion", () => {
 test.describe("Sub-agent runs (Subagents tab)", () => {
   // session known to spawn 3 distinct general-purpose runs
   const SID = "da2ac032-a905-4267-8e5f-851456926a79";
+
+  test("linked Codex sub-agent shows child session facts and opens the sub-session", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SUBAGENT_FIXTURE.parentId}&tab=subagents`);
+    const linked = page.locator(".sa-card", { hasText: "Linked fixture subagent task" });
+    await expect(linked).toContainText("3 steps");
+    await expect(linked).toContainText("2 tools");
+    await expect(linked).toContainText(/gpt-5/i);
+    await expect(linked).toContainText("$0.13");
+    await expect(linked).toContainText("OPEN SUB-SESSION");
+    await linked.getByText("OPEN SUB-SESSION").click();
+    await expect(page).toHaveURL(new RegExp(`session=${SUBAGENT_FIXTURE.childId}`));
+    await expect(page.locator(".sessbar-title")).toHaveText("Fixture linked sub-session");
+  });
+
+  test("unlinked Codex sub-agent is explicit about missing internal steps", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SUBAGENT_FIXTURE.parentId}&tab=subagents`);
+    const unlinked = page.locator(".sa-card", { hasText: "Missing fixture subagent task" });
+    await expect(unlinked).toContainText("internal steps not captured");
+  });
+
+  test("sub-sessions are hidden from the rail until the toggle is enabled", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${SUBAGENT_FIXTURE.parentId}`);
+    const childItem = page.locator(
+      `.session-list [data-session-id="${SUBAGENT_FIXTURE.childId}"]`
+    );
+    await expect(childItem).toHaveCount(0);
+    await page.getByLabel("show sub-sessions").check();
+    await expect(childItem).toBeVisible();
+    await expect(childItem.locator(".sub-session-badge")).toHaveText("SUB");
+  });
 
   test("overview lists one card per distinct run, not one flat list per name", async ({
     page,
