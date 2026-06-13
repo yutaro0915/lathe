@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { costForUsage, resolveTier } from '../lib/cost';
 import { closePool, queryRows } from '../lib/postgres';
+import { isLiveTranscript, transcriptMtimeMs } from './ingest/live';
 import { ClaudeProvider } from './ingest/providers/claude';
 import { CodexProvider } from './ingest/providers/codex';
 import type { ProviderBuildOptions, TranscriptProvider } from './ingest/providers/types';
@@ -336,6 +337,14 @@ async function main(): Promise<void> {
   const rates = assertRateResolution();
   const failures: string[] = [...rates.failures];
   const checked: string[] = [];
+  // A transcript still being written (the current session, or a concurrent
+  // agent appending to it) is grown past its ingested snapshot, so recalculating
+  // cost from the live file diverges from the DB through no fault of the
+  // ingester. Mirror coverage_check.ts: report such sessions but do NOT count
+  // them as cost mismatches. Excluded sessions are listed explicitly below — no
+  // silent drops (design/audit-protocol.md).
+  const live: string[] = [];
+  const now = Date.now();
 
   for (const candidate of [...candidates.values()].sort((a, b) => candidateKey(a).localeCompare(candidateKey(b)))) {
     const ref = index.get(candidate.row.id);
@@ -345,6 +354,10 @@ async function main(): Promise<void> {
     }
     if (ref.runner !== candidate.row.runner) {
       failures.push(`${candidate.bucket} ${candidate.row.id}: runner mismatch db=${candidate.row.runner} raw=${ref.runner}`);
+      continue;
+    }
+    if (isLiveTranscript(transcriptMtimeMs(ref.file), now)) {
+      live.push(`LIVE ${candidate.row.id.slice(0, 8)}: transcript still being written (excluded from cost check)`);
       continue;
     }
 
@@ -364,12 +377,16 @@ async function main(): Promise<void> {
   console.log('================ Lathe cost verification ================');
   console.log(`transcripts dir : ${transcriptsDir}`);
   console.log(`indexed         : claude-code=${counts['claude-code'] ?? 0} codex=${counts.codex ?? 0}`);
-  console.log(`sample          : top=${top.length} random=${random.length} checked=${checked.length} seed=${seed}`);
+  console.log(`sample          : top=${top.length} random=${random.length} checked=${checked.length} live=${live.length} seed=${seed}`);
   console.log(`tolerance       : ${(TOLERANCE * 100).toFixed(2)}%`);
   console.log(`rate assertions : ${RATE_EXPECTATIONS.length - rates.failures.length}/${RATE_EXPECTATIONS.length} OK (model-id -> usd/Mtok, pinned to docs/cost-semantics.md)`);
   if (checked.length) {
     console.log('--- checked ---');
     for (const line of checked) console.log(`  - ${line}`);
+  }
+  if (live.length) {
+    console.log('--- live (excluded, not a mismatch) ---');
+    for (const line of live) console.log(`  - ${line}`);
   }
   if (failures.length) {
     console.log('--- findings ---');
