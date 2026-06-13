@@ -10,7 +10,7 @@ import {
   getSessionBundle,
   getPrimarySession,
   listSessions,
-  getStats,
+  getProjectStats,
   getSessionPrSummary,
   listFindings,
 } from "@/lib/db";
@@ -25,23 +25,36 @@ export default async function Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const sessions = await listSessions();
   const req = typeof sp.session === "string" ? sp.session : undefined;
-  const requestedBundle = req ? await getSessionBundle(req) : undefined;
+  // Fetch everything that does NOT depend on resolving the session id up front,
+  // in parallel: the session list, the sidebar project rollup, PR summaries,
+  // findings, and the requested session's bundle. This used to run as three
+  // sequential awaits (listSessions → getSessionBundle → Promise.all[stats,…]),
+  // adding two server round-trips to every cross-session navigation (issue #8).
+  // The common deep-link case carries a valid ?session=, so its bundle is already
+  // resolved here; the getPrimarySession fallback below only runs when it isn't.
+  const [sessions, projectStats, sessionPrs, findings, requestedBundle] = await Promise.all([
+    listSessions(),
+    getProjectStats(),
+    getSessionPrSummary(),
+    listFindings(),
+    req ? getSessionBundle(req) : Promise.resolve(undefined),
+  ]);
   const id = requestedBundle ? req! : (await getPrimarySession()).id;
   const bundle = requestedBundle ?? (await getSessionBundle(id))!;
   // Project list is only used by the sidebar's session-list scope selector here.
   // Cross-session ANALYTICS (charts) live on /overview, not in the viewer — the
   // viewer is per-session, and cross-session aggregates would be off-topic in it.
-  const [stats, sessionPrs, findings] = await Promise.all([getStats(), getSessionPrSummary(), listFindings()]);
-  const projects = stats.projects.map((p) => ({
+  // getProjectStats is the just-the-projects slice of getStats (skips the skills /
+  // subagents / memory / hooks / models aggregates the viewer never renders).
+  const projects = projectStats.map((p) => ({
     project: p.project,
     sessions: p.sessions,
     cost: p.cost,
     costKnown: p.costKnown,
   }));
   const sessionProject: Record<string, string> = {};
-  for (const p of stats.projects) for (const r of p.sessionRefs) sessionProject[r.id] = p.project;
+  for (const p of projectStats) for (const r of p.sessionRefs) sessionProject[r.id] = p.project;
   const initialTab: Tab =
     typeof sp.tab === "string" && (TABS as readonly string[]).includes(sp.tab)
       ? (sp.tab as Tab)
