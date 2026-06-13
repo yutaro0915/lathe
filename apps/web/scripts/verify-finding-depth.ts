@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Pool } from 'pg';
 import { closePool, DEFAULT_DATABASE_URL, getPool } from '../lib/postgres';
-import { backfillFindingAnalysis, runAnalyst, runAnalystSmoke } from './analyst-engine';
+import { assertAnalysisGrounded, backfillFindingAnalysis, runAnalyst, runAnalystSmoke } from './analyst-engine';
 
 const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
 const KNOWN_INCIDENTS_PATH = path.resolve(process.cwd(), '..', '..', 'spec', 'known-incidents.json');
@@ -182,6 +182,46 @@ async function verifyAnalystAnalysis(): Promise<void> {
     if (!text.includes('Please stabilize finding-depth smoke')) {
       fail(`scratch analyst analysis is not grounded in USER ASKED context: ${row.analysis}`);
     }
+  });
+}
+
+async function verifyGenericAnalysisRejected(): Promise<void> {
+  await withScratch('finding_depth_generic_reject', async () => {
+    await applySchema();
+    const sessionId = await seedAnalystSession();
+    const inserted = await getPool().query<{ id: number }>(
+      `INSERT INTO findings (analyst,kind,title,body,confidence,project_id,analysis)
+       VALUES (
+         'hybrid-v1',
+         'failure_loop',
+         'Injected generic analysis',
+         'Generic analysis injection should not pass quality smoke.',
+         0.9,
+         'finding-depth-project',
+         $1::jsonb
+       )
+       RETURNING id`,
+      [
+        {
+          cause_hypothesis: 'The likely cause is visible in command "pnpm test -- --grep=finding-depth": the surrounding turn kept returning to the same failing evidence.',
+          agent_intent: 'The user asked "Please stabilize finding-depth smoke." while the agent was working through pnpm test -- --grep=finding-depth.',
+          impact: 'This may indicate an issue and needs further investigation.',
+        },
+      ],
+    );
+    await getPool().query(
+      `INSERT INTO finding_evidence (finding_id, subject_kind, session_id, locator, note)
+       VALUES ($1, 'turn', $2, $3::jsonb, 'generic injection evidence')`,
+      [inserted.rows[0]?.id, sessionId, { seq: 2 }],
+    );
+
+    let rejected = false;
+    try {
+      await assertAnalysisGrounded([sessionId]);
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) fail('generic analysis injection was not rejected by analysis smoke');
   });
 }
 
@@ -370,6 +410,7 @@ async function main(): Promise<void> {
   await verifyFreshMigration();
   await verifyExistingMigration();
   await verifyAnalystAnalysis();
+  await verifyGenericAnalysisRejected();
   await verifyKnownIncidentSmoke();
   await verifyExistingFindingBackfill();
   console.log('[verify-finding-depth] GREEN fresh_schema=true existing_alter=true analyst_analysis=grounded');

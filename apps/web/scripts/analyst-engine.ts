@@ -886,6 +886,7 @@ Constraints:
 - If the transcript does not reveal a concrete mechanism, set cause_hypothesis to null instead of inventing one.
 - agent_intent must cite the user request or task being pursued.
 - impact must explain why that specific mechanism matters for reviewing this run.
+- For EADDRINUSE, local services, occupied ports, tmux/dev-server state, data-dependent flakes, or external runtimes such as AivisSpeech, explicitly state the boundary: environment/runtime/setup state vs product/harness behavior. Say whether a code/harness fix is implicated or whether setup isolation/preflight is the right response.
 
 Session digests:
 ${digestText(digests)}`;
@@ -946,6 +947,7 @@ Constraints:
 - cause_hypothesis must identify the concrete failure mechanism shown by context. Do not merely say the agent returned to the same failed evidence or that the finding is a failure_loop.
 - Prefer command semantics and error text over category labels: rg exit 1 = no match, git diff --check exit 2 = whitespace findings, gh Projects classic sunset = CLI GraphQL failure, No such file = wrong path/cwd, EADDRINUSE = occupied port, fixture-only checks = real-data gap.
 - Prefer distinct known-incident cue mechanisms over aggregate "many errors" summaries: cost prefix overcount, data-dependent flake, EADDRINUSE, fixture/self-sufficient real-data gap, and binary-framing/existence-proof incidents should each survive when present.
+- For EADDRINUSE, local services, tmux/dev-server state, data-dependent flakes, or external runtimes such as AivisSpeech, surface the fixability boundary: environment/runtime/setup state vs product/harness behavior. Do not leave the reader guessing whether Lathe/harness code should be changed.
 - If context only supports a structural rule-based observation, set cause_hypothesis to null.
 
 Rule candidates:
@@ -1238,8 +1240,8 @@ function inferredMechanismAnalysis(
     }
     if (/eaddrinuse|address already in use/i.test(corpus)) {
       return {
-        causeHypothesis: `Mechanism: ${anchor} failed because the requested local port was already occupied, so the failure is a runtime process/cache collision rather than an application assertion failure.`,
-        impact: `Treating the occupied port as product behavior would misclassify an environment setup problem and make reruns non-deterministic.`,
+        causeHypothesis: `Mechanism: ${anchor} failed because the requested local port was already occupied, so the failure is a runtime process/cache collision rather than a product or harness-code failure.`,
+        impact: `Treating the occupied port as product behavior would misclassify an environment/setup state problem; the useful response is process isolation or preflight cleanup, not a Lathe product fix.`,
       };
     }
     if (/(自己充足|self[- ]?sufficient|fixture)/i.test(corpus) && /(実データリンク|0\s*行|0\s*rows?|real[- ]?data|absent)/i.test(corpus)) {
@@ -1250,14 +1252,14 @@ function inferredMechanismAnalysis(
     }
     if (/aivisspeech|bert|user dictionary|127\.0\.0\.1:10101/i.test(corpus)) {
       return {
-        causeHypothesis: `Mechanism: ${anchor} depends on the local AivisSpeech engine and its BERT/user-dictionary load state, so exit status is controlled by an external runtime service rather than only repo code.`,
-        impact: `Reviewers need to isolate local service readiness before treating the failure as reproducible application behavior.`,
+        causeHypothesis: `Mechanism: ${anchor} depends on the local AivisSpeech engine and its BERT/user-dictionary load state, so exit status is controlled by external runtime setup rather than product or harness code alone.`,
+        impact: `Reviewers need to isolate local service readiness before treating the failure as reproducible application behavior; this points to environment setup/preflight, not an automatic Lathe product fix.`,
       };
     }
     if (/データ依存|data[- ]dependent|flake|flaky/i.test(corpus)) {
       return {
         causeHypothesis: `Mechanism: the failure depends on selected data or environment state, so the same test command can change result without a code change.`,
-        impact: `The finding should be reviewed as nondeterministic input/environment behavior, not as a stable product regression.`,
+        impact: `The finding should be reviewed as nondeterministic input/environment behavior, not as a stable product or harness regression unless the data contract itself is wrong.`,
       };
     }
   }
@@ -1341,6 +1343,31 @@ function causeHasMechanism(value: string | null | undefined): boolean {
   return /(exit\s*[12]|no matches|no[- ]match|git diff --check|whitespace|projectcards|projects classic|sunset|no such file|cwd|eaddrinuse|port|fixture|real[- ]data|実データ|データ依存|data[- ]dependent|aivisspeech|bert|user dictionary|overcount|過大計上|prefix|二分法|binary framing|existence[- ]proof|存在証明|unattributed|audit trail|circuit[- ]breaker|max[- ]error|error[- ]rate|abort guard|session_id|aggregator|read-before-write|invariant|shell[- ]escaping|str_replace|anchor mismatch|retry loop|scope)/i.test(value);
 }
 
+function hasEnvProductBoundary(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return [
+    /(?:environment|setup|runtime|external service|external runtime|local service|local process|tmux|dev server|repo code).{0,160}(?:not|rather than|instead of|outside|separate from|misclassif).{0,120}(?:product|harness|application|code|fix|regression)/i,
+    /(?:product|harness|application|repo code|code|fix|regression).{0,160}(?:not|rather than|instead of|outside|misclassif).{0,160}(?:environment|setup|runtime|external service|local process|preflight)/i,
+    /not (a )?(lathe product|product|harness|application|repo code|code) (failure|fix|regression|problem)/i,
+    /rather than (a )?(product|harness|application|repo code|code)/i,
+    /process isolation|preflight cleanup|local service readiness/i,
+    /(?:環境|実行時|外部サービス|ローカルサービス).{0,80}(?:製品|ハーネス|コード).{0,80}(?:ではない|でない|と異なる)/,
+    /(?:製品|ハーネス|コード).{0,80}(?:ではなく|でなく|と異なり).{0,80}(?:環境|実行時|外部サービス|ローカルサービス)/,
+  ].some((pattern) => pattern.test(value));
+}
+
+function mergeTextWithBoundary(
+  primary: string | null,
+  fallback: string | null,
+): string | null {
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+  if (hasEnvProductBoundary(fallback) && !hasEnvProductBoundary(primary)) {
+    return shorten(`${primary} ${fallback}`, 1200);
+  }
+  return primary;
+}
+
 function normalizeAnalysisInput(input: SubmitFindingInput['analysis'] | null | undefined): NonNullable<SubmitFindingInput['analysis']> | null {
   if (!input) return null;
   const causeHypothesis = analysisTextField(input.causeHypothesis);
@@ -1356,12 +1383,13 @@ function mergeAnalysis(
   if (!primary) return fallback;
   const fallbackCause = fallback?.causeHypothesis ?? null;
   const primaryCause = primary.causeHypothesis ?? null;
-  const causeHypothesis =
+  const selectedCause =
     primaryCause && !causeLooksGeneric(primaryCause) && (causeHasMechanism(primaryCause) || !fallbackCause)
       ? primaryCause
       : fallbackCause;
+  const causeHypothesis = mergeTextWithBoundary(selectedCause, fallbackCause);
   const agentIntent = primary.agentIntent ?? fallback?.agentIntent ?? null;
-  const impact = primary.impact ?? fallback?.impact ?? null;
+  const impact = mergeTextWithBoundary(primary.impact ?? null, fallback?.impact ?? null);
   return causeHypothesis || agentIntent || impact ? { causeHypothesis, agentIntent, impact } : null;
 }
 
@@ -1765,8 +1793,24 @@ const KNOWN_INCIDENT_INSIGHTS: Record<string, Array<{ label: string; any: RegExp
     { label: 'non-deterministic result', any: [/flake/i, /flaky/i, /再現性/, /same test command can change/i] },
   ],
   'next-dev-port-collision': [
-    { label: 'port collision', any: [/EADDRINUSE/i, /address already in use/i, /port .*occupied/i, /occupied port/i] },
-    { label: 'environment not product failure', any: [/runtime process/i, /environment/i, /cache/i, /setup/i, /not .*application/i] },
+    { label: 'port collision', any: [/EADDRINUSE/i, /address already in use/i, /port .*occupied/i, /occupied port/i, /port .*grabbed/i, /port .*held/i, /3210/] },
+    {
+      label: 'environment not product failure',
+      any: [
+        /(?:environment|setup|runtime|local process|tmux|dev server).{0,160}(?:not|rather than|instead of|outside|separate from|misclassif).{0,120}(?:product|harness|application|code|fix|regression)/i,
+        /(?:product|harness|application|code|fix|regression).{0,160}(?:not|rather than|instead of|outside|misclassif).{0,160}(?:environment|setup|runtime|local process|preflight)/i,
+        /environment(\/| |-)setup state problem/i,
+        /process isolation/i,
+        /preflight cleanup/i,
+        /not (a )?(product|harness|application)/i,
+        /rather than (a )?(product|harness|application)/i,
+        /product or harness/i,
+        /not .*code/i,
+        /outside .*repo code/i,
+        /(?:環境|実行時|ローカル.*プロセス).{0,80}(?:製品|ハーネス|コード).{0,80}(?:ではない|でない|と異なる)/,
+        /(?:製品|ハーネス|コード).{0,80}(?:ではなく|でなく|と異なり).{0,80}(?:環境|実行時|ローカル.*プロセス)/,
+      ],
+    },
   ],
   'tasks-13-fixture-self-sufficiency': [
     { label: 'fixture-only path', any: [/自己充足/, /fixture/i, /self[- ]contained/i, /self[- ]sufficient/i] },
@@ -1783,7 +1827,7 @@ function groundingTokens(value: string): string[] {
   return [...new Set(raw.map((token) => token.toLowerCase()).filter((token) => !TOKEN_STOPLIST.has(token)))].slice(0, 80);
 }
 
-async function assertAnalysisGrounded(seedSessionIds: string[]): Promise<void> {
+export async function assertAnalysisGrounded(seedSessionIds: string[]): Promise<void> {
   const rows = await queryRows<{
     id: number;
     analyst: AnalystCandidate;
