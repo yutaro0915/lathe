@@ -114,3 +114,10 @@ verdict 送信後、`Accepted … Undo` バナーが同ビューに残り route 
 - V2 Backlog-centric: Findings 軸全体を「改善ワークリスト」として再構成。accepted = 状態付きカード。
 - V3 Evidence-interleaved: 各分析主張を、それを支える evidence（失敗 turn）の隣に密着配置。
 prototype は schema/UI を「仮」で実装してよい（throwaway branch）。dev サーバのみ（build 禁止 = hook）。
+
+### イテレーション3 で直すこと（iter2 への追修正、2026-06-13 画面レビュー）
+iter2 は「格段に良くなった」と承認方向。残りの磨き:
+1. **All タブに件数**を表示（Triage/Backlog と同様。常時でなくとも目安として要る）。
+2. **evidence の command/output ブロックの縦幅を中身に合わせる**: 固定 min-height をやめ、短い出力は短く描画（無駄な余白で場所を取らない）。
+3. **上部ヘッダの 3 段重ねを圧縮**: global nav 行 / 「Findings — All findings…」説明行 / 「FINDINGS … Triage Backlog All / SESSION」ツールバー行の 3 段を 2 段程度に集約し、縦スペースを findings 内容に回す（説明をツールバーへインライン化等）。
+4. **Dismiss** はソフトな「対応しない」（削除でない）として残してよい — 意図が伝わる表記/tooltip に。session フィルタの位置はやや見つけにくいが今回据え置き可。
