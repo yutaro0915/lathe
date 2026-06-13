@@ -111,14 +111,6 @@ function cleanString(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function chatAnalystFromEnv(): string | undefined {
-  if (process.env.LATHE_INTERNAL_AGENT !== 'chat') return undefined;
-  const provider = (process.env.LATHE_CHAT_PROVIDER || 'unknown')
-    .replace(/[^a-z0-9_-]+/gi, '-')
-    .toLowerCase() || 'unknown';
-  return `chat:${provider}`;
-}
-
 function cleanNumber(value: number | undefined, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   return Math.max(0, Math.trunc(value));
@@ -442,7 +434,7 @@ async function queryFindingById(id: number) {
 }
 
 export async function submitFinding(input: SubmitFindingInput) {
-  const analyst = chatAnalystFromEnv() ?? cleanString(input.analyst);
+  const analyst = cleanString(input.analyst);
   const title = cleanString(input.title);
   const body = cleanString(input.body);
   if (!analyst) throw new Error('finding.analyst is required');

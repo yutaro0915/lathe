@@ -12,8 +12,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="app">
           {/* The ONE persistent global bar — on every route. Sessions / Findings
-              / PR / Overview, current axis highlighted. (Chat is dormant — see
-              GlobalNav.) */}
+              / PR / Overview, current axis highlighted. */}
           <GlobalNav />
           {children}
         </div>
