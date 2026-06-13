@@ -80,6 +80,33 @@ verdict 送信後、`Accepted … Undo` バナーが同ビューに残り route 
   実装し、画面で比較 → 軽い合意 → 即実装 → 画面で壁打ち。テキスト往復で止めない（手探りプロダクトに
   適したダイナミック手法、2026-06-13 ユーザー方針）。
 
+## Prototype ラウンド1 の結論（2026-06-13 ユーザー画面レビュー）
+
+3 variant を別ポートで実機比較した結果:
+- **価値は実証**: 深掘り分析の中身が実用的（gh `--repo` 欠如 / git diff --check を編集禁止 raw/ に当て続け /
+  **rg・git diff の exit code 意味取り違えが複数 finding に通底** / sed cwd 取り違え / AivisSpeech 実行時状態
+  依存）。「深掘り + backlog」は作る価値あり、で確定。
+- **V3（Evidence-interleaved）却下**: INTENT/WHY/IMPACT を分散配置すると分かりにくい。**「まとめる」が大事**
+  = 分析は 1 つのグループブロックに保つ。
+- **V2（Backlog-centric）の tab 過剰**: Pending/Decided/Backlog の分割は価値不明（dismiss すると Decided に
+  出て Backlog に出ない差が分からない）。**tab を増やさずフィルタで十分**。status バッジが散らばり読みにくい。
+- **ベース採用 = V1（Analysis-forward）**: 分析を冒頭にまとめる方向。コントラスト高く読みやすい。
+
+### イテレーション2 で直すこと（V1 ベース）
+1. **分析はまとめる**（INTENT/WHY/IMPACT を 1 ブロック維持。V3 のような分散はしない）。
+2. **青背景を抑える**（analysis ブロックの青が過剰。observability-dense の配色配給制に寄せる）。
+3. **孤立行の解消**: analysis 直下に finding 本文が 1 行だけ浮く分割を整理（本文は分析と統合 or 適切な位置へ）。
+4. **重複導線の排除**: session タイトル押下 = VIEW SESSION ボタンと重複 → 片方に。VIEW TURN も同様に整理。
+5. **status を 1 箇所に集約**: list 行で ACCEPTED と OPEN 等のバッジが散在 → 1 箇所にまとめ、状態を読みやすく。
+6. **sticky verdict 廃止 → 3 枚パネル構成**: 現状の sticky な ACCEPTED バーがスクロール時に背後が透けて
+   気持ち悪い + 深いスクロール（上下往復）。**上ヘッダ固定 + 内側を独立スクロールの 3 パネル**
+   （例: ① findings list / ② 分析 + verdict + backlog 状態（固定ヘッダ下、それ自体は浅い）/ ③ evidence・
+   session 中身（独立スクロール））にして、上下往復スクロールを無くす。
+7. **tab 簡素化**: Pending/Decided/Backlog の 3 分割をやめる。案: **Triage(pending) / Backlog(accepted かつ
+   open、状態付き) / All**。rejected は All かフィルタで。「Decided」単独タブの混乱を排除。
+8. dual-operability は維持（状態遷移は人間ボタンと将来 agent tool が叩く同一 API、discuss/deepen with agent
+   プレースホルダ）。
+
 ## Prototype（承認前の価値実証 = 画面で見せる）
 
 実 finding #110-114 に深掘り分析を生成し、**3 つの提示方向**を別ポートで起動して比較する:
