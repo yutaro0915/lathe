@@ -50,6 +50,7 @@
     "coverage": "tsx scripts/coverage_check.ts",
     "verify:commits": "tsx scripts/verify-commits.ts",
     "verify:cost": "tsx scripts/verify-cost.ts",
+    "verify:cost:live": "tsx scripts/live.test.ts",
     "verify:subagents": "tsx scripts/verify-subagents.ts",
     "verify:notify": "tsx scripts/verify-ingest-notify.ts",
     "verify:phase2": "tsx scripts/verify-phase2.ts all",
