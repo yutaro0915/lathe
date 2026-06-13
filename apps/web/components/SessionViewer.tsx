@@ -1178,11 +1178,29 @@ export default function SessionViewer({
     setActiveTab("git");
   }
 
+  function sessionHref(id: string) {
+    return `/?session=${encodeURIComponent(id)}&tab=${activeTab}`;
+  }
+
   function switchSession(id: string) {
     if (id === currentId) return;
     // preserve the current tab so switching sessions from the sidebar keeps you
     // where you are (e.g. stay on the Git tab while comparing sessions).
-    router.push(`/?session=${encodeURIComponent(id)}&tab=${activeTab}`);
+    router.push(sessionHref(id));
+  }
+
+  // Warm the target session's route on hover/focus (issue #8). The viewer is a
+  // force-dynamic page, so the click still pays for the server render — but
+  // pre-issuing it on intent means the work is usually already in flight (and
+  // often done) by the time the user actually clicks, shrinking the felt wait.
+  // No-op for the session already open. Prefetch failures are non-fatal.
+  function prefetchSession(id: string) {
+    if (id === currentId) return;
+    try {
+      router.prefetch(sessionHref(id));
+    } catch {
+      /* prefetch is best-effort */
+    }
   }
 
   // Open one sub-agent run's detail tab and surface its summary on the right.
@@ -1605,6 +1623,8 @@ export default function SessionViewer({
                     data-session-id={s.id}
                     className={`session-item${active ? " active" : ""}`}
                     onClick={() => switchSession(s.id)}
+                    onMouseEnter={() => prefetchSession(s.id)}
+                    onFocus={() => prefetchSession(s.id)}
                     style={{ textAlign: "left", width: "100%", font: "inherit" }}
                   >
                     <div className="si-top">

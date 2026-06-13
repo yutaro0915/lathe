@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { closePool, queryOne, queryRows } from '../lib/postgres';
+import { isLiveTranscript } from './ingest/live';
 
 function claudeProjectDirs(): { full: string; mtime: number }[] {
   const base = path.join(os.homedir(), '.claude', 'projects');
@@ -153,9 +154,9 @@ async function main() {
   // A transcript modified very recently is "live" (the current session or a
   // concurrent cron/agent still appending to it). Its snapshot is inherently
   // behind, so it is reported but NOT counted as an omission — this keeps the
-  // check honest under concurrent writes. Historical sessions are checked strictly.
-  const LIVE_WINDOW_MS = 180_000;
-  const liveCutoff = Date.now() - LIVE_WINDOW_MS;
+  // check honest under concurrent writes. Historical sessions are checked
+  // strictly. The same decision is shared with verify-cost.ts (scripts/ingest/live.ts).
+  const now = Date.now();
 
   let ingested = 0,
     empty = 0,
@@ -176,7 +177,7 @@ async function main() {
       empty++;
       continue; // legitimately produces no session
     }
-    if (fs.statSync(file).mtimeMs > liveCutoff) {
+    if (isLiveTranscript(fs.statSync(file).mtimeMs, now)) {
       live++; // actively being written — snapshot is expected to lag
       problems.push(`LIVE ${sessionId.slice(0, 8)}: transcript still being written (not an omission)`);
       continue;
