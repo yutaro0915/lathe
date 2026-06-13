@@ -203,7 +203,8 @@ CREATE TABLE IF NOT EXISTS findings (
   harness_version_id TEXT REFERENCES harness_versions(id) ON DELETE SET NULL,
   project_id         TEXT NOT NULL REFERENCES projects(id),
   analysis           JSONB,
-  backlog_status     TEXT CHECK (backlog_status IS NULL OR backlog_status IN ('open', 'addressed', 'dismissed'))
+  backlog_status     TEXT CHECK (backlog_status IS NULL OR backlog_status IN ('open', 'addressed', 'dismissed')),
+  backlog_actor      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_findings_project_kind ON findings(project_id, kind);
 CREATE INDEX IF NOT EXISTS idx_findings_harness_version ON findings(harness_version_id);
@@ -213,9 +214,11 @@ CREATE INDEX IF NOT EXISTS idx_findings_harness_version ON findings(harness_vers
 -- existing findings table picks them up without a destructive migration.
 --   analysis        — analyst's WHY/INTENT/IMPACT deep-dive (nullable JSONB)
 --   backlog_status  — improvement-backlog lifecycle once accepted (nullable)
+--   backlog_actor   — actor that last declared the current backlog state
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS analysis JSONB;
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS backlog_status TEXT
   CHECK (backlog_status IS NULL OR backlog_status IN ('open', 'addressed', 'dismissed'));
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS backlog_actor TEXT;
 DO $$
 BEGIN
   IF NOT EXISTS (

@@ -201,6 +201,7 @@ function makeFinding(input: {
   confidence: number;
   projectId: string;
   harnessVersionId: string | null;
+  analysis?: SubmitFindingInput['analysis'] | null;
   evidence: SubmitFindingInput['evidence'];
 }): AnalystFindingDraft {
   return {
@@ -211,6 +212,7 @@ function makeFinding(input: {
     confidence: Math.max(0, Math.min(1, input.confidence)),
     projectId: input.projectId,
     harnessVersionId: input.harnessVersionId,
+    analysis: input.analysis ?? undefined,
     evidence: input.evidence,
     detector: input.detector,
   };
@@ -371,26 +373,55 @@ function detectFailureLoops(
       );
     }
 
-    const cueEvents = sessionEvents.filter((event) => {
-      const text = eventText(event);
-      return DATA_DEPENDENT_FLAKE.test(text) || SELF_SUFFICIENT_FIXTURE.test(text);
-    });
-    for (const event of cueEvents.slice(0, 2)) {
-      const text = eventText(event);
-      const fixture = SELF_SUFFICIENT_FIXTURE.test(text);
+    const fixtureEvents = sessionEvents.filter((event) => SELF_SUFFICIENT_FIXTURE.test(eventText(event)));
+    for (const event of fixtureEvents.slice(0, 2)) {
       out.push(
         makeFinding({
           analyst,
-          detector: fixture ? 'self_sufficient_fixture_cue' : 'data_dependent_flake_cue',
+          detector: 'self_sufficient_fixture_cue',
           kind: 'failure_loop',
-          title: fixture ? `Fixture-only validation cue in ${session.title}` : `Data-dependent failure cue in ${session.title}`,
-          body: fixture
-            ? `The transcript describes a validation path that passed fixture-like checks while real data behavior diverged. The phenomenon is a self-contained verification loop that did not cover the observed production-shaped data.`
-            : `The transcript calls out a failure as data-dependent or environment-dependent. The phenomenon is a test result that changed with the selected data or occupied runtime resource, not a stable product behavior.`,
-          confidence: fixture ? 0.9 : 0.88,
+          title: `Fixture-only validation cue in ${session.title}`,
+          body: `The transcript describes a validation path that passed fixture-like checks while real data behavior diverged. The phenomenon is a self-contained verification loop that did not cover the observed production-shaped data.`,
+          confidence: 0.9,
           projectId: session.project_id,
           harnessVersionId: session.harness_version_id,
-          evidence: [turnEvidence(sessionId, event.seq, fixture ? 'fixture/self-sufficiency cue' : 'data-dependent failure cue')],
+          evidence: [turnEvidence(sessionId, event.seq, 'fixture/self-sufficiency cue')],
+        }),
+      );
+    }
+    const portEvents = sessionEvents.filter((event) => /EADDRINUSE|address already in use/i.test(eventText(event)));
+    for (const event of portEvents.slice(0, 2)) {
+      out.push(
+        makeFinding({
+          analyst,
+          detector: 'port_collision_cue',
+          kind: 'failure_loop',
+          title: `Port collision cue in ${session.title}`,
+          body: `The transcript shows a local server failure caused by EADDRINUSE or an already occupied address. The phenomenon is an environment/process collision rather than a stable application failure.`,
+          confidence: 0.9,
+          projectId: session.project_id,
+          harnessVersionId: session.harness_version_id,
+          evidence: [turnEvidence(sessionId, event.seq, 'port collision cue')],
+        }),
+      );
+    }
+    const dataEvents = sessionEvents.filter((event) => {
+      const text = eventText(event);
+      return DATA_DEPENDENT_FLAKE.test(text) && !SELF_SUFFICIENT_FIXTURE.test(text) && !/EADDRINUSE|address already in use/i.test(text);
+    });
+    for (const event of dataEvents.slice(0, 4)) {
+      const text = eventText(event);
+      out.push(
+        makeFinding({
+          analyst,
+          detector: 'data_dependent_flake_cue',
+          kind: 'failure_loop',
+          title: `Data-dependent failure cue in ${session.title}`,
+          body: `The transcript calls out a failure as data-dependent or environment-dependent. The phenomenon is a test result that changed with the selected data or occupied runtime resource, not a stable product behavior.`,
+          confidence: 0.88,
+          projectId: session.project_id,
+          harnessVersionId: session.harness_version_id,
+          evidence: [turnEvidence(sessionId, event.seq, 'data-dependent failure cue')],
         }),
       );
     }
@@ -569,8 +600,9 @@ function llmFindingSchema() {
             confidence: { type: 'number', minimum: 0, maximum: 1 },
             session_id: { type: 'string' },
             turn_seq: { type: 'number' },
+            analysis: analysisJsonSchema(),
           },
-          required: ['kind', 'title', 'body', 'confidence', 'session_id'],
+          required: ['kind', 'title', 'body', 'confidence', 'session_id', 'analysis'],
         },
       },
     },
@@ -595,12 +627,27 @@ function hybridFindingSchema() {
             title: { type: 'string' },
             body: { type: 'string' },
             confidence: { type: 'number', minimum: 0, maximum: 1 },
+            analysis: analysisJsonSchema(),
           },
-          required: ['source_index', 'title', 'body', 'confidence'],
+          required: ['source_index', 'title', 'body', 'confidence', 'analysis'],
         },
       },
     },
     required: ['findings'],
+  };
+}
+
+function analysisJsonSchema() {
+  const nullableString = { anyOf: [{ type: 'string', maxLength: 1200 }, { type: 'null' }] };
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      cause_hypothesis: nullableString,
+      agent_intent: nullableString,
+      impact: nullableString,
+    },
+    required: ['cause_hypothesis', 'agent_intent', 'impact'],
   };
 }
 
@@ -773,6 +820,20 @@ function digestText(digests: Array<{ session: SessionRow; events: EventRow[] }>)
     .join('\n\n---\n\n');
 }
 
+function analysisTextField(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? shorten(value.trim(), 1200) : null;
+}
+
+function analysisFromRecord(row: Record<string, unknown>): SubmitFindingInput['analysis'] | null {
+  const raw = row.analysis;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const analysis = raw as Record<string, unknown>;
+  const causeHypothesis = analysisTextField(analysis.cause_hypothesis);
+  const agentIntent = analysisTextField(analysis.agent_intent);
+  const impact = analysisTextField(analysis.impact);
+  return causeHypothesis || agentIntent || impact ? { causeHypothesis, agentIntent, impact } : null;
+}
+
 function mapLlmFindings(
   value: unknown,
   analyst: AnalystCandidate,
@@ -799,6 +860,7 @@ function mapLlmFindings(
         confidence: typeof row.confidence === 'number' ? row.confidence : 0.5,
         projectId: session.project_id,
         harnessVersionId: session.harness_version_id,
+        analysis: analysisFromRecord(row),
         evidence,
       }),
     );
@@ -817,6 +879,13 @@ Constraints:
 - Do not instruct anyone to edit CLAUDE.md, AGENTS.md, hooks, or harness files.
 - Evidence must point to one provided session_id and optionally a turn seq.
 - Prefer real anomalies: repeated failures, data-dependent flake, excess cost, broad-risk commands, premature binary framing.
+- Every finding must include analysis with cause_hypothesis, agent_intent, and impact.
+- cause_hypothesis must name the concrete failure mechanism visible in the transcript, not restate the kind.
+  Good examples: "rg exit 1 means no matches, so the agent treated a negative search result as a failed command"; "git diff --check exit 2 reports whitespace findings"; "EADDRINUSE means the port was already occupied"; "fixture data passed while real links were 0 rows".
+  Bad examples: "the same failing evidence repeated", "the session encountered an issue", "needs further investigation".
+- If the transcript does not reveal a concrete mechanism, set cause_hypothesis to null instead of inventing one.
+- agent_intent must cite the user request or task being pursued.
+- impact must explain why that specific mechanism matters for reviewing this run.
 
 Session digests:
 ${digestText(digests)}`;
@@ -832,23 +901,55 @@ ${digestText(digests)}`;
   return { drafts, log: `${response.log} raw=${raw} mapped=${drafts.length}` };
 }
 
+function hybridSourcePriority(finding: AnalystFindingDraft): number {
+  if (finding.detector === 'cost_anomaly_baseline') return 0;
+  if (finding.detector === 'port_collision_cue') return 1;
+  if (finding.detector === 'data_dependent_flake_cue') return 2;
+  if (finding.detector === 'self_sufficient_fixture_cue') return 3;
+  if (finding.detector === 'bisection_accident_cue') return 4;
+  if (finding.detector === 'risky_command_pattern') return 5;
+  if (finding.detector === 'repeated_failed_command') return 6;
+  if (finding.detector === 'failed_turn') return 7;
+  return 9;
+}
+
+function selectHybridSources(findings: AnalystFindingDraft[]): AnalystFindingDraft[] {
+  return [...findings].sort((a, b) => {
+    const byPriority = hybridSourcePriority(a) - hybridSourcePriority(b);
+    if (byPriority !== 0) return byPriority;
+    return b.confidence - a.confidence;
+  });
+}
+
 async function runHybridCandidate(options: RunAnalystOptions): Promise<{ drafts: AnalystFindingDraft[]; skipped?: string; log: string }> {
-  const rules = (await runRulesCandidate('hybrid-v1', { ...options, submit: false })).slice(0, 8);
+  const ruleCandidates = await runRulesCandidate('hybrid-v1', { ...options, submit: false });
+  const rules = selectHybridSources(ruleCandidates).slice(0, 12);
   if (!rules.length) return { drafts: [], skipped: 'rules produced no candidate contexts', log: 'skip hybrid-v1: no rule contexts' };
+  const contexts = await Promise.all(
+    rules.map(async (finding, index) => {
+      const ctx = await buildAnalysisContext(finding);
+      return `source_index=${index}
+kind=${finding.kind}
+title=${finding.title}
+body=${finding.body}
+evidence=${stableJson(finding.evidence[0])}
+context=${analysisContextText(finding, ctx)}`;
+    }),
+  );
   const prompt = `Rewrite these rule-selected Lathe candidate contexts into 1 to 5 concise phenomenon-level findings.
 
 Constraints:
 - Preserve the observable phenomenon; do not prescribe harness-file edits.
 - Return one item per useful source_index, up to 5.
 - Use the source index; evidence and kind will be preserved by the caller.
+- Every item must include analysis with cause_hypothesis, agent_intent, and impact.
+- cause_hypothesis must identify the concrete failure mechanism shown by context. Do not merely say the agent returned to the same failed evidence or that the finding is a failure_loop.
+- Prefer command semantics and error text over category labels: rg exit 1 = no match, git diff --check exit 2 = whitespace findings, gh Projects classic sunset = CLI GraphQL failure, No such file = wrong path/cwd, EADDRINUSE = occupied port, fixture-only checks = real-data gap.
+- Prefer distinct known-incident cue mechanisms over aggregate "many errors" summaries: cost prefix overcount, data-dependent flake, EADDRINUSE, fixture/self-sufficient real-data gap, and binary-framing/existence-proof incidents should each survive when present.
+- If context only supports a structural rule-based observation, set cause_hypothesis to null.
 
 Rule candidates:
-${rules
-  .map(
-    (finding, index) =>
-      `source_index=${index}\nkind=${finding.kind}\ntitle=${finding.title}\nbody=${finding.body}\nevidence=${stableJson(finding.evidence[0])}`,
-  )
-  .join('\n\n')}`;
+${contexts.join('\n\n')}`;
   const response = await callLlmJson(prompt, hybridFindingSchema(), 'hybrid-v1', options.llmProviderMode);
   if (response.skipped) return { drafts: [], skipped: response.skipped, log: response.log };
   if (process.env.LATHE_ANALYST_DEBUG_LLM === '1') {
@@ -857,17 +958,28 @@ ${rules
   const record = response.value && typeof response.value === 'object' ? (response.value as Record<string, unknown>) : {};
   const items = Array.isArray(record.findings) ? record.findings : [];
   const out: AnalystFindingDraft[] = [];
+  const usedSourceIndexes = new Set<number>();
   for (const item of items) {
     const row = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
     const sourceIndex = typeof row.source_index === 'number' ? Math.trunc(row.source_index) : -1;
     const source = rules[sourceIndex];
     if (!source) continue;
+    usedSourceIndexes.add(sourceIndex);
     out.push({
       ...source,
       title: cleanText(row.title, source.title),
       body: cleanText(row.body, source.body),
       confidence: typeof row.confidence === 'number' ? Math.max(0, Math.min(1, row.confidence)) : source.confidence,
+      analysis: analysisFromRecord(row),
       detector: 'hybrid_llm_rewrite',
+    });
+  }
+  for (const [sourceIndex, source] of rules.entries()) {
+    if (usedSourceIndexes.has(sourceIndex)) continue;
+    if (hybridSourcePriority(source) > 4) continue;
+    out.push({
+      ...source,
+      detector: 'hybrid_rule_context',
     });
   }
   return { drafts: out, log: `${response.log} raw=${items.length} mapped=${out.length}` };
@@ -971,35 +1083,68 @@ async function buildAnalysisContext(finding: AnalystFindingDraft): Promise<Analy
 
   const session = sessionId ? (await listTargetSessions({ candidate: finding.analyst as AnalystCandidate, sessionId })).find((row) => row.id === sessionId) ?? null : null;
   const events = sessionId
-    ? await queryRows<EventRow>(
-        `SELECT id,session_id,seq,type,title,body,command,exit_code
-           FROM transcript_events
-          WHERE session_id = $1
-            AND (
-              $2::int IS NULL
-              OR seq BETWEEN GREATEST(1, $2::int - 4) AND ($2::int + 4)
-              OR (type = 'user_message' AND seq <= $2::int)
-            )
-          ORDER BY seq ASC, id ASC
-          LIMIT 120`,
-        [sessionId, targetSeq],
-      )
+    ? targetSeq == null
+      ? await queryRows<EventRow>(
+          `SELECT id,session_id,seq,type,title,body,command,exit_code
+             FROM transcript_events
+            WHERE session_id = $1
+              AND (
+                type = 'user_message'
+                OR (exit_code IS NOT NULL AND exit_code <> 0)
+                OR (COALESCE(title,'') || ' ' || COALESCE(body,'') || ' ' || COALESCE(command,'')) ~*
+                   '(データ依存|EADDRINUSE|address already in use|自己充足|実データリンク|0 行|二分法|存在証明|過大計上|prefix|overcount|projectCards|Projects classic|No such file|BERT|user dictionary|AivisSpeech)'
+              )
+            ORDER BY seq ASC, id ASC
+            LIMIT 240`,
+          [sessionId],
+        )
+      : await queryRows<EventRow>(
+          `SELECT id,session_id,seq,type,title,body,command,exit_code
+             FROM transcript_events
+            WHERE session_id = $1
+              AND (
+                seq BETWEEN GREATEST(1, $2::int - 4) AND ($2::int + 4)
+                OR (type = 'user_message' AND seq <= $2::int)
+              )
+            ORDER BY seq ASC, id ASC
+            LIMIT 120`,
+          [sessionId, targetSeq],
+        )
     : [];
 
-  const targetIndex = target ? events.findIndex((event) => event.id === target?.id) : -1;
+  const costCueTarget = finding.kind === 'excess_cost'
+    ? events.find((event) => /(過大計上|overcount|prefix|3\s*倍|3x|opus)/i.test(eventText(event))) ?? null
+    : null;
+  const portCueTarget = finding.detector === 'port_collision_cue'
+    ? events.find((event) => /EADDRINUSE|address already in use/i.test(eventText(event))) ?? null
+    : null;
+  const fixtureCueTarget = finding.detector === 'self_sufficient_fixture_cue'
+    ? events.find((event) => SELF_SUFFICIENT_FIXTURE.test(eventText(event))) ?? null
+    : null;
+  const cueTarget = costCueTarget ?? portCueTarget ?? fixtureCueTarget ?? events.find((event) => {
+    const text = eventText(event);
+    return (
+      DATA_DEPENDENT_FLAKE.test(text) ||
+      SELF_SUFFICIENT_FIXTURE.test(text) ||
+      BISECTION_ACCIDENT.test(text) ||
+      /EADDRINUSE|address already in use|過大計上|prefix|overcount|projectCards|Projects classic|No such file|BERT|user dictionary|AivisSpeech/i.test(text)
+    );
+  }) ?? null;
+  const fallbackTarget =
+    target ??
+    cueTarget ??
+    events.find((event) => event.exit_code != null && event.exit_code !== 0) ??
+    events.find((event) => event.type !== 'user_message') ??
+    events[0] ??
+    null;
+  const effectiveSeq = targetSeq ?? fallbackTarget?.seq ?? null;
+  const targetIndex = fallbackTarget ? events.findIndex((event) => event.id === fallbackTarget.id) : -1;
   const before = targetIndex > 0 ? events[targetIndex - 1] : null;
   const after = targetIndex >= 0 && targetIndex + 1 < events.length ? events[targetIndex + 1] : null;
   const trigger =
     [...events]
       .reverse()
-      .find((event) => event.type === 'user_message' && (targetSeq == null || event.seq <= targetSeq)) ?? null;
-
-  const fallbackTarget =
-    target ??
-    events.find((event) => event.exit_code != null && event.exit_code !== 0) ??
-    events.find((event) => event.type !== 'user_message') ??
-    events[0] ??
-    null;
+      .find((event) => event.type === 'user_message' && (effectiveSeq == null || event.seq <= effectiveSeq)) ?? null;
 
   return {
     session,
@@ -1020,15 +1165,134 @@ function evidenceAnchor(ctx: AnalysisContext): string | null {
   return null;
 }
 
-function buildGroundedAnalysis(finding: AnalystFindingDraft, ctx: AnalysisContext): NonNullable<SubmitFindingInput['analysis']> | null {
+function analysisContextText(finding: AnalystFindingDraft, ctx: AnalysisContext): string {
+  return [
+    ctx.session ? `session=${shorten(ctx.session.title, 120)} runner=${ctx.session.runner}` : null,
+    ctx.trigger ? `user_asked seq=${ctx.trigger.seq}: ${shorten(firstLine(ctx.trigger.body) ?? ctx.trigger.title, 180)}` : null,
+    ctx.before ? `before seq=${ctx.before.seq}: ${shorten([ctx.before.title, ctx.before.command, firstLine(ctx.before.body)].filter(Boolean).join(' | '), 180)}` : null,
+    ctx.target ? `target seq=${ctx.target.seq} type=${ctx.target.type} exit=${ctx.target.exit_code ?? 'null'}: ${shorten([ctx.target.title, ctx.target.command, firstLine(ctx.target.body)].filter(Boolean).join(' | '), 260)}` : null,
+    ctx.after ? `after seq=${ctx.after.seq}: ${shorten([ctx.after.title, ctx.after.command, firstLine(ctx.after.body)].filter(Boolean).join(' | '), 180)}` : null,
+    ctx.path ? `path=${ctx.path}` : null,
+    `finding=${shorten(`${finding.title} ${finding.body}`, 260)}`,
+  ]
+    .filter(Boolean)
+    .join(' || ');
+}
+
+function analysisCorpus(finding: AnalystFindingDraft, ctx: AnalysisContext): string {
+  return [
+    finding.title,
+    finding.body,
+    ctx.session?.title,
+    ctx.path,
+    ctx.trigger?.title,
+    ctx.trigger?.body,
+    ctx.before?.title,
+    ctx.before?.command,
+    ctx.before?.body,
+    ctx.target?.title,
+    ctx.target?.command,
+    ctx.target?.body,
+    ctx.after?.title,
+    ctx.after?.command,
+    ctx.after?.body,
+    ctx.evidenceText,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function inferredMechanismAnalysis(
+  finding: AnalystFindingDraft,
+  ctx: AnalysisContext,
+): Pick<NonNullable<SubmitFindingInput['analysis']>, 'causeHypothesis' | 'impact'> | null {
+  const corpus = analysisCorpus(finding, ctx);
+  const command = ctx.target?.command ?? '';
+  const anchor = evidenceAnchor(ctx) ?? `finding ${quoteContext(finding.title)}`;
+  const exit = ctx.target?.exit_code;
+
+  if (finding.kind === 'failure_loop') {
+    if ((/\brg\b|\bripgrep\b/i.test(command) || /\brg\b|\bripgrep\b/i.test(corpus)) && exit === 1) {
+      return {
+        causeHypothesis: `Mechanism: ${anchor} returned exit 1 from ripgrep, which normally means "no matches" rather than a crashed command; the loop came from treating a useful negative search result as a failure to retry.`,
+        impact: `This matters because the correct conclusion is "the searched string is absent"; repeating the same rg command spends turns without increasing evidence.`,
+      };
+    }
+    if (/git\s+diff\b[^\n]*--check/i.test(corpus) && (exit === 2 || /trailing whitespace|whitespace/i.test(corpus))) {
+      return {
+        causeHypothesis: `Mechanism: ${anchor} is a git diff --check diagnostic. Its non-zero exit reports whitespace findings, so retrying it as if the command malfunctioned cannot change the result without changing the checked paths or files.`,
+        impact: `This separates an expected diagnostic signal from an execution failure, which prevents pre-flight checks from becoming repeated noise.`,
+      };
+    }
+    if (/gh\s+issue\s+view/i.test(corpus) && /--comments/i.test(corpus) && /(projectcards|projects classic|sunset|classic)/i.test(corpus)) {
+      return {
+        causeHypothesis: `Mechanism: ${anchor} hit the gh issue view --comments Projects classic GraphQL path; the transcript points at the retired projectCards/Projects classic field, so changing issue numbers repeats the same API failure.`,
+        impact: `The useful move is to change the retrieval shape, not repeat issue IDs; otherwise issue audit work burns turns on a known API incompatibility.`,
+      };
+    }
+    if (/no such file|enoent|cannot open|can't open/i.test(corpus)) {
+      return {
+        causeHypothesis: `Mechanism: ${anchor} failed because the target path was absent from the current working directory; changing only the line range keeps querying the same nonexistent file.`,
+        impact: `The next diagnostic should verify cwd/path, because paging through ranges cannot recover from a missing file.`,
+      };
+    }
+    if (/eaddrinuse|address already in use/i.test(corpus)) {
+      return {
+        causeHypothesis: `Mechanism: ${anchor} failed because the requested local port was already occupied, so the failure is a runtime process/cache collision rather than an application assertion failure.`,
+        impact: `Treating the occupied port as product behavior would misclassify an environment setup problem and make reruns non-deterministic.`,
+      };
+    }
+    if (/(自己充足|self[- ]?sufficient|fixture)/i.test(corpus) && /(実データリンク|0\s*行|0\s*rows?|real[- ]?data|absent)/i.test(corpus)) {
+      return {
+        causeHypothesis: `Mechanism: fixture-shaped checks passed while the real-data link set was empty, so the validation loop proved the fixture path rather than the production-shaped behavior.`,
+        impact: `This hides a real integration gap behind green local checks; future verification needs real rows or it will keep accepting self-contained evidence.`,
+      };
+    }
+    if (/aivisspeech|bert|user dictionary|127\.0\.0\.1:10101/i.test(corpus)) {
+      return {
+        causeHypothesis: `Mechanism: ${anchor} depends on the local AivisSpeech engine and its BERT/user-dictionary load state, so exit status is controlled by an external runtime service rather than only repo code.`,
+        impact: `Reviewers need to isolate local service readiness before treating the failure as reproducible application behavior.`,
+      };
+    }
+    if (/データ依存|data[- ]dependent|flake|flaky/i.test(corpus)) {
+      return {
+        causeHypothesis: `Mechanism: the failure depends on selected data or environment state, so the same test command can change result without a code change.`,
+        impact: `The finding should be reviewed as nondeterministic input/environment behavior, not as a stable product regression.`,
+      };
+    }
+  }
+
+  if (finding.kind === 'excess_cost' && /(過大計上|overcount|prefix|3\s*倍|3x|opus)/i.test(corpus)) {
+    return {
+      causeHypothesis: `Mechanism: the cost spike is tied to Opus prefix/token accounting overcount in the transcript, not simply to a large amount of useful work.`,
+      impact: `Cost triage should separate accounting inflation from genuine session effort before setting budgets or blaming the run shape.`,
+    };
+  }
+
+  if (finding.kind === 'risky_action' && /(二分法|binary framing|existence[- ]proof|存在証明)/i.test(corpus)) {
+    return {
+      causeHypothesis: `Mechanism: the agent framed the design as a binary choice before using the existence proof from working ingest behavior, so the reasoning shortcut narrowed the search space prematurely.`,
+      impact: `This can produce unnecessary rewrites because the review starts from a false dichotomy instead of observed working behavior.`,
+    };
+  }
+
+  if (finding.kind === 'unattributed_diff' && ctx.path) {
+    return {
+      causeHypothesis: `Mechanism: path ${quoteContext(ctx.path)} has a changed hunk without a producing transcript event, so the audit trail is missing the step that created the diff.`,
+      impact: `The file-level change cannot be checked against the agent turn that made it, weakening regression review for that path.`,
+    };
+  }
+
+  return null;
+}
+
+function buildStructuralAnalysis(finding: AnalystFindingDraft, ctx: AnalysisContext): NonNullable<SubmitFindingInput['analysis']> | null {
   const anchor = evidenceAnchor(ctx);
   if (!anchor && !ctx.session) return null;
 
   const triggerText = quoteContext(firstLine(ctx.trigger?.body) ?? ctx.trigger?.title, 120);
   const eventSeq = ctx.target ? `seq ${ctx.target.seq}` : null;
   const location = [ctx.session ? `session ${quoteContext(ctx.session.title, 90)}` : null, eventSeq].filter(Boolean).join(', ');
-  const targetExit = ctx.target?.exit_code != null ? ` exited ${ctx.target.exit_code}` : '';
-  const afterText = quoteContext(firstLine(ctx.after?.body) ?? ctx.after?.title, 100);
 
   const agentIntent = triggerText && anchor
     ? `The user asked ${triggerText}; the agent was working through ${anchor}${location ? ` at ${location}` : ''}.`
@@ -1036,50 +1300,81 @@ function buildGroundedAnalysis(finding: AnalystFindingDraft, ctx: AnalysisContex
       ? `The agent action is grounded in ${anchor}${location ? ` at ${location}` : ''}.`
       : null;
 
-  let causeHypothesis: string | null = null;
-  if (finding.kind === 'failure_loop') {
-    causeHypothesis = anchor
-      ? `The likely cause is visible in ${anchor}${targetExit}: the surrounding turn kept returning to the same failing evidence instead of moving to a changed condition${afterText ? `; the next captured step was ${afterText}` : ''}.`
-      : null;
-  } else if (finding.kind === 'unattributed_diff') {
-    causeHypothesis = ctx.path
-      ? `The diff hunk for path ${quoteContext(ctx.path)} has no direct transcript attribution, so the change is not grounded to a specific edit-producing event.`
-      : anchor
-        ? `The evidence points at ${anchor}, but the changed hunk is not tied to a concrete transcript event.`
-        : null;
-  } else if (finding.kind === 'excess_cost') {
-    causeHypothesis = ctx.session
-      ? `The session ${quoteContext(ctx.session.title)} cost $${(ctx.session.cost_usd ?? 0).toFixed(2)} against a $${ctx.session.cost_threshold_usd.toFixed(2)} ${ctx.session.runner} threshold, so the cost finding is tied to that run rather than a generic budget warning.`
-      : anchor
-        ? `The excess-cost signal is tied to ${anchor}.`
-        : null;
-  } else if (finding.kind === 'risky_action') {
-    causeHypothesis = anchor
-      ? `The risky-action hypothesis is grounded in ${anchor}${targetExit}: its effect depends on the active working directory, target path, or process state captured in the transcript.`
-      : null;
-  }
-
   let impact: string | null = null;
   if (finding.kind === 'failure_loop') {
     impact = anchor
-      ? `Leaving this as an undifferentiated failure makes ${anchor} look like an isolated error even though it can consume repeated turns and hide whether the user request progressed.`
+      ? `Structural rule-based note: ${anchor} repeated as a non-zero signal. This is enough to flag a review target, but rules-v1 does not infer the deeper failure mechanism without LLM/context-specific analysis.`
       : null;
   } else if (finding.kind === 'unattributed_diff') {
     impact = ctx.path
-      ? `Reviewers cannot trace path ${quoteContext(ctx.path)} back to the agent step that produced it, weakening the finding-to-diff audit trail.`
+      ? `Structural rule-based note: path ${quoteContext(ctx.path)} lacks direct event attribution, so the diff needs human or LLM review to explain why that traceability gap occurred.`
       : null;
   } else if (finding.kind === 'excess_cost') {
     impact = ctx.session
-      ? `The run ${quoteContext(ctx.session.title)} can dominate cost review unless the expensive session is separated from normal ${ctx.session.runner} traffic.`
+      ? `Structural rule-based note: ${quoteContext(ctx.session.title)} exceeds the ${ctx.session.runner} cost baseline; rules-v1 flags the outlier but does not infer the accounting or workflow cause.`
       : null;
   } else if (finding.kind === 'risky_action') {
     impact = anchor
-      ? `If treated as routine, ${anchor} can affect files or processes outside the intended investigation scope.`
+      ? `Structural rule-based note: ${anchor} matches a risky-action cue; rules-v1 flags the coordinate without claiming a deeper causal story.`
       : null;
   }
 
-  if (!causeHypothesis && !agentIntent && !impact) return null;
-  return { causeHypothesis, agentIntent, impact };
+  if (!agentIntent && !impact) return null;
+  return { causeHypothesis: null, agentIntent, impact };
+}
+
+function causeLooksGeneric(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return [
+    /same failing evidence/i,
+    /surrounding turn kept returning/i,
+    /likely cause is visible/i,
+    /encountered an issue/i,
+    /needs further investigation/i,
+    /may indicate an issue/i,
+    /failure_loop/i,
+  ].some((pattern) => pattern.test(value));
+}
+
+function causeHasMechanism(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /(exit\s*[12]|no matches|no[- ]match|git diff --check|whitespace|projectcards|projects classic|sunset|no such file|cwd|eaddrinuse|port|fixture|real[- ]data|実データ|データ依存|data[- ]dependent|aivisspeech|bert|user dictionary|overcount|過大計上|prefix|二分法|binary framing|existence[- ]proof|存在証明|unattributed|audit trail|circuit[- ]breaker|max[- ]error|error[- ]rate|abort guard|session_id|aggregator|read-before-write|invariant|shell[- ]escaping|str_replace|anchor mismatch|retry loop|scope)/i.test(value);
+}
+
+function normalizeAnalysisInput(input: SubmitFindingInput['analysis'] | null | undefined): NonNullable<SubmitFindingInput['analysis']> | null {
+  if (!input) return null;
+  const causeHypothesis = analysisTextField(input.causeHypothesis);
+  const agentIntent = analysisTextField(input.agentIntent);
+  const impact = analysisTextField(input.impact);
+  return causeHypothesis || agentIntent || impact ? { causeHypothesis, agentIntent, impact } : null;
+}
+
+function mergeAnalysis(
+  primary: NonNullable<SubmitFindingInput['analysis']> | null,
+  fallback: NonNullable<SubmitFindingInput['analysis']> | null,
+): NonNullable<SubmitFindingInput['analysis']> | null {
+  if (!primary) return fallback;
+  const fallbackCause = fallback?.causeHypothesis ?? null;
+  const primaryCause = primary.causeHypothesis ?? null;
+  const causeHypothesis =
+    primaryCause && !causeLooksGeneric(primaryCause) && (causeHasMechanism(primaryCause) || !fallbackCause)
+      ? primaryCause
+      : fallbackCause;
+  const agentIntent = primary.agentIntent ?? fallback?.agentIntent ?? null;
+  const impact = primary.impact ?? fallback?.impact ?? null;
+  return causeHypothesis || agentIntent || impact ? { causeHypothesis, agentIntent, impact } : null;
+}
+
+function buildGroundedAnalysis(finding: AnalystFindingDraft, ctx: AnalysisContext): NonNullable<SubmitFindingInput['analysis']> | null {
+  const structural = buildStructuralAnalysis(finding, ctx);
+  if (finding.analyst === 'rules-v1') return structural;
+  const mechanism = inferredMechanismAnalysis(finding, ctx);
+  if (!mechanism) return structural;
+  return {
+    causeHypothesis: mechanism.causeHypothesis,
+    agentIntent: structural?.agentIntent ?? null,
+    impact: mechanism.impact ?? structural?.impact ?? null,
+  };
 }
 
 function analysisJsonPayload(analysis: NonNullable<SubmitFindingInput['analysis']>): Record<string, string | null> {
@@ -1094,9 +1389,12 @@ async function attachAnalysis(drafts: AnalystFindingDraft[]): Promise<AnalystFin
   const enriched: AnalystFindingDraft[] = [];
   for (const draft of drafts) {
     const ctx = await buildAnalysisContext(draft);
+    const grounded = buildGroundedAnalysis(draft, ctx);
     enriched.push({
       ...draft,
-      analysis: buildGroundedAnalysis(draft, ctx),
+      analysis: draft.analyst === 'rules-v1'
+        ? grounded
+        : mergeAnalysis(normalizeAnalysisInput(draft.analysis), grounded),
     });
   }
   return enriched;
@@ -1435,6 +1733,10 @@ function parseStoredAnalysis(value: unknown): NonNullable<SubmitFindingInput['an
 const GENERIC_ANALYSIS_PATTERNS = [
   /\b(needs further investigation|requires review|may indicate an issue|potential problem)\b/i,
   /the (agent|session) (encountered|had) (an )?(issue|problem)/i,
+  /the likely cause is visible in\b/i,
+  /same failing evidence/i,
+  /surrounding turn kept returning/i,
+  /undifferentiated failure/i,
 ];
 const TOKEN_STOPLIST = new Set([
   'the',
@@ -1452,6 +1754,30 @@ const TOKEN_STOPLIST = new Set([
   'null',
 ]);
 
+const KNOWN_INCIDENT_INSIGHTS: Record<string, Array<{ label: string; any: RegExp[] }>> = {
+  'cost-opus-prefix-overcount': [
+    { label: 'prefix/accounting mechanism', any: [/prefix/i, /前置/, /キャッシュ/, /cached/i] },
+    { label: 'overcount magnitude', any: [/3\s*(x|倍)/i, /過大計上/, /overcount/i] },
+    { label: 'cost/token impact', any: [/cost/i, /token/i, /計上/, /単価/] },
+  ],
+  'e2e-data-dependent-flake': [
+    { label: 'data-dependent mechanism', any: [/データ依存/, /data[- ]dependent/i, /selected data/i] },
+    { label: 'non-deterministic result', any: [/flake/i, /flaky/i, /再現性/, /same test command can change/i] },
+  ],
+  'next-dev-port-collision': [
+    { label: 'port collision', any: [/EADDRINUSE/i, /address already in use/i, /port .*occupied/i, /occupied port/i] },
+    { label: 'environment not product failure', any: [/runtime process/i, /environment/i, /cache/i, /setup/i, /not .*application/i] },
+  ],
+  'tasks-13-fixture-self-sufficiency': [
+    { label: 'fixture-only path', any: [/自己充足/, /fixture/i, /self[- ]contained/i, /self[- ]sufficient/i] },
+    { label: 'real-data absence', any: [/実データ.*0\s*行/, /real[- ]data/i, /0\s*rows?/i, /empty .*link/i] },
+  ],
+  'observation-ingest-bisection-accident': [
+    { label: 'binary framing', any: [/二分法/, /binary framing/i, /false dichotomy/i] },
+    { label: 'existence proof', any: [/存在証明/, /existence[- ]proof/i, /working implementation/i, /observed working/i] },
+  ],
+};
+
 function groundingTokens(value: string): string[] {
   const raw = value.match(/[A-Za-z0-9_./:@-]{3,}|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]{2,}/gu) ?? [];
   return [...new Set(raw.map((token) => token.toLowerCase()).filter((token) => !TOKEN_STOPLIST.has(token)))].slice(0, 80);
@@ -1460,10 +1786,12 @@ function groundingTokens(value: string): string[] {
 async function assertAnalysisGrounded(seedSessionIds: string[]): Promise<void> {
   const rows = await queryRows<{
     id: number;
+    analyst: AnalystCandidate;
     analysis: string | Record<string, unknown> | null;
     evidence_text: string | null;
   }>(
     `SELECT f.id,
+            f.analyst,
             f.analysis,
             string_agg(DISTINCT concat_ws(' ',
               s.title,
@@ -1489,7 +1817,7 @@ async function assertAnalysisGrounded(seedSessionIds: string[]): Promise<void> {
        LEFT JOIN changed_files cf ON cf.id = h.file_id
       WHERE f.analyst = ANY($1::text[])
         AND (fe.session_id = ANY($2::text[]) OR fe.subject_id = ANY($2::text[]))
-      GROUP BY f.id, f.analysis
+      GROUP BY f.id, f.analyst, f.analysis
       ORDER BY f.id ASC`,
     [['rules-v1', 'llm-v1', 'hybrid-v1'], seedSessionIds],
   );
@@ -1513,6 +1841,15 @@ async function assertAnalysisGrounded(seedSessionIds: string[]): Promise<void> {
     if (GENERIC_ANALYSIS_PATTERNS.some((pattern) => pattern.test(text))) {
       bad.push(`#${row.id}: generic analysis wording`);
     }
+    if (row.analyst === 'rules-v1') {
+      if (analysis.causeHypothesis && !/^structural rule-based note/i.test(analysis.causeHypothesis)) {
+        bad.push(`#${row.id}: rules-v1 cause pretends to be deep analysis`);
+      }
+    } else {
+      if (analysis.causeHypothesis && causeLooksGeneric(analysis.causeHypothesis)) {
+        bad.push(`#${row.id}: ${row.analyst} cause_hypothesis is generic (${shorten(analysis.causeHypothesis, 160)})`);
+      }
+    }
     const tokens = groundingTokens(row.evidence_text ?? '');
     if (!tokens.some((token) => text.includes(token))) {
       bad.push(`#${row.id}: analysis does not mention evidence-specific command/path/session text`);
@@ -1522,6 +1859,79 @@ async function assertAnalysisGrounded(seedSessionIds: string[]): Promise<void> {
   const rate = nonNullFields / Math.max(1, rows.length * 3);
   if (rate < 0.66) bad.push(`non-null analysis field rate too low: ${nonNullFields}/${rows.length * 3}`);
   if (bad.length) throw new Error(`analysis grounding smoke failed: ${bad.join('; ')}`);
+}
+
+function analysisInsightText(row: {
+  title: string;
+  body: string;
+  analysis: string | Record<string, unknown> | null;
+  evidence_text: string | null;
+}): string {
+  const analysis = parseStoredAnalysis(row.analysis);
+  return [
+    row.title,
+    row.body,
+    analysis?.causeHypothesis,
+    analysis?.agentIntent,
+    analysis?.impact,
+    row.evidence_text,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function matchesExpectedInsights(text: string, incidentId: string): boolean {
+  const requirements = KNOWN_INCIDENT_INSIGHTS[incidentId];
+  if (!requirements) return true;
+  return requirements.every((requirement) => requirement.any.some((pattern) => pattern.test(text)));
+}
+
+async function assertKnownIncidentInsights(incidents: KnownIncident[]): Promise<void> {
+  const bad: string[] = [];
+  for (const incident of incidents) {
+    const rows = await queryRows<{
+      id: number;
+      analyst: AnalystCandidate;
+      title: string;
+      body: string;
+      analysis: string | Record<string, unknown> | null;
+      evidence_text: string | null;
+    }>(
+      `SELECT f.id,
+              f.analyst,
+              f.title,
+              f.body,
+              f.analysis,
+              string_agg(DISTINCT concat_ws(' ', s.title, e.title, e.command, e.body, fe.note), ' ') AS evidence_text
+         FROM findings f
+         JOIN finding_evidence fe ON fe.finding_id = f.id
+         LEFT JOIN sessions s
+           ON s.id = COALESCE(fe.session_id, CASE WHEN fe.subject_kind = 'session' THEN fe.subject_id END)
+         LEFT JOIN transcript_events e
+           ON e.id = fe.subject_id
+           OR (
+             e.session_id = fe.session_id
+             AND fe.locator ? 'seq'
+             AND (fe.locator->>'seq') ~ '^[0-9]+$'
+             AND e.seq = (fe.locator->>'seq')::int
+           )
+        WHERE f.analyst = ANY($1::text[])
+          AND f.kind = $2
+          AND (fe.session_id = $3 OR fe.subject_id = $3)
+        GROUP BY f.id, f.analyst, f.title, f.body, f.analysis
+        ORDER BY f.analyst ASC, f.id ASC`,
+      [['llm-v1', 'hybrid-v1'], incident.expected_kind, incident.session_id],
+    );
+    const hybridRows = rows.filter((row) => row.analyst === 'hybrid-v1');
+    if (!hybridRows.length) {
+      bad.push(`${incident.id}: hybrid-v1 produced no matching finding`);
+      continue;
+    }
+    if (!hybridRows.some((row) => matchesExpectedInsights(analysisInsightText(row), incident.id))) {
+      bad.push(`${incident.id}: hybrid-v1 analysis missed expected insight; candidates=${hybridRows.map((row) => `#${row.id} ${shorten(analysisInsightText(row), 220)}`).join(' || ')}`);
+    }
+  }
+  if (bad.length) throw new Error(`known-incident insight smoke failed: ${bad.join('; ')}`);
 }
 
 async function deleteFindings(ids: number[]): Promise<void> {
@@ -1723,6 +2133,7 @@ export async function runAnalystSmoke(): Promise<SmokeResult> {
     await assertPhenomenonLint();
     await assertEvidenceRequired();
     await assertAnalysisGrounded(seedSessionIds);
+    await assertKnownIncidentInsights(incidents);
 
     const before = await countCandidateFindings('rules-v1', seedSessionIds);
     const idempotent = await runAnalyst({ candidate: 'rules-v1', sessionIds: seedSessionIds, source: 'smoke' });

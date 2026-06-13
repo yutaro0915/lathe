@@ -72,13 +72,14 @@ export async function POST(
     verdict === 'accept'
       ? await queryOne<{ backlog_status: string | null }>(
           `UPDATE findings
-              SET backlog_status = COALESCE(backlog_status, 'open')
+              SET backlog_status = COALESCE(backlog_status, 'open'),
+                  backlog_actor = COALESCE(backlog_actor, $2)
             WHERE id = $1
         RETURNING backlog_status`,
-          [findingId],
+          [findingId, actor],
         )
       : await queryOne<{ backlog_status: string | null }>(
-          `UPDATE findings SET backlog_status = NULL WHERE id = $1 RETURNING backlog_status`,
+          `UPDATE findings SET backlog_status = NULL, backlog_actor = NULL WHERE id = $1 RETURNING backlog_status`,
           [findingId],
         );
 
@@ -118,7 +119,7 @@ export async function DELETE(
     [findingId],
   );
   if (remaining.length === 0) {
-    await queryOne(`UPDATE findings SET backlog_status = NULL WHERE id = $1 RETURNING id`, [findingId]);
+    await queryOne(`UPDATE findings SET backlog_status = NULL, backlog_actor = NULL WHERE id = $1 RETURNING id`, [findingId]);
   }
   return NextResponse.json({ ok: true });
 }

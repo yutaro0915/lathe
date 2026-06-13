@@ -46,12 +46,13 @@ async function assertDepthColumns(label: string): Promise<void> {
        FROM information_schema.columns
       WHERE table_schema = current_schema()
         AND table_name = 'findings'
-        AND column_name IN ('analysis', 'backlog_status')
+        AND column_name IN ('analysis', 'backlog_status', 'backlog_actor')
       ORDER BY column_name`,
   );
   const found = new Map(columns.rows.map((row) => [row.column_name, row.data_type]));
   if (found.get('analysis') !== 'jsonb') fail(`${label}: findings.analysis is not jsonb`);
   if (found.get('backlog_status') !== 'text') fail(`${label}: findings.backlog_status is not text`);
+  if (found.get('backlog_actor') !== 'text') fail(`${label}: findings.backlog_actor is not text`);
 
   const checks = await getPool().query<{ n: number }>(
     `SELECT COUNT(*)::int AS n
@@ -302,11 +303,11 @@ async function verifyExistingFindingBackfill(): Promise<void> {
     await getPool().query(
       `INSERT INTO findings (
          id, created_at, analyst, kind, title, body, confidence, harness_version_id,
-         project_id, analysis, backlog_status
+         project_id, analysis, backlog_status, backlog_actor
        )
        OVERRIDING SYSTEM VALUE
        SELECT id, created_at, analyst, kind, title, body, confidence, harness_version_id,
-              project_id, NULL::jsonb AS analysis, backlog_status
+              project_id, NULL::jsonb AS analysis, backlog_status, NULL::text AS backlog_actor
          FROM public.findings
         WHERE id = ANY($1::int[])
        ON CONFLICT DO NOTHING`,
@@ -339,6 +340,29 @@ async function verifyExistingFindingBackfill(): Promise<void> {
       [ids],
     );
     if (missing.rows.length) fail(`existing finding backfill left analysis empty: ${missing.rows.map((row) => row.id).join(', ')}`);
+    const regenerated = await getPool().query<{ id: number; text: string }>(
+      `SELECT id,
+              concat_ws(' ',
+                analysis->>'cause_hypothesis',
+                analysis->>'agent_intent',
+                analysis->>'impact'
+              ) AS text
+         FROM findings
+        WHERE id = ANY($1::int[])
+        ORDER BY id ASC`,
+      [ids],
+    );
+    const required: Record<number, RegExp[]> = {
+      110: [/gh issue view/i, /Projects classic|projectCards|sunset/i],
+      111: [/git diff --check/i, /whitespace|exit 2/i],
+      112: [/No such file|cwd|path/i, /line range|nonexistent file|missing file/i],
+      113: [/rg|ripgrep/i, /exit 1/i, /no matches|no-match/i],
+      114: [/AivisSpeech|EADDRINUSE|occupied port|local port/i, /BERT|user-dictionary|runtime service|runtime process|environment setup/i],
+    };
+    for (const row of regenerated.rows) {
+      const misses = (required[row.id] ?? []).filter((pattern) => !pattern.test(row.text));
+      if (misses.length) fail(`existing finding #${row.id} backfill analysis is not deep enough: ${row.text}`);
+    }
   });
 }
 

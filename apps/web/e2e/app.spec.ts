@@ -685,7 +685,7 @@ async function seedFindingFixtures() {
          VALUES ($1,'accept','fixture pre-decided','user')`,
         [decidedFinding]
       );
-      await client.query("UPDATE findings SET backlog_status = 'open' WHERE id = $1", [decidedFinding]);
+      await client.query("UPDATE findings SET backlog_status = 'open', backlog_actor = 'user' WHERE id = $1", [decidedFinding]);
 
       const otherFinding = (
         await client.query<{ id: number }>(
@@ -789,6 +789,7 @@ async function findingState(title: string): Promise<{
   id: number;
   verdict: string | null;
   backlog_status: string | null;
+  backlog_actor: string | null;
   decided_by: string | null;
 }> {
   return withDb(async (client) => {
@@ -797,6 +798,7 @@ async function findingState(title: string): Promise<{
         id: number;
         verdict: string | null;
         backlog_status: string | null;
+        backlog_actor: string | null;
         decided_by: string | null;
       }>(
         `WITH latest_verdict AS (
@@ -804,7 +806,7 @@ async function findingState(title: string): Promise<{
              FROM finding_verdicts
             ORDER BY finding_id, decided_at DESC, id DESC
          )
-         SELECT f.id, lv.verdict, f.backlog_status, lv.decided_by
+         SELECT f.id, lv.verdict, f.backlog_status, f.backlog_actor, lv.decided_by
            FROM findings f
            LEFT JOIN latest_verdict lv ON lv.finding_id = f.id
           WHERE f.title = $1`,
@@ -825,7 +827,7 @@ async function resetFindingDecision(title: string): Promise<void> {
          AND findings.title = $1`,
       [title]
     );
-    await client.query("UPDATE findings SET backlog_status = NULL WHERE title = $1", [title]);
+    await client.query("UPDATE findings SET backlog_status = NULL, backlog_actor = NULL WHERE title = $1", [title]);
   });
 }
 
@@ -1813,6 +1815,7 @@ test.describe("Findings tab and verdict oracle", () => {
       });
       expect(denied.status()).toBe(409);
       await expect.poll(async () => (await findingState(title)).backlog_status).toBeNull();
+      await expect.poll(async () => (await findingState(title)).backlog_actor).toBeNull();
 
       const accepted = await page.request.post(`/api/findings/${initial.id}/verdict`, {
         data: { verdict: "accept", reason: "api transition", actor: "agent:e2e" },
@@ -1823,8 +1826,8 @@ test.describe("Findings tab and verdict oracle", () => {
       expect(acceptedPayload.backlogStatus).toBe("open");
       await expect.poll(async () => {
         const state = await findingState(title);
-        return `${state.verdict}:${state.backlog_status}:${state.decided_by}`;
-      }).toBe("accept:open:agent:e2e");
+        return `${state.verdict}:${state.backlog_status}:${state.backlog_actor}:${state.decided_by}`;
+      }).toBe("accept:open:agent:e2e:agent:e2e");
 
       const addressed = await page.request.post(`/api/findings/${initial.id}/backlog`, {
         data: { status: "addressed", actor: "agent:e2e" },
@@ -1835,7 +1838,10 @@ test.describe("Findings tab and verdict oracle", () => {
         backlogStatus: "addressed",
         actor: "agent:e2e",
       });
-      await expect.poll(async () => (await findingState(title)).backlog_status).toBe("addressed");
+      await expect.poll(async () => {
+        const state = await findingState(title);
+        return `${state.backlog_status}:${state.backlog_actor}`;
+      }).toBe("addressed:agent:e2e");
 
       const dismissed = await page.request.post(`/api/findings/${initial.id}/backlog`, {
         data: { status: "dismissed", actor: "human" },
@@ -1846,7 +1852,10 @@ test.describe("Findings tab and verdict oracle", () => {
         backlogStatus: "dismissed",
         actor: "human",
       });
-      await expect.poll(async () => (await findingState(title)).backlog_status).toBe("dismissed");
+      await expect.poll(async () => {
+        const state = await findingState(title);
+        return `${state.backlog_status}:${state.backlog_actor}`;
+      }).toBe("dismissed:human");
 
       const undo = await page.request.delete(
         `/api/findings/${initial.id}/verdict?verdictId=${acceptedPayload.verdict.id}`
@@ -1854,8 +1863,8 @@ test.describe("Findings tab and verdict oracle", () => {
       expect(undo.ok()).toBeTruthy();
       await expect.poll(async () => {
         const state = await findingState(title);
-        return `${state.verdict}:${state.backlog_status}`;
-      }).toBe("null:null");
+        return `${state.verdict}:${state.backlog_status}:${state.backlog_actor}`;
+      }).toBe("null:null:null");
     } finally {
       await resetFindingDecision(title);
     }

@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 // send actor:"agent:<name>". The transition itself is identical, so the two
 // operators are interchangeable at the data layer (the founding dual-operability
 // principle). Harness application stays manual / outside Lathe in P2 — this only
-// records WHICH backlog state the user (or agent) declared.
+// records WHICH backlog state the user (or agent) declared and persists the
+// latest actor next to the current backlog state.
 //
 // Allowed targets: 'open' | 'addressed' | 'dismissed'. The finding must already be
 // on the backlog (i.e. accepted, backlog_status NOT NULL) — you cannot move a
@@ -47,18 +48,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     );
   }
   // actor is recorded for the dual-operability audit trail. Default to "human"
-  // (the UI button); an agent tool passes "agent:<name>". Kept permissive here —
-  // the column for a full actor log is a later migration; for now we validate and
-  // echo it so the contract is stable.
+  // (the UI button); an agent tool passes "agent:<name>". This stores the latest
+  // actor for the current backlog state, not a full transition-history table.
   const actor =
     typeof body.actor === 'string' && body.actor.trim() ? body.actor.trim() : 'human';
 
   // Only transition a finding whose latest verdict is accept. backlog_status is
   // normally non-null after accept, but the verdict is the source of truth for
   // the "accepted only" gate.
-  const row = await queryOne<{ id: number; backlog_status: string }>(
+  const row = await queryOne<{ id: number; backlog_status: string; backlog_actor: string | null }>(
     `UPDATE findings
-        SET backlog_status = $2
+        SET backlog_status = $2,
+            backlog_actor = $3
       WHERE id = $1
         AND EXISTS (
           SELECT 1
@@ -71,8 +72,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             ) latest
            WHERE latest.verdict = 'accept'
         )
-    RETURNING id, backlog_status`,
-    [findingId, status],
+    RETURNING id, backlog_status, backlog_actor`,
+    [findingId, status, actor],
   );
   if (!row) {
     return NextResponse.json(
@@ -85,6 +86,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ok: true,
     findingId: row.id,
     backlogStatus: row.backlog_status as BacklogStatus,
-    actor,
+    actor: row.backlog_actor ?? actor,
   });
 }
