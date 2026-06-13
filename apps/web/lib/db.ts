@@ -1171,23 +1171,81 @@ export async function getSessionBundle(id: string): Promise<SessionBundle | unde
     getPullRequestsForSession(id),
   ]);
 
-  const eventFilePairs = await Promise.all(events.map(async (e) => [e.id, await getEventFiles(e.id)] as const));
-  const eventFiles: Record<string, EventFile[]> = {};
-  for (const [eventId, files] of eventFilePairs) {
-    if (files.length) eventFiles[eventId] = files;
-  }
+  // Batched fan-out (issue #8): one query each for event-files / hunks /
+  // attributions / linked-events, keyed by the event & file id lists. This
+  // replaces the previous per-event + per-file + per-hunk N+1 round-trips that
+  // dominated server render time for large sessions (a session with hundreds of
+  // events issued hundreds of getEventFiles queries alone). Output shape is
+  // identical to the per-item version, so the client is unaffected.
+  const eventIds = events.map((e) => e.id);
+  const fileIds = changedFiles.map((f) => f.id);
 
+  const [eventFileRows, hunkRows, attrRows, linkedRows] = await Promise.all([
+    eventIds.length
+      ? queryRows<EventFileRow>(
+          `SELECT * FROM event_files WHERE event_id = ANY($1::text[]) ORDER BY event_id ASC, id ASC`,
+          [eventIds],
+        )
+      : Promise.resolve([] as EventFileRow[]),
+    fileIds.length
+      ? queryRows<DiffHunkRow>(
+          `SELECT * FROM diff_hunks WHERE file_id = ANY($1::text[]) ORDER BY file_id ASC, seq ASC`,
+          [fileIds],
+        )
+      : Promise.resolve([] as DiffHunkRow[]),
+    fileIds.length
+      ? queryRows<AttributionRow & { file_id: string }>(
+          `SELECT a.*, h.file_id
+             FROM attributions a
+             JOIN diff_hunks h ON h.id = a.hunk_id
+            WHERE h.file_id = ANY($1::text[])
+            ORDER BY a.hunk_id ASC, a.id ASC`,
+          [fileIds],
+        )
+      : Promise.resolve([] as (AttributionRow & { file_id: string })[]),
+    fileIds.length
+      ? queryRows<LinkedEventRow & { __file_id: string }>(
+          `SELECT e.*,
+                  a.confidence AS __confidence,
+                  a.method     AS __method,
+                  a.hunk_id    AS __hunk_id,
+                  h.file_id    AS __file_id
+             FROM attributions a
+             JOIN diff_hunks   h ON h.id = a.hunk_id
+             JOIN transcript_events e ON e.id = a.event_id
+            WHERE h.file_id = ANY($1::text[])
+              AND a.event_id IS NOT NULL
+            ORDER BY h.file_id ASC, h.seq ASC, e.seq ASC`,
+          [fileIds],
+        )
+      : Promise.resolve([] as (LinkedEventRow & { __file_id: string })[]),
+  ]);
+
+  // event-files: keyed by eventId (only events that actually touched a file)
+  const eventFiles: Record<string, EventFile[]> = {};
+  for (const row of eventFileRows) (eventFiles[row.event_id] ??= []).push(toEventFile(row));
+
+  // hunks: keyed by fileId; every changed file gets an entry (possibly empty)
   const hunks: Record<string, DiffHunk[]> = {};
+  for (const f of changedFiles) hunks[f.id] = [];
+  for (const row of hunkRows) (hunks[row.file_id] ??= []).push(toHunk(row));
+
+  // attributions: keyed by hunkId; every hunk gets an entry (possibly empty),
+  // preserving the per-hunk array the previous per-hunk fetch produced.
   const attributions: Record<string, Attribution[]> = {};
+  for (const list of Object.values(hunks)) for (const h of list) attributions[h.id] = [];
+  for (const row of attrRows) (attributions[row.hunk_id] ??= []).push(toAttribution(row));
+
+  // linked events: keyed by fileId; every changed file gets an entry.
   const linkedEvents: Record<string, LinkedEvent[]> = {};
-  for (const f of changedFiles) {
-    const fh = await getHunks(f.id);
-    hunks[f.id] = fh;
-    const attrPairs = await Promise.all(
-      fh.map(async (h) => [h.id, await getAttributionsForHunk(h.id)] as const),
-    );
-    for (const [hunkId, attrs] of attrPairs) attributions[hunkId] = attrs;
-    linkedEvents[f.id] = await getLinkedEventsForFile(f.id);
+  for (const f of changedFiles) linkedEvents[f.id] = [];
+  for (const row of linkedRows) {
+    (linkedEvents[row.__file_id] ??= []).push({
+      event: toEvent(row),
+      confidence: row.__confidence as Confidence,
+      method: row.__method as AttributionMethod,
+      hunkId: row.__hunk_id,
+    });
   }
 
   return {
@@ -1231,17 +1289,31 @@ interface StatSessionRow {
   error_count: number;
 }
 
-export async function getStats(): Promise<StatsBundle> {
-  const sessions = await queryRows<StatSessionRow>(
-    'SELECT id, title, project, model, duration_ms, token_usage, cost_usd, error_count FROM sessions ORDER BY seq ASC',
-  );
-  const fileRows = await queryRows<{
-    session_id: string;
-    path: string;
-    additions: number;
-    deletions: number;
-  }>('SELECT session_id, path, additions, deletions FROM changed_files');
+// The per-project rollup ONLY — the just-the-projects slice of getStats, used by
+// the session viewer's sidebar project picker (issue #8). The full getStats also
+// runs 5 extra GROUP BY aggregates (skills / subagents / memory / hooks / models)
+// and a top-60 file-stat pass, none of which the viewer renders; computing those
+// on every cross-session navigation was wasted server work. This shares the same
+// sessions + changed_files scan and project-grouping logic, nothing more.
+export async function getProjectStats(): Promise<ProjectStat[]> {
+  const [sessions, fileRows] = await Promise.all([
+    queryRows<StatSessionRow>(
+      'SELECT id, title, project, model, duration_ms, token_usage, cost_usd, error_count FROM sessions ORDER BY seq ASC',
+    ),
+    queryRows<{ session_id: string; path: string; additions: number; deletions: number }>(
+      'SELECT session_id, path, additions, deletions FROM changed_files',
+    ),
+  ]);
+  return buildProjectStats(sessions, fileRows);
+}
 
+// Shared project-grouping pass (used by getProjectStats and getStats). For each
+// session, attribute it to the project that owns the most of its changed files,
+// then roll the session's metrics into that project bucket.
+function buildProjectStats(
+  sessions: StatSessionRow[],
+  fileRows: { session_id: string; path: string; additions: number; deletions: number }[],
+): ProjectStat[] {
   const filesBySession = new Map<string, { path: string; additions: number; deletions: number }[]>();
   for (const f of fileRows) {
     const arr = filesBySession.get(f.session_id);
@@ -1317,9 +1389,24 @@ export async function getStats(): Promise<StatsBundle> {
     p.sessionRefs.push(ref);
   }
 
-  const projectList = [...projects.values()].sort(
+  return [...projects.values()].sort(
     (a, b) => b.cost - a.cost || b.tokens - a.tokens || b.sessions - a.sessions,
   );
+}
+
+export async function getStats(): Promise<StatsBundle> {
+  const sessions = await queryRows<StatSessionRow>(
+    'SELECT id, title, project, model, duration_ms, token_usage, cost_usd, error_count FROM sessions ORDER BY seq ASC',
+  );
+  const fileRows = await queryRows<{
+    session_id: string;
+    path: string;
+    additions: number;
+    deletions: number;
+  }>('SELECT session_id, path, additions, deletions FROM changed_files');
+
+  // per-project rollup (shared with getProjectStats — issue #8)
+  const projectList = buildProjectStats(sessions, fileRows);
 
   const refById = new Map<string, ProjectSessionRef>();
   const projBySession = new Map<string, string>();
