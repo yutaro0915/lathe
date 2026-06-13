@@ -228,6 +228,11 @@ CREATE TABLE IF NOT EXISTS finding_verdicts (
 );
 CREATE INDEX IF NOT EXISTS idx_finding_verdicts_finding ON finding_verdicts(finding_id);
 
+-- chat_threads / chat_messages: the agent chat UI was removed (durable data
+-- layer retained). No application code reads or writes these tables; the
+-- definitions are kept on purpose so a future chat re-implementation does not
+-- require a migration to recreate them. Dropping them now would be a needless
+-- migration risk. Do not wire app code to these without re-introducing chat.
 CREATE TABLE IF NOT EXISTS chat_threads (
   id         TEXT PRIMARY KEY,
   project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,

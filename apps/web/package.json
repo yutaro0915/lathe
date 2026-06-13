@@ -63,8 +63,6 @@
     "verify:phase2:persistence": "tsx scripts/verify-phase2.ts persistence",
     "verify:phase2:evidence": "tsx scripts/verify-phase2.ts evidence",
     "verify:mcp": "tsx ../../packages/mcp/src/verify.ts all",
-    "verify:chat": "tsx scripts/verify-chat.ts all",
-    "smoke:chat:provider": "tsx scripts/smoke-chat-provider.ts",
     "verify:pr": "tsx scripts/verify-pr.ts",
     "verify:pr-idempotency": "tsx scripts/verify-pr-idempotency.ts",
     "verify:pr-etag": "tsx scripts/verify-pr-etag.ts",

@@ -6,10 +6,6 @@
 // under this bar; there is no screen reachable only by some other means, and the
 // current location is always highlighted so "where am I / how do I get back" is
 // always answerable. The four axes are Sessions / Findings / PR / Overview.
-//
-// Chat is deliberately ABSENT (ROADMAP open question #16): it is conceived as a
-// layer over every screen, not a screen of its own, so it does not get a bar
-// item. The /chat route still exists but is dormant — nothing here links to it.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";

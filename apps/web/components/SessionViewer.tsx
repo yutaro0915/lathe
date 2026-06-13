@@ -1314,8 +1314,6 @@ export default function SessionViewer({
               )}
             </button>
           )}
-          {/* "Discuss" (chat) removed — chat is dormant (ROADMAP #16); the /chat
-              route stays but has no nav entry point. */}
           <span className="sessbar-jumps">
             {highestTurnJump && (
               <button
@@ -1433,7 +1431,6 @@ export default function SessionViewer({
             )}
           </button>
         ))}
-        {/* Chat tab removed — chat is dormant (ROADMAP #16). */}
         <span className="tabs-spacer" />
         <span className="tabs-tool">
           <span className="sort-select">{visibleEvents.length} shown</span>
