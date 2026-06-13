@@ -88,7 +88,21 @@ const FINDING_FIXTURE = {
     // group card with one step row per seq (requirement B). Mirrors real finding
     // #113 (ripgrep, 4 same-turn evidence).
     grouped: "Fixture repeated same-turn pending",
+    // a finding whose evidence excerpt is ONE very long, unbroken single-line
+    // command (no wrap opportunities). It must be absorbed by per-pane horizontal
+    // scroll, never widen the grid / page, never silently truncate (the
+    // left-blank / horizontal-shift regression). Mirrors real finding #113's
+    // 140-char `rg -n …` one-liner, exaggerated.
+    longLine: "Fixture long no-wrap command pending",
   },
+  // a single-line command with NO break opportunities (one unbroken token chain)
+  // — the worst case for layout: must scroll inside the excerpt pane, not wrap or
+  // overflow the page.
+  longCommand:
+    "rg -n '5650964812|D2nyYVK3zbYKii' " +
+    "projects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/" +
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/" +
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.md",
 };
 
 const CHAT_FIXTURE = {
@@ -458,12 +472,15 @@ async function seedFindingFixtures() {
          VALUES
           ($1,$2,1,'00:00:00','user_message','user','Fixture prompt','Please inspect the fixture.',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
           ($3,$2,2,'00:00:01','bash','assistant','Fixture failed command','exit 1 from fixture',NULL,'pnpm test',1,1200,80,NULL,NULL,NULL),
-          ($4,$2,3,'00:00:03','assistant_message','assistant','Fixture summary','The fixture command failed once.',NULL,NULL,NULL,300,20,NULL,NULL,NULL)`,
+          ($4,$2,3,'00:00:03','assistant_message','assistant','Fixture summary','The fixture command failed once.',NULL,NULL,NULL,300,20,NULL,NULL,NULL),
+          ($5,$2,4,'00:00:04','bash','assistant','Fixture long command','exit 1 from a long one-liner',NULL,$6,1,900,40,NULL,NULL,NULL)`,
         [
           `${FINDING_FIXTURE.sessionId}-event-1`,
           FINDING_FIXTURE.sessionId,
           FINDING_FIXTURE.eventId,
           `${FINDING_FIXTURE.sessionId}-event-3`,
+          `${FINDING_FIXTURE.sessionId}-event-4`,
+          FINDING_FIXTURE.longCommand,
         ]
       );
       await client.query(
@@ -566,6 +583,23 @@ async function seedFindingFixtures() {
           JSON.stringify({ seq: 2 }),
           JSON.stringify({ seq: 3 }),
         ]
+      );
+
+      // a finding whose single evidence excerpt is the long one-liner (seq 4).
+      // The excerpt command must scroll horizontally inside its pane — it must
+      // never widen the detail grid or push the page (left-blank regression).
+      const longLineFinding = (
+        await client.query<{ id: number }>(
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
+           VALUES ('hybrid-v1','failure_loop',$1,'Repeated long single-line command.',0.6,$2,$3)
+           RETURNING id`,
+          [FINDING_FIXTURE.titles.longLine, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
+         VALUES ($1,'turn',$2,$3::jsonb,NULL,'long one-liner step')`,
+        [longLineFinding, FINDING_FIXTURE.sessionId, JSON.stringify({ seq: 4 })]
       );
 
       const decidedFinding = (
@@ -1916,7 +1950,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
   }) => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     // the grouped finding folds two same-turn steps into one card; the fixture
-    // session's turn 1 has 3 top-level events (seqs 1/2/3).
+    // session's turn 1 has 4 top-level events (seqs 1/2/3/4).
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.grouped }).click();
     const card = page.locator(".finding-detail[data-detail-finding-id] .finding-evidence-card").first();
 
@@ -1927,9 +1961,9 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
 
     const transcript = card.locator(".finding-turn-transcript");
     await expect(transcript).toBeVisible();
-    // the three turn-1 events render as compact rows…
+    // the four turn-1 events render as compact rows…
     const rows = transcript.locator(".finding-turn-event");
-    await expect(rows).toHaveCount(3);
+    await expect(rows).toHaveCount(4);
     // …the failing bash step (seq 2) shows its command + non-zero exit and is
     // flagged as this finding's own evidence.
     const evRow = transcript.locator('.finding-turn-event[data-seq="2"]');
@@ -1998,6 +2032,78 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     // and selection is client-side: the URL gains ?finding=<id> via replaceState
     // (no full navigation), so the detail swaps instantly.
     await expect(page).toHaveURL(/finding=/);
+  });
+
+  // ④b regression for the Findings left-blank / horizontal-shift bug: on the
+  // cross-session AXIS, selecting EACH finding in turn must keep the master-detail
+  // grid pinned to the same left edge AND must never make the page scroll
+  // horizontally — including the finding whose evidence is a long no-wrap command.
+  // A long one-liner is absorbed by per-pane horizontal scroll (design rule: 無言
+  // の切り捨て禁止 / ページ幅オーバーフロー構造防止), not by widening the grid.
+  test("selecting any finding keeps the grid left edge fixed and never scrolls the page (left-blank bug)", async ({
+    page,
+  }) => {
+    await page.goto("/findings");
+    await page.locator(".findings-filter button", { hasText: "All" }).click();
+    const rows = page.locator(".finding-row");
+    const count = await rows.count();
+    expect(count).toBeGreaterThan(1);
+
+    const gridLeft = () =>
+      page.locator(".findings-md-grid").evaluate((el) => el.getBoundingClientRect().left);
+    const pageOverflow = () =>
+      page.evaluate(() => {
+        const se = document.scrollingElement!;
+        return se.scrollWidth - se.clientWidth;
+      });
+
+    let firstLeft: number | null = null;
+    for (let i = 0; i < count; i++) {
+      await rows.nth(i).click();
+      await expect(page.locator(".finding-detail[data-detail-finding-id]")).toBeVisible();
+      const left = await gridLeft();
+      if (firstLeft === null) firstLeft = left;
+      // the grid's left edge is identical for every selection (no rightward shift,
+      // no left blank gap opening up).
+      expect(Math.abs(left - firstLeft)).toBeLessThanOrEqual(1);
+      // and the page itself never gains a horizontal scrollbar.
+      expect(await pageOverflow()).toBeLessThanOrEqual(1);
+    }
+  });
+
+  // ④c the long no-wrap command is absorbed by per-pane horizontal scroll: the
+  // excerpt pane scrolls (scrollWidth > clientWidth) but the page does not, and
+  // the line is NOT wrapped (white-space:pre) — visible, not silently truncated.
+  test("a long no-wrap command scrolls inside its excerpt pane, not the page", async ({
+    page,
+  }) => {
+    await page.goto("/findings");
+    await page.locator(".findings-filter button", { hasText: "All" }).click();
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.longLine }).click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    await expect(detail).toBeVisible();
+    const pre = detail.locator(".finding-excerpt-pre").first();
+    await expect(pre).toBeVisible();
+
+    const m = await pre.evaluate((el) => {
+      const se = document.scrollingElement!;
+      const cs = getComputedStyle(el);
+      return {
+        whiteSpace: cs.whiteSpace,
+        overflowX: cs.overflowX,
+        scrollW: el.scrollWidth,
+        clientW: el.clientWidth,
+        pageScrollW: se.scrollWidth,
+        pageClientW: se.clientWidth,
+      };
+    });
+    // the one-liner is NOT wrapped…
+    expect(m.whiteSpace).toBe("pre");
+    // …it scrolls horizontally inside its own pane…
+    expect(m.overflowX).toBe("auto");
+    expect(m.scrollW).toBeGreaterThan(m.clientW);
+    // …and that scroll never escapes to widen the page.
+    expect(m.pageScrollW).toBeLessThanOrEqual(m.pageClientW + 1);
   });
 
   // ⑥ evidence group header carries BOTH always-visible actions (requirement C):
