@@ -570,7 +570,13 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 /* the Findings AXIS screen (route /findings) reuses the same chrome bands */
 .findings-axis-page{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;}
 .findings-axis-shell{flex:1 1 auto;min-height:0;}
-.findings-axis-main{min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+/* the axis shell is a SINGLE-column grid (FindingsAxisView overrides
+   grid-template-columns to minmax(0,1fr)), but this element also carries the
+   .main class whose `.main{grid-column:2}` would pin it to a non-existent 2nd
+   track — creating a phantom empty first column (the ~280–650px left blank /
+   rightward shift, intermittently sized by the selected finding's content).
+   Force it back into column 1 so the findings master-detail starts flush left. */
+.findings-axis-main{grid-column:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
 .findings-axis-main .findings-tab{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
 .finding-verdict-toast{display:flex;align-items:center;gap:8px;padding:7px 8px;margin:0 0 8px;
   border:1px solid var(--border);background:var(--panel-hover);font-size:11.5px;color:var(--text-soft);}
@@ -647,7 +653,7 @@ button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--b
 .finding-detail-section{display:flex;flex-direction:column;gap:8px;}
 .finding-section-label{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
   color:var(--muted);}
-.finding-evidence-cards{display:flex;flex-direction:column;gap:10px;}
+.finding-evidence-cards{display:flex;flex-direction:column;gap:10px;min-width:0;}
 .finding-evidence-card{border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);
   padding:8px 9px;display:flex;flex-direction:column;gap:6px;min-width:0;}
 .finding-evidence-card.stale{border-style:dashed;}
@@ -684,7 +690,13 @@ button.finding-evidence-jump:hover{color:var(--text-soft);border-color:var(--bor
   text-transform:uppercase;letter-spacing:.04em;font-variant-numeric:tabular-nums;}
 .finding-excerpt-meta .ok{color:var(--green-text);}
 .finding-excerpt-meta .err{color:var(--red-text);}
-.finding-excerpt-pre{margin:0;max-height:160px;overflow:auto;font-size:11px;}
+/* evidence command/output: bounded box that scrolls in BOTH axes inside the
+   detail pane (design rule: long lines get per-pane horizontal scroll, no wrap,
+   no silent truncation). The selector is intentionally specific enough to beat
+   .code-block.cmd / .code-block.output below — white-space:pre + overflow:auto
+   make a long one-liner scroll horizontally instead of wrapping; the pane's
+   min-width:0 keeps the scroll inside the box so it can never widen the page. */
+.finding-excerpt pre.finding-excerpt-pre{overflow:auto;white-space:pre;word-break:normal;}
 .finding-excerpt-empty{font-size:11px;color:var(--muted-2);}
 /* grouped evidence: one card per (session, turn). The group header carries the
    turn position once and a mono ×N repeats count (neutral — no saturation, per
@@ -773,7 +785,13 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .finding-turn-event.err .finding-turn-event-type{color:var(--red-text);}
 .finding-turn-event-body{min-width:0;font-size:11px;line-height:1.4;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
-.finding-turn-event-cmd{font-size:11px;color:var(--text);font-variant-numeric:tabular-nums;}
+/* a mono COMMAND row must never be silently truncated (design rule: no silent
+   clipping). It scrolls horizontally inside its own grid cell — the minmax(0,1fr)
+   + min-width:0 cell bounds the scroll so a long one-liner can't widen the page. */
+.finding-turn-event-body:has(.finding-turn-event-cmd){overflow-x:auto;overflow-y:hidden;
+  text-overflow:clip;}
+.finding-turn-event-cmd{font-size:11px;color:var(--text);font-variant-numeric:tabular-nums;
+  white-space:pre;}
 .finding-turn-event-text{color:var(--text-soft);}
 .finding-turn-event-exit{font-size:10px;font-variant-numeric:tabular-nums;}
 .finding-turn-event-exit.ok{color:var(--green-text);}
