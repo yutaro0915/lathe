@@ -37,6 +37,8 @@ export interface BuiltSession {
   cost_usd: number | null;
   summary: string | null;
   harness_version_id: string | null;
+  parent_session_id: string | null;
+  spawned_by_seq: number | null;
   seq: number;
   _startMs?: number;
 }

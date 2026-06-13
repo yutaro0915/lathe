@@ -104,6 +104,73 @@ async function prepareHarnessVersions(
   return built.filter((item) => !!item.session.harness_version_id).length;
 }
 
+function spawnAgentIdFromMeta(meta: string | null): string | null {
+  if (!meta) return null;
+  try {
+    const parsed = JSON.parse(meta);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) && typeof parsed.agent_id === 'string'
+      ? parsed.agent_id
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function linkSubagentSessions(client: PoolClient, built: Built[]): Promise<void> {
+  const spawnLinks: Array<{
+    eventId: string;
+    parentSessionId: string;
+    childSessionId: string;
+    spawnedBySeq: number;
+  }> = [];
+  for (const b of built) {
+    for (const e of b.events) {
+      if (e.type !== 'subagent' || e.parent_id) continue;
+      const childSessionId = spawnAgentIdFromMeta(e.meta);
+      if (!childSessionId || childSessionId === b.session.id) continue;
+      spawnLinks.push({
+        eventId: e.id,
+        parentSessionId: b.session.id,
+        childSessionId,
+        spawnedBySeq: e.seq,
+      });
+    }
+  }
+  if (!spawnLinks.length) return;
+
+  const childIds = [...new Set(spawnLinks.map((link) => link.childSessionId))];
+  const existingRows = await client.query<{ id: string }>(
+    'SELECT id FROM sessions WHERE id = ANY($1::text[])',
+    [childIds],
+  );
+  const existingChildIds = new Set(existingRows.rows.map((row) => row.id));
+
+  for (const link of spawnLinks) {
+    if (!existingChildIds.has(link.childSessionId)) {
+      await client.query(
+        `UPDATE transcript_events
+            SET meta = CASE WHEN meta IS NULL THEN NULL ELSE meta - 'child_session_id' END
+          WHERE id = $1`,
+        [link.eventId],
+      );
+      continue;
+    }
+    await client.query(
+      `UPDATE sessions
+          SET parent_session_id = $1,
+              spawned_by_seq = $2
+        WHERE id = $3`,
+      [link.parentSessionId, link.spawnedBySeq, link.childSessionId],
+    );
+    await client.query(
+      `UPDATE transcript_events
+          SET meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('child_session_id', $1::text)
+        WHERE id = $2`,
+      [link.childSessionId, link.eventId],
+    );
+  }
+}
+
 async function insertBuiltRows(
   client: PoolClient,
   built: Built[],
@@ -149,8 +216,8 @@ async function insertBuiltRows(
     counts.commitShaMisses += b.commitShaMissCount;
 
     await client.query(
-      `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,harness_version_id,seq)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
+      `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,harness_version_id,parent_session_id,spawned_by_seq,seq)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NULL,NULL,$25)`,
       cleanParams([
         s.id,
         s.projectId,
@@ -275,6 +342,8 @@ async function insertBuiltRows(
       counts.annotations++;
     }
   }
+
+  await linkSubagentSessions(client, built);
 
   return counts;
 }

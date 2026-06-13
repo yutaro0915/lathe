@@ -207,6 +207,9 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .filter-row .flabel{display:block;font-size:10px;color:var(--muted-2);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em;}
 .filter-row .control,.filters select,.filters .daterange{width:100%;height:26px;padding:0 8px;border:1px solid var(--border-strong);
   border-radius:var(--radius-sm);background:var(--panel);color:var(--text);font-size:11.5px;display:flex;align-items:center;gap:6px;}
+.sub-session-toggle{height:24px;display:flex;align-items:center;gap:7px;color:var(--text-soft);font-size:11.5px;cursor:pointer;}
+.sub-session-toggle input{width:13px;height:13px;margin:0;accent-color:var(--accent);}
+.sub-session-badge{height:17px;padding:0 5px;font-size:9.5px;letter-spacing:.03em;}
 .filters .daterange{justify-content:space-between;font-family:var(--mono);font-size:11px;}
 .filters .daterange .arrow{color:var(--muted-2);} .select-caret{color:var(--muted-2);margin-left:auto;}
 .session-head{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 5px;border-top:1px solid var(--border-faint);margin-top:4px;}
@@ -898,6 +901,7 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
   white-space:nowrap;padding-top:2px;font-variant-numeric:tabular-nums;}
 .sa-card-meta .dur{color:var(--muted);} .sa-card-meta .tok{color:var(--muted-2);}
 .sa-go{color:var(--accent);font-weight:600;}
+.sa-capture-note{color:var(--muted);font-family:var(--sans);font-size:11.5px;white-space:normal;}
 /* model the sub-agent ran on (compact mono chip) + its run cost */
 .sa-model{font-family:var(--mono);font-size:10px;color:var(--text-soft);background:var(--bg-sunken);
   border:1px solid var(--border);border-radius:3px;padding:1px 5px;white-space:nowrap;flex:0 0 auto;}
@@ -912,6 +916,9 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
   border:1px solid var(--border);border-radius:5px;padding:8px 10px;cursor:pointer;
   overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;}
 .sa-summary-body:hover{border-color:var(--border-strong);}
+.sa-linked-session{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 10px;border:1px solid var(--border);
+  border-radius:var(--radius-sm);background:var(--panel-2);}
+.sa-linked-title{font-size:12px;font-weight:650;color:var(--text);min-width:180px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* "open in Subagents tab" jump on a launcher row in the main transcript */
 .sa-jump{border:0;background:transparent;color:var(--accent);font-size:10.5px;font-weight:600;cursor:pointer;

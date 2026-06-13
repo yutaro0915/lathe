@@ -585,6 +585,8 @@ export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Bu
     cost_usd: costPriced ? costUsd : null, // priced from real tokens (db/pricing.json); null if model unknown
     summary: `${gitBranch ? gitBranch + ' · ' : ''}${version ? 'cc ' + version : ''}`.trim() || null,
     harness_version_id: null,
+    parent_session_id: null,
+    spawned_by_seq: null,
     seq: 0,
     _startMs: firstTs ? new Date(firstTs).getTime() : 0,
   };

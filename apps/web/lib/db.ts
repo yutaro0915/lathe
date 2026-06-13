@@ -72,6 +72,9 @@ interface SessionRow {
   cost_anomaly_group_size: number;
   cost_anomaly_group_median_usd: number | null;
   summary: string | null;
+  parent_session_id: string | null;
+  spawned_by_seq: number | null;
+  step_count: number | null;
   seq: number;
 }
 
@@ -247,6 +250,9 @@ function toSession(r: SessionRow): Session {
     costAnomalyGroupSize: r.cost_anomaly_group_size,
     costAnomalyGroupMedianUsd: r.cost_anomaly_group_median_usd,
     summary: r.summary,
+    parentSessionId: r.parent_session_id ?? null,
+    spawnedBySeq: r.spawned_by_seq ?? null,
+    stepCount: r.step_count ?? 0,
     seq: r.seq,
   };
 }
@@ -782,7 +788,13 @@ const COST_ANOMALY_PARAMS = [
 ] as const;
 
 const SESSIONS_WITH_COST_ANOMALY = `
-  WITH cost_baseline AS (
+  WITH event_counts AS (
+    SELECT session_id,
+           COUNT(*) FILTER (WHERE parent_id IS NULL)::int AS step_count
+      FROM transcript_events
+     GROUP BY session_id
+  ),
+  cost_baseline AS (
     SELECT runner,
            COUNT(cost_usd)::int AS cost_anomaly_group_size,
            percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_usd)::float8 AS cost_anomaly_group_median_usd
@@ -804,28 +816,36 @@ const SESSIONS_WITH_COST_ANOMALY = `
       LEFT JOIN cost_baseline b ON b.runner = s.runner
   )
   SELECT scored_sessions.*,
+         COALESCE(event_counts.step_count, 0)::int AS step_count,
          (
            cost_usd IS NOT NULL
            AND cost_usd > cost_anomaly_threshold_usd
          ) AS cost_anomaly
     FROM scored_sessions
+    LEFT JOIN event_counts ON event_counts.session_id = scored_sessions.id
 `;
 
 export async function getPrimarySession(): Promise<Session> {
   const row = await queryOne<SessionRow>(
-    `${SESSIONS_WITH_COST_ANOMALY} WHERE seq = $4 LIMIT 1`,
+    `${SESSIONS_WITH_COST_ANOMALY} WHERE seq = $4 AND parent_session_id IS NULL LIMIT 1`,
     [...COST_ANOMALY_PARAMS, 1],
   );
   if (row) return toSession(row);
 
   const first = await queryOne<SessionRow>(
+    `${SESSIONS_WITH_COST_ANOMALY} WHERE parent_session_id IS NULL ORDER BY seq ASC LIMIT 1`,
+    [...COST_ANOMALY_PARAMS],
+  );
+  if (first) return toSession(first);
+
+  const anySession = await queryOne<SessionRow>(
     `${SESSIONS_WITH_COST_ANOMALY} ORDER BY seq ASC LIMIT 1`,
     [...COST_ANOMALY_PARAMS],
   );
-  if (!first) {
+  if (!anySession) {
     throw new Error('No sessions found. Run `pnpm ingest` first.');
   }
-  return toSession(first);
+  return toSession(anySession);
 }
 
 export async function getSession(id: string): Promise<Session | undefined> {

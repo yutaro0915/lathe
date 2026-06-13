@@ -60,6 +60,9 @@ export interface Session {
   costAnomalyGroupSize: number;
   costAnomalyGroupMedianUsd: number | null;
   summary: string | null;
+  parentSessionId: string | null;
+  spawnedBySeq: number | null;
+  stepCount: number;
   seq: number;
 }
 
