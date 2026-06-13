@@ -1,18 +1,26 @@
 ---
-updated: 2026-06-12T15:30+0900
+updated: 2026-06-12T20:00+0900
 current_owner: none
-current_stage: Phase 2 M3 judgment (awaiting first user verdict)
+current_stage: Phase 2 close 待ち（M3 機構実証済み） → 次は UI rebase
 ---
 
 ## Current
 
-- **Phase 2 実装完了（2026-06-12）**、UX 改修ラウンド進行中（HEAD `5dd0472`、e2e 96 passed + 既知 issue #7 の 1 件のみ）。実 UX フィードバック起点の merge 済み改修: findings master-detail + narrative evidence / IA 再編（グローバルバー・Findings 軸昇格・session 内限定・chat 休眠 = ROADMAP 論点 #15/#16）/ evidence の turn 単位グループ化 + rail 同期 / Overview v2（rail 撤去・ドリルダウン入口化・要注意パネル）
-- **M3 判定待ち**: findings #110-114 が Findings 軸に pending。**ユーザーの初採否で M3 成立** → Phase 2 完了ゲート（ROADMAP 更新・hub 記録）
-- dev server: tmux `lathe-dev`（port 3000、log /tmp/lathe-dev.log、停止は `tmux kill-session -t lathe-dev`）
-- agent: none（全 loop / worktree 撤収済み）
+- **Phase 2 実装完了 + UX 改修ラウンド + issue 消化まで完了（2026-06-12、HEAD `a616f3c`）**。M3 機構は実証済み（finding #110 に accept verdict が durable 層に記録）。**Phase 2 close はユーザー GO 待ち**（ROADMAP 更新・振り返り・hub 記録を締める）
+- **issue 消化完了**: chip 経由で #6/#8/#10/#11、PR #17 で #9 を全 merge（各々 独立レビュー + ローカル実データ監査）。chat は撤去（#7 解消）。残 open issue は #16（getPool 潜在・保留）/ #4（認証・サービス化時）のみ
+- **決定（2026-06-12）**: 全実装に sub-agent/codex の独立レビュー必須（audit-protocol 原則 7）/ 委譲配分 = UI:Opus / 重い:Codex / 他:Sonnet / chat はコード撤去（再開時ゼロから、論点 #16）/ **UI rebase を chip+P2 後に実施（論点 #18）**
+- dev server: tmux `lathe-dev`（port 3000）。agent: none（全 loop / worktree 撤収済み）
+
+## 次の一手
+
+1. **Phase 2 close**（ユーザー GO で）— ROADMAP の Phase 2「完了の定義」3 点に照合、status/log/hot/memory 記録、wiki/concepts へ学び extract
+2. **UI rebase**（論点 #18）— SessionViewer 肥大分割 / layout3・grid-column 結合の整理 / UX backlog #17（PR の project グルーピング・上部スペース・rail フィルタ過密・Annotations・error 意味論）回収
+3. **Phase 3 入口ゲート** — G4 fixture スコープ / sandbox 選定 ADR
 
 ## Last completed
 
+- 2026-06-12 UX 改修ラウンド + issue 消化（chip 並列）— 実 dogfood フィードバック起点の連続改修を全 merge: findings master-detail + narrative evidence / IA 再編（グローバルバー・Findings 軸昇格・session 内限定）/ evidence の turn グループ化 + rail 同期 / Overview v2（rail 撤去・ドリルダウン・要注意パネル）/ triage（埋め込み transcript・sticky verdict・jump 整理）/ コピー中立化（COST OUTLIERS 根拠併記）/ 左空白 bug 修正（grid-column phantom 列）。**issue は chip でクラウド消化 → PR → 独立レビュー + ローカル実データ監査 → merge**: #6 verify:cost live（PR12）/ #10 subagent relink（PR13、Tier A 捏造 0 確認）/ #11 verify scratch（PR14、共有 DB 不変実証）/ #8 perf nav（PR15）/ #9 e2e port env（PR17）。chat は撤去（`69f4b90`、#7 解消、DB テーブルは保持）。follow-up: #16 getPool 潜在 (codex chips + sub-agent review + claude audit)
+- 2026-06-12 [19] サブエージェント session 親子リンク + migration 完走 + Tier A 監査 + merge（`11ed7f8`）— codex spawn_agent の agent_id を実在 child session にだけリンク（捏造 0: 孤立 FK/自己参照/dangling すべて 0、実ペア 019e67d2→019e69f2 確認）。`sessions.parent_session_id`/`spawned_by_seq` 追加（冪等 ALTER）、Subagents タブ実数表示 + 不能時「not captured」正直化、rail に SUB バッジ+トグル、二重計上なし (codex + sub-agent review + claude audit)
 - 2026-06-12 [18] agent チャット view 完走 + Tier A 監査 + merge（`6552d06`）— /chat 専用画面 / CLI provider（claude -p stream-json、stdin prompt）/ 道具制限 = lathe MCP 5 tools のみ。**監査 block → 16 分で修復**: R1 実 provider 不通（`--allowedTools` variadic が positional prompt を飲み込む → stdin 渡しへ）/ R2 flags 多層化（`--strict-mcp-config` + `--tools ""` + `--disallowedTools` + cwd 隔離）/ R3 launch config 網羅 assert / R4 finding 出所をサーバ側で `chat:<provider>` 強制 + §6.5 self-observation 接続 / R5 injection 区切り + サイズ上限。実 smoke GREEN（tools_observed=1）を監査側で独立再現 (codex+claude)
 - 2026-06-12 [16] analyst probes 完走 + Tier B 監査 + merge（`538d074`）— 3 系統（rules/llm/hybrid）+ 実 5 incident smoke replay（recall 5/5, 4/5, 5/5 を監査再実行で同値再現）(codex+claude)
 - 2026-06-12 [17] findings 採否 UI / [15] MCP stdio server / [14] Phase 2 データモデル — いずれも監査 + merge 済み（経緯は log.md）(codex+claude)
