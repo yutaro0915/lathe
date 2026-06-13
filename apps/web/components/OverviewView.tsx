@@ -13,7 +13,7 @@
 // (Sessions or Findings), so the browser back button always returns here — no
 // implicit axis-crossing via a sidebar (design/ui-design-language.md IA, 2026-06-12).
 //
-//   1. 要注意 (Attention) — THE point of the screen, placed first: G9 cost alerts,
+//   1. Attention — THE point of the screen, placed first: G9 cost outliers,
 //      error-heavy sessions, and pending findings. Each row links to the session
 //      viewer / Findings axis. This is the "next places to dig" list.
 //   2. The cross-session charts, now drill-down entry points (a model row scopes
@@ -80,8 +80,8 @@ export default function OverviewView({
 
   const scopeLabel = projectFilter === "all" ? "All projects" : projectFilter;
 
-  // ---- 要注意 panel data (all derived from the in-scope sessions) ----------
-  // ① G9 cost alerts: anomalous sessions, worst overrun first. The overrun ratio
+  // ---- Attention panel data (all derived from the in-scope sessions) ----------
+  // ① G9 cost outliers: anomalous sessions, worst overrun first. The overrun ratio
   // (cost ÷ baseline threshold) is the "how bad" number the user reads at a glance.
   const costAlerts = useMemo(
     () =>
@@ -108,7 +108,7 @@ export default function OverviewView({
   );
 
   // ③ pending findings: sessions with the most undecided findings first, plus the
-  // scope-wide pending total (the導線 into the Findings axis).
+  // scope-wide pending total (the entry point into the Findings axis).
   const pendingSessions = useMemo(
     () =>
       scopeSessions
@@ -149,7 +149,7 @@ export default function OverviewView({
               ))}
             </select>
           </div>
-          <span className="sessbar-meta">where to dig next, then the cross-session breakdown</span>
+          <span className="sessbar-meta">attention items, then the cross-session breakdown</span>
         </div>
         <div className="sessbar-stats">
           <div className="kstat">
@@ -168,36 +168,40 @@ export default function OverviewView({
             <b>{scopeTotals.cost > 0 ? fmtCost(scopeTotals.cost) : "—"}</b>
             <span>cost</span>
           </div>
-          <div className="kstat">
+          <div className="kstat" title="G9: cost > 5× runner median, min $50">
             <b>{fmtInt(scopeTotals.anomalies)}</b>
-            <span>cost alerts</span>
+            <span>cost outliers</span>
           </div>
         </div>
       </div>
 
       {/* Full-width analysis canvas — no rail. */}
       <div className="overview-canvas" data-overview-version="2">
-        {/* ======================= 要注意 (the主役) ======================= */}
+        {/* ======================= Attention (the lead panel) ======================= */}
         <section className="attn-panel" data-panel="attention">
           <div className="attn-head">
-            <span className="attn-title">要注意 — 次に掘る場所</span>
+            <span className="attn-title">NEEDS ATTENTION</span>
             <span className="muted small">{scopeLabel}</span>
           </div>
 
           {attentionEmpty ? (
             <div className="empty attn-empty">
-              この scope に cost alert・エラー・pending findings はありません。
+              No cost outliers, errors, or pending findings in this scope.
             </div>
           ) : (
             <div className="attn-cols">
-              {/* ① G9 cost alerts */}
+              {/* ① G9 cost outliers */}
               <div className="attn-col" data-attn-group="cost">
-                <div className="attn-col-head">
-                  <span>G9 cost alerts</span>
+                <div
+                  className="attn-col-head"
+                  title="G9: cost > 5× runner median, min $50"
+                >
+                  <span>COST OUTLIERS</span>
+                  <span className="attn-col-basis mono">&gt;5× runner median, min $50 (G9)</span>
                   <span className="attn-count mono">{costAlerts.length}</span>
                 </div>
                 {costAlerts.length === 0 ? (
-                  <div className="attn-none">なし</div>
+                  <div className="attn-none">none</div>
                 ) : (
                   costAlerts.map(({ session: s, ratio }) => (
                     <Link
@@ -222,12 +226,16 @@ export default function OverviewView({
 
               {/* ② error-heavy sessions */}
               <div className="attn-col" data-attn-group="errors">
-                <div className="attn-col-head">
-                  <span>エラー多発 session</span>
+                <div
+                  className="attn-col-head"
+                  title="Sessions ranked by failed tool calls (descending)"
+                >
+                  <span>MOST ERRORS</span>
+                  <span className="attn-col-basis mono">by failed tool calls</span>
                   <span className="attn-count mono">{errorSessions.length}</span>
                 </div>
                 {errorSessions.length === 0 ? (
-                  <div className="attn-none">なし</div>
+                  <div className="attn-none">none</div>
                 ) : (
                   errorSessions.map((s) => (
                     <Link
@@ -247,18 +255,21 @@ export default function OverviewView({
 
               {/* ③ pending findings */}
               <div className="attn-col" data-attn-group="findings">
-                <div className="attn-col-head">
-                  <span>pending findings</span>
+                <div
+                  className="attn-col-head"
+                  title="Findings with no verdict yet"
+                >
+                  <span>PENDING FINDINGS</span>
                   <Link
                     href="/findings"
                     className="attn-count-link mono"
-                    title="Findings 軸で未判定をすべて見る"
+                    title="View all undecided findings on the Findings axis"
                   >
                     {pendingTotal} →
                   </Link>
                 </div>
                 {pendingSessions.length === 0 ? (
-                  <div className="attn-none">なし</div>
+                  <div className="attn-none">none</div>
                 ) : (
                   pendingSessions.map(({ session: s, pending }) => (
                     <Link

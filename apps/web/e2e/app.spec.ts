@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { Client } from "pg";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { COST_ANOMALY_BASELINE } from "@lathe/shared";
 
 const DATABASE_URL = process.env.DATABASE_URL || "postgres://lathe:lathe@localhost:55432/lathe";
@@ -88,7 +90,21 @@ const FINDING_FIXTURE = {
     // group card with one step row per seq (requirement B). Mirrors real finding
     // #113 (ripgrep, 4 same-turn evidence).
     grouped: "Fixture repeated same-turn pending",
+    // a finding whose evidence excerpt is ONE very long, unbroken single-line
+    // command (no wrap opportunities). It must be absorbed by per-pane horizontal
+    // scroll, never widen the grid / page, never silently truncate (the
+    // left-blank / horizontal-shift regression). Mirrors real finding #113's
+    // 140-char `rg -n …` one-liner, exaggerated.
+    longLine: "Fixture long no-wrap command pending",
   },
+  // a single-line command with NO break opportunities (one unbroken token chain)
+  // — the worst case for layout: must scroll inside the excerpt pane, not wrap or
+  // overflow the page.
+  longCommand:
+    "rg -n '5650964812|D2nyYVK3zbYKii' " +
+    "projects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/" +
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/" +
+    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.md",
 };
 
 const CHAT_FIXTURE = {
@@ -571,12 +587,15 @@ async function seedFindingFixtures() {
          VALUES
           ($1,$2,1,'00:00:00','user_message','user','Fixture prompt','Please inspect the fixture.',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
           ($3,$2,2,'00:00:01','bash','assistant','Fixture failed command','exit 1 from fixture',NULL,'pnpm test',1,1200,80,NULL,NULL,NULL),
-          ($4,$2,3,'00:00:03','assistant_message','assistant','Fixture summary','The fixture command failed once.',NULL,NULL,NULL,300,20,NULL,NULL,NULL)`,
+          ($4,$2,3,'00:00:03','assistant_message','assistant','Fixture summary','The fixture command failed once.',NULL,NULL,NULL,300,20,NULL,NULL,NULL),
+          ($5,$2,4,'00:00:04','bash','assistant','Fixture long command','exit 1 from a long one-liner',NULL,$6,1,900,40,NULL,NULL,NULL)`,
         [
           `${FINDING_FIXTURE.sessionId}-event-1`,
           FINDING_FIXTURE.sessionId,
           FINDING_FIXTURE.eventId,
           `${FINDING_FIXTURE.sessionId}-event-3`,
+          `${FINDING_FIXTURE.sessionId}-event-4`,
+          FINDING_FIXTURE.longCommand,
         ]
       );
       await client.query(
@@ -702,6 +721,23 @@ async function seedFindingFixtures() {
           JSON.stringify({ seq: 2 }),
           JSON.stringify({ seq: 3 }),
         ]
+      );
+
+      // a finding whose single evidence excerpt is the long one-liner (seq 4).
+      // The excerpt command must scroll horizontally inside its pane — it must
+      // never widen the detail grid or push the page (left-blank regression).
+      const longLineFinding = (
+        await client.query<{ id: number }>(
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
+           VALUES ('hybrid-v1','failure_loop',$1,'Repeated long single-line command.',0.6,$2,$3)
+           RETURNING id`,
+          [FINDING_FIXTURE.titles.longLine, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
+         VALUES ($1,'turn',$2,$3::jsonb,NULL,'long one-liner step')`,
+        [longLineFinding, FINDING_FIXTURE.sessionId, JSON.stringify({ seq: 4 })]
       );
 
       const decidedFinding = (
@@ -1314,7 +1350,7 @@ test.describe("Cost anomaly detection", () => {
     ).toHaveCount(0);
   });
 
-  test("overview surfaces the G9 cost flag in the 要注意 cost-alerts list", async ({ page }) => {
+  test("overview surfaces the G9 cost flag in the cost-outliers list", async ({ page }) => {
     await page.goto("/overview");
     await page.locator(".project-picker").selectOption("(no edits)");
     // Overview v2 has no session rail; the anomalous session is a row in the
@@ -1338,7 +1374,7 @@ test.describe("Cost anomaly detection", () => {
   test("highest-turn jump expands and activates the estimated-cost turn for Claude Code", async ({ page }) => {
     const target = highestCostTurn(await getTurnExpectations(CLAUDE_JUMP_SID));
     expect(target).toBeTruthy();
-    await expectTurnJump(page, CLAUDE_JUMP_SID, "最も高い turn へ", target, "cost");
+    await expectTurnJump(page, CLAUDE_JUMP_SID, "COSTLIEST TURN", target, "cost");
   });
 
   test("highest-turn jump expands and activates the duration fallback turn for Codex", async ({ page }) => {
@@ -1346,7 +1382,7 @@ test.describe("Cost anomaly detection", () => {
     const target = longestWallDurationTurn(await getTurnExpectations(codexSession));
     expect(target).toBeTruthy();
     expect(target.wallDurationMs).toBeGreaterThan(0);
-    await expectTurnJump(page, codexSession, "最も高い turn へ", target, "duration");
+    await expectTurnJump(page, codexSession, "LONGEST TURN", target, "duration");
   });
 
   test("error-turn jump expands and activates the first failing turn", async ({ page }) => {
@@ -1354,7 +1390,7 @@ test.describe("Cost anomaly detection", () => {
       (t) => t.steps > 0 && t.errors > 0
     );
     expect(target).toBeTruthy();
-    await expectTurnJump(page, CLAUDE_JUMP_SID, "エラー turn へ", target!);
+    await expectTurnJump(page, CLAUDE_JUMP_SID, "FIRST ERROR TURN", target!);
   });
 });
 
@@ -1906,7 +1942,7 @@ test.describe("Findings tab and verdict oracle", () => {
     expect(clicks).toBe(0);
   });
 
-  test("detail evidence excerpt shows the現物 command from the seq", async ({ page }) => {
+  test("detail evidence excerpt shows the evidence command from the seq", async ({ page }) => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     // turn-kind evidence with a { seq } locator — the analyst's real contract.
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
@@ -2000,7 +2036,7 @@ test.describe("Findings tab and verdict oracle", () => {
     await expect(trigger).toContainText("Please inspect the fixture.");
     await expect(trigger.locator(".finding-evidence-trigger-seq")).toContainText("step 1");
 
-    // 現物 — the step's excerpt still renders the failing command.
+    // evidence — the step's excerpt still renders the failing command.
     await expect(card.locator(".finding-excerpt")).toContainText("pnpm test");
 
     // AFTERWARD — failure_loop escapes to the next non-failure event (the seq-3
@@ -2062,7 +2098,7 @@ test.describe("Findings tab and verdict oracle", () => {
   });
 });
 
-// ---- triage: jump導線 + embedded transcript + sticky verdict + layout -------
+// ---- triage: jump actions + embedded transcript + sticky verdict + layout ---
 // The Findings detail becomes a triage surface: jump to the session / turn,
 // read the surrounding transcript inline, decide without scrolling past it, and
 // never have the layout shift under selection (design/ui-design-language.md).
@@ -2093,8 +2129,9 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     const card = page
       .locator(".finding-detail[data-detail-finding-id]")
       .locator('.finding-evidence-card[data-evidence-kind="turn"]');
-    const turnJump = card.locator("button.finding-evidence-turn-jump");
+    const turnJump = card.locator("button.finding-evidence-action-turn");
     await expect(turnJump).toHaveAttribute("data-turn", "1");
+    await expect(turnJump).toHaveText(/VIEW TURN/);
     await turnJump.click();
     // same session → in-page: transcript tab active and the turn-head step (seq 1,
     // the USER ASKED prompt) is selected + flashed.
@@ -2104,12 +2141,12 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
   });
 
   // ⑤ expanding an evidence group reveals the inline turn transcript rows
-  test("expanding 'this turn's transcript' shows the turn's event rows inline", async ({
+  test("expanding the inline transcript shows the turn's event rows inline", async ({
     page,
   }) => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     // the grouped finding folds two same-turn steps into one card; the fixture
-    // session's turn 1 has 3 top-level events (seqs 1/2/3).
+    // session's turn 1 has 4 top-level events (seqs 1/2/3/4).
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.grouped }).click();
     const card = page.locator(".finding-detail[data-detail-finding-id] .finding-evidence-card").first();
 
@@ -2120,17 +2157,19 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
 
     const transcript = card.locator(".finding-turn-transcript");
     await expect(transcript).toBeVisible();
-    // the three turn-1 events render as compact rows…
+    // the four turn-1 events render as compact rows…
     const rows = transcript.locator(".finding-turn-event");
-    await expect(rows).toHaveCount(3);
+    await expect(rows).toHaveCount(4);
     // …the failing bash step (seq 2) shows its command + non-zero exit and is
     // flagged as this finding's own evidence.
     const evRow = transcript.locator('.finding-turn-event[data-seq="2"]');
     await expect(evRow).toHaveAttribute("data-evidence", "true");
     await expect(evRow.locator(".finding-turn-event-cmd")).toContainText("pnpm test");
     await expect(evRow.locator(".finding-turn-event-exit")).toContainText("exit 1");
-    // the "open in session" deep link is present at the top of the embed
-    await expect(transcript.locator(".finding-turn-open")).toBeVisible();
+    // the duplicate "open in session" link inside the embed is gone (requirement
+    // C): VIEW TURN / VIEW SESSION in the group header are the single way out.
+    await expect(transcript.locator(".finding-turn-open")).toHaveCount(0);
+    await expect(card.locator(".finding-evidence-action-session")).toBeVisible();
 
     // clicking an inline row deep-links to that exact step in the transcript
     await evRow.click();
@@ -2189,6 +2228,136 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     // and selection is client-side: the URL gains ?finding=<id> via replaceState
     // (no full navigation), so the detail swaps instantly.
     await expect(page).toHaveURL(/finding=/);
+  });
+
+  // ④b regression for the Findings left-blank / horizontal-shift bug: on the
+  // cross-session AXIS, selecting EACH finding in turn must keep the master-detail
+  // grid pinned to the same left edge AND must never make the page scroll
+  // horizontally — including the finding whose evidence is a long no-wrap command.
+  // A long one-liner is absorbed by per-pane horizontal scroll (design rule: 無言
+  // の切り捨て禁止 / ページ幅オーバーフロー構造防止), not by widening the grid.
+  test("selecting any finding keeps the grid left edge fixed and never scrolls the page (left-blank bug)", async ({
+    page,
+  }) => {
+    await page.goto("/findings");
+    await page.locator(".findings-filter button", { hasText: "All" }).click();
+    const rows = page.locator(".finding-row");
+    const count = await rows.count();
+    expect(count).toBeGreaterThan(1);
+
+    const gridLeft = () =>
+      page.locator(".findings-md-grid").evaluate((el) => el.getBoundingClientRect().left);
+    const pageOverflow = () =>
+      page.evaluate(() => {
+        const se = document.scrollingElement!;
+        return se.scrollWidth - se.clientWidth;
+      });
+
+    let firstLeft: number | null = null;
+    for (let i = 0; i < count; i++) {
+      await rows.nth(i).click();
+      await expect(page.locator(".finding-detail[data-detail-finding-id]")).toBeVisible();
+      const left = await gridLeft();
+      if (firstLeft === null) firstLeft = left;
+      // the grid's left edge is identical for every selection (no rightward shift,
+      // no left blank gap opening up).
+      expect(Math.abs(left - firstLeft)).toBeLessThanOrEqual(1);
+      // and the page itself never gains a horizontal scrollbar.
+      expect(await pageOverflow()).toBeLessThanOrEqual(1);
+    }
+  });
+
+  // ④c the long no-wrap command is absorbed by per-pane horizontal scroll: the
+  // excerpt pane scrolls (scrollWidth > clientWidth) but the page does not, and
+  // the line is NOT wrapped (white-space:pre) — visible, not silently truncated.
+  test("a long no-wrap command scrolls inside its excerpt pane, not the page", async ({
+    page,
+  }) => {
+    await page.goto("/findings");
+    await page.locator(".findings-filter button", { hasText: "All" }).click();
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.longLine }).click();
+    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    await expect(detail).toBeVisible();
+    const pre = detail.locator(".finding-excerpt-pre").first();
+    await expect(pre).toBeVisible();
+
+    const m = await pre.evaluate((el) => {
+      const se = document.scrollingElement!;
+      const cs = getComputedStyle(el);
+      return {
+        whiteSpace: cs.whiteSpace,
+        overflowX: cs.overflowX,
+        scrollW: el.scrollWidth,
+        clientW: el.clientWidth,
+        pageScrollW: se.scrollWidth,
+        pageClientW: se.clientWidth,
+      };
+    });
+    // the one-liner is NOT wrapped…
+    expect(m.whiteSpace).toBe("pre");
+    // …it scrolls horizontally inside its own pane…
+    expect(m.overflowX).toBe("auto");
+    expect(m.scrollW).toBeGreaterThan(m.clientW);
+    // …and that scroll never escapes to widen the page.
+    expect(m.pageScrollW).toBeLessThanOrEqual(m.pageClientW + 1);
+  });
+
+  // ⑥ evidence group header carries BOTH always-visible actions (requirement C):
+  // VIEW TURN and VIEW SESSION, each with a destination-describing title — no
+  // need to expand the inline transcript to find a way into the session.
+  test("evidence group header always shows VIEW TURN and VIEW SESSION actions", async ({
+    page,
+  }) => {
+    await page.goto("/findings");
+    await page.locator(".findings-filter button", { hasText: "All" }).click();
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
+    const card = page
+      .locator(".finding-detail[data-detail-finding-id]")
+      .locator('.finding-evidence-card[data-evidence-kind="turn"]');
+    const viewTurn = card.locator(".finding-evidence-action-turn");
+    const viewSession = card.locator(".finding-evidence-action-session");
+    // both are visible WITHOUT expanding the inline transcript.
+    await expect(viewTurn).toBeVisible();
+    await expect(viewTurn).toHaveText(/VIEW TURN/);
+    await expect(viewTurn).toHaveAttribute("title", /Open the transcript at this turn/);
+    await expect(viewSession).toBeVisible();
+    await expect(viewSession).toHaveText(/VIEW SESSION/);
+    await expect(viewSession).toHaveAttribute("title", /Open the full session transcript/);
+  });
+
+  // ⑦ deep-link landing (requirement D): clicking VIEW TURN from the cross-session
+  // axis deep-links into the owning session, where a dismissible banner names the
+  // step and the originating finding, and the landed step is flashed.
+  test("VIEW TURN deep-links into the session with a dismissible landing banner", async ({
+    page,
+  }) => {
+    await page.goto("/findings");
+    await page.locator(".findings-filter button", { hasText: "All" }).click();
+    const findingRow = page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq });
+    await findingRow.click();
+    const findingId = await findingRow.getAttribute("data-finding-id");
+    expect(findingId).toBeTruthy();
+
+    const card = page
+      .locator(".finding-detail[data-detail-finding-id]")
+      .locator('.finding-evidence-card[data-evidence-kind="turn"]');
+    await card.locator(".finding-evidence-action-turn").click();
+
+    // landed on the owning session's transcript, carrying the originating finding.
+    await expect(page).toHaveURL(new RegExp(`session=${FINDING_FIXTURE.sessionId}`));
+    await expect(page).toHaveURL(new RegExp(`fromFinding=${findingId}`));
+
+    // the landing banner names the finding and is dismissible…
+    const banner = page.locator(".jump-landing-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText(`from finding #${findingId}`);
+
+    // …and the landed step is flashed/selected (highlight, requirement D).
+    const head = page.locator(`.event-row[data-eid="${FINDING_FIXTURE.sessionId}-event-1"]`);
+    await expect(head).toHaveClass(/selected/);
+
+    await banner.locator(".jump-landing-dismiss").click();
+    await expect(banner).toHaveCount(0);
   });
 });
 
@@ -2319,7 +2488,7 @@ test.describe("Global nav & IA axes", () => {
     ).toBeVisible();
     // the session tab no longer carries the All/This cross-session toggle
     await expect(page.locator(".findings-tab", { hasText: "All sessions" })).toHaveCount(0);
-    // the in-tab "全 findings を見る" link is removed (requirement F) — the
+    // the in-tab "all findings" link is removed (requirement F) — the
     // cross-session axis is reached from the global bar, not from this tab.
     await expect(page.locator(".findings-axis-link")).toHaveCount(0);
 
@@ -2368,7 +2537,7 @@ test.describe("Global nav & IA axes", () => {
     await page.getByPlaceholder(/Search sessions/i).fill("zzz-no-such-session-title-zzz");
 
     // the current session is still present AND marked active (requirement C):
-    // "今どれを見ているか" must never be lost to a filter.
+    // "which one am I viewing" must never be lost to a filter.
     const railActive = page.locator(".session-list .session-item.active");
     await expect(railActive).toHaveCount(1);
     await expect(railActive).toHaveAttribute("data-session-id", oracle.ownerSession);
@@ -2448,7 +2617,7 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     await expect(page.locator('[data-panel="attention"]')).toBeVisible();
   });
 
-  test("the 要注意 panel is shown and a row click navigates to the session viewer", async ({
+  test("the attention panel is shown and a row click navigates to the session viewer", async ({
     page,
   }) => {
     await page.goto("/overview");
@@ -2784,4 +2953,47 @@ test.describe("PR linkage", () => {
     await expect(page.locator(".sessbar-title")).toContainText("Fixture session linked by SHA");
     await expect(page.locator(".sessbar .pr-chip", { hasText: "#1 open" })).toBeVisible();
   });
+});
+
+// ---- copy hygiene (design/ui-design-language.md, copy principles 2026-06-12) -
+// Product copy is neutral English micro-labels: no Japanese, no Japanese/English
+// mixed strings, no editorial phrasing. This is a STATIC source check — it walks
+// the UI source under components/ and app/ and asserts no CJK code points appear.
+// Out of scope (not UI copy, never matched by this check): e2e fixtures/specs,
+// lib/, and any DB-derived dynamic strings (those live in the database, not in
+// source). Comments are normalized too, so the check is "no CJK anywhere in the
+// UI source tree" — the strongest form of the grep gate.
+test.describe("copy hygiene (no Japanese in UI source)", () => {
+  const CJK = /[぀-ヿ㐀-䶿一-鿿ｦ-ﾟ]/;
+  const UI_DIRS = ["components", "app"] as const;
+  // apps/web root, resolved from this spec's directory (apps/web/e2e).
+  const WEB_ROOT = resolve(__dirname, "..");
+
+  function collectSources(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        out.push(...collectSources(full));
+      } else if (/\.(tsx?|css)$/.test(entry)) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  for (const sub of UI_DIRS) {
+    test(`apps/web/${sub} contains no Japanese characters`, () => {
+      const offenders: string[] = [];
+      for (const file of collectSources(join(WEB_ROOT, sub))) {
+        const lines = readFileSync(file, "utf8").split("\n");
+        lines.forEach((line, i) => {
+          if (CJK.test(line)) {
+            offenders.push(`${file.replace(WEB_ROOT + "/", "")}:${i + 1}: ${line.trim()}`);
+          }
+        });
+      }
+      expect(offenders, `Japanese found in apps/web/${sub}:\n${offenders.join("\n")}`).toEqual([]);
+    });
+  }
 });

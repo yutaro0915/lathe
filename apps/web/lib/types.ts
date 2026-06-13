@@ -176,7 +176,7 @@ export interface FindingEvidence {
   note: string | null;
   // Server-resolved current of the evidence: the transcript event the
   // locator points at (by event id, or session_id+seq), with a short command /
-  // output excerpt so the Findings detail panel can show the現物 without a
+  // output excerpt so the Findings detail panel can show the evidence without a
   // round-trip. Null when the locator does not resolve to an event.
   excerpt: FindingEvidenceExcerpt | null;
 }
@@ -197,7 +197,7 @@ export interface FindingEvidenceExcerpt {
 }
 
 // The story around one piece of evidence: SESSION (run identity) → USER ASKED
-// (the nearest preceding user prompt) → 現物 (command/output, on the excerpt) →
+// (the nearest preceding user prompt) → EVIDENCE (command/output, on the excerpt) →
 // AFTERWARD (what the run did next). All fields are derived from transcript_events
 // + sessions, so they are deterministic for a given DB state.
 export interface FindingEvidenceNarrative {
@@ -212,7 +212,7 @@ export interface FindingEvidenceNarrative {
   minutesFromStart: number | null; // whole minutes from session start to this step
   // the nearest preceding user_message (the "trigger" of this stretch of work)
   trigger: { seq: number; text: string } | null;
-  // what happened after this step (the "結末")
+  // what happened after this step (the "aftermath")
   aftermath: { seq: number; type: string; text: string } | null;
 }
 
@@ -367,7 +367,7 @@ export interface StatsBundle {
 }
 
 // Per-session pending-findings counts, keyed by session id. The Overview's
-// "要注意" panel needs how many findings are still UNDECIDED for each session;
+// "needs attention" panel needs how many findings are still UNDECIDED for each session;
 // computing this server-side (one batched query, no N+1) keeps the client free
 // of the whole findings corpus.
 export type PendingFindingsBySession = Record<string, number>;
