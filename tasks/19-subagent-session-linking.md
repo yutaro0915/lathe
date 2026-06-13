@@ -1,7 +1,7 @@
 ---
 id: 19
 title: サブエージェント session の親子リンク（spawn_agent → 子 session 突合）
-status: in-progress
+status: done
 assignee: codex (/goal loop)
 depends_on: [14]
 estimated: medium
