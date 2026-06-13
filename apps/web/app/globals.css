@@ -522,9 +522,20 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
   flex:1 1 auto;min-height:0;height:100%;overflow:hidden;}
 .timeline.findings-tab{overflow:hidden;}
 .findings-tab-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
+/* iteration-3 fix #3: in axis mode this toolbar is the page header (the sessbar
+   row was removed). Give it the sessbar's chrome — full-bleed band with a
+   hairline under it — by negating the .findings-tab parent padding (12px 14px)
+   so it reads as the top of the screen, one row instead of two. */
+.findings-axis-main .findings-tab{padding-top:0;}
+.findings-tab-head[data-mode="axis"]{margin:0 -14px 0;padding:9px 14px;
+  border-bottom:1px solid var(--border);background:var(--panel);}
 .findings-title{display:inline-flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
 .findings-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
 .findings-title .count,.finding-pending-count{color:var(--muted-2);font-size:11px;font-variant-numeric:tabular-nums;}
+/* the cross-session description, inlined into the toolbar (fix #3). Muted, mono,
+   ellipsised so it never pushes the tabs/filter onto a second row. */
+.findings-axis-desc{font-size:11px;color:var(--muted);font-family:var(--mono);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
 .findings-filter{flex:0 0 auto;}
 /* axis-only session filter (dropdown), and the tab→axis link */
 .findings-session-select{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
@@ -661,7 +672,17 @@ button.finding-evidence-jump:hover{color:var(--text-soft);border-color:var(--bor
    .code-block.cmd / .code-block.output below — white-space:pre + overflow:auto
    make a long one-liner scroll horizontally instead of wrapping; the pane's
    min-width:0 keeps the scroll inside the box so it can never widen the page. */
-.finding-excerpt pre.finding-excerpt-pre{overflow:auto;white-space:pre;word-break:normal;}
+/* iteration-3 fix #2: height follows content. These pre blocks carry
+   .code-block.cmd / .code-block.output too, which impose min-height:130px +
+   max-height — so a one-line "sed: …: No such file or directory" used to render
+   ~130px tall with dead space. Drop the inherited floor (min-height:0) so a
+   short output is short; keep a max-height ceiling so a long output still
+   scrolls inside the pane (no silent truncation). word-break:normal + white-
+   space:pre keep long single lines on their own horizontally-scrolling line. */
+.finding-excerpt pre.finding-excerpt-pre{overflow:auto;white-space:pre;word-break:normal;
+  min-height:0;height:auto;}
+.finding-excerpt pre.code-block.cmd.finding-excerpt-pre{max-height:200px;}
+.finding-excerpt pre.code-block.output.finding-excerpt-pre{max-height:46vh;}
 .finding-excerpt-empty{font-size:11px;color:var(--muted-2);}
 /* grouped evidence: one card per (session, turn). The group header carries the
    turn position once and a mono ×N repeats count (neutral — no saturation, per
@@ -691,23 +712,131 @@ button.finding-evidence-jump:hover{color:var(--text-soft);border-color:var(--bor
   color:var(--muted-2);font-size:11px;}
 .finding-verdict-section .finding-verdict-decided .mono{font-variant-numeric:tabular-nums;}
 
-/* ---- triage: sticky verdict bar (requirement C) -------------------------- */
-/* The Accept/Reject bar pins to the detail panel's bottom edge so it is always
-   reachable while the evidence scrolls beneath it. The negative margins + pad
-   let it span the panel's full width and sit flush against the bottom, with a
-   hairline + panel background hiding the evidence as it scrolls under. */
-.finding-verdict-sticky{position:sticky;bottom:0;z-index:2;background:var(--panel);
-  margin:auto -16px -14px;padding:8px 16px 12px;border-top:1px solid var(--border);}
+/* ============================================================================
+   ITERATION 2 — Findings 3-panel layout (design/phase2 §"イテレーション2")
+   Fix #6: no sticky verdict bar. A fixed header (.findings-tab-head) sits above
+   a grid of THREE independently scrolling panels. The page never scrolls; only a
+   panel's own box does. The discipline is minmax(0,…) + min-height:0 + overflow
+   on every nesting level, so nothing leaks height back into a parent and the
+   verdict can never sit over scrolling content (the round-1 "transparent sticky"
+   problem is removed structurally, not painted over).
+   ========================================================================== */
+.findings-md3{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;height:100%;overflow:hidden;}
+.findings-md3 .findings-tab-head{flex:0 0 auto;}        /* header is fixed */
+.findings-md3 .finding-verdict-toast,
+.findings-md3 .finding-error{flex:0 0 auto;}            /* banners are fixed too */
+.findings-md3 .empty{flex:0 0 auto;}
+/* PANEL ① list | detail column. Fixed 320px rail + the rest; both min-* zeroed. */
+.findings-md3-grid{display:grid;grid-template-columns:320px minmax(0,1fr);gap:0;
+  border-top:1px solid var(--border);flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;}
+.findings-md3-grid > *{min-width:0;min-height:0;}
+.findings-md3-grid .findings-list{border-right:1px solid var(--border);
+  overflow-y:auto;overflow-x:hidden;min-height:0;}
+/* detail column splits vertically into PANEL ② (fixed, shallow) + PANEL ③
+   (the single deep scroll). flex column + min-height:0 lets ③ take the slack and
+   scroll while ② keeps its intrinsic height. */
+.finding-detail3{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;}
+.finding-detail3.finding-detail-empty{align-items:center;justify-content:center;color:var(--muted-2);}
+.finding-detail3.finding-detail-empty .detail-placeholder{font-size:12px;}
+/* PANEL ② — analysis + verdict + backlog. Fixed (flex:0 0 auto); itself shallow,
+   so it never needs to scroll. A hairline divides it from the evidence scroll. */
+.finding-detail-fixed{flex:0 0 auto;display:flex;flex-direction:column;gap:10px;
+  padding:13px 16px 12px;border-bottom:1px solid var(--border);background:var(--panel);min-width:0;}
+/* PANEL ③ — evidence / session body. The ONLY deep scroll on the screen. */
+.finding-detail-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
+  padding:12px 16px 16px;min-width:0;}
 
-/* ---- triage: SESSION header as a jump button (requirement A) -------------- */
-button.finding-evidence-session-jump{width:100%;text-align:left;background:transparent;
-  border:0;border-bottom:1px solid var(--border);color:inherit;font:inherit;cursor:pointer;
-  padding:0 0 6px;}
-button.finding-evidence-session-jump:hover .finding-evidence-session-title{color:var(--accent);}
-button.finding-evidence-session-jump:hover .finding-evidence-session-arrow{color:var(--accent);}
-button.finding-evidence-session-jump:focus-visible{outline:2px solid var(--accent-ring);outline-offset:2px;}
-.finding-evidence-session-headline{display:flex;align-items:center;gap:6px;}
-.finding-evidence-session-arrow{margin-left:auto;color:var(--muted-2);font-size:11px;}
+/* detail head: kind chip + status cell on the left, meta pushed right */
+.finding-detail3 .finding-detail-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.finding-detail-head-spacer{flex:1 1 auto;min-width:0;}
+.finding-detail3 .finding-detail-meta{display:inline-flex;align-items:center;gap:12px;flex-wrap:wrap;
+  color:var(--muted-2);font-size:10.5px;}
+.finding-detail3 .finding-detail-meta .mono{font-variant-numeric:tabular-nums;}
+.finding-detail3 .finding-detail-title{margin:0;font-size:14px;font-weight:650;line-height:1.4;color:var(--text);}
+
+/* ---- fix #5: ONE status cell (verdict + backlog read in a single place) ---- */
+.finding-status-cell{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;}
+.finding-backlog-chip{display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--border-strong);border-radius:4px;background:var(--panel-2);
+  color:var(--muted);padding:2px 6px;font-size:10px;font-weight:650;
+  text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;}
+/* backlog state gets the ONE allowed accent only on the live "open" state; the
+   terminal states stay neutral-muted (palette ration — no saturation spray). */
+.finding-backlog-chip.open{color:var(--text);border-color:var(--accent-ring);}
+.finding-backlog-chip.addressed{color:var(--green-text);border-color:var(--green-chip);}
+.finding-backlog-chip.dismissed{color:var(--muted-2);border-style:dashed;}
+
+/* ---- fix #1/#2/#3: ONE neutral analysis block ----------------------------- */
+/* Grouped (Intent / Why / Impact together), neutral ground (sunken panel +
+   hairline, NOT a flood of accent-blue), and the finding's own summary folded in
+   as the lede so no orphan line floats above it. */
+.finding-analysis{display:flex;flex-direction:column;gap:8px;
+  border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--bg-sunken);padding:10px 12px;min-width:0;}
+.finding-analysis-head{display:flex;align-items:center;gap:8px;}
+.finding-analysis-head .finding-section-label{flex:0 0 auto;}
+.finding-analysis-source{margin-left:auto;font-size:10px;color:var(--muted-2);
+  font-variant-numeric:tabular-nums;}
+.finding-analysis-lede{margin:0;font-size:12.5px;line-height:1.5;color:var(--text);font-weight:550;}
+.finding-analysis-grid{display:flex;flex-direction:column;gap:7px;margin:0;}
+.finding-analysis-item{display:grid;grid-template-columns:54px minmax(0,1fr);gap:10px;align-items:baseline;}
+.finding-analysis-key{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);padding-top:1px;}
+/* a thin neutral keyline marks each field's column — the only structural accent */
+.finding-analysis-val{margin:0;font-size:12px;line-height:1.55;color:var(--text-soft);
+  border-left:2px solid var(--border-strong);padding-left:10px;}
+.finding-analysis-none{font-size:11px;color:var(--muted-2);}
+
+/* ---- decision block: verdict + backlog + agent placeholder (fix #6/#8) ---- */
+.finding-decision{display:flex;flex-direction:column;gap:8px;}
+.finding-decision-row{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;min-width:0;}
+.finding-decision-row > .finding-section-label{flex:0 0 52px;padding-top:6px;}
+.finding-decision-row .finding-verdict-decided{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  color:var(--muted-2);font-size:11px;min-height:28px;}
+.finding-verdict-by{font-variant-numeric:tabular-nums;}
+.finding-decision-row .finding-verdict-controls{display:grid;
+  grid-template-columns:minmax(140px,1fr) max-content max-content;gap:6px;align-items:center;flex:1 1 auto;}
+/* backlog segmented control (fix #8) — same chrome as the .segmented filter */
+.finding-backlog-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1 1 auto;min-width:0;}
+.finding-backlog-seg{flex:0 0 auto;}
+.finding-backlog-seg button[data-backlog-target="open"].active{color:var(--text);}
+.finding-backlog-seg button[data-backlog-target="addressed"].active{color:var(--green-text);}
+.finding-backlog-seg button[data-backlog-target="dismissed"].active{color:var(--muted-2);}
+/* agent placeholder row — disabled now, lands in P2.5 (dual-operability) */
+.finding-agent-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  border-top:1px solid var(--border-faint);padding-top:8px;}
+.finding-agent-action{border:1px dashed var(--border-strong);border-radius:4px;background:transparent;
+  color:var(--muted-2);font:inherit;font-size:10.5px;font-weight:600;padding:3px 9px;cursor:not-allowed;}
+.finding-agent-hint{font-size:10px;color:var(--muted-2);margin-left:auto;font-variant-numeric:tabular-nums;}
+
+/* ---- header tab counts (fix #7: Triage / Backlog / All) ------------------- */
+.findings-tab-count{margin-left:5px;font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
+.segmented.findings-filter button.active .findings-tab-count{color:var(--text-soft);}
+
+/* ---- fix #4: session is a PLAIN label (no duplicate link) ----------------- */
+.finding-evidence-session{display:flex;flex-direction:column;gap:2px;padding-bottom:6px;
+  border-bottom:1px solid var(--border);}
+/* a stale (unresolvable) step's quiet status tag, replacing the removed jump chip */
+.finding-evidence-stale-tag{font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;
+  border:1px dashed var(--border-strong);border-radius:4px;padding:1px 6px;}
+
+/* ---- triage: primary actions (VIEW TURN / VIEW SESSION) + toggle --------- */
+/* These two are the always-visible way into the transcript (fix #4):
+   labelled, outlined, and visually dominant over the secondary inline-transcript
+   toggle. The per-step jump chip and the session-title link were removed. */
+.finding-evidence-actions{display:inline-flex;align-items:center;gap:6px;}
+button.finding-evidence-action{display:inline-flex;align-items:center;gap:5px;
+  border:1px solid var(--border-strong);border-radius:4px;background:var(--panel);
+  color:var(--text-soft);font:inherit;font-size:10px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;padding:3px 9px;cursor:pointer;}
+button.finding-evidence-action:hover{background:var(--panel-hover);border-color:var(--accent);color:var(--accent);}
+button.finding-evidence-action:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
+button.finding-evidence-action-turn{color:var(--accent);border-color:var(--accent);}
+.finding-evidence-turn-toggle{display:inline-flex;align-items:center;gap:5px;
+  border:0;background:transparent;color:var(--muted-2);
+  font:inherit;font-size:10px;font-weight:500;padding:2px 4px;cursor:pointer;}
+.finding-evidence-turn-toggle:hover{color:var(--text-soft);}
+.finding-evidence-turn-toggle:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
 
 /* ---- triage: primary actions (VIEW TURN / VIEW SESSION) + toggle --------- */
 /* These two are the always-visible way into the transcript (requirement C):

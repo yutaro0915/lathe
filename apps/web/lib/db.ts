@@ -31,12 +31,14 @@ import type {
   PullRequestState,
   PullRequestSummary,
   Finding,
+  FindingAnalysis,
   FindingEvidence,
   FindingEvidenceExcerpt,
   FindingEvidenceNarrative,
   FindingKind,
   FindingVerdict,
   FindingVerdictValue,
+  BacklogStatus,
   TurnContext,
   TurnContextEvent,
 } from './types';
@@ -158,6 +160,16 @@ interface FindingRow {
   reason: string | null;
   decided_at: string | null;
   decided_by: string | null;
+  // deep-dive analysis (JSONB column on findings) + backlog lifecycle state.
+  analysis: AnalysisJson | string | null;
+  backlog_status: string | null;
+}
+
+// shape of the findings.analysis JSONB column (snake_case, written by the analyst).
+interface AnalysisJson {
+  cause_hypothesis?: string | null;
+  agent_intent?: string | null;
+  impact?: string | null;
 }
 
 interface FindingEvidenceRow {
@@ -704,6 +716,40 @@ function buildAftermath(
   return idx + 1 < events.length ? summarize(events[idx + 1]) : null;
 }
 
+// findings.analysis comes back as a parsed object (node-postgres parses jsonb) or,
+// defensively, as a JSON string. Map the analyst's snake_case fields to the
+// camelCase domain type; an all-null / absent analysis becomes null so the UI can
+// simply skip the block (never fabricate, design §A).
+function toAnalysis(value: FindingRow['analysis']): FindingAnalysis | null {
+  if (value == null) return null;
+  let obj: AnalysisJson | null = null;
+  if (typeof value === 'string') {
+    try {
+      obj = JSON.parse(value) as AnalysisJson;
+    } catch {
+      return null;
+    }
+  } else {
+    obj = value;
+  }
+  if (!obj || typeof obj !== 'object') return null;
+  const norm = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim() ? v : null;
+  const analysis: FindingAnalysis = {
+    causeHypothesis: norm(obj.cause_hypothesis),
+    agentIntent: norm(obj.agent_intent),
+    impact: norm(obj.impact),
+  };
+  if (!analysis.causeHypothesis && !analysis.agentIntent && !analysis.impact) {
+    return null;
+  }
+  return analysis;
+}
+
+function toBacklogStatus(value: string | null): BacklogStatus | null {
+  return value === 'open' || value === 'addressed' || value === 'dismissed' ? value : null;
+}
+
 function toFinding(row: FindingRow, evidence: FindingEvidence[]): Finding {
   const verdict: FindingVerdict | null =
     row.verdict_id == null || row.verdict == null || row.decided_at == null || row.decided_by == null
@@ -731,6 +777,8 @@ function toFinding(row: FindingRow, evidence: FindingEvidence[]): Finding {
     projectId: row.project_id,
     evidence,
     verdict,
+    analysis: toAnalysis(row.analysis),
+    backlogStatus: toBacklogStatus(row.backlog_status),
   };
 }
 
@@ -1048,6 +1096,8 @@ export async function listFindings(): Promise<Finding[]> {
      )
      SELECT f.id, f.created_at, f.analyst, f.kind, f.title, f.body, f.confidence,
             f.harness_version_id, f.project_id,
+            f.analysis,
+            f.backlog_status,
             hv.provider AS harness_provider,
             hv.content_hash AS harness_content_hash,
             hv.git_commit AS harness_git_commit,

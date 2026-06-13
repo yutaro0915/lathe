@@ -103,16 +103,11 @@ export default function FindingsAxisView({
 
   return (
     <div className="findings-axis-page">
-      {/* sessbar-like header so the chrome matches the Sessions / Overview axes */}
-      <div className="sessbar">
-        <div className="sessbar-id">
-          <span className="sessbar-title">Findings</span>
-          <span className="sessbar-meta">
-            All findings across every session — the cross-session axis. Pick a session to scope.
-          </span>
-        </div>
-      </div>
-
+      {/* iteration-3 fix #3: the standalone "Findings — All findings across every
+          session…" sessbar row is gone. Its title + description are folded into
+          the findings toolbar (.findings-tab-head, axis mode) so the page is two
+          stacked rows (global nav + one findings toolbar) instead of three, and
+          the reclaimed vertical space goes to the findings themselves. */}
       <div
         className="layout3 findings-axis-shell"
         data-tab="findings"
@@ -125,7 +120,7 @@ export default function FindingsAxisView({
             sessions={sessions}
             mode="axis"
             resolveEvidence={resolveEvidence}
-            initialStatusFilter="pending"
+            initialStatusFilter="triage"
             initialSessionFilter={initialSessionFilter}
             // SESSION / TURN header jumps deep-link into the owning session's
             // transcript — the SAME Sessions axis in a different state. `from`

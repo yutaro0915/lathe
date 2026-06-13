@@ -206,6 +206,16 @@ CREATE TABLE IF NOT EXISTS findings (
 CREATE INDEX IF NOT EXISTS idx_findings_project_kind ON findings(project_id, kind);
 CREATE INDEX IF NOT EXISTS idx_findings_harness_version ON findings(harness_version_id);
 
+-- Phase 2 deep-dive + improvement-backlog columns
+-- (design/phase2-finding-depth-and-backlog.md §A/§B). Idempotent ALTERs so an
+-- existing findings table picks them up without a destructive migration.
+--   analysis        — analyst's WHY/INTENT/IMPACT deep-dive (nullable JSONB)
+--   backlog_status  — improvement-backlog lifecycle once accepted (nullable)
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS analysis JSONB;
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS backlog_status TEXT
+  CHECK (backlog_status IS NULL OR backlog_status IN ('open', 'addressed', 'dismissed'));
+CREATE INDEX IF NOT EXISTS idx_findings_backlog_status ON findings(backlog_status);
+
 CREATE TABLE IF NOT EXISTS finding_evidence (
   id           INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   finding_id   INTEGER NOT NULL REFERENCES findings(id) ON DELETE CASCADE,

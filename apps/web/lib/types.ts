@@ -32,6 +32,11 @@ export type EventFileRole = 'read' | 'edit' | 'write';
 export type AnnotationKind = 'error' | 'test' | 'edit' | 'commit' | 'note';
 export type FindingKind = 'failure_loop' | 'unattributed_diff' | 'excess_cost' | 'risky_action';
 export type FindingVerdictValue = 'accept' | 'reject';
+// improvement-backlog lifecycle (Phase 2, design/phase2-finding-depth-and-backlog.md §B).
+// Set to 'open' the moment a finding is ACCEPTED; the user (or, later, an agent via
+// the same actor-stamped HTTP API) moves it to 'addressed' / 'dismissed' by hand.
+// null = not on the backlog (pending or rejected).
+export type BacklogStatus = 'open' | 'addressed' | 'dismissed';
 
 export interface Session {
   id: string;
@@ -259,6 +264,18 @@ export interface FindingVerdict {
   decidedBy: string;
 }
 
+// Analyst's deep-dive on a finding (design/phase2-finding-depth-and-backlog.md §A).
+// Three plain-text fields written by the analyst at finding-creation time from the
+// session context it can already see (transcript / surrounding turns / USER ASKED).
+// Any field may be null when the analyst could not ground it (never fabricated).
+// Scope boundary: the explanation of the phenomenon only — never harness vocabulary
+// (which file to change), per ADR 0005 §3 / ROADMAP P2.
+export interface FindingAnalysis {
+  causeHypothesis: string | null; // why it happened (a hypothesis, stated as such)
+  agentIntent: string | null; // what the agent was trying to do that turn
+  impact: string | null; // why it matters / what happens if left alone
+}
+
 export interface Finding {
   id: number;
   createdAt: string;
@@ -274,6 +291,10 @@ export interface Finding {
   projectId: string;
   evidence: FindingEvidence[];
   verdict: FindingVerdict | null;
+  // deep-dive analysis (null when the analyst produced none for this finding)
+  analysis: FindingAnalysis | null;
+  // improvement-backlog state (null = not on backlog: pending or rejected)
+  backlogStatus: BacklogStatus | null;
 }
 
 // Convenience shape for screen B's "Linked Events" panel.

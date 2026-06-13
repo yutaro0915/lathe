@@ -4,25 +4,36 @@
 // the cross-session Findings AXIS (route /findings) and the per-session Findings
 // TAB inside the session viewer.
 //
+// Iteration 2 (design/phase2-finding-depth-and-backlog.md "イテレーション2"):
+// V1 (Analysis-forward) is the base. The eight fixes from the round-1 screen
+// review are implemented here:
+//   1. Analysis stays as ONE grouped block (WHY / INTENT / IMPACT together).
+//   2. The analysis block is neutral (hairline + panel ground + a source tag),
+//      NOT a flood of accent-blue.
+//   3. No orphaned summary line — finding.body is folded into the analysis block.
+//   4. No duplicate navigation — the session is a plain label; VIEW SESSION /
+//      VIEW TURN are the single way into the transcript.
+//   5. Status is read in ONE place — a single verdict+backlog cell per list row.
+//   6. No sticky verdict bar. The screen is a fixed header + THREE inner panels,
+//      each scrolling inside its own box (minmax(0,…) + min-height:0 + overflow):
+//        ① findings list           (left, scrolls)
+//        ② analysis + verdict + backlog state (top of detail, shallow, no scroll)
+//        ③ evidence / session body (bottom of detail, the ONLY deep scroll)
+//   7. Tabs are Triage (pending) / Backlog (accepted & open) / All. No "Decided".
+//   8. dual-operability: backlog transitions hit the same actor-stamped HTTP API
+//      a future agent tool will call; "discuss / deepen with agent" placeholders.
+//
 // IA principle (design/ui-design-language.md, 2026-06-12): the cross-session
 // theme lives on the global bar; the session viewer's tab shows ONLY findings
-// attached to that one session. This component is the single rendering of the
-// list + detail + verdict flow, parameterised by `mode`:
-//
-//   • mode "axis"    — the /findings screen. Session filter (All sessions / a
-//                       specific session) is available; evidence jumps deep-link
-//                       into the owning session's transcript (?session=&seq=).
-//   • mode "session" — the viewer tab. Pre-scoped to one session; NO session
-//                       filter (cross-session is the axis's job); evidence jumps
-//                       are resolved in-page by the host (resolveEvidence prop).
-//
-// All verdict state (drafts, busy, toast, error, selection) is owned here so the
-// component is self-contained on both screens.
+// attached to that one session. This component is parameterised by `mode`:
+//   • mode "axis"    — the /findings screen (session filter; deep-link jumps).
+//   • mode "session" — the viewer tab (pre-scoped; in-page jumps via the host).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { parseStamp, shortModel } from "@lathe/shared";
 import type {
+  BacklogStatus,
   Finding,
   FindingEvidence,
   FindingEvidenceNarrative,
@@ -33,7 +44,10 @@ import type {
   TurnContextEvent,
 } from "@/lib/types";
 
-export type FindingStatusFilter = "pending" | "decided" | "all";
+// Triage = still pending (needs a verdict). Backlog = accepted AND still open
+// (the live improvement list). All = everything, including rejected / addressed /
+// dismissed (those are read here, not on a tab of their own — fix #7).
+export type FindingTab = "triage" | "backlog" | "all";
 
 // One resolved evidence target — either an in-page jump (session viewer) or a
 // deep link (the axis). `resolved:false` means the locator maps to nothing in
@@ -47,6 +61,20 @@ const FINDING_KIND_LABEL: Record<Finding["kind"], string> = {
   unattributed_diff: "unattributed diff",
   excess_cost: "excess cost",
   risky_action: "risky action",
+};
+
+const BACKLOG_LABEL: Record<BacklogStatus, string> = {
+  open: "Open",
+  addressed: "Addressed",
+  dismissed: "Dismissed",
+};
+
+// iteration-3 fix #4: per-state intent shown on hover. Dismiss is explicitly the
+// soft "won't fix — keep for record" so it never reads as a delete.
+const BACKLOG_INTENT: Record<BacklogStatus, string> = {
+  open: "open — still on the improvement backlog",
+  addressed: "addressed — harness was changed to fix this",
+  dismissed: "won't fix — keep for record (not deleted)",
 };
 
 function findingConfidenceLabel(value: number): string {
@@ -82,19 +110,12 @@ export function findingTouchesSession(finding: Finding, sessionId: string): bool
   return finding.evidence.some((evidence) => evidenceSessionId(evidence) === sessionId);
 }
 
-// One evidence group: a stretch of evidence that shares the same (session, turn).
-// The user's complaint was 4 near-identical cards differing only by `step`; this
-// collapses them into ONE card whose header is the session + turn position + the
-// single USER ASKED prompt, with one row per step inside. Evidence that lacks a
-// resolvable (sessionId, turn) — e.g. session-kind or unresolved locators — each
-// become a singleton group so nothing regresses.
-//
-// Grouping is a pure VIEW transform over finding.evidence; the data contract
-// (finding_evidence) is untouched (requirement B).
+// One evidence group: a stretch of evidence that shares the same (session, turn),
+// collapsed into one card whose header is the session + turn position + the single
+// USER ASKED prompt, with one row per step inside. Evidence that lacks a
+// resolvable (sessionId, turn) each become a singleton group. Pure VIEW transform.
 export interface EvidenceGroup {
   key: string;
-  // narrative shared by the group (taken from the first member that has one).
-  // null for singleton groups whose evidence carries no narrative.
   narrative: FindingEvidenceNarrative | null;
   sessionId: string | null;
   turn: number | null;
@@ -108,9 +129,6 @@ export function groupEvidence(evidence: FindingEvidence[]): EvidenceGroup[] {
     const narrative = item.excerpt?.narrative ?? null;
     const sessionId = narrative?.sessionId ?? evidenceSessionId(item);
     const turn = narrative?.turn ?? null;
-    // Only fold together when BOTH the session and a turn number are known and a
-    // narrative is present (so the shared header is meaningful). Otherwise the
-    // evidence stands alone — keyed by its own id so it is never merged.
     const groupable = narrative != null && sessionId != null && turn != null;
     const key = groupable ? `t:${sessionId}::${turn}` : `e:${item.id}`;
     let group = byKey.get(key);
@@ -122,8 +140,6 @@ export function groupEvidence(evidence: FindingEvidence[]): EvidenceGroup[] {
     if (!group.narrative && narrative) group.narrative = narrative;
     group.members.push(item);
   }
-  // step order inside each group: by excerpt seq (the session-wide step index),
-  // falling back to evidence id so the order is always deterministic.
   for (const group of groups) {
     group.members.sort((a, b) => {
       const sa = a.excerpt?.seq ?? Number.MAX_SAFE_INTEGER;
@@ -134,10 +150,6 @@ export function groupEvidence(evidence: FindingEvidence[]): EvidenceGroup[] {
   return groups;
 }
 
-// One compact row in the embedded turn transcript. Visual language is borrowed
-// from the transcript (type micro-label, mono command, error-red only) but this
-// is a deliberately light renderer — it never imports SessionViewer. Clicking a
-// row deep-links the host to that exact step (when a jump handler is supplied).
 const TURN_EVENT_TYPE_LABEL: Record<string, string> = {
   user_message: "user",
   assistant_message: "assistant",
@@ -195,6 +207,28 @@ function TurnEventRow({
   );
 }
 
+// The single status cell rendered in each list row AND in the detail header
+// (fix #5: status read in one place). Verdict first, then — only when accepted —
+// the backlog lifecycle chip beside it. Pending shows just "Pending".
+function StatusCell({
+  verdict,
+  backlogStatus,
+}: {
+  verdict: FindingVerdictValue | "pending";
+  backlogStatus: BacklogStatus | null;
+}) {
+  return (
+    <span className="finding-status-cell" data-verdict={verdict} data-backlog={backlogStatus ?? "none"}>
+      <span className={`finding-verdict-chip ${verdict}`}>
+        {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
+      </span>
+      {verdict === "accept" && backlogStatus && (
+        <span className={`finding-backlog-chip ${backlogStatus}`}>{BACKLOG_LABEL[backlogStatus]}</span>
+      )}
+    </span>
+  );
+}
+
 export default function FindingsExplorer({
   findings,
   setFindings,
@@ -202,7 +236,7 @@ export default function FindingsExplorer({
   mode,
   scopeSessionId,
   resolveEvidence,
-  initialStatusFilter = "pending",
+  initialStatusFilter = "triage",
   initialSessionFilter,
   onJumpToSession,
   onJumpToTurn,
@@ -211,21 +245,11 @@ export default function FindingsExplorer({
   setFindings: React.Dispatch<React.SetStateAction<Finding[]>>;
   sessions: Session[];
   mode: "axis" | "session";
-  // session viewer: the session the tab is scoped to. Findings whose evidence
-  // does not touch this session are never shown (IA principle #2).
   scopeSessionId?: string;
   resolveEvidence: (evidence: FindingEvidence) => ResolvedEvidence;
-  initialStatusFilter?: FindingStatusFilter;
+  initialStatusFilter?: FindingTab;
   initialSessionFilter?: string;
-  // Jump from a SESSION header → that session's transcript (requirement A). The
-  // host decides whether that is an in-page tab switch (session viewer, same
-  // session) or a deep-link router.push (axis / cross-session). `findingId` lets
-  // the host record where the jump came from (landing banner, requirement D).
   onJumpToSession?: (sessionId: string, findingId?: number) => void;
-  // Jump from a TURN header → the transcript positioned at that turn. `headSeq`
-  // is the turn's first user_message seq (USER ASKED), used as the deep-link
-  // anchor when the host has no richer turn locator. `findingId` is carried so
-  // the landing transcript can show "from finding #N".
   onJumpToTurn?: (
     sessionId: string,
     turn: number,
@@ -233,11 +257,12 @@ export default function FindingsExplorer({
     findingId?: number,
   ) => void;
 }) {
-  const [statusFilter, setStatusFilter] = useState<FindingStatusFilter>(initialStatusFilter);
+  const [tab, setTab] = useState<FindingTab>(initialStatusFilter);
   const [sessionFilter, setSessionFilter] = useState<string>(initialSessionFilter ?? "all");
   const [selectedFindingId, setSelectedFindingId] = useState<number | null>(null);
   const [reasonDrafts, setReasonDrafts] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState<Record<number, boolean>>({});
+  const [backlogBusy, setBacklogBusy] = useState<Record<number, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [recentVerdict, setRecentVerdict] = useState<{
     findingId: number;
@@ -246,19 +271,15 @@ export default function FindingsExplorer({
     title: string;
   } | null>(null);
 
-  // Embedded turn transcript (requirement B): which evidence groups are expanded
-  // and a per-(session,turn) cache of the lazily-fetched turn context. Keyed by
-  // `${sessionId}::${turn}` so the same turn is fetched at most once.
+  // Embedded turn transcript: which evidence groups are expanded + a lazily-fetched
+  // per-(session,turn) cache, keyed by `${sessionId}::${turn}`.
   const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>({});
   const [turnContexts, setTurnContexts] = useState<
     Record<string, { loading: boolean; error: string | null; data: TurnContext | null }>
   >({});
   const turnFetchSeen = useRef<Set<string>>(new Set());
 
-  const turnKey = useCallback(
-    (sessionId: string, turn: number) => `${sessionId}::${turn}`,
-    [],
-  );
+  const turnKey = useCallback((sessionId: string, turn: number) => `${sessionId}::${turn}`, []);
 
   const fetchTurnContext = useCallback(
     async (sessionId: string, turn: number, evidenceSeqs: number[]) => {
@@ -281,7 +302,7 @@ export default function FindingsExplorer({
           [key]: { loading: false, error: null, data: payload.context! },
         }));
       } catch (err) {
-        turnFetchSeen.current.delete(key); // allow a retry on re-expand
+        turnFetchSeen.current.delete(key);
         setTurnContexts((prev) => ({
           ...prev,
           [key]: { loading: false, error: (err as Error).message, data: null },
@@ -315,18 +336,29 @@ export default function FindingsExplorer({
     return findings;
   }, [findings, mode, scopeSessionId]);
 
-  const pendingCount = useMemo(
+  const triageCount = useMemo(
     () => scopedFindings.filter((finding) => !finding.verdict).length,
     [scopedFindings],
   );
+  const backlogCount = useMemo(
+    () =>
+      scopedFindings.filter(
+        (finding) => finding.verdict?.verdict === "accept" && finding.backlogStatus === "open",
+      ).length,
+    [scopedFindings],
+  );
+
+  const matchesTab = useCallback((finding: Finding, which: FindingTab): boolean => {
+    if (which === "all") return true;
+    if (which === "triage") return !finding.verdict;
+    // backlog = accepted AND still open
+    return finding.verdict?.verdict === "accept" && finding.backlogStatus === "open";
+  }, []);
 
   const visibleFindings = useMemo(() => {
     return scopedFindings
       .filter((finding) => {
-        if (statusFilter === "pending" && finding.verdict) return false;
-        if (statusFilter === "decided" && !finding.verdict) return false;
-        // the explicit session filter only applies on the axis; the tab is
-        // already pre-scoped to one session.
+        if (!matchesTab(finding, tab)) return false;
         if (mode === "axis" && sessionFilter !== "all" && !findingTouchesSession(finding, sessionFilter)) {
           return false;
         }
@@ -337,7 +369,7 @@ export default function FindingsExplorer({
         if (a.verdict && !b.verdict) return 1;
         return b.confidence - a.confidence || b.id - a.id;
       });
-  }, [scopedFindings, statusFilter, sessionFilter, mode]);
+  }, [scopedFindings, tab, sessionFilter, mode, matchesTab]);
 
   const selectedFinding = useMemo(() => {
     if (selectedFindingId == null) return visibleFindings[0] ?? null;
@@ -353,10 +385,6 @@ export default function FindingsExplorer({
     }
   }, [selectedFinding, selectedFindingId]);
 
-  // Selection is pure client state — no server round-trip, no navigation, so the
-  // detail panel swaps instantly (requirement E). We only mirror the choice into
-  // the URL via history.replaceState (a `finding` query param) so the selection
-  // is shareable / survives reload WITHOUT re-running the route loader.
   const selectFinding = useCallback((id: number) => {
     setSelectedFindingId(id);
     if (typeof window !== "undefined") {
@@ -366,7 +394,6 @@ export default function FindingsExplorer({
     }
   }, []);
 
-  // honour an initial ?finding=<id> deep link on mount (one-shot).
   const initialFindingApplied = useRef(false);
   useEffect(() => {
     if (initialFindingApplied.current) return;
@@ -379,7 +406,6 @@ export default function FindingsExplorer({
     }
   }, [findings]);
 
-  // sessions that actually carry findings — used to populate the axis filter.
   const sessionsWithFindings = useMemo(() => {
     if (mode !== "axis") return [] as Session[];
     const ids = new Set<string>();
@@ -400,14 +426,29 @@ export default function FindingsExplorer({
       const response = await fetch(`/api/findings/${finding.id}/verdict`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ verdict, reason: reasonDrafts[finding.id] ?? "" }),
+        // actor lets the same endpoint serve human + agent operators (dual-
+        // operability). The UI is "human"; a future agent tool sends "agent:<name>".
+        body: JSON.stringify({ verdict, reason: reasonDrafts[finding.id] ?? "", actor: "human" }),
       });
-      const payload = (await response.json()) as { ok?: boolean; verdict?: FindingVerdict; error?: string };
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        verdict?: FindingVerdict;
+        backlogStatus?: BacklogStatus | null;
+        error?: string;
+      };
       if (!response.ok || !payload.ok || !payload.verdict) {
         throw new Error(payload.error ?? "verdict failed");
       }
       setFindings((prev) =>
-        prev.map((item) => (item.id === finding.id ? { ...item, verdict: payload.verdict! } : item)),
+        prev.map((item) =>
+          item.id === finding.id
+            ? {
+                ...item,
+                verdict: payload.verdict!,
+                backlogStatus: payload.backlogStatus ?? null,
+              }
+            : item,
+        ),
       );
       setReasonDrafts((prev) => ({ ...prev, [finding.id]: "" }));
       setRecentVerdict({
@@ -435,7 +476,9 @@ export default function FindingsExplorer({
       const payload = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || !payload.ok) throw new Error(payload.error ?? "undo failed");
       setFindings((prev) =>
-        prev.map((item) => (item.id === recent.findingId ? { ...item, verdict: null } : item)),
+        prev.map((item) =>
+          item.id === recent.findingId ? { ...item, verdict: null, backlogStatus: null } : item,
+        ),
       );
       setRecentVerdict(null);
     } catch (err) {
@@ -443,29 +486,79 @@ export default function FindingsExplorer({
     }
   }
 
+  // Backlog transition (fix #8). Hits the SAME actor-stamped endpoint a future
+  // agent tool will call; the UI just supplies actor:"human".
+  async function setBacklog(finding: Finding, status: BacklogStatus) {
+    if (backlogBusy[finding.id] || finding.backlogStatus === status) return;
+    setError(null);
+    setBacklogBusy((prev) => ({ ...prev, [finding.id]: true }));
+    try {
+      const response = await fetch(`/api/findings/${finding.id}/backlog`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status, actor: "human" }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        backlogStatus?: BacklogStatus;
+        error?: string;
+      };
+      if (!response.ok || !payload.ok || !payload.backlogStatus) {
+        throw new Error(payload.error ?? "backlog update failed");
+      }
+      setFindings((prev) =>
+        prev.map((item) =>
+          item.id === finding.id ? { ...item, backlogStatus: payload.backlogStatus! } : item,
+        ),
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBacklogBusy((prev) => ({ ...prev, [finding.id]: false }));
+    }
+  }
+
+  // iteration-3 fix #1: All carries a count too (total findings in scope), so
+  // the user sees the universe size — not just the two narrowed tabs.
+  const TABS: ReadonlyArray<readonly [FindingTab, string, number | null]> = [
+    ["triage", "Triage", triageCount],
+    ["backlog", "Backlog", backlogCount],
+    ["all", "All", scopedFindings.length],
+  ];
+
   return (
-    <div className="timeline findings-tab findings-md" data-pending-count={pendingCount} data-findings-mode={mode}>
-      <div className="findings-tab-head">
+    <div
+      className="timeline findings-tab findings-md3"
+      data-pending-count={triageCount}
+      data-backlog-count={backlogCount}
+      data-findings-mode={mode}
+      data-active-tab={tab}
+    >
+      {/* ---- fixed header: tabs + counts + session filter (fix #6: never scrolls) ----
+          iteration-3 fix #3: in axis mode this IS the page header (the separate
+          sessbar row was removed). The cross-session description is inlined here
+          so the chrome is two rows (global nav + this) instead of three. */}
+      <div className="findings-tab-head" data-mode={mode}>
         <div className="findings-title">
           <span className="findings-label">Findings</span>
           <span className="count mono">{visibleFindings.length}</span>
-          <span className="finding-pending-count mono">{pendingCount} pending</span>
+          {mode === "axis" && (
+            <span className="findings-axis-desc">
+              All findings across every session — the cross-session axis.
+            </span>
+          )}
         </div>
-        <span className="segmented findings-filter" title="Verdict filter">
-          {(
-            [
-              ["pending", "Pending"],
-              ["decided", "Decided"],
-              ["all", "All"],
-            ] as const
-          ).map(([key, label]) => (
+        <span className="segmented findings-filter" title="Findings tab">
+          {TABS.map(([key, label, count]) => (
             <button
               key={key}
               type="button"
-              className={statusFilter === key ? "active" : ""}
-              onClick={() => setStatusFilter(key)}
+              className={tab === key ? "active" : ""}
+              data-tab={key}
+              onClick={() => setTab(key)}
             >
               {label}
+              {count != null && <span className="findings-tab-count mono">{count}</span>}
             </button>
           ))}
         </span>
@@ -487,6 +580,7 @@ export default function FindingsExplorer({
           </label>
         )}
       </div>
+
       {recentVerdict && (
         <div
           className={`finding-verdict-toast ${recentVerdict.verdict}`}
@@ -503,16 +597,21 @@ export default function FindingsExplorer({
         </div>
       )}
       {error && <div className="finding-error">{error}</div>}
+
       {visibleFindings.length === 0 ? (
         <div className="empty" style={{ padding: "16px" }}>
-          {mode === "session"
-            ? "No findings are attached to this session."
-            : "No findings match the current filters."}
+          {tab === "triage"
+            ? "no findings awaiting triage"
+            : tab === "backlog"
+              ? "no open backlog items"
+              : mode === "session"
+                ? "no findings attached to this session"
+                : "no findings match the current filters"}
         </div>
       ) : (
-        <div className="findings-md-grid">
-          {/* ---- master: compact list ---- */}
-          <div className="findings-list" role="list">
+        <div className="findings-md3-grid">
+          {/* ===== PANEL ① — findings list (independent scroll, fix #6) ===== */}
+          <div className="findings-list" role="list" data-panel="list">
             {visibleFindings.map((finding) => {
               const verdict = finding.verdict?.verdict ?? "pending";
               const isActive = selectedFinding?.id === finding.id;
@@ -526,6 +625,7 @@ export default function FindingsExplorer({
                   data-kind={finding.kind}
                   data-analyst={finding.analyst}
                   data-verdict={verdict}
+                  data-backlog={finding.backlogStatus ?? "none"}
                   data-evidence-count={finding.evidence.length}
                   aria-pressed={isActive}
                   onClick={() => selectFinding(finding.id)}
@@ -538,9 +638,8 @@ export default function FindingsExplorer({
                     <div className="finding-title-body">
                       <div className="finding-title-text">{finding.title}</div>
                     </div>
-                    <span className={`finding-verdict-chip ${verdict}`}>
-                      {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
-                    </span>
+                    {/* fix #5: ONE status cell (verdict + backlog together) */}
+                    <StatusCell verdict={verdict} backlogStatus={finding.backlogStatus} />
                   </div>
                   <div className="finding-meta-line">
                     <span className="mono">{finding.analyst}</span>
@@ -552,11 +651,12 @@ export default function FindingsExplorer({
             })}
           </div>
 
-          {/* ---- detail: the evidence + verdict ---- */}
+          {/* ===== detail column = panel ② (shallow, fixed) + panel ③ (deep scroll) ===== */}
           {selectedFinding ? (
             (() => {
               const finding = selectedFinding;
               const verdict = finding.verdict?.verdict ?? "pending";
+              const analysis = finding.analysis;
               const harnessLabel = finding.harnessVersionId
                 ? `${finding.harnessProvider ?? "harness"} ${shortHash(
                     finding.harnessContentHash ?? finding.harnessVersionId,
@@ -564,463 +664,500 @@ export default function FindingsExplorer({
                 : "—";
               return (
                 <div
-                  className={`finding-detail ${verdict}`}
+                  className={`finding-detail3 ${verdict}`}
                   data-detail-finding-id={finding.id}
                   data-verdict={verdict}
+                  data-backlog={finding.backlogStatus ?? "none"}
                 >
-                  <div className="finding-detail-head">
-                    <span className={`finding-kind-chip ${finding.kind}`}>
-                      <span className="finding-kind-dot" aria-hidden />
-                      {FINDING_KIND_LABEL[finding.kind]}
-                    </span>
-                    <span className={`finding-verdict-chip ${verdict}`}>
-                      {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
-                    </span>
-                  </div>
-                  <h3 className="finding-detail-title">{finding.title}</h3>
-                  <div className="finding-detail-meta">
-                    <span className="mono">{finding.analyst}</span>
-                    <span className="mono">conf {findingConfidenceLabel(finding.confidence)}</span>
-                    <span className="mono">harness {harnessLabel}</span>
-                  </div>
-                  {finding.body && <p className="finding-detail-body">{finding.body}</p>}
-
-                  <div className="finding-detail-section">
-                    <div className="finding-section-label">Evidence · {finding.evidence.length}</div>
-                    <div className="finding-evidence-cards">
-                      {groupEvidence(finding.evidence).map((group) => {
-                        const narrative = group.narrative;
-                        // a group is "resolved" if any of its members resolves —
-                        // the whole card is stale only when every step is.
-                        const anyResolved = group.members.some(
-                          (member) => resolveEvidence(member).resolved,
-                        );
-                        const repeats = group.members.length;
-                        // session header is suppressed inside the session viewer
-                        // (requirement A): every finding shown there already
-                        // belongs to this session, so the SESSION row is noise.
-                        // The cross-session AXIS keeps it (you may be looking at
-                        // many sessions at once).
-                        const showSessionHeader = mode === "axis" && narrative != null;
-                        const positionLabel = narrative
-                          ? [
-                              narrative.turn != null && narrative.turnCount != null
-                                ? `turn ${narrative.turn}/${narrative.turnCount}`
-                                : narrative.turn != null
-                                  ? `turn ${narrative.turn}`
-                                  : null,
-                              narrative.minutesFromStart != null
-                                ? `+${narrative.minutesFromStart}m`
-                                : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")
-                          : "";
-                        // turn-level jump + embedded transcript anchors. Both need
-                        // a (session, turn): available only when the group folded
-                        // on a real narrative turn. evidenceSeqs flag this
-                        // finding's own steps inside the inline transcript.
-                        const turnSessionId = group.sessionId;
-                        const turnNumber = group.turn;
-                        const canTurnJump =
-                          turnSessionId != null && turnNumber != null;
-                        const evidenceSeqs = group.members
-                          .map((m) => m.excerpt?.seq)
-                          .filter((s): s is number => typeof s === "number");
-                        const triggerSeq = narrative?.trigger?.seq ?? null;
-                        const tkey =
-                          turnSessionId != null && turnNumber != null
-                            ? turnKey(turnSessionId, turnNumber)
-                            : null;
-                        const turnExpanded = tkey ? !!expandedTurns[tkey] : false;
-                        const turnState = tkey ? turnContexts[tkey] : undefined;
-                        return (
-                          <div
-                            key={group.key}
-                            className={`finding-evidence-card${anyResolved ? "" : " stale"}`}
-                            data-evidence-kind={group.members[0].subjectKind}
-                            data-evidence-id={group.members[0].id}
-                            data-group-key={group.key}
-                            data-group-size={repeats}
-                            data-resolved={anyResolved ? "true" : "false"}
-                          >
-                            {showSessionHeader && narrative && (
-                              <button
-                                type="button"
-                                className="finding-evidence-session finding-evidence-session-jump"
-                                data-session-id={narrative.sessionId}
-                                title={`Open the full transcript for "${narrative.sessionTitle}" (same as VIEW SESSION)`}
-                                onClick={() => onJumpToSession?.(narrative.sessionId, finding.id)}
-                              >
-                                <span className="finding-evidence-session-headline">
-                                  <span className="finding-evidence-microlabel">Session</span>
-                                  <span className="finding-evidence-session-arrow" aria-hidden>
-                                    →
-                                  </span>
-                                </span>
-                                <span
-                                  className="finding-evidence-session-title"
-                                  title={narrative.sessionTitle}
-                                >
-                                  {narrative.sessionTitle}
-                                </span>
-                                <span className="finding-evidence-session-meta mono">
-                                  {RUNNER_LABEL[narrative.runner as keyof typeof RUNNER_LABEL] ??
-                                    narrative.runner}
-                                  {narrative.model ? ` · ${shortModel(narrative.model)}` : ""}
-                                  {` · ${parseStamp(narrative.startedAt).date} ${
-                                    parseStamp(narrative.startedAt).time
-                                  }`}
-                                </span>
-                              </button>
-                            )}
-                            {/* group header: turn position label (once) + repeat
-                                count, then TWO always-visible primary actions —
-                                VIEW TURN (transcript positioned at this turn) and
-                                VIEW SESSION (the full transcript). Both carry a
-                                title attribute spelling out the destination
-                                (requirement C). The inline-transcript toggle is a
-                                secondary, lower-priority control. */}
-                            {(positionLabel ||
-                              repeats > 1 ||
-                              canTurnJump ||
-                              narrative?.sessionId) && (
-                              <div className="finding-evidence-grouphead">
-                                {positionLabel && (
-                                  <span
-                                    className="finding-evidence-position mono"
-                                    title="Position of this turn within the run"
-                                  >
-                                    {positionLabel}
-                                  </span>
-                                )}
-                                {repeats > 1 && (
-                                  <span
-                                    className="finding-evidence-repeats mono"
-                                    data-repeats={repeats}
-                                    title={`This finding fired ${repeats} times in the same turn — the same instruction kept repeating`}
-                                  >
-                                    ×{repeats} repeats
-                                  </span>
-                                )}
-                                <span className="finding-evidence-grouphead-spacer" />
-                                <div className="finding-evidence-actions">
-                                  {canTurnJump && (
-                                    <button
-                                      type="button"
-                                      className="finding-evidence-action finding-evidence-action-turn"
-                                      data-turn={turnNumber ?? undefined}
-                                      title="Open the transcript at this turn"
-                                      onClick={() =>
-                                        onJumpToTurn?.(
-                                          turnSessionId!,
-                                          turnNumber!,
-                                          triggerSeq,
-                                          finding.id,
-                                        )
-                                      }
-                                    >
-                                      <span>VIEW TURN</span>
-                                      <span aria-hidden>→</span>
-                                    </button>
-                                  )}
-                                  {narrative?.sessionId && (
-                                    <button
-                                      type="button"
-                                      className="finding-evidence-action finding-evidence-action-session"
-                                      data-session-id={narrative.sessionId}
-                                      title="Open the full session transcript"
-                                      onClick={() =>
-                                        onJumpToSession?.(narrative.sessionId, finding.id)
-                                      }
-                                    >
-                                      <span>VIEW SESSION</span>
-                                      <span aria-hidden>→</span>
-                                    </button>
-                                  )}
-                                </div>
-                                {canTurnJump && (
-                                  <button
-                                    type="button"
-                                    className="finding-evidence-turn-toggle mono"
-                                    data-turn={turnNumber ?? undefined}
-                                    aria-expanded={turnExpanded}
-                                    title="Show this turn's transcript inline, without leaving this screen"
-                                    onClick={() =>
-                                      toggleTurn(turnSessionId!, turnNumber!, evidenceSeqs)
-                                    }
-                                  >
-                                    <span aria-hidden>{turnExpanded ? "▾" : "▸"}</span>
-                                    {turnExpanded ? "hide transcript" : "inline transcript"}
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            {/* USER ASKED — the trigger prompt, shown once for the
-                                whole group (it is identical across the steps). */}
-                            {narrative?.trigger && (
-                              <div className="finding-evidence-trigger">
-                                <span className="finding-evidence-microlabel">User asked</span>
-                                <p className="finding-evidence-trigger-text">
-                                  {narrative.trigger.text}
-                                </p>
-                                <span className="finding-evidence-trigger-seq mono">
-                                  step {narrative.trigger.seq}
-                                </span>
-                              </div>
-                            )}
-                            {/* one row per step (the seq is the session-wide step
-                                index; hover spells that out). */}
-                            <div className="finding-evidence-steps">
-                              {group.members.map((evidence, stepIndex) => {
-                                const target = resolveEvidence(evidence);
-                                const excerpt = evidence.excerpt;
-                                const stepSeq = excerpt?.seq ?? null;
-                                const stepLabel =
-                                  stepSeq != null
-                                    ? `STEP ${stepSeq}`
-                                    : `STEP ${stepIndex + 1}`;
-                                return (
-                                  <div
-                                    key={evidence.id}
-                                    className={`finding-evidence-step${target.resolved ? "" : " stale"}`}
-                                    data-evidence-kind={evidence.subjectKind}
-                                    data-evidence-id={evidence.id}
-                                    data-step-seq={stepSeq ?? undefined}
-                                    data-resolved={target.resolved ? "true" : "false"}
-                                  >
-                                    <div className="finding-evidence-stephead">
-                                      <span
-                                        className="finding-evidence-stepno mono"
-                                        title="Session-wide step number (the step's seq within the whole run)"
-                                      >
-                                        {stepLabel}
-                                      </span>
-                                      <span className="finding-evidence-kind">
-                                        {evidence.subjectKind}
-                                      </span>
-                                      {excerpt?.exitCode != null && (
-                                        <span
-                                          className={`finding-evidence-exit mono ${
-                                            excerpt.exitCode === 0 ? "ok" : "err"
-                                          }`}
-                                        >
-                                          exit {excerpt.exitCode}
-                                        </span>
-                                      )}
-                                      <span className="finding-evidence-stepspacer" />
-                                      {target.resolved ? (
-                                        <button
-                                          type="button"
-                                          className="finding-evidence finding-evidence-jump"
-                                          data-evidence-kind={evidence.subjectKind}
-                                          data-evidence-id={evidence.id}
-                                          data-resolved="true"
-                                          title={`${target.title} — jump to the Transcript`}
-                                          onClick={target.jump}
-                                        >
-                                          <span className="mono">{target.label}</span>
-                                          <span aria-hidden>→</span>
-                                        </button>
-                                      ) : (
-                                        <span
-                                          className="finding-evidence stale"
-                                          data-evidence-kind={evidence.subjectKind}
-                                          data-evidence-id={evidence.id}
-                                          data-resolved="false"
-                                          title={target.title}
-                                        >
-                                          {target.label}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {evidence.note && (
-                                      <div className="finding-evidence-note">{evidence.note}</div>
-                                    )}
-                                    {excerpt ? (
-                                      <div
-                                        className="finding-excerpt"
-                                        data-excerpt-seq={excerpt.seq}
-                                      >
-                                        {excerpt.command && (
-                                          <pre className="code-block cmd finding-excerpt-pre">
-                                            {excerpt.command}
-                                          </pre>
-                                        )}
-                                        {excerpt.output ? (
-                                          <pre className="code-block output finding-excerpt-pre">
-                                            {excerpt.output}
-                                          </pre>
-                                        ) : (
-                                          !excerpt.command && (
-                                            <div className="finding-excerpt-empty mono">
-                                              {excerpt.title || "(no command / output captured)"}
-                                            </div>
-                                          )
-                                        )}
-                                      </div>
-                                    ) : (
-                                      !target.resolved && (
-                                        <div className="finding-excerpt-empty mono">
-                                          evidence not resolvable (no locator)
-                                        </div>
-                                      )
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            {/* AFTERWARD — once for the group, after the last step
-                                (requirement B). Use the aftermath of the last
-                                member that carries one. */}
-                            {(() => {
-                              const last = [...group.members]
-                                .reverse()
-                                .find((member) => member.excerpt?.narrative?.aftermath);
-                              const aftermath = last?.excerpt?.narrative?.aftermath;
-                              if (!aftermath) return null;
-                              return (
-                                <div
-                                  className="finding-evidence-after"
-                                  data-after-seq={aftermath.seq}
-                                >
-                                  <span className="finding-evidence-microlabel">Afterward</span>
-                                  <div className="finding-evidence-after-meta mono">
-                                    <span>step {aftermath.seq}</span>
-                                    <span>{aftermath.type}</span>
-                                  </div>
-                                  <p className="finding-evidence-after-text">{aftermath.text}</p>
-                                </div>
-                              );
-                            })()}
-                            {/* EMBEDDED TRANSCRIPT (requirement B) — the events of
-                                this very turn, lazily fetched, in a compact bounded
-                                scroll region so the user reads the surrounding
-                                context without leaving the triage screen. */}
-                            {turnExpanded && tkey && (
-                              <div
-                                className="finding-turn-transcript"
-                                data-turn={turnNumber ?? undefined}
-                                data-session-id={turnSessionId ?? undefined}
-                              >
-                                <div className="finding-turn-transcript-head">
-                                  <span className="finding-evidence-microlabel">
-                                    Turn transcript
-                                  </span>
-                                  {/* No "open in session" here — VIEW TURN /
-                                      VIEW SESSION in the group header are the
-                                      single, always-visible way out (requirement
-                                      C: the duplicate link is removed). */}
-                                </div>
-                                {turnState?.loading && (
-                                  <div className="finding-turn-status mono">loading…</div>
-                                )}
-                                {turnState?.error && (
-                                  <div className="finding-turn-status err mono">
-                                    {turnState.error}
-                                  </div>
-                                )}
-                                {turnState?.data && (
-                                  <>
-                                    <div className="finding-turn-events" role="list">
-                                      {turnState.data.events.map((ev) => (
-                                        <TurnEventRow
-                                          key={ev.id}
-                                          event={ev}
-                                          onClick={
-                                            onJumpToTurn && turnSessionId != null && turnNumber != null
-                                              ? () =>
-                                                  onJumpToTurn(
-                                                    turnSessionId,
-                                                    turnNumber,
-                                                    ev.seq,
-                                                  )
-                                              : undefined
-                                          }
-                                        />
-                                      ))}
-                                    </div>
-                                    {turnState.data.truncated && (
-                                      <div className="finding-turn-status mono">
-                                        showing {turnState.data.events.length} of{" "}
-                                        {turnState.data.totalEvents} steps — use VIEW SESSION for the
-                                        rest
-                                      </div>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                  {/* ----- PANEL ② — analysis + verdict + backlog (no scroll) ----- */}
+                  <div className="finding-detail-fixed" data-panel="analysis">
+                    <div className="finding-detail-head">
+                      <span className={`finding-kind-chip ${finding.kind}`}>
+                        <span className="finding-kind-dot" aria-hidden />
+                        {FINDING_KIND_LABEL[finding.kind]}
+                      </span>
+                      {/* fix #5: same single status cell as the list */}
+                      <StatusCell verdict={verdict} backlogStatus={finding.backlogStatus} />
+                      <span className="finding-detail-head-spacer" />
+                      <span className="finding-detail-meta">
+                        <span className="mono">{finding.analyst}</span>
+                        <span className="mono">conf {findingConfidenceLabel(finding.confidence)}</span>
+                        <span className="mono">harness {harnessLabel}</span>
+                      </span>
                     </div>
-                  </div>
+                    <h3 className="finding-detail-title">{finding.title}</h3>
 
-                  {/* verdict — sticky to the detail panel's bottom edge so
-                      Accept/Reject is reachable without scrolling past long
-                      evidence (requirement C); the evidence scrolls beneath it. */}
-                  <div className="finding-detail-section finding-verdict-section finding-verdict-sticky">
-                    <div className="finding-section-label">Verdict</div>
-                    {finding.verdict ? (
-                      <div className="finding-verdict-decided">
-                        <span className={`finding-verdict-chip ${verdict}`}>
-                          {findingVerdictLabel(finding.verdict.verdict)}
-                        </span>
-                        <span className="mono">
-                          {finding.verdict.decidedBy} · {finding.verdict.reason || "no reason"}
-                        </span>
-                        {finding.verdict.verdict === "accept" && (
-                          <div className="finding-boundary-note">
-                            Harness edits are manual (P2 boundary)
+                    {/* fix #1/#2/#3: ONE neutral analysis block. The finding's own
+                        summary (body) becomes the lede of the block (no orphan
+                        line), then WHY / INTENT / IMPACT as a grouped list. Ground
+                        is a neutral sunken panel + hairline + a small source tag —
+                        not a flood of accent blue. */}
+                    {(analysis || finding.body) && (
+                      <section className="finding-analysis" data-has-analysis={analysis ? "true" : "false"}>
+                        <div className="finding-analysis-head">
+                          <span className="finding-section-label">Analysis</span>
+                          <span className="finding-analysis-source mono" title="Who produced this analysis">
+                            {finding.analyst}
+                          </span>
+                        </div>
+                        {finding.body && <p className="finding-analysis-lede">{finding.body}</p>}
+                        {analysis ? (
+                          <dl className="finding-analysis-grid">
+                            {analysis.agentIntent && (
+                              <div className="finding-analysis-item" data-field="intent">
+                                <dt className="finding-analysis-key">Intent</dt>
+                                <dd className="finding-analysis-val">{analysis.agentIntent}</dd>
+                              </div>
+                            )}
+                            {analysis.causeHypothesis && (
+                              <div className="finding-analysis-item" data-field="why">
+                                <dt className="finding-analysis-key">Why</dt>
+                                <dd className="finding-analysis-val">{analysis.causeHypothesis}</dd>
+                              </div>
+                            )}
+                            {analysis.impact && (
+                              <div className="finding-analysis-item" data-field="impact">
+                                <dt className="finding-analysis-key">Impact</dt>
+                                <dd className="finding-analysis-val">{analysis.impact}</dd>
+                              </div>
+                            )}
+                          </dl>
+                        ) : (
+                          <p className="finding-analysis-none mono">no deep-dive analysis</p>
+                        )}
+                      </section>
+                    )}
+
+                    {/* verdict + backlog — the decision controls, shallow, always
+                        in view without scrolling (fix #6). */}
+                    <div className="finding-decision">
+                      <div className="finding-decision-row">
+                        <span className="finding-section-label">Verdict</span>
+                        {finding.verdict ? (
+                          <div className="finding-verdict-decided">
+                            <StatusCell verdict={verdict} backlogStatus={finding.backlogStatus} />
+                            <span className="mono finding-verdict-by">
+                              {finding.verdict.decidedBy} · {finding.verdict.reason || "no reason"}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="finding-verdict-controls">
+                            <input
+                              className="finding-verdict-reason"
+                              value={reasonDrafts[finding.id] ?? ""}
+                              onChange={(event) =>
+                                setReasonDrafts((prev) => ({
+                                  ...prev,
+                                  [finding.id]: event.target.value,
+                                }))
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  void submitVerdict(finding, "accept");
+                                }
+                              }}
+                              placeholder="reason"
+                              aria-label={`Reason for ${finding.title}`}
+                            />
+                            <button
+                              type="button"
+                              className="finding-verdict-btn accept"
+                              disabled={!!busy[finding.id]}
+                              onClick={() => void submitVerdict(finding, "accept")}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              className="finding-verdict-btn reject"
+                              disabled={!!busy[finding.id]}
+                              onClick={() => void submitVerdict(finding, "reject")}
+                            >
+                              Reject
+                            </button>
                           </div>
                         )}
                       </div>
-                    ) : (
-                      <div className="finding-verdict-controls">
-                        <input
-                          className="finding-verdict-reason"
-                          value={reasonDrafts[finding.id] ?? ""}
-                          onChange={(event) =>
-                            setReasonDrafts((prev) => ({
-                              ...prev,
-                              [finding.id]: event.target.value,
-                            }))
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void submitVerdict(finding, "accept");
-                            }
-                          }}
-                          placeholder="reason"
-                          aria-label={`Reason for ${finding.title}`}
-                        />
+
+                      {/* backlog lifecycle — visible once accepted (fix #8). The
+                          three states are a segmented control hitting the actor-
+                          stamped backlog API. Accept = "added to the backlog as
+                          Open"; the user (or an agent) moves it to Addressed /
+                          Dismissed by hand (harness edits stay manual, P2). */}
+                      {finding.verdict?.verdict === "accept" && (
+                        <div className="finding-decision-row">
+                          <span className="finding-section-label">Backlog</span>
+                          <div className="finding-backlog-controls">
+                            <span className="segmented finding-backlog-seg" title="Backlog state">
+                              {(["open", "addressed", "dismissed"] as const).map((s) => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  className={finding.backlogStatus === s ? "active" : ""}
+                                  data-backlog-target={s}
+                                  disabled={!!backlogBusy[finding.id]}
+                                  onClick={() => void setBacklog(finding, s)}
+                                  // iteration-3 fix #4: Dismiss is a SOFT "won't
+                                  // fix" — kept for the record, not deleted. The
+                                  // tooltip spells the intent out so it reads as a
+                                  // decision, not a destructive action.
+                                  title={BACKLOG_INTENT[s]}
+                                >
+                                  {BACKLOG_LABEL[s]}
+                                </button>
+                              ))}
+                            </span>
+                            <span className="finding-boundary-note">
+                              Harness edits are manual (P2 boundary)
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* dual-operability placeholder (fix #8): the same finding
+                          will be hand-off-able to the P2.5 chat/agent. No-op now. */}
+                      <div className="finding-agent-row" data-agent-actions="placeholder">
                         <button
                           type="button"
-                          className="finding-verdict-btn accept"
-                          disabled={!!busy[finding.id]}
-                          onClick={() => void submitVerdict(finding, "accept")}
+                          className="finding-agent-action"
+                          disabled
+                          title="Open this finding in the agent chat (coming in P2.5)"
                         >
-                          Accept
+                          Discuss with agent
                         </button>
                         <button
                           type="button"
-                          className="finding-verdict-btn reject"
-                          disabled={!!busy[finding.id]}
-                          onClick={() => void submitVerdict(finding, "reject")}
+                          className="finding-agent-action"
+                          disabled
+                          title="Ask the agent to deepen this analysis (coming in P2.5)"
                         >
-                          Reject
+                          Deepen with agent
                         </button>
+                        <span className="finding-agent-hint mono">agent tools land in P2.5</span>
                       </div>
-                    )}
+                    </div>
+                  </div>
+
+                  {/* ----- PANEL ③ — evidence / session body (the deep scroll) ----- */}
+                  <div className="finding-detail-scroll" data-panel="evidence">
+                    <div className="finding-detail-section">
+                      <div className="finding-section-label">Evidence · {finding.evidence.length}</div>
+                      <div className="finding-evidence-cards">
+                        {groupEvidence(finding.evidence).map((group) => {
+                          const narrative = group.narrative;
+                          const anyResolved = group.members.some(
+                            (member) => resolveEvidence(member).resolved,
+                          );
+                          const repeats = group.members.length;
+                          const showSessionHeader = mode === "axis" && narrative != null;
+                          const positionLabel = narrative
+                            ? [
+                                narrative.turn != null && narrative.turnCount != null
+                                  ? `turn ${narrative.turn}/${narrative.turnCount}`
+                                  : narrative.turn != null
+                                    ? `turn ${narrative.turn}`
+                                    : null,
+                                narrative.minutesFromStart != null
+                                  ? `+${narrative.minutesFromStart}m`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")
+                            : "";
+                          const turnSessionId = group.sessionId;
+                          const turnNumber = group.turn;
+                          const canTurnJump = turnSessionId != null && turnNumber != null;
+                          const evidenceSeqs = group.members
+                            .map((m) => m.excerpt?.seq)
+                            .filter((s): s is number => typeof s === "number");
+                          const triggerSeq = narrative?.trigger?.seq ?? null;
+                          const tkey =
+                            turnSessionId != null && turnNumber != null
+                              ? turnKey(turnSessionId, turnNumber)
+                              : null;
+                          const turnExpanded = tkey ? !!expandedTurns[tkey] : false;
+                          const turnState = tkey ? turnContexts[tkey] : undefined;
+                          return (
+                            <div
+                              key={group.key}
+                              className={`finding-evidence-card${anyResolved ? "" : " stale"}`}
+                              data-evidence-kind={group.members[0].subjectKind}
+                              data-evidence-id={group.members[0].id}
+                              data-group-key={group.key}
+                              data-group-size={repeats}
+                              data-resolved={anyResolved ? "true" : "false"}
+                            >
+                              {/* fix #4: the session is a PLAIN label, not a button.
+                                  VIEW SESSION (below) is the single way into the
+                                  full transcript — the title is no longer a second
+                                  duplicate link. */}
+                              {showSessionHeader && narrative && (
+                                <div
+                                  className="finding-evidence-session"
+                                  data-session-id={narrative.sessionId}
+                                >
+                                  <span className="finding-evidence-microlabel">Session</span>
+                                  <span
+                                    className="finding-evidence-session-title"
+                                    title={narrative.sessionTitle}
+                                  >
+                                    {narrative.sessionTitle}
+                                  </span>
+                                  <span className="finding-evidence-session-meta mono">
+                                    {RUNNER_LABEL[narrative.runner as keyof typeof RUNNER_LABEL] ??
+                                      narrative.runner}
+                                    {narrative.model ? ` · ${shortModel(narrative.model)}` : ""}
+                                    {` · ${parseStamp(narrative.startedAt).date} ${
+                                      parseStamp(narrative.startedAt).time
+                                    }`}
+                                  </span>
+                                </div>
+                              )}
+                              {(positionLabel || repeats > 1 || canTurnJump || narrative?.sessionId) && (
+                                <div className="finding-evidence-grouphead">
+                                  {positionLabel && (
+                                    <span
+                                      className="finding-evidence-position mono"
+                                      title="Position of this turn within the run"
+                                    >
+                                      {positionLabel}
+                                    </span>
+                                  )}
+                                  {repeats > 1 && (
+                                    <span
+                                      className="finding-evidence-repeats mono"
+                                      data-repeats={repeats}
+                                      title={`This finding fired ${repeats} times in the same turn`}
+                                    >
+                                      ×{repeats} repeats
+                                    </span>
+                                  )}
+                                  <span className="finding-evidence-grouphead-spacer" />
+                                  {/* fix #4: VIEW TURN / VIEW SESSION are the only
+                                      jump controls; the per-step "step N →" chip
+                                      and the session title link were redundant. */}
+                                  <div className="finding-evidence-actions">
+                                    {canTurnJump && (
+                                      <button
+                                        type="button"
+                                        className="finding-evidence-action finding-evidence-action-turn"
+                                        data-turn={turnNumber ?? undefined}
+                                        title="Open the transcript at this turn"
+                                        onClick={() =>
+                                          onJumpToTurn?.(
+                                            turnSessionId!,
+                                            turnNumber!,
+                                            triggerSeq,
+                                            finding.id,
+                                          )
+                                        }
+                                      >
+                                        <span>VIEW TURN</span>
+                                        <span aria-hidden>→</span>
+                                      </button>
+                                    )}
+                                    {narrative?.sessionId && (
+                                      <button
+                                        type="button"
+                                        className="finding-evidence-action finding-evidence-action-session"
+                                        data-session-id={narrative.sessionId}
+                                        title="Open the full session transcript"
+                                        onClick={() =>
+                                          onJumpToSession?.(narrative.sessionId, finding.id)
+                                        }
+                                      >
+                                        <span>VIEW SESSION</span>
+                                        <span aria-hidden>→</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                  {canTurnJump && (
+                                    <button
+                                      type="button"
+                                      className="finding-evidence-turn-toggle mono"
+                                      data-turn={turnNumber ?? undefined}
+                                      aria-expanded={turnExpanded}
+                                      title="Show this turn's transcript inline, without leaving this screen"
+                                      onClick={() =>
+                                        toggleTurn(turnSessionId!, turnNumber!, evidenceSeqs)
+                                      }
+                                    >
+                                      <span aria-hidden>{turnExpanded ? "▾" : "▸"}</span>
+                                      {turnExpanded ? "hide transcript" : "inline transcript"}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              {narrative?.trigger && (
+                                <div className="finding-evidence-trigger">
+                                  <span className="finding-evidence-microlabel">User asked</span>
+                                  <p className="finding-evidence-trigger-text">
+                                    {narrative.trigger.text}
+                                  </p>
+                                  <span className="finding-evidence-trigger-seq mono">
+                                    step {narrative.trigger.seq}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="finding-evidence-steps">
+                                {group.members.map((evidence, stepIndex) => {
+                                  const target = resolveEvidence(evidence);
+                                  const excerpt = evidence.excerpt;
+                                  const stepSeq = excerpt?.seq ?? null;
+                                  const stepLabel =
+                                    stepSeq != null ? `STEP ${stepSeq}` : `STEP ${stepIndex + 1}`;
+                                  return (
+                                    <div
+                                      key={evidence.id}
+                                      className={`finding-evidence-step${target.resolved ? "" : " stale"}`}
+                                      data-evidence-kind={evidence.subjectKind}
+                                      data-evidence-id={evidence.id}
+                                      data-step-seq={stepSeq ?? undefined}
+                                      data-resolved={target.resolved ? "true" : "false"}
+                                    >
+                                      <div className="finding-evidence-stephead">
+                                        <span
+                                          className="finding-evidence-stepno mono"
+                                          title="Session-wide step number"
+                                        >
+                                          {stepLabel}
+                                        </span>
+                                        <span className="finding-evidence-kind">
+                                          {evidence.subjectKind}
+                                        </span>
+                                        {excerpt?.exitCode != null && (
+                                          <span
+                                            className={`finding-evidence-exit mono ${
+                                              excerpt.exitCode === 0 ? "ok" : "err"
+                                            }`}
+                                          >
+                                            exit {excerpt.exitCode}
+                                          </span>
+                                        )}
+                                        <span className="finding-evidence-stepspacer" />
+                                        {/* fix #4: no per-step jump link — VIEW TURN
+                                            / VIEW SESSION above are the single exit.
+                                            Unresolved steps show a quiet status. */}
+                                        {!target.resolved && (
+                                          <span
+                                            className="finding-evidence-stale-tag mono"
+                                            title={target.title}
+                                          >
+                                            {target.label}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {evidence.note && (
+                                        <div className="finding-evidence-note">{evidence.note}</div>
+                                      )}
+                                      {excerpt ? (
+                                        <div
+                                          className="finding-excerpt"
+                                          data-excerpt-seq={excerpt.seq}
+                                        >
+                                          {excerpt.command && (
+                                            <pre className="code-block cmd finding-excerpt-pre">
+                                              {excerpt.command}
+                                            </pre>
+                                          )}
+                                          {excerpt.output ? (
+                                            <pre className="code-block output finding-excerpt-pre">
+                                              {excerpt.output}
+                                            </pre>
+                                          ) : (
+                                            !excerpt.command && (
+                                              <div className="finding-excerpt-empty mono">
+                                                {excerpt.title || "(no command / output captured)"}
+                                              </div>
+                                            )
+                                          )}
+                                        </div>
+                                      ) : (
+                                        !target.resolved && (
+                                          <div className="finding-excerpt-empty mono">
+                                            evidence not resolvable (no locator)
+                                          </div>
+                                        )
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {(() => {
+                                const last = [...group.members]
+                                  .reverse()
+                                  .find((member) => member.excerpt?.narrative?.aftermath);
+                                const aftermath = last?.excerpt?.narrative?.aftermath;
+                                if (!aftermath) return null;
+                                return (
+                                  <div
+                                    className="finding-evidence-after"
+                                    data-after-seq={aftermath.seq}
+                                  >
+                                    <span className="finding-evidence-microlabel">Afterward</span>
+                                    <div className="finding-evidence-after-meta mono">
+                                      <span>step {aftermath.seq}</span>
+                                      <span>{aftermath.type}</span>
+                                    </div>
+                                    <p className="finding-evidence-after-text">{aftermath.text}</p>
+                                  </div>
+                                );
+                              })()}
+                              {turnExpanded && tkey && (
+                                <div
+                                  className="finding-turn-transcript"
+                                  data-turn={turnNumber ?? undefined}
+                                  data-session-id={turnSessionId ?? undefined}
+                                >
+                                  <div className="finding-turn-transcript-head">
+                                    <span className="finding-evidence-microlabel">Turn transcript</span>
+                                  </div>
+                                  {turnState?.loading && (
+                                    <div className="finding-turn-status mono">loading…</div>
+                                  )}
+                                  {turnState?.error && (
+                                    <div className="finding-turn-status err mono">
+                                      {turnState.error}
+                                    </div>
+                                  )}
+                                  {turnState?.data && (
+                                    <>
+                                      <div className="finding-turn-events" role="list">
+                                        {turnState.data.events.map((ev) => (
+                                          <TurnEventRow
+                                            key={ev.id}
+                                            event={ev}
+                                            onClick={
+                                              onJumpToTurn && turnSessionId != null && turnNumber != null
+                                                ? () => onJumpToTurn(turnSessionId, turnNumber, ev.seq)
+                                                : undefined
+                                            }
+                                          />
+                                        ))}
+                                      </div>
+                                      {turnState.data.truncated && (
+                                        <div className="finding-turn-status mono">
+                                          showing {turnState.data.events.length} of{" "}
+                                          {turnState.data.totalEvents} steps — use VIEW SESSION for the rest
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
             })()
           ) : (
-            <div className="finding-detail finding-detail-empty">
-              <div className="detail-placeholder">Select a finding to inspect its evidence</div>
+            <div className="finding-detail3 finding-detail-empty">
+              <div className="detail-placeholder">Select a finding to inspect its analysis and evidence</div>
             </div>
           )}
         </div>

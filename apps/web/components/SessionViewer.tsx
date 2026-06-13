@@ -2555,7 +2555,7 @@ export default function SessionViewer({
               mode="session"
               scopeSessionId={currentId}
               resolveEvidence={resolveEvidence}
-              initialStatusFilter="pending"
+              initialStatusFilter="triage"
               onJumpToSession={jumpToFindingSession}
               onJumpToTurn={jumpToFindingTurn}
             />

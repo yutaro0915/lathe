@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { queryOne } from '@/lib/postgres';
+import { queryOne, queryRows } from '@/lib/postgres';
 import type { FindingVerdict, FindingVerdictValue } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -62,7 +62,30 @@ export async function POST(
   if (!row) {
     return NextResponse.json({ ok: false, error: 'verdict insert failed' }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, verdict: toVerdict(row) });
+
+  // Accept = "put on the improvement backlog" (design §B): the moment a finding
+  // is accepted its backlog_status becomes 'open'. Reject takes it back off the
+  // backlog (null). Only set 'open' on the first accept so a later re-accept does
+  // not clobber an 'addressed' / 'dismissed' state the user already chose.
+  const backlogStatus =
+    verdict === 'accept'
+      ? await queryOne<{ backlog_status: string | null }>(
+          `UPDATE findings
+              SET backlog_status = COALESCE(backlog_status, 'open')
+            WHERE id = $1
+        RETURNING backlog_status`,
+          [findingId],
+        )
+      : await queryOne<{ backlog_status: string | null }>(
+          `UPDATE findings SET backlog_status = NULL WHERE id = $1 RETURNING backlog_status`,
+          [findingId],
+        );
+
+  return NextResponse.json({
+    ok: true,
+    verdict: toVerdict(row),
+    backlogStatus: backlogStatus?.backlog_status ?? null,
+  });
 }
 
 export async function DELETE(
@@ -85,6 +108,16 @@ export async function DELETE(
   );
   if (!row) {
     return NextResponse.json({ ok: false, error: 'verdict not found' }, { status: 404 });
+  }
+
+  // Undoing the verdict also takes the finding back off the backlog: if no verdict
+  // remains, it is no longer "accepted", so backlog_status returns to null.
+  const remaining = await queryRows<{ id: number }>(
+    `SELECT id FROM finding_verdicts WHERE finding_id = $1 LIMIT 1`,
+    [findingId],
+  );
+  if (remaining.length === 0) {
+    await queryOne(`UPDATE findings SET backlog_status = NULL WHERE id = $1 RETURNING id`, [findingId]);
   }
   return NextResponse.json({ ok: true });
 }
