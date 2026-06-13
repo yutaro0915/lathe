@@ -8,6 +8,7 @@ export const EVIDENCE_SUBJECT_KINDS = ['session', 'event', 'hunk', 'pr', 'turn']
 export const VERDICT_FILTERS = ['accept', 'reject', 'unreviewed', 'any'] as const;
 export const FINDING_TITLE_MAX_LENGTH = 500;
 export const FINDING_BODY_MAX_LENGTH = 20_000;
+export const FINDING_ANALYSIS_MAX_LENGTH = 1_200;
 export const FINDING_NOTE_MAX_LENGTH = 2_000;
 export const FINDING_LOCATOR_MAX_LENGTH = 2_000;
 export const FINDING_EVIDENCE_MAX_ITEMS = 50;
@@ -51,6 +52,12 @@ export interface FindingEvidenceInput {
   note?: string;
 }
 
+export interface FindingAnalysisInput {
+  causeHypothesis?: string | null;
+  agentIntent?: string | null;
+  impact?: string | null;
+}
+
 export interface SubmitFindingInput {
   analyst: string;
   kind: FindingKind;
@@ -59,6 +66,7 @@ export interface SubmitFindingInput {
   confidence: number;
   projectId?: string;
   harnessVersionId?: string | null;
+  analysis?: FindingAnalysisInput | null;
   evidence: FindingEvidenceInput[];
 }
 
@@ -86,6 +94,8 @@ interface FindingRow {
   reason: string | null;
   decided_at: string | null;
   decided_by: string | null;
+  analysis: string | Record<string, unknown> | null;
+  backlog_status: string | null;
 }
 
 interface EvidenceRow {
@@ -224,7 +234,52 @@ function toFinding(row: FindingRow, evidence: EvidenceRow[]) {
           decidedBy: row.decided_by,
         }
       : null,
+    analysis: parseAnalysis(row.analysis),
+    backlogStatus:
+      row.backlog_status === 'open' || row.backlog_status === 'addressed' || row.backlog_status === 'dismissed'
+        ? row.backlog_status
+        : null,
     evidence: evidence.map(toEvidence),
+  };
+}
+
+function nullableText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function parseAnalysis(value: FindingRow['analysis']) {
+  if (value == null) return null;
+  let parsed: Record<string, unknown>;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  } else {
+    parsed = value;
+  }
+  const analysis = {
+    causeHypothesis: nullableText(parsed.cause_hypothesis),
+    agentIntent: nullableText(parsed.agent_intent),
+    impact: nullableText(parsed.impact),
+  };
+  return analysis.causeHypothesis || analysis.agentIntent || analysis.impact ? analysis : null;
+}
+
+function analysisPayload(input: FindingAnalysisInput | null | undefined): Record<string, string | null> | null {
+  if (!input) return null;
+  const causeHypothesis = nullableText(input.causeHypothesis);
+  const agentIntent = nullableText(input.agentIntent);
+  const impact = nullableText(input.impact);
+  assertMaxLength('finding.analysis.causeHypothesis', causeHypothesis ?? undefined, FINDING_ANALYSIS_MAX_LENGTH);
+  assertMaxLength('finding.analysis.agentIntent', agentIntent ?? undefined, FINDING_ANALYSIS_MAX_LENGTH);
+  assertMaxLength('finding.analysis.impact', impact ?? undefined, FINDING_ANALYSIS_MAX_LENGTH);
+  if (!causeHypothesis && !agentIntent && !impact) return null;
+  return {
+    cause_hypothesis: causeHypothesis,
+    agent_intent: agentIntent,
+    impact,
   };
 }
 
@@ -460,16 +515,18 @@ export async function submitFinding(input: SubmitFindingInput) {
   const projectId = cleanString(input.projectId) ?? inferred?.project_id;
   if (!projectId) throw new Error('finding.project_id is required when evidence cannot infer a project');
   const harnessVersionId = input.harnessVersionId === undefined ? inferred?.harness_version_id ?? null : input.harnessVersionId;
+  const analysis = analysisPayload(input.analysis);
 
   const pool = getPool();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query('LOCK TABLE findings, finding_evidence IN SHARE ROW EXCLUSIVE MODE');
-    const duplicate = await client.query<{ id: number; title: string; body: string }>(
+    const duplicate = await client.query<{ id: number; title: string; body: string; analysis: string | Record<string, unknown> | null }>(
       `SELECT f.id
               ,f.title
               ,f.body
+              ,f.analysis
          FROM findings f
          JOIN LATERAL (
            SELECT fe.*
@@ -491,10 +548,24 @@ export async function submitFinding(input: SubmitFindingInput) {
     const duplicateRow = duplicate.rows[0];
     const duplicateId = duplicateRow?.id;
     if (duplicateId) {
+      const existingAnalysis = parseAnalysis(duplicateRow.analysis);
+      const incomingAnalysis = analysis
+        ? {
+            causeHypothesis: analysis.cause_hypothesis,
+            agentIntent: analysis.agent_intent,
+            impact: analysis.impact,
+          }
+        : null;
       const changedFields = [
         duplicateRow.title !== title ? 'title' : undefined,
         duplicateRow.body !== body ? 'body' : undefined,
-      ].filter((field): field is 'title' | 'body' => Boolean(field));
+        incomingAnalysis && existingAnalysis && stableJson(existingAnalysis) !== stableJson(incomingAnalysis)
+          ? 'analysis'
+          : undefined,
+      ].filter((field): field is 'title' | 'body' | 'analysis' => Boolean(field));
+      if (analysis && !existingAnalysis) {
+        await client.query('UPDATE findings SET analysis = $2::jsonb WHERE id = $1', [duplicateId, analysis]);
+      }
       await client.query('COMMIT');
       return {
         findingId: duplicateId,
@@ -511,10 +582,10 @@ export async function submitFinding(input: SubmitFindingInput) {
     }
 
     const inserted = await client.query<{ id: number }>(
-      `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id,analysis)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
        RETURNING id`,
-      [analyst, input.kind, title, body, input.confidence, harnessVersionId, projectId],
+      [analyst, input.kind, title, body, input.confidence, harnessVersionId, projectId, analysis],
     );
     const findingId = inserted.rows[0]?.id;
     if (!findingId) throw new Error('finding insert returned no id');

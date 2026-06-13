@@ -40,9 +40,9 @@ export async function POST(
     return NextResponse.json({ ok: false, error: 'invalid finding id' }, { status: 400 });
   }
 
-  let body: { verdict?: unknown; reason?: unknown };
+  let body: { verdict?: unknown; reason?: unknown; actor?: unknown };
   try {
-    body = (await request.json()) as { verdict?: unknown; reason?: unknown };
+    body = (await request.json()) as { verdict?: unknown; reason?: unknown; actor?: unknown };
   } catch {
     return NextResponse.json({ ok: false, error: 'invalid JSON body' }, { status: 400 });
   }
@@ -52,12 +52,13 @@ export async function POST(
     return NextResponse.json({ ok: false, error: 'invalid verdict' }, { status: 400 });
   }
   const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+  const actor = typeof body.actor === 'string' && body.actor.trim() ? body.actor.trim() : 'human';
 
   const row = await queryOne<VerdictRow>(
-    `INSERT INTO finding_verdicts (finding_id, verdict, reason)
-     VALUES ($1, $2, $3)
+    `INSERT INTO finding_verdicts (finding_id, verdict, reason, decided_by)
+     VALUES ($1, $2, $3, $4)
      RETURNING id, finding_id, verdict, reason, decided_at, decided_by`,
-    [findingId, verdict, reason],
+    [findingId, verdict, reason, actor],
   );
   if (!row) {
     return NextResponse.json({ ok: false, error: 'verdict insert failed' }, { status: 500 });

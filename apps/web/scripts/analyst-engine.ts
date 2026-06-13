@@ -9,7 +9,7 @@ import {
   type FindingKind,
   type SubmitFindingInput,
 } from '../lib/mcp';
-import { getPool, queryRows } from '../lib/postgres';
+import { getPool, queryOne, queryRows } from '../lib/postgres';
 import type { IngestNotifyPayload } from './ingest/notify';
 
 export type AnalystCandidate = 'rules-v1' | 'llm-v1' | 'hybrid-v1';
@@ -873,6 +873,333 @@ ${rules
   return { drafts: out, log: `${response.log} raw=${items.length} mapped=${out.length}` };
 }
 
+function locatorNumber(locator: Record<string, unknown> | undefined, key: string): number | null {
+  const value = locator?.[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
+
+function firstLine(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return value
+    .split('\n')
+    .map((part) => part.trim())
+    .find(Boolean) ?? null;
+}
+
+function quoteContext(value: string | null | undefined, max = 140): string | null {
+  const text = value?.replace(/\s+/g, ' ').trim();
+  return text ? `"${shorten(text, max)}"` : null;
+}
+
+interface AnalysisContext {
+  session: SessionRow | null;
+  target: EventRow | null;
+  trigger: EventRow | null;
+  before: EventRow | null;
+  after: EventRow | null;
+  path: string | null;
+  evidenceText: string | null;
+}
+
+async function resolveHunkContext(subjectId: string): Promise<{
+  session_id: string | null;
+  path: string | null;
+  event_id: string | null;
+  seq: number | null;
+} | null> {
+  const row = await queryOne<{
+    session_id: string | null;
+    path: string | null;
+    event_id: string | null;
+    seq: number | null;
+  }>(
+    `SELECT cf.session_id,
+            cf.path,
+            a.event_id,
+            e.seq
+       FROM diff_hunks h
+       JOIN changed_files cf ON cf.id = h.file_id
+       LEFT JOIN attributions a ON a.hunk_id = h.id AND a.event_id IS NOT NULL
+       LEFT JOIN transcript_events e ON e.id = a.event_id
+      WHERE h.id = $1
+      ORDER BY a.confidence ASC NULLS LAST, a.id ASC NULLS LAST
+      LIMIT 1`,
+    [subjectId],
+  );
+  return row ?? null;
+}
+
+async function buildAnalysisContext(finding: AnalystFindingDraft): Promise<AnalysisContext> {
+  const primary = finding.evidence[0];
+  let sessionId = primary?.sessionId ?? (primary?.subjectKind === 'session' ? primary.subjectId : undefined);
+  let targetSeq = locatorNumber(primary?.locator, 'seq');
+  let targetEventId = primary?.subjectKind === 'event' ? primary.subjectId : undefined;
+  let pathHint: string | null = typeof primary?.locator?.path === 'string' ? primary.locator.path : null;
+
+  if (primary?.subjectKind === 'hunk' && primary.subjectId) {
+    const hunk = await resolveHunkContext(primary.subjectId);
+    sessionId = sessionId ?? hunk?.session_id ?? undefined;
+    targetEventId = targetEventId ?? hunk?.event_id ?? undefined;
+    targetSeq = targetSeq ?? hunk?.seq ?? null;
+    pathHint = pathHint ?? hunk?.path ?? null;
+  }
+
+  let target: EventRow | null = null;
+  if (targetEventId) {
+    target = await queryOne<EventRow>(
+      `SELECT id,session_id,seq,type,title,body,command,exit_code
+         FROM transcript_events
+        WHERE id = $1`,
+      [targetEventId],
+    ) ?? null;
+    sessionId = sessionId ?? target?.session_id ?? undefined;
+    targetSeq = targetSeq ?? target?.seq ?? null;
+  }
+  if (!target && sessionId && targetSeq != null) {
+    target = await queryOne<EventRow>(
+      `SELECT id,session_id,seq,type,title,body,command,exit_code
+         FROM transcript_events
+        WHERE session_id = $1
+          AND seq = $2
+        ORDER BY id ASC
+        LIMIT 1`,
+      [sessionId, targetSeq],
+    ) ?? null;
+  }
+
+  const session = sessionId ? (await listTargetSessions({ candidate: finding.analyst as AnalystCandidate, sessionId })).find((row) => row.id === sessionId) ?? null : null;
+  const events = sessionId
+    ? await queryRows<EventRow>(
+        `SELECT id,session_id,seq,type,title,body,command,exit_code
+           FROM transcript_events
+          WHERE session_id = $1
+            AND (
+              $2::int IS NULL
+              OR seq BETWEEN GREATEST(1, $2::int - 4) AND ($2::int + 4)
+              OR (type = 'user_message' AND seq <= $2::int)
+            )
+          ORDER BY seq ASC, id ASC
+          LIMIT 120`,
+        [sessionId, targetSeq],
+      )
+    : [];
+
+  const targetIndex = target ? events.findIndex((event) => event.id === target?.id) : -1;
+  const before = targetIndex > 0 ? events[targetIndex - 1] : null;
+  const after = targetIndex >= 0 && targetIndex + 1 < events.length ? events[targetIndex + 1] : null;
+  const trigger =
+    [...events]
+      .reverse()
+      .find((event) => event.type === 'user_message' && (targetSeq == null || event.seq <= targetSeq)) ?? null;
+
+  const fallbackTarget =
+    target ??
+    events.find((event) => event.exit_code != null && event.exit_code !== 0) ??
+    events.find((event) => event.type !== 'user_message') ??
+    events[0] ??
+    null;
+
+  return {
+    session,
+    target: fallbackTarget,
+    trigger,
+    before,
+    after,
+    path: pathHint,
+    evidenceText: firstLine(fallbackTarget?.body) ?? fallbackTarget?.title ?? primary?.note ?? finding.title,
+  };
+}
+
+function evidenceAnchor(ctx: AnalysisContext): string | null {
+  if (ctx.target?.command) return `command ${quoteContext(ctx.target.command)}`;
+  if (ctx.path) return `path ${quoteContext(ctx.path)}`;
+  if (ctx.evidenceText) return `evidence ${quoteContext(ctx.evidenceText)}`;
+  if (ctx.session) return `session ${quoteContext(ctx.session.title)}`;
+  return null;
+}
+
+function buildGroundedAnalysis(finding: AnalystFindingDraft, ctx: AnalysisContext): NonNullable<SubmitFindingInput['analysis']> | null {
+  const anchor = evidenceAnchor(ctx);
+  if (!anchor && !ctx.session) return null;
+
+  const triggerText = quoteContext(firstLine(ctx.trigger?.body) ?? ctx.trigger?.title, 120);
+  const eventSeq = ctx.target ? `seq ${ctx.target.seq}` : null;
+  const location = [ctx.session ? `session ${quoteContext(ctx.session.title, 90)}` : null, eventSeq].filter(Boolean).join(', ');
+  const targetExit = ctx.target?.exit_code != null ? ` exited ${ctx.target.exit_code}` : '';
+  const afterText = quoteContext(firstLine(ctx.after?.body) ?? ctx.after?.title, 100);
+
+  const agentIntent = triggerText && anchor
+    ? `The user asked ${triggerText}; the agent was working through ${anchor}${location ? ` at ${location}` : ''}.`
+    : anchor
+      ? `The agent action is grounded in ${anchor}${location ? ` at ${location}` : ''}.`
+      : null;
+
+  let causeHypothesis: string | null = null;
+  if (finding.kind === 'failure_loop') {
+    causeHypothesis = anchor
+      ? `The likely cause is visible in ${anchor}${targetExit}: the surrounding turn kept returning to the same failing evidence instead of moving to a changed condition${afterText ? `; the next captured step was ${afterText}` : ''}.`
+      : null;
+  } else if (finding.kind === 'unattributed_diff') {
+    causeHypothesis = ctx.path
+      ? `The diff hunk for path ${quoteContext(ctx.path)} has no direct transcript attribution, so the change is not grounded to a specific edit-producing event.`
+      : anchor
+        ? `The evidence points at ${anchor}, but the changed hunk is not tied to a concrete transcript event.`
+        : null;
+  } else if (finding.kind === 'excess_cost') {
+    causeHypothesis = ctx.session
+      ? `The session ${quoteContext(ctx.session.title)} cost $${(ctx.session.cost_usd ?? 0).toFixed(2)} against a $${ctx.session.cost_threshold_usd.toFixed(2)} ${ctx.session.runner} threshold, so the cost finding is tied to that run rather than a generic budget warning.`
+      : anchor
+        ? `The excess-cost signal is tied to ${anchor}.`
+        : null;
+  } else if (finding.kind === 'risky_action') {
+    causeHypothesis = anchor
+      ? `The risky-action hypothesis is grounded in ${anchor}${targetExit}: its effect depends on the active working directory, target path, or process state captured in the transcript.`
+      : null;
+  }
+
+  let impact: string | null = null;
+  if (finding.kind === 'failure_loop') {
+    impact = anchor
+      ? `Leaving this as an undifferentiated failure makes ${anchor} look like an isolated error even though it can consume repeated turns and hide whether the user request progressed.`
+      : null;
+  } else if (finding.kind === 'unattributed_diff') {
+    impact = ctx.path
+      ? `Reviewers cannot trace path ${quoteContext(ctx.path)} back to the agent step that produced it, weakening the finding-to-diff audit trail.`
+      : null;
+  } else if (finding.kind === 'excess_cost') {
+    impact = ctx.session
+      ? `The run ${quoteContext(ctx.session.title)} can dominate cost review unless the expensive session is separated from normal ${ctx.session.runner} traffic.`
+      : null;
+  } else if (finding.kind === 'risky_action') {
+    impact = anchor
+      ? `If treated as routine, ${anchor} can affect files or processes outside the intended investigation scope.`
+      : null;
+  }
+
+  if (!causeHypothesis && !agentIntent && !impact) return null;
+  return { causeHypothesis, agentIntent, impact };
+}
+
+function analysisJsonPayload(analysis: NonNullable<SubmitFindingInput['analysis']>): Record<string, string | null> {
+  return {
+    cause_hypothesis: analysis.causeHypothesis ?? null,
+    agent_intent: analysis.agentIntent ?? null,
+    impact: analysis.impact ?? null,
+  };
+}
+
+async function attachAnalysis(drafts: AnalystFindingDraft[]): Promise<AnalystFindingDraft[]> {
+  const enriched: AnalystFindingDraft[] = [];
+  for (const draft of drafts) {
+    const ctx = await buildAnalysisContext(draft);
+    enriched.push({
+      ...draft,
+      analysis: buildGroundedAnalysis(draft, ctx),
+    });
+  }
+  return enriched;
+}
+
+interface ExistingFindingRow {
+  id: number;
+  analyst: string;
+  kind: FindingKind;
+  title: string;
+  body: string;
+  confidence: number;
+  project_id: string;
+  harness_version_id: string | null;
+  analysis: string | Record<string, unknown> | null;
+}
+
+interface ExistingEvidenceRow {
+  finding_id: number;
+  subject_kind: SubmitFindingInput['evidence'][number]['subjectKind'];
+  session_id: string | null;
+  locator: string | Record<string, unknown> | null;
+  subject_id: string | null;
+  note: string | null;
+}
+
+function parseEvidenceLocator(value: ExistingEvidenceRow['locator']): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value !== 'string') return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function backfillFindingAnalysis(findingIds: number[]): Promise<{ considered: number; updated: number; skipped: number }> {
+  if (!findingIds.length) return { considered: 0, updated: 0, skipped: 0 };
+  const rows = await queryRows<ExistingFindingRow>(
+    `SELECT id, analyst, kind, title, body, confidence, project_id, harness_version_id, analysis
+       FROM findings
+      WHERE id = ANY($1::int[])
+      ORDER BY id ASC`,
+    [findingIds],
+  );
+  const evidenceRows = rows.length
+    ? await queryRows<ExistingEvidenceRow>(
+        `SELECT finding_id, subject_kind, session_id, locator, subject_id, note
+           FROM finding_evidence
+          WHERE finding_id = ANY($1::int[])
+          ORDER BY finding_id ASC, id ASC`,
+        [rows.map((row) => row.id)],
+      )
+    : [];
+  const evidenceByFinding = new Map<number, ExistingEvidenceRow[]>();
+  for (const evidence of evidenceRows) {
+    const list = evidenceByFinding.get(evidence.finding_id) ?? [];
+    list.push(evidence);
+    evidenceByFinding.set(evidence.finding_id, list);
+  }
+
+  let updated = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    if (parseStoredAnalysis(row.analysis)) {
+      skipped++;
+      continue;
+    }
+    const evidence = (evidenceByFinding.get(row.id) ?? []).map((item) => ({
+      subjectKind: item.subject_kind,
+      subjectId: item.subject_id ?? undefined,
+      sessionId: item.session_id ?? undefined,
+      locator: parseEvidenceLocator(item.locator),
+      note: item.note ?? undefined,
+    }));
+    if (!evidence.length) {
+      skipped++;
+      continue;
+    }
+    const draft: AnalystFindingDraft = {
+      analyst: row.analyst,
+      kind: row.kind,
+      title: row.title,
+      body: row.body,
+      confidence: row.confidence,
+      projectId: row.project_id,
+      harnessVersionId: row.harness_version_id,
+      evidence,
+      detector: 'analysis_backfill',
+    };
+    const ctx = await buildAnalysisContext(draft);
+    const analysis = buildGroundedAnalysis(draft, ctx);
+    if (!analysis) {
+      skipped++;
+      continue;
+    }
+    await getPool().query('UPDATE findings SET analysis = $2::jsonb WHERE id = $1', [row.id, analysisJsonPayload(analysis)]);
+    updated++;
+  }
+  return { considered: rows.length, updated, skipped };
+}
+
 async function submitDrafts(drafts: AnalystFindingDraft[], options: RunAnalystOptions): Promise<RunAnalystResult> {
   const logs: string[] = [];
   const limit = clampLimit(options.limit);
@@ -882,7 +1209,7 @@ async function submitDrafts(drafts: AnalystFindingDraft[], options: RunAnalystOp
     const prior = unique.get(key);
     if (!prior || draft.confidence > prior.confidence) unique.set(key, draft);
   }
-  const selected = [...unique.values()].sort((a, b) => b.confidence - a.confidence).slice(0, limit);
+  const selected = await attachAnalysis([...unique.values()].sort((a, b) => b.confidence - a.confidence).slice(0, limit));
   const findings: RunAnalystResult['findings'] = [];
   let submitted = 0;
   let created = 0;
@@ -1077,6 +1404,124 @@ async function assertEvidenceRequired(): Promise<void> {
     [['rules-v1', 'llm-v1', 'hybrid-v1']],
   );
   if (rows.length) throw new Error(`findings without evidence: ${rows.map((row) => row.id).join(', ')}`);
+}
+
+function parseStoredAnalysis(value: unknown): NonNullable<SubmitFindingInput['analysis']> | null {
+  if (value == null) return null;
+  let parsed: Record<string, unknown>;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  } else if (typeof value === 'object' && !Array.isArray(value)) {
+    parsed = value as Record<string, unknown>;
+  } else {
+    return null;
+  }
+  const text = (key: string) => {
+    const item = parsed[key];
+    return typeof item === 'string' && item.trim() ? item.trim() : null;
+  };
+  const analysis = {
+    causeHypothesis: text('cause_hypothesis'),
+    agentIntent: text('agent_intent'),
+    impact: text('impact'),
+  };
+  return analysis.causeHypothesis || analysis.agentIntent || analysis.impact ? analysis : null;
+}
+
+const GENERIC_ANALYSIS_PATTERNS = [
+  /\b(needs further investigation|requires review|may indicate an issue|potential problem)\b/i,
+  /the (agent|session) (encountered|had) (an )?(issue|problem)/i,
+];
+const TOKEN_STOPLIST = new Set([
+  'the',
+  'and',
+  'that',
+  'this',
+  'with',
+  'from',
+  'session',
+  'fixture',
+  'finding',
+  'assistant',
+  'user',
+  'message',
+  'null',
+]);
+
+function groundingTokens(value: string): string[] {
+  const raw = value.match(/[A-Za-z0-9_./:@-]{3,}|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]{2,}/gu) ?? [];
+  return [...new Set(raw.map((token) => token.toLowerCase()).filter((token) => !TOKEN_STOPLIST.has(token)))].slice(0, 80);
+}
+
+async function assertAnalysisGrounded(seedSessionIds: string[]): Promise<void> {
+  const rows = await queryRows<{
+    id: number;
+    analysis: string | Record<string, unknown> | null;
+    evidence_text: string | null;
+  }>(
+    `SELECT f.id,
+            f.analysis,
+            string_agg(DISTINCT concat_ws(' ',
+              s.title,
+              e.title,
+              e.command,
+              e.body,
+              cf.path,
+              fe.note
+            ), ' ') AS evidence_text
+       FROM findings f
+       JOIN finding_evidence fe ON fe.finding_id = f.id
+       LEFT JOIN sessions s
+         ON s.id = COALESCE(fe.session_id, CASE WHEN fe.subject_kind = 'session' THEN fe.subject_id END)
+       LEFT JOIN transcript_events e
+         ON e.id = fe.subject_id
+         OR (
+           e.session_id = fe.session_id
+           AND fe.locator ? 'seq'
+           AND (fe.locator->>'seq') ~ '^[0-9]+$'
+           AND e.seq = (fe.locator->>'seq')::int
+         )
+       LEFT JOIN diff_hunks h ON h.id = fe.subject_id
+       LEFT JOIN changed_files cf ON cf.id = h.file_id
+      WHERE f.analyst = ANY($1::text[])
+        AND (fe.session_id = ANY($2::text[]) OR fe.subject_id = ANY($2::text[]))
+      GROUP BY f.id, f.analysis
+      ORDER BY f.id ASC`,
+    [['rules-v1', 'llm-v1', 'hybrid-v1'], seedSessionIds],
+  );
+  if (!rows.length) throw new Error('analysis smoke found no candidate findings for known incidents');
+
+  let nonNullFields = 0;
+  const bad: string[] = [];
+  for (const row of rows) {
+    const analysis = parseStoredAnalysis(row.analysis);
+    if (!analysis) {
+      bad.push(`#${row.id}: missing analysis`);
+      continue;
+    }
+    const fields = [analysis.causeHypothesis, analysis.agentIntent, analysis.impact].filter(
+      (item): item is string => Boolean(item),
+    );
+    nonNullFields += fields.length;
+    if (fields.length < 2) bad.push(`#${row.id}: too few analysis fields (${fields.length}/3)`);
+
+    const text = fields.join(' ').toLowerCase();
+    if (GENERIC_ANALYSIS_PATTERNS.some((pattern) => pattern.test(text))) {
+      bad.push(`#${row.id}: generic analysis wording`);
+    }
+    const tokens = groundingTokens(row.evidence_text ?? '');
+    if (!tokens.some((token) => text.includes(token))) {
+      bad.push(`#${row.id}: analysis does not mention evidence-specific command/path/session text`);
+    }
+  }
+
+  const rate = nonNullFields / Math.max(1, rows.length * 3);
+  if (rate < 0.66) bad.push(`non-null analysis field rate too low: ${nonNullFields}/${rows.length * 3}`);
+  if (bad.length) throw new Error(`analysis grounding smoke failed: ${bad.join('; ')}`);
 }
 
 async function deleteFindings(ids: number[]): Promise<void> {
@@ -1277,6 +1722,7 @@ export async function runAnalystSmoke(): Promise<SmokeResult> {
 
     await assertPhenomenonLint();
     await assertEvidenceRequired();
+    await assertAnalysisGrounded(seedSessionIds);
 
     const before = await countCandidateFindings('rules-v1', seedSessionIds);
     const idempotent = await runAnalyst({ candidate: 'rules-v1', sessionIds: seedSessionIds, source: 'smoke' });

@@ -201,7 +201,9 @@ CREATE TABLE IF NOT EXISTS findings (
   body               TEXT NOT NULL,
   confidence         DOUBLE PRECISION NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
   harness_version_id TEXT REFERENCES harness_versions(id) ON DELETE SET NULL,
-  project_id         TEXT NOT NULL REFERENCES projects(id)
+  project_id         TEXT NOT NULL REFERENCES projects(id),
+  analysis           JSONB,
+  backlog_status     TEXT CHECK (backlog_status IS NULL OR backlog_status IN ('open', 'addressed', 'dismissed'))
 );
 CREATE INDEX IF NOT EXISTS idx_findings_project_kind ON findings(project_id, kind);
 CREATE INDEX IF NOT EXISTS idx_findings_harness_version ON findings(harness_version_id);
@@ -214,6 +216,19 @@ CREATE INDEX IF NOT EXISTS idx_findings_harness_version ON findings(harness_vers
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS analysis JSONB;
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS backlog_status TEXT
   CHECK (backlog_status IS NULL OR backlog_status IN ('open', 'addressed', 'dismissed'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint
+     WHERE conname = 'findings_backlog_status_check'
+       AND conrelid = 'findings'::regclass
+  ) THEN
+    ALTER TABLE findings
+      ADD CONSTRAINT findings_backlog_status_check
+      CHECK (backlog_status IS NULL OR backlog_status IN ('open', 'addressed', 'dismissed'));
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_findings_backlog_status ON findings(backlog_status);
 
 CREATE TABLE IF NOT EXISTS finding_evidence (

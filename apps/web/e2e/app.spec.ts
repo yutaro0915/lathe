@@ -107,6 +107,14 @@ const FINDING_FIXTURE = {
     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.md",
 };
 
+function fixtureFindingAnalysis(anchor: string) {
+  return JSON.stringify({
+    cause_hypothesis: `The fixture evidence is grounded in ${anchor}; the surrounding turn kept returning to that concrete signal.`,
+    agent_intent: `The user asked "Please inspect the fixture." while the agent was working through ${anchor}.`,
+    impact: `If ${anchor} is treated as generic, the triage surface cannot distinguish this fixture from unrelated findings.`,
+  });
+}
+
 const SUBAGENT_FIXTURE = {
   projectId: "fixture:subagent-session-linking",
   parentId: "fixture-subagent-parent-session",
@@ -549,6 +557,10 @@ async function seedFindingFixtures() {
           [FINDING_FIXTURE.titles.jump, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
         )
       ).rows[0].id;
+      await client.query("UPDATE findings SET analysis = $2::jsonb WHERE id = $1", [
+        jumpFinding,
+        fixtureFindingAnalysis("pnpm test"),
+      ]);
       await client.query(
         `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
          VALUES
@@ -572,6 +584,10 @@ async function seedFindingFixtures() {
           [FINDING_FIXTURE.titles.verdict, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
         )
       ).rows[0].id;
+      await client.query("UPDATE findings SET analysis = $2::jsonb WHERE id = $1", [
+        verdictFinding,
+        fixtureFindingAnalysis("turn-level cost signal"),
+      ]);
       await client.query(
         `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
          VALUES ($1,'turn',$2,$3::jsonb,NULL,'turn-level cost signal')`,
@@ -588,6 +604,10 @@ async function seedFindingFixtures() {
           [FINDING_FIXTURE.titles.turnSeq, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
         )
       ).rows[0].id;
+      await client.query("UPDATE findings SET analysis = $2::jsonb WHERE id = $1", [
+        turnSeqFinding,
+        fixtureFindingAnalysis("pnpm test"),
+      ]);
       await client.query(
         `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
          VALUES ($1,'turn',$2,$3::jsonb,NULL,'first failed command in repeated pattern')`,
@@ -605,6 +625,10 @@ async function seedFindingFixtures() {
           [FINDING_FIXTURE.titles.grouped, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
         )
       ).rows[0].id;
+      await client.query("UPDATE findings SET analysis = $2::jsonb WHERE id = $1", [
+        groupedFinding,
+        fixtureFindingAnalysis("pnpm test"),
+      ]);
       await client.query(
         `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
          VALUES
@@ -629,6 +653,10 @@ async function seedFindingFixtures() {
           [FINDING_FIXTURE.titles.longLine, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
         )
       ).rows[0].id;
+      await client.query("UPDATE findings SET analysis = $2::jsonb WHERE id = $1", [
+        longLineFinding,
+        fixtureFindingAnalysis(FINDING_FIXTURE.longCommand),
+      ]);
       await client.query(
         `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
          VALUES ($1,'turn',$2,$3::jsonb,NULL,'long one-liner step')`,
@@ -643,6 +671,10 @@ async function seedFindingFixtures() {
           [FINDING_FIXTURE.titles.decided, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
         )
       ).rows[0].id;
+      await client.query("UPDATE findings SET analysis = $2::jsonb WHERE id = $1", [
+        decidedFinding,
+        fixtureFindingAnalysis("session-level evidence"),
+      ]);
       await client.query(
         `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
          VALUES ($1,'session',$2,$3::jsonb,$2,'session-level evidence')`,
@@ -653,6 +685,7 @@ async function seedFindingFixtures() {
          VALUES ($1,'accept','fixture pre-decided','user')`,
         [decidedFinding]
       );
+      await client.query("UPDATE findings SET backlog_status = 'open' WHERE id = $1", [decidedFinding]);
 
       const otherFinding = (
         await client.query<{ id: number }>(
@@ -662,6 +695,10 @@ async function seedFindingFixtures() {
           [FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
         )
       ).rows[0].id;
+      await client.query("UPDATE findings SET analysis = $2::jsonb WHERE id = $1", [
+        otherFinding,
+        fixtureFindingAnalysis("pnpm lint"),
+      ]);
       await client.query(
         `INSERT INTO finding_evidence (finding_id,subject_kind,session_id,locator,subject_id,note)
          VALUES ($1,'event',$2,$3::jsonb,$4,'other session evidence')`,
@@ -745,6 +782,50 @@ async function verdictCountForFinding(title: string): Promise<number> {
       )
     ).rows[0];
     return row?.n ?? 0;
+  });
+}
+
+async function findingState(title: string): Promise<{
+  id: number;
+  verdict: string | null;
+  backlog_status: string | null;
+  decided_by: string | null;
+}> {
+  return withDb(async (client) => {
+    const row = (
+      await client.query<{
+        id: number;
+        verdict: string | null;
+        backlog_status: string | null;
+        decided_by: string | null;
+      }>(
+        `WITH latest_verdict AS (
+           SELECT DISTINCT ON (finding_id) finding_id, verdict, decided_by
+             FROM finding_verdicts
+            ORDER BY finding_id, decided_at DESC, id DESC
+         )
+         SELECT f.id, lv.verdict, f.backlog_status, lv.decided_by
+           FROM findings f
+           LEFT JOIN latest_verdict lv ON lv.finding_id = f.id
+          WHERE f.title = $1`,
+        [title]
+      )
+    ).rows[0];
+    if (!row) throw new Error(`finding state missing for ${title}`);
+    return row;
+  });
+}
+
+async function resetFindingDecision(title: string): Promise<void> {
+  await withDb(async (client) => {
+    await client.query(
+      `DELETE FROM finding_verdicts
+        USING findings
+       WHERE finding_verdicts.finding_id = findings.id
+         AND findings.title = $1`,
+      [title]
+    );
+    await client.query("UPDATE findings SET backlog_status = NULL WHERE title = $1", [title]);
   });
 }
 
@@ -1085,7 +1166,7 @@ test.describe("Session viewer (/)", () => {
 
   test("switching session navigates with ?session=", async ({ page }) => {
     await page.goto("/");
-    await page.locator(".session-item").nth(1).click();
+    await page.locator(".session-item:not(.active)").first().click();
     await expect(page).toHaveURL(/\?session=/);
     await expect(page.locator(".session-item.active")).toHaveCount(1);
   });
@@ -1696,7 +1777,7 @@ test.describe("Findings tab and verdict oracle", () => {
     await row.click();
     await expect(row).toHaveClass(/active/);
 
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
     await expect(detail).toContainText(title);
     await expect(detail.locator(".finding-verdict-btn.accept")).toBeVisible();
     await expect(detail.locator(".finding-verdict-btn.reject")).toBeVisible();
@@ -1709,7 +1790,7 @@ test.describe("Findings tab and verdict oracle", () => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
 
     await page.locator(".finding-row", { hasText: title }).click();
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
     await detail.locator(".finding-verdict-reason").fill("valid fixture");
     await detail.locator(".finding-verdict-btn.accept").click();
 
@@ -1719,6 +1800,65 @@ test.describe("Findings tab and verdict oracle", () => {
     await page.locator(".finding-verdict-toast .btn", { hasText: "Undo" }).click();
     await expect.poll(async () => verdictCountForFinding(title)).toBe(0);
     await expect(page.locator(".finding-row", { hasText: title })).toHaveAttribute("data-verdict", "pending");
+    await expect(page.locator(".finding-verdict-toast")).toHaveCount(0);
+  });
+
+  test("backlog API allows accepted findings only and preserves actor", async ({ page }) => {
+    const title = FINDING_FIXTURE.titles.verdict;
+    await resetFindingDecision(title);
+    const initial = await findingState(title);
+    try {
+      const denied = await page.request.post(`/api/findings/${initial.id}/backlog`, {
+        data: { status: "addressed", actor: "agent:e2e" },
+      });
+      expect(denied.status()).toBe(409);
+      await expect.poll(async () => (await findingState(title)).backlog_status).toBeNull();
+
+      const accepted = await page.request.post(`/api/findings/${initial.id}/verdict`, {
+        data: { verdict: "accept", reason: "api transition", actor: "agent:e2e" },
+      });
+      expect(accepted.ok()).toBeTruthy();
+      const acceptedPayload = await accepted.json();
+      expect(acceptedPayload.verdict.decidedBy).toBe("agent:e2e");
+      expect(acceptedPayload.backlogStatus).toBe("open");
+      await expect.poll(async () => {
+        const state = await findingState(title);
+        return `${state.verdict}:${state.backlog_status}:${state.decided_by}`;
+      }).toBe("accept:open:agent:e2e");
+
+      const addressed = await page.request.post(`/api/findings/${initial.id}/backlog`, {
+        data: { status: "addressed", actor: "agent:e2e" },
+      });
+      expect(addressed.ok()).toBeTruthy();
+      expect(await addressed.json()).toMatchObject({
+        ok: true,
+        backlogStatus: "addressed",
+        actor: "agent:e2e",
+      });
+      await expect.poll(async () => (await findingState(title)).backlog_status).toBe("addressed");
+
+      const dismissed = await page.request.post(`/api/findings/${initial.id}/backlog`, {
+        data: { status: "dismissed", actor: "human" },
+      });
+      expect(dismissed.ok()).toBeTruthy();
+      expect(await dismissed.json()).toMatchObject({
+        ok: true,
+        backlogStatus: "dismissed",
+        actor: "human",
+      });
+      await expect.poll(async () => (await findingState(title)).backlog_status).toBe("dismissed");
+
+      const undo = await page.request.delete(
+        `/api/findings/${initial.id}/verdict?verdictId=${acceptedPayload.verdict.id}`
+      );
+      expect(undo.ok()).toBeTruthy();
+      await expect.poll(async () => {
+        const state = await findingState(title);
+        return `${state.verdict}:${state.backlog_status}`;
+      }).toBe("null:null");
+    } finally {
+      await resetFindingDecision(title);
+    }
   });
 
   test("verdict completion stays within one selecting click plus typing and Enter", async ({
@@ -1729,7 +1869,7 @@ test.describe("Findings tab and verdict oracle", () => {
 
     // open the detail panel for this finding (the one click the flow needs)…
     await page.locator(".finding-row", { hasText: title }).click();
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
     await expect(detail).toContainText(title);
 
     // …then count any FURTHER clicks: the verdict itself must complete with no
@@ -1764,7 +1904,7 @@ test.describe("Findings tab and verdict oracle", () => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     // turn-kind evidence with a { seq } locator — the analyst's real contract.
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
     const card = detail.locator('.finding-evidence-card[data-evidence-kind="turn"]');
     await expect(card).toHaveAttribute("data-resolved", "true");
     // the seq-2 fixture event is `pnpm test` exiting 1 — its command must render.
@@ -1774,38 +1914,80 @@ test.describe("Findings tab and verdict oracle", () => {
     await expect(card.locator(".finding-evidence-exit")).toContainText("exit 1");
   });
 
+  test("Triage Backlog All counts and the single analysis block render in the 2-row axis header", async ({
+    page,
+  }) => {
+    await page.goto("/findings");
+    const root = page.locator('.findings-tab[data-findings-mode="axis"]');
+    await expect(root).toBeVisible();
+    await expect(page.locator(".globalnav")).toBeVisible();
+    await expect(page.locator(".findings-tab-head")).toBeVisible();
+    await expect(page.locator(".sessbar")).toHaveCount(0);
+
+    const triageCount = Number(await root.getAttribute("data-pending-count"));
+    const backlogCount = Number(await root.getAttribute("data-backlog-count"));
+    const allCount = Number(
+      await page.locator('.findings-filter button[data-tab="all"] .findings-tab-count').textContent()
+    );
+    await expect(page.locator('.findings-filter button[data-tab="triage"] .findings-tab-count')).toHaveText(
+      String(triageCount)
+    );
+    await expect(page.locator('.findings-filter button[data-tab="backlog"] .findings-tab-count')).toHaveText(
+      String(backlogCount)
+    );
+    await expect(page.locator('.findings-filter button[data-tab="all"] .findings-tab-count')).toHaveText(
+      String(allCount)
+    );
+    expect(triageCount).toBeGreaterThan(0);
+    expect(backlogCount).toBeGreaterThan(0);
+
+    await page.locator('.findings-filter button[data-tab="backlog"]').click();
+    await expect(page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.decided })).toHaveAttribute(
+      "data-backlog",
+      "open"
+    );
+
+    await page.locator('.findings-filter button[data-tab="all"]').click();
+    await expect(page.locator(".finding-row")).toHaveCount(allCount);
+    await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
+    await expect(detail.locator(".finding-analysis")).toHaveCount(1);
+    await expect(detail.locator(".finding-analysis")).toHaveAttribute("data-has-analysis", "true");
+    await expect(detail.locator('.finding-analysis-item[data-field="intent"]')).toContainText("pnpm test");
+    await expect(detail.locator('.finding-analysis-item[data-field="why"]')).toContainText("pnpm test");
+    await expect(detail.locator('.finding-analysis-item[data-field="impact"]')).toContainText("pnpm test");
+  });
+
   test("seq-locator turn evidence jumps to and flashes the transcript step", async ({
     page,
   }) => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
-    await detail.locator('.finding-evidence-card[data-evidence-kind="turn"] .finding-evidence-jump').click();
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
+    await detail.locator('.finding-evidence-card[data-evidence-kind="turn"] .finding-evidence-action-turn').click();
 
     await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
-    const target = page.locator(`.event-row[data-eid="${FINDING_FIXTURE.eventId}"]`);
+    const target = page.locator(`.event-row[data-eid="${FINDING_FIXTURE.sessionId}-event-1"]`);
     await expect(target).toHaveClass(/selected/);
     await expect(target).toHaveAttribute("data-flash", "true");
   });
 
-  test("evidence clicks activate the transcript step and the diff hunk", async ({
+  test("evidence group actions activate the transcript and keep hunk evidence visible", async ({
     page,
   }) => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.jump }).click();
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
 
-    await detail.locator('.finding-evidence-card[data-evidence-kind="event"] .finding-evidence-jump').click();
+    await detail.locator('.finding-evidence-card[data-evidence-kind="event"] .finding-evidence-action-turn').click();
     await expect(page.locator(".tabs .tab.active")).toHaveText(/Transcript/);
-    await expect(page.locator(`.event-row.selected[data-eid="${FINDING_FIXTURE.eventId}"]`)).toBeVisible();
+    await expect(page.locator(`.event-row.selected[data-eid="${FINDING_FIXTURE.sessionId}-event-1"]`)).toBeVisible();
 
     await page.locator(".tabs .tab", { hasText: "Findings" }).click();
-    // the detail panel keeps the same finding selected, so the hunk evidence
-    // card is still present — its jump opens the Git tab on that hunk.
-    await detail.locator('.finding-evidence-card[data-evidence-kind="hunk"] .finding-evidence-jump').click();
-    await expect(page.locator(".tabs .tab.active")).toHaveText(/Git/);
-    await expect(page.locator(`.file-row.active[data-file-id="${FINDING_FIXTURE.fileId}"]`)).toBeVisible();
-    await expect(page.locator(`.diff-hunk.active[data-hunk-id="${FINDING_FIXTURE.hunkId}"]`)).toBeVisible();
+    // The iter2 UI removed per-step jump chips; VIEW TURN / VIEW SESSION are the
+    // only exits. The hunk evidence still remains visible and grounded.
+    await expect(detail.locator('.finding-evidence-card[data-evidence-kind="hunk"]')).toBeVisible();
+    await expect(detail.locator(".finding-evidence-jump")).toHaveCount(0);
   });
 
   test("the Findings tab drops the right event inspector and uses a 2-col layout", async ({
@@ -1834,7 +2016,7 @@ test.describe("Findings tab and verdict oracle", () => {
     // anchor for the surrounding story in the fixture.
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
     const card = page
-      .locator(".finding-detail[data-detail-finding-id]")
+      .locator(".finding-detail3[data-detail-finding-id]")
       .locator('.finding-evidence-card[data-evidence-kind="turn"]');
     await expect(card).toHaveAttribute("data-resolved", "true");
 
@@ -1871,7 +2053,7 @@ test.describe("Findings tab and verdict oracle", () => {
     await page.locator(".findings-filter button", { hasText: "All" }).click();
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
     const card = page
-      .locator(".finding-detail[data-detail-finding-id]")
+      .locator(".finding-detail3[data-detail-finding-id]")
       .locator('.finding-evidence-card[data-evidence-kind="turn"]');
     const session = card.locator(".finding-evidence-session");
     await expect(session).toHaveAttribute("data-session-id", FINDING_FIXTURE.sessionId);
@@ -1886,7 +2068,7 @@ test.describe("Findings tab and verdict oracle", () => {
   }) => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.grouped }).click();
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
 
     // two same-turn evidence rows (seqs 2 and 3) → exactly ONE group card…
     const cards = detail.locator(".finding-evidence-card");
@@ -1916,20 +2098,20 @@ test.describe("Findings tab and verdict oracle", () => {
   });
 });
 
-// ---- triage: jump actions + embedded transcript + sticky verdict + layout ---
+// ---- triage: jump actions + embedded transcript + 3-panel layout -----------
 // The Findings detail becomes a triage surface: jump to the session / turn,
-// read the surrounding transcript inline, decide without scrolling past it, and
+// read the surrounding transcript inline, decide in the shallow panel, and
 // never have the layout shift under selection (design/ui-design-language.md).
-test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layout)", () => {
+test.describe("Findings triage (jumps, embedded transcript, 3-panel layout)", () => {
   // ① the SESSION header (axis) jumps to that session's transcript
   test("clicking the SESSION header opens the session viewer transcript", async ({ page }) => {
     await page.goto("/findings");
     await page.locator(".findings-filter button", { hasText: "All" }).click();
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
     const card = page
-      .locator(".finding-detail[data-detail-finding-id]")
+      .locator(".finding-detail3[data-detail-finding-id]")
       .locator('.finding-evidence-card[data-evidence-kind="turn"]');
-    const sessionJump = card.locator("button.finding-evidence-session-jump");
+    const sessionJump = card.locator("button.finding-evidence-action-session");
     await expect(sessionJump).toHaveAttribute("data-session-id", FINDING_FIXTURE.sessionId);
     await sessionJump.click();
     // lands on the owning session's viewer, on the Transcript tab
@@ -1945,7 +2127,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
     const card = page
-      .locator(".finding-detail[data-detail-finding-id]")
+      .locator(".finding-detail3[data-detail-finding-id]")
       .locator('.finding-evidence-card[data-evidence-kind="turn"]');
     const turnJump = card.locator("button.finding-evidence-action-turn");
     await expect(turnJump).toHaveAttribute("data-turn", "1");
@@ -1966,7 +2148,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     // the grouped finding folds two same-turn steps into one card; the fixture
     // session's turn 1 has 4 top-level events (seqs 1/2/3/4).
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.grouped }).click();
-    const card = page.locator(".finding-detail[data-detail-finding-id] .finding-evidence-card").first();
+    const card = page.locator(".finding-detail3[data-detail-finding-id] .finding-evidence-card").first();
 
     const toggle = card.locator(".finding-evidence-turn-toggle");
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -1995,33 +2177,83 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     await expect(page.locator(`.event-row.selected[data-eid="${FINDING_FIXTURE.eventId}"]`)).toBeVisible();
   });
 
-  // ③ the verdict bar is visible without scrolling even with long evidence
-  test("the verdict bar stays pinned to the panel bottom (sticky) over long evidence", async ({
+  // ③ fixed analysis/verdict panel + independent evidence scroll. This replaces
+  // the old sticky verdict bar: the decision surface is opaque and never overlays
+  // evidence content.
+  test("3-panel layout keeps the decision surface opaque and evidence scroll independent", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     // pick a PENDING finding so the Accept/Reject controls render…
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.grouped }).click();
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const root = page.locator(".findings-tab");
+    const grid = page.locator(".findings-md3-grid");
+    const list = page.locator('.findings-list[data-panel="list"]');
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
+    const fixed = detail.locator('.finding-detail-fixed[data-panel="analysis"]');
+    const evidence = detail.locator('.finding-detail-scroll[data-panel="evidence"]');
     const accept = detail.locator(".finding-verdict-btn.accept");
     await expect(accept).toBeVisible();
+    await expect(fixed.locator(".finding-analysis")).toHaveCount(1);
 
-    // …expand the inline transcript to grow the evidence well past one screen,
-    // then scroll the detail panel to the TOP. The verdict bar must remain within
-    // the panel's viewport (sticky), not pushed below the fold.
+    // Expand evidence to prove the scroll belongs to panel ③, not to the fixed
+    // analysis/verdict panel.
     await detail.locator(".finding-evidence-turn-toggle").click();
-    await detail.evaluate((el) => el.scrollTo(0, 0));
+    await evidence.evaluate((el) => el.scrollTo(0, 20));
 
-    const acceptBox = await accept.boundingBox();
+    const rootBox = await root.boundingBox();
+    const gridBox = await grid.boundingBox();
+    const listBox = await list.boundingBox();
     const detailBox = await detail.boundingBox();
-    expect(acceptBox).not.toBeNull();
+    const fixedBox = await fixed.boundingBox();
+    const evidenceBox = await evidence.boundingBox();
+    const acceptBox = await accept.boundingBox();
+    expect(rootBox).not.toBeNull();
+    expect(gridBox).not.toBeNull();
+    expect(listBox).not.toBeNull();
     expect(detailBox).not.toBeNull();
-    // the button's bottom edge sits within the detail panel's box (i.e. visible
-    // without scrolling the panel) — the definition of a working sticky bar.
+    expect(fixedBox).not.toBeNull();
+    expect(evidenceBox).not.toBeNull();
+    expect(acceptBox).not.toBeNull();
+
+    // Absolute geometry: panel ① is the list rail, panel ② is a fixed-height
+    // decision/analysis block, panel ③ starts exactly below it and owns scroll.
+    expect(Math.abs(listBox!.x - gridBox!.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(detailBox!.x - (listBox!.x + listBox!.width))).toBeLessThanOrEqual(1);
+    expect(Math.abs(fixedBox!.y - detailBox!.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(evidenceBox!.y - (fixedBox!.y + fixedBox!.height))).toBeLessThanOrEqual(1);
+    expect(evidenceBox!.height).toBeGreaterThan(120);
     expect(acceptBox!.y + acceptBox!.height).toBeLessThanOrEqual(
-      detailBox!.y + detailBox!.height + 1,
+      fixedBox!.y + fixedBox!.height + 1,
     );
-    expect(acceptBox!.y).toBeGreaterThanOrEqual(detailBox!.y - 1);
+    expect(acceptBox!.y).toBeGreaterThanOrEqual(fixedBox!.y - 1);
+
+    const css = await detail.evaluate((el) => {
+      const fixed = el.querySelector<HTMLElement>('[data-panel="analysis"]')!;
+      const evidence = el.querySelector<HTMLElement>('[data-panel="evidence"]')!;
+      const list = document.querySelector<HTMLElement>('.findings-list[data-panel="list"]')!;
+      const fixedStyle = getComputedStyle(fixed);
+      return {
+        fixedBackground: fixedStyle.backgroundColor,
+        fixedOverflowY: fixedStyle.overflowY,
+        evidenceOverflowY: getComputedStyle(evidence).overflowY,
+        listOverflowY: getComputedStyle(list).overflowY,
+        evidenceScrollTop: evidence.scrollTop,
+      };
+    });
+    expect(css.fixedBackground).not.toBe("rgba(0, 0, 0, 0)");
+    expect(css.fixedBackground).not.toBe("transparent");
+    expect(css.fixedOverflowY).not.toBe("auto");
+    expect(css.evidenceOverflowY).toBe("auto");
+    expect(css.listOverflowY).toBe("auto");
+    expect(css.evidenceScrollTop).toBeGreaterThan(0);
+
+    const shortOutput = detail.locator(".finding-excerpt-pre.output").first();
+    const shortBox = await shortOutput.boundingBox();
+    expect(shortBox).not.toBeNull();
+    expect(shortBox!.height).toBeLessThan(80);
+
+    await page.screenshot({ path: testInfo.outputPath("finding-depth-3-panel.png"), fullPage: false });
   });
 
   // ④ regression for bug D: selecting a 2nd finding must NOT change the layout
@@ -2064,7 +2296,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     expect(count).toBeGreaterThan(1);
 
     const gridLeft = () =>
-      page.locator(".findings-md-grid").evaluate((el) => el.getBoundingClientRect().left);
+      page.locator(".findings-md3-grid").evaluate((el) => el.getBoundingClientRect().left);
     const pageOverflow = () =>
       page.evaluate(() => {
         const se = document.scrollingElement!;
@@ -2074,7 +2306,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     let firstLeft: number | null = null;
     for (let i = 0; i < count; i++) {
       await rows.nth(i).click();
-      await expect(page.locator(".finding-detail[data-detail-finding-id]")).toBeVisible();
+      await expect(page.locator(".finding-detail3[data-detail-finding-id]")).toBeVisible();
       const left = await gridLeft();
       if (firstLeft === null) firstLeft = left;
       // the grid's left edge is identical for every selection (no rightward shift,
@@ -2094,7 +2326,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     await page.goto("/findings");
     await page.locator(".findings-filter button", { hasText: "All" }).click();
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.longLine }).click();
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
     await expect(detail).toBeVisible();
     const pre = detail.locator(".finding-excerpt-pre").first();
     await expect(pre).toBeVisible();
@@ -2130,7 +2362,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     await page.locator(".findings-filter button", { hasText: "All" }).click();
     await page.locator(".finding-row", { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
     const card = page
-      .locator(".finding-detail[data-detail-finding-id]")
+      .locator(".finding-detail3[data-detail-finding-id]")
       .locator('.finding-evidence-card[data-evidence-kind="turn"]');
     const viewTurn = card.locator(".finding-evidence-action-turn");
     const viewSession = card.locator(".finding-evidence-action-session");
@@ -2157,7 +2389,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     expect(findingId).toBeTruthy();
 
     const card = page
-      .locator(".finding-detail[data-detail-finding-id]")
+      .locator(".finding-detail3[data-detail-finding-id]")
       .locator('.finding-evidence-card[data-evidence-kind="turn"]');
     await card.locator(".finding-evidence-action-turn").click();
 
@@ -2280,7 +2512,7 @@ test.describe("Global nav & IA axes", () => {
     const row = page.locator(`.finding-row[data-finding-id="${oracle.id}"]`);
     await expect(row).toBeVisible();
     await row.click();
-    const detail = page.locator(".finding-detail[data-detail-finding-id]");
+    const detail = page.locator(".finding-detail3[data-detail-finding-id]");
     await expect(detail).toBeVisible();
     await detail.locator(".finding-verdict-reason").fill("axis verified");
     await detail.locator(".finding-verdict-btn.accept").click();

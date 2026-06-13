@@ -4,7 +4,7 @@
 // the cross-session Findings AXIS (route /findings) and the per-session Findings
 // TAB inside the session viewer.
 //
-// Iteration 2 (design/phase2-finding-depth-and-backlog.md "イテレーション2"):
+// Iteration 2 (design/phase2-finding-depth-and-backlog.md "iteration 2"):
 // V1 (Analysis-forward) is the base. The eight fixes from the round-1 screen
 // review are implemented here:
 //   1. Analysis stays as ONE grouped block (WHY / INTENT / IMPACT together).

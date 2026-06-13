@@ -713,7 +713,7 @@ button.finding-evidence-jump:hover{color:var(--text-soft);border-color:var(--bor
 .finding-verdict-section .finding-verdict-decided .mono{font-variant-numeric:tabular-nums;}
 
 /* ============================================================================
-   ITERATION 2 — Findings 3-panel layout (design/phase2 §"イテレーション2")
+   ITERATION 2 - Findings 3-panel layout (design/phase2 "iteration 2")
    Fix #6: no sticky verdict bar. A fixed header (.findings-tab-head) sits above
    a grid of THREE independently scrolling panels. The page never scrolls; only a
    panel's own box does. The discipline is minmax(0,…) + min-height:0 + overflow

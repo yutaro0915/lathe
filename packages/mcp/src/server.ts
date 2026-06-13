@@ -4,6 +4,7 @@ import * as z from 'zod/v4';
 import {
   EVIDENCE_SUBJECT_KINDS,
   FINDING_BODY_MAX_LENGTH,
+  FINDING_ANALYSIS_MAX_LENGTH,
   FINDING_EVIDENCE_MAX_ITEMS,
   FINDING_KINDS,
   FINDING_LOCATOR_MAX_LENGTH,
@@ -52,6 +53,9 @@ const locatorSchema = z
   });
 
 function mapFinding(input: JsonRecord) {
+  const analysis = input.analysis && typeof input.analysis === 'object' && !Array.isArray(input.analysis)
+    ? (input.analysis as JsonRecord)
+    : undefined;
   return {
     analyst: String(input.analyst ?? ''),
     kind: String(input.kind ?? '') as FindingKind,
@@ -60,6 +64,13 @@ function mapFinding(input: JsonRecord) {
     confidence: Number(input.confidence),
     projectId: optionalString(input.project_id),
     harnessVersionId: input.harness_version_id === null ? null : optionalString(input.harness_version_id),
+    analysis: analysis
+      ? {
+          causeHypothesis: optionalString(analysis.cause_hypothesis) ?? null,
+          agentIntent: optionalString(analysis.agent_intent) ?? null,
+          impact: optionalString(analysis.impact) ?? null,
+        }
+      : undefined,
     evidence: Array.isArray(input.evidence)
       ? input.evidence.map((item) => {
           const record = item && typeof item === 'object' ? (item as JsonRecord) : {};
@@ -196,6 +207,13 @@ function createServer(): McpServer {
           confidence: z.number().min(0).max(1),
           project_id: z.string().optional(),
           harness_version_id: z.string().nullable().optional(),
+          analysis: z
+            .object({
+              cause_hypothesis: z.string().max(FINDING_ANALYSIS_MAX_LENGTH).nullable().optional(),
+              agent_intent: z.string().max(FINDING_ANALYSIS_MAX_LENGTH).nullable().optional(),
+              impact: z.string().max(FINDING_ANALYSIS_MAX_LENGTH).nullable().optional(),
+            })
+            .optional(),
           evidence: z
             .array(
               z.object({

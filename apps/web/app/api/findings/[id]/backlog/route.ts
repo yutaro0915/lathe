@@ -53,12 +53,24 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const actor =
     typeof body.actor === 'string' && body.actor.trim() ? body.actor.trim() : 'human';
 
-  // Only transition a finding that is already accepted (backlog_status NOT NULL).
+  // Only transition a finding whose latest verdict is accept. backlog_status is
+  // normally non-null after accept, but the verdict is the source of truth for
+  // the "accepted only" gate.
   const row = await queryOne<{ id: number; backlog_status: string }>(
     `UPDATE findings
         SET backlog_status = $2
       WHERE id = $1
-        AND backlog_status IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+            FROM (
+              SELECT verdict
+                FROM finding_verdicts
+               WHERE finding_id = $1
+               ORDER BY decided_at DESC, id DESC
+               LIMIT 1
+            ) latest
+           WHERE latest.verdict = 'accept'
+        )
     RETURNING id, backlog_status`,
     [findingId, status],
   );
