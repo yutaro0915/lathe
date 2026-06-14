@@ -1,0 +1,48 @@
+{
+  "name": "@lathe/agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./provider": {
+      "types": "./dist/src/provider.d.ts",
+      "default": "./dist/src/provider.js"
+    },
+    "./tool": {
+      "types": "./dist/src/tool.d.ts",
+      "default": "./dist/src/tool.js"
+    },
+    "./mcp-client": {
+      "types": "./dist/src/mcp-client.d.ts",
+      "default": "./dist/src/mcp-client.js"
+    },
+    "./loop": {
+      "types": "./dist/src/loop.d.ts",
+      "default": "./dist/src/loop.js"
+    },
+    "./context": {
+      "types": "./dist/src/context.d.ts",
+      "default": "./dist/src/context.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
