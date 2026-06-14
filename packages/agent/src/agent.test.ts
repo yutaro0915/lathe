@@ -66,8 +66,28 @@ test('acceptance 2: MCP client lists package MCP tools over neutral stdio and ca
       tools.map((tool) => tool.name).sort(),
       ['get_evidence_context', 'get_session_bundle', 'list_sessions', 'query_findings', 'submit_finding'].sort(),
     );
-    const result = await client.callTool('get_session_bundle', {});
-    assert.ok(result);
+    await assert.rejects(() => client.callTool('get_session_bundle', {}), /session_id|Invalid arguments|error/i);
+
+    const registry = new ToolRegistry([
+      defineTool({
+        name: 'real_mcp_error',
+        description: 'Call a real MCP tool with invalid arguments',
+        inputSchema: z.object({}),
+        execute: async () => client.callTool('get_session_bundle', {}),
+      }),
+    ]);
+    const events: Array<{ error?: string }> = [];
+    const result = await runLoop({
+      model: new FakeLanguageModel([assistantToolCall(toolCall('real_mcp_error', {}, 'real-mcp-1')), assistantText('done')]),
+      registry,
+      context: { messages: [{ role: 'user', content: 'trigger real MCP error' }], deps: {} },
+      onEvent: (event) => {
+        if (event.type === 'tool_result') events.push(event);
+      },
+    });
+    assert.equal(result.toolResults.length, 1);
+    assert.match(result.toolResults[0]?.error ?? '', /session_id|Invalid arguments|error/i);
+    assert.match(events[0]?.error ?? '', /session_id|Invalid arguments|error/i);
   } finally {
     await client.close();
   }
@@ -116,6 +136,45 @@ test('acceptance 3: local tools and MCP tools normalize to one registry surface'
   });
   assert.equal(result.stopReason, 'final');
   assert.deepEqual(result.toolResults.map((item) => item.result), [{ local: 'a' }, { remote: 'b' }]);
+
+  const errorRegistry = new ToolRegistry([
+    defineTool({
+      name: 'local_fail',
+      description: 'Fail locally',
+      inputSchema: z.object({}),
+      execute: async () => {
+        throw new Error('local exploded');
+      },
+    }),
+    mcpToolToTool(
+      {
+        name: 'remote_fail',
+        description: 'Fail through an MCP-like tool',
+        inputSchema: { type: 'object' },
+      },
+      {
+        callTool: async () => {
+          throw new Error('mcp exploded');
+        },
+      },
+    ),
+  ]);
+  const errorModel = new FakeLanguageModel((messages) => {
+    if (!messages.some((message) => message.role === 'tool' && message.name === 'local_fail')) {
+      return assistantToolCall(toolCall('local_fail', {}, 'local-fail-1'));
+    }
+    if (!messages.some((message) => message.role === 'tool' && message.name === 'remote_fail')) {
+      return assistantToolCall(toolCall('remote_fail', {}, 'remote-fail-1'));
+    }
+    return assistantText('done');
+  });
+  const errorResult = await runLoop({
+    model: errorModel,
+    registry: errorRegistry,
+    context: { messages: [{ role: 'user', content: 'compare error surfaces' }], deps: {} },
+  });
+  assert.deepEqual(errorResult.toolResults.map((item) => item.error), ['local exploded', 'mcp exploded']);
+  assert.deepEqual(errorResult.toolResults.map((item) => 'result' in item), [false, false]);
 });
 
 test('acceptance 4: loop stops on final message or maxSteps', async () => {
