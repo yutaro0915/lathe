@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AcpClient, latheMcpServer, runSession } from './index.js';
+import { hasLatheListSessionsCallEvidence } from './smoke-evidence.js';
 import type { AdapterCommand, McpServer, PermissionRequest, SessionUpdate } from './index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -90,4 +91,60 @@ test('AcpClient sends session/cancel and receives cancelled stop reason', async 
   } finally {
     client.close();
   }
+});
+
+test('runSession rejects on onUpdate errors without leaving an unhandled incoming promise', async () => {
+  await assert.rejects(
+    runSession({
+      adapter: fakeAdapter(),
+      cwd: repoRoot,
+      mcpServers: [],
+      prompt: 'Trigger an update callback failure.',
+      onUpdate: () => {
+        throw new Error('onUpdate exploded');
+      },
+    }),
+    /onUpdate exploded/,
+  );
+});
+
+test('lathe smoke evidence ignores available tool listings and requires a real tool event/result', () => {
+  assert.equal(
+    hasLatheListSessionsCallEvidence({
+      sessionUpdate: 'ext_notification',
+      method: '_claude/sdkMessage',
+      params: {
+        message: {
+          type: 'system',
+          subtype: 'init',
+          tools: ['mcp__lathe__list_sessions'],
+          mcp_servers: [{ name: 'lathe', status: 'connected' }],
+        },
+      },
+    }),
+    false,
+  );
+
+  assert.equal(
+    hasLatheListSessionsCallEvidence({
+      sessionUpdate: 'tool_call_update',
+      status: 'completed',
+      _meta: { claudeCode: { toolName: 'mcp__lathe__list_sessions' } },
+      rawOutput: [{ type: 'text', text: '[]' }],
+    }),
+    true,
+  );
+
+  assert.equal(
+    hasLatheListSessionsCallEvidence({
+      sessionUpdate: 'tool_call_update',
+      _meta: {
+        claudeCode: {
+          toolName: 'mcp__lathe__list_sessions',
+          toolResponse: [{ type: 'text', text: '[{"id":"fixture-acp-smoke-session"}]' }],
+        },
+      },
+    }),
+    true,
+  );
 });

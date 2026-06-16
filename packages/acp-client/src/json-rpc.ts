@@ -83,6 +83,11 @@ export class StdioJsonRpc extends EventEmitter {
     this.#write({ jsonrpc: '2.0', id, error });
   }
 
+  fail(error: Error): void {
+    this.#failAll(error);
+    this.close();
+  }
+
   close(): void {
     if (this.#closed) return;
     this.#closed = true;

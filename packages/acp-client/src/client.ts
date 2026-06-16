@@ -59,7 +59,9 @@ export class AcpClient {
     this.#onPermission = options.onPermission;
     this.rpc = new StdioJsonRpc(adapter, { cwd: options.cwd, timeoutMs: options.timeoutMs });
     this.rpc.on('message', (message: IncomingRequest) => {
-      void this.#handleIncoming(message);
+      void this.#handleIncoming(message).catch((error) => {
+        this.rpc.fail(error instanceof Error ? error : new Error(String(error)));
+      });
     });
   }
 

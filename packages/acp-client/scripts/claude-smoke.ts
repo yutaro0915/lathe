@@ -1,7 +1,12 @@
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { latheMcpServer, runSession } from '../src/index.js';
-import type { SessionUpdate } from '../src/index.js';
+import {
+  hasLatheListSessionsCallEvidence,
+  hasLatheServerConnectedEvidence,
+  hasSubscriptionAuthEvidence,
+} from '../src/smoke-evidence.js';
+import type { McpServer, SessionUpdate } from '../src/index.js';
 
 const repoRoot = resolve(import.meta.dirname, '..', '..', '..');
 const logDir = resolve(repoRoot, 'tmp');
@@ -10,25 +15,6 @@ const databaseUrl = process.env.DATABASE_URL;
 
 function stringify(value: unknown): string {
   return JSON.stringify(value, null, 2);
-}
-
-function hasLatheToolEvidence(update: SessionUpdate): boolean {
-  const text = JSON.stringify(update);
-  return (
-    text.includes('mcp__lathe__list_sessions') ||
-    text.includes('"toolName":"mcp__lathe__list_sessions"') ||
-    text.includes('fixture-acp-smoke-session')
-  );
-}
-
-function hasLatheServerConnectedEvidence(update: SessionUpdate): boolean {
-  const text = JSON.stringify(update);
-  return text.includes('"name":"lathe"') && text.includes('"status":"connected"');
-}
-
-function hasSubscriptionAuthEvidence(update: SessionUpdate): boolean {
-  const text = JSON.stringify(update);
-  return text.includes('"apiKeySource":"none"') || text.includes('"rateLimitType"');
 }
 
 async function log(event: string, data: unknown): Promise<void> {
@@ -42,13 +28,15 @@ async function main(): Promise<void> {
   await writeFile(logPath, '');
 
   const updates: SessionUpdate[] = [];
+  const mcpServers: McpServer[] =
+    process.env.ACP_SMOKE_NO_MCP_SERVERS === '1' ? [] : [latheMcpServer({ repoRoot, databaseUrl })];
   const result = await runSession({
     adapter: {
       command: 'npx',
       args: ['-y', '@agentclientprotocol/claude-agent-acp@latest'],
     },
     cwd: repoRoot,
-    mcpServers: [latheMcpServer({ repoRoot, databaseUrl })],
+    mcpServers,
     sessionMeta: {
       claudeCode: {
         emitRawSDKMessages: true,
@@ -75,7 +63,7 @@ async function main(): Promise<void> {
   });
 
   await log('result', result);
-  const evidence = updates.filter(hasLatheToolEvidence);
+  const evidence = updates.filter(hasLatheListSessionsCallEvidence);
   const connected = updates.some(hasLatheServerConnectedEvidence);
   const subscriptionAuth = updates.some(hasSubscriptionAuthEvidence);
   console.log(
