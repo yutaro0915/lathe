@@ -1,7 +1,7 @@
 ---
 id: 22
 title: agent core モジュール（packages/agent、6 層）— provider 非依存 + MCP + 対話/非対話
-status: in-progress
+status: superseded   # 2026-06-14 ADR 0009 改訂(A→B/ACP)で破棄。packages/agent の loop/provider/mcp-client は撤去予定。経緯は adr/0009
 assignee: codex (/goal loop)
 depends_on: [14, 15]
 estimated: large

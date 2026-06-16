@@ -1,79 +1,78 @@
-# ADR 0009: agent を一級モジュール（core）にし、analyst をその consumer にする
+# ADR 0009: agent 駆動は ACP client（B）— lathe は agent loop を作らない
 
-- status: accepted
+- status: accepted（2026-06-14 改訂、A→B 転換）
 - date: 2026-06-14
-- 関連: ADR 0005（harness artifact model）/ ROADMAP 論点 #16（chat/agent = P2.5）/ 論点 #19（dual-operability）/ design/agent-human-dual-operability.md / 0008（finding depth）
+- 関連: ROADMAP 論点 #16（chat/agent = P2.5）/ #19（dual-operability）/ design/agent-human-dual-operability.md / 0008（finding depth）
+- supersedes: 本 ADR 初版（2026-06-14 午前の「agent core 6 層・lathe が loop 所有」= A）
 
-## 背景・動機（2026-06-14 ユーザー）
+## 改訂の経緯（A→B、なぜ初版が誤りだったか）
 
-Phase 2 で analyst を「深掘り analysis を出す」よう強化する過程で、auto-analyst の性能を追うと結局
-「アプリにエージェントの概念を入れる（provider をどう使うか / context をどう読ませるか / harness を
-どうするか）」必要が出る、と判明。**agent は遅かれ早かれ必ず導入する**（P2.5 chat、将来は agent に
-分析・検知・タスク受領・管理まで＝ dual-operability）。ならば analyst を孤立させて後で再結合する
-のでなく、**先に汎用 agent core を作り、analyst をその部分集合（consumer）にする**のが正しい。
-analyst を完全分離すると「追加で分析させる」連携がおかしくなる、というユーザー指摘が根拠。
+初版（同日午前）は「provider 非依存の agent core を 6 層で自前実装し、**lathe が agent loop を所有**する」= **Architecture A**。これは誤り。
 
-## 調査（disciplled-research、一次情報）
+- A の調査は「provider 非依存 + LLM I/O + MCP + **agent loop** をどう実装するか」と問うた。この問い自体が「lathe が loop を作る」を前提し、調べた対象（Vercel AI SDK / LangGraph / OpenAI Agents SDK / Mastra / Pydantic AI = 生 API の上に自前 loop を組むフレームワーク）が全部 A に収束した。disciplined-research の「枠組み先行で調査を検証に使う」事故。
+- 実装（tasks/22, packages/agent）は `LanguageModel.generate()`=1 ターン生成 + `runLoop` で tool 駆動・停止判定を **lathe が再実装** = Claude Code / Codex / Cursor が既に内蔵する loop の **車輪の再発明**だった。
+- ユーザー指摘（2026-06-14）: 「provider を選んだらそのセッションを呼び出し、tool と文脈を与え、こちらは I/O 制御だけ」「生 API で agent を組む必要は今ない。必要でも『API で agent を組む→B に接続』で済む。A の価値はゼロ」。正しい。
 
-provider 非依存 + MCP + 対話/非対話 を同一 core で出している実在実装 7 件（Vercel AI SDK / LangGraph.js /
-OpenAI Agents SDK / Mastra / Pydantic AI / 公式 MCP TS SDK / Anthropic "Building Effective Agents"）を
-網羅。**全実装に共通の 6 層**が現れた（命名差のみ）。出典は status.md / 調査ログ参照。
+## 決定: lathe は ACP client（Architecture B）
 
-## 決定: agent core の 6 層（lathe = 薄い自前 TS、`packages/agent/`）
+lathe は **agent loop を実装しない**。ユーザーが選んだ既存 agent ランタイム（Claude Code / OpenAI Codex / Cursor 等）を**セッションとして駆動**し、tool（MCP）と文脈を渡し、**入出力と承認だけを仲介**する。loop・tool 呼び出し・思考・停止は agent の中で回る。
 
-1. **Provider adapter** — `LanguageModel` interface（`generate(messages, tools, opts)` / `stream(...)`）。
-   provider 固有を実装クラスに封じる。初期実装: `claude-cli`（`claude -p`）/ `anthropic-api`（fetch）/
-   `codex-exec`（`codex exec`）。*根拠: Vercel `LanguageModelV3` / LangGraph `BaseChatModel` / OpenAI `Model`。*
-2. **Tool registry** — 統一 `Tool` 型 `{name, description, inputSchema(Zod), execute(input, ctx)}`。
-   **ローカル tool と MCP tool を同じ型に正規化**。*根拠: Vercel `tool()`↔`mcpClient.tools()` 等、全実装が変換 adapter を 1 枚持つ。*
-3. **MCP client 層** — 公式 MCP TS SDK の `Client` + transport（stdio/http/sse）。`listTools()`→registry 充填、
-   `callTool()`→execute。**LLM と完全分離 = 特定 host（Claude Code）専用化しない担保点**。lathe 自身の
-   MCP server（5 tools）にも他 server にも繋げる。
-4. **Agent loop（core, 唯一の正本ロジック）** — provider + registry を受け、`messages` を積みながら
-   「LLM 出力 →(tool_call 有無で分岐)→ execute → 結果を append → 再 LLM」。停止 = tool_call 無し final
-   message **or** maxSteps 上限。*根拠: 5 framework すべて同型。*
-5. **Context assembly** — `instructions` + `messages` + **ホストが集めた `deps`（Postgres 行: SessionBundle /
-   findings / evidence 等）** を loop 入力に組む。Postgres は **この層の deps 経由でのみ** core に入る。
-   *根拠: Pydantic `deps_type`/`RunContext` = 「agent が欲しいデータをホストが集めて渡す」の直接先行例。*
-6. **Consumer（薄い）** — 同一 core を 2 エントリで露出: `run()`=非対話（単発・任意で構造化 output schema）/
-   `stream()`=対話。*根拠: Vercel generateText/streamText, OpenAI Non/Stream, Pydantic run_sync/run_stream。*
+共通 IF は **ACP（Agent Client Protocol、Zed 発、JSON-RPC 2.0 over stdio、40+ agent 対応、Apache）**。lathe は ACP の **client（editor 役）**になる。
 
-## analyst = consumer（部分集合）
+```
+lathe (ACP client)                     既存 agent ランタイム（ACP adapter 経由）
+  │  initialize                        claude-agent-acp / codex-acp /
+  │  session/new {mcpServers[], cwd} → cursor `agent acp` / gemini …
+  │  session/prompt(入力)            →  [agent 内部で loop: LLM↔tool↔stop]
+  │  ← session/update(出力ストリーム)        ↑ lathe の MCP server に接続して tool 実行
+  │  ← session/request_permission     →  {selected, optionId}  ← dual-operability UI/agent
+  │  session/cancel(中断)
+```
 
-- analyst の **検出ルール**（rules-v1）は「候補 finding を集める前処理」として残す（provider 非依存）。
-- analyst の **LLM 深掘り** = `run(core, { instructions: analyst prompt, tools: lathe MCP read tools,
-  deps: 収集した SessionBundle/evidence, output: findingAnalysisSchema(Zod) })` の 1 呼び出しに置換。
-- これで「追加で分析」も同じ core の別 run/stream で自然に繋がる。loop/21 の深掘り（cause/intent/impact +
-  env-vs-product）は consumer の output schema として core 上に乗る。
+### 各責務の所在
+- **セッション起動 / I/O**: lathe が ACP client として `session/new` → `session/prompt` → `session/update`（stream）→ `session/cancel`。
+- **tool**: lathe の既存 **MCP server（`packages/mcp`、tasks/22 以前から存在）** を `session/new` の `mcpServers[]` で渡す。**agent 側が MCP client になって tool を呼ぶ**。lathe は MCP server を公開するだけ。
+- **context**: instructions / cwd / additionalDirectories を `session/new` + prompt の ContentBlocks で渡す。
+- **permission**: `session/request_permission`（agent→lathe）を **dual-operability UI**（人 or agent が承認）に直結。承認の一級フック。
+- **observation**: `session/update` ストリームを lathe の観測層に流す。
+- **auth**: **lathe は持たない**。ACP adapter が起動する CLI が、そのマシンで既にログイン済みの資格情報（ユーザーの Claude/ChatGPT/Cursor サブスク）をそのまま使う。= Zed の external agents と同じ。lathe が API キーを持たずに「ユーザーが普段使う当の agent」を呼べる。
 
-## 「ビジネスロジック」の所在（ユーザーの問いへの答え）
+### provider 切替
+**adapter バイナリの差し替えだけ**（claude-agent-acp / codex-acp / cursor `agent acp` / gemini `--experimental-acp` …）。lathe の client コードは不変。
 
-agent core はドメイン非依存。**lathe 固有のビジネスロジックは 3 箇所に集約**:
-(a) 層2 tool の `execute`（lathe MCP 5 tools + ローカル tool）/ (b) 層5 で lathe が集めて渡す deps /
-(c) consumer の output schema + instructions。「agent が X したい → ホストがデータ収集 → tool 公開」は
-この 3 つで表現される。
+## analyst / chat は ACP セッションの consumer
+- **analyst（非対話）**: 1 回の `session/prompt`（system=分析 instructions、tools=lathe MCP、構造化出力期待）→ 結果を読む。
+- **chat（対話、P2.5）**: 多ターンの `session/prompt` ⇄ `session/update`。
+- 両方が **同じ ACP client core** を共有。「追加で分析」も同じセッションへの次の prompt で自然に繋がる（ユーザー要件）。
 
-## 対話/非対話
+## skill の扱い（前 ADR からの継続論点）
+skill = provider 非依存の playbook。lathe 側で「session に渡す instructions/context」を組み立てる層に置き、playbook が複数になった時点で SKILL.md 規約で外出し（provider のビルトイン skill 機能には依存しない）。ACP の context は ContentBlocks 経由なので、skill 本文も lathe が prompt/context として注入する。
 
-同一 loop core、2 エントリ。**非対話 = analyst**（run、構造化出力）。**対話 = P2.5 chat**（stream）。
-両者がエンジンを共有することが本 ADR の主眼（dual-operability の技術的土台）。
+## 破棄 / 再利用（tasks/22 packages/agent の精算）
+- **破棄**: `packages/agent/src/loop.ts`（自前 loop）/ `provider.ts`（`LanguageModel.generate` per-turn 抽象）/ `mcp-client.ts`（`NeutralMcpClient`＝lathe を MCP **client** にする層。B では agent が MCP client）/ `tool.ts` registry / `index.ts`・`context.ts` の loop wrapper。= packages/agent ほぼ全体（~1200 行、埋没コスト）。
+- **再利用**: `packages/mcp`（MCP server、tasks/22 以前から存在）= `session/new` で渡す対象。context 組み立ての発想。
 
-## 再利用 / 解体（現コード）
+## provider 非依存性と逃げ道（折衷）
+- **既定 = ACP**（唯一の provider 非依存標準）。
+- **逃げ道**: ACP で表現しきれない高粒度機能が要る provider だけ、公式 agent SDK（Claude Agent SDK の `canUseTool`、Codex SDK、Managed Agents のサーバ側永続化等）を **同じ lathe 内部 IF の裏に直 wrap** して併設。default は触らない。
 
-- そのまま素地: MCP 5 tools（packages/mcp）= 層3 供給源 / `db.ts` getSessionBundle = 層5 deps 収集 /
-  rules 検出 / dedup（submitDrafts）。
-- 撤去済み chat-agent（git 履歴、commit acbfdad）が層1+2+3 の原型（buildAgentLaunchConfig /
-  invokeLatheMcpTool / allowed-tools）を持つ → 復活・一般化。
-- 解体: analyst-engine.ts の provider 選別（selectLlmProvider/callLlmJson → 層1）、prompt schema 直書き
-  （→ consumer 引数）、生成ループ（→ 層4 core）。
+## 却下した代替
+- **A（自前 loop・6 層 core、本 ADR 初版）**: 車輪の再発明、価値ゼロ。却下。
+- **provider ごと公式 SDK 直 wrap のみ（案B）**: provider 非依存でなく、正規化層を lathe が保守し続ける。default 不採用、逃げ道としてのみ保持。
+- **Managed Agents のみ**: Claude 専用・サーバ側 loop で、ユーザーのローカル サブスク CLI を使えない。lathe の「実際に使う agent を観測」と不整合。却下（将来 Claude をサーバ実行したい時の選択肢には残す）。
 
-## スコープ / 順序（2026-06-14 ユーザー決定）
+## トレードオフ / 留保（正直に）
+1. ACP の **remote(HTTP/WS) transport は仕様上 WIP** → 当面 **local subprocess 前提**。単一ユーザー local dogfood + サブスク認証がローカルにある以上、むしろ必然で問題なし。
+2. **Codex の ACP adapter は Zed/community 製**（OpenAI 公式でない）= 成熟度差。逃げ道で Codex SDK 直 wrap に切替可能。
+3. ACP の context は ContentBlocks 経由 → Claude の preset system prompt 等 **provider 固有機能は使えない可能性**（per-call 承認は `session/request_permission` で表現できるので失われない）。
+4. **サブスクのヘッドレス駆動の利用規約**面は未確認（機構上は `claude -p`/Agent SDK と同経路で動く）。必要なら別途確認。
 
-agent core を先に実装 → analyst を consumer に載せ替え → loop/21 の深掘りを core 上で整合 → まとめて merge。
-loop/21 branch（finding 深掘り機能、commit 6d39aff）はそれまで温存。
+## スコープ
+- 本 ADR = 「agent 駆動の基盤」= ACP client + 既存 MCP server を渡す配線 + context 注入 + permission ブリッジ + observation。
+- スコープ外: 自前 loop の構築（しない）/ 生 API agent（必要時に B 互換として接続）/ 完全な agent operability（最終フェーズ、#19）/ harness 自動適用（P5）。
 
-## スコープ外
-
-- 完全な agent operability（agent が分析・検知・タスク受領・管理まで）は最終フェーズ（論点 #19）。
-  本 ADR は「土台の core + analyst consumer + P2.5 chat が乗れる形」まで。
-- harness の自動適用（P5）。
+## 一次情報（出典）
+- ACP: agentclientprotocol.com/protocol/schema（`session/new` の `mcpServers[]` / `session/prompt` / `session/update` / `session/request_permission` / `session/cancel`）, /get-started/agents（対応一覧）, github.com/agentclientprotocol/agent-client-protocol（SDK: Rust/TS/Py/Java/Kotlin）, github.com/zed-industries/{claude-agent-acp, codex-acp}, github.com/openclaw/acpx（client 駆動の存在証明）
+- Claude Agent SDK: code.claude.com/docs/en/agent-sdk/typescript（逃げ道用）
+- Anthropic Managed Agents: anthropics/skills `claude-api/shared/managed-agents-overview.md`
+- OpenAI Codex SDK: developers.openai.com/codex/sdk / Cursor CLI: cursor.com/docs/cli/acp
