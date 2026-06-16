@@ -20,6 +20,7 @@ playwright/.cache/
 
 # coverage / test artifacts
 coverage/
+tmp/
 
 # editor & agent-tool settings (these are personal; don't ship them in a public repo)
 .claude/

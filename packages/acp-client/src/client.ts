@@ -37,10 +37,11 @@ function defaultPermission(request: PermissionRequest): PermissionOutcome {
 export function latheMcpServer(options: { repoRoot: string; databaseUrl?: string }): McpServer {
   const repoRoot = isAbsolute(options.repoRoot) ? options.repoRoot : resolve(options.repoRoot);
   const env = options.databaseUrl ? [{ name: 'DATABASE_URL', value: options.databaseUrl }] : [];
+  const tsxBin = resolve(repoRoot, 'packages/mcp/node_modules/.bin/tsx');
   return {
     name: 'lathe',
-    command: process.execPath,
-    args: ['--import', 'tsx', resolve(repoRoot, 'packages/mcp/src/server.ts')],
+    command: tsxBin,
+    args: [resolve(repoRoot, 'packages/mcp/src/server.ts')],
     env,
   };
 }

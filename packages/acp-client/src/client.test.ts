@@ -30,7 +30,7 @@ test('runSession drives initialize/new/prompt/update lifecycle with fake ACP age
     onUpdate: (update) => {
       updates.push(update);
     },
-    onPermission: (request) => ({ outcome: 'selected', optionId: request.options[0].optionId }),
+    onPermission: (request) => ({ outcome: 'selected', optionId: 'allow-once' }),
   });
 
   assert.equal(result.initialize.protocolVersion, 1);
@@ -38,10 +38,17 @@ test('runSession drives initialize/new/prompt/update lifecycle with fake ACP age
   assert.equal(result.prompt.stopReason, 'end_turn');
   assert.equal(result.permissions.length, 1);
   assert.equal(result.permissions[0].outcome.outcome, 'selected');
+  assert.equal(result.permissions[0].outcome.optionId, 'allow-once');
   assert.equal(updates.length, 4);
   assert.equal(updates[0].sessionUpdate, 'user_message_chunk');
   assert.equal(updates[1].sessionUpdate, 'tool_call');
   assert.deepEqual((updates[1].rawInput as { mcpServers: McpServer[] }).mcpServers, mcpServers);
+  const latheServer = mcpServers[0];
+  assert.ok('command' in latheServer);
+  assert.equal(latheServer.name, 'lathe');
+  assert.equal(latheServer.command, resolve(repoRoot, 'packages/mcp/node_modules/.bin/tsx'));
+  assert.deepEqual(latheServer.args, [resolve(repoRoot, 'packages/mcp/src/server.ts')]);
+  assert.deepEqual(latheServer.env, [{ name: 'DATABASE_URL', value: 'postgres://lathe:lathe@localhost:55433/lathe' }]);
 });
 
 test('runSession returns selected deny permission outcome to fake ACP agent', async () => {
