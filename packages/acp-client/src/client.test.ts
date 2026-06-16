@@ -94,18 +94,29 @@ test('AcpClient sends session/cancel and receives cancelled stop reason', async 
 });
 
 test('runSession rejects on onUpdate errors without leaving an unhandled incoming promise', async () => {
-  await assert.rejects(
-    runSession({
-      adapter: fakeAdapter(),
-      cwd: repoRoot,
-      mcpServers: [],
-      prompt: 'Trigger an update callback failure.',
-      onUpdate: () => {
-        throw new Error('onUpdate exploded');
-      },
-    }),
-    /onUpdate exploded/,
-  );
+  const unhandledRejections: unknown[] = [];
+  const onUnhandledRejection = (reason: unknown) => {
+    unhandledRejections.push(reason);
+  };
+  process.on('unhandledRejection', onUnhandledRejection);
+  try {
+    await assert.rejects(
+      runSession({
+        adapter: fakeAdapter(),
+        cwd: repoRoot,
+        mcpServers: [],
+        prompt: 'Trigger an update callback failure.',
+        onUpdate: () => {
+          throw new Error('onUpdate exploded');
+        },
+      }),
+      /onUpdate exploded/,
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(unhandledRejections, []);
+  } finally {
+    process.off('unhandledRejection', onUnhandledRejection);
+  }
 });
 
 test('lathe smoke evidence ignores available tool listings and requires a real tool event/result', () => {
@@ -138,6 +149,7 @@ test('lathe smoke evidence ignores available tool listings and requires a real t
   assert.equal(
     hasLatheListSessionsCallEvidence({
       sessionUpdate: 'tool_call_update',
+      status: 'completed',
       _meta: {
         claudeCode: {
           toolName: 'mcp__lathe__list_sessions',
@@ -146,5 +158,28 @@ test('lathe smoke evidence ignores available tool listings and requires a real t
       },
     }),
     true,
+  );
+
+  assert.equal(
+    hasLatheListSessionsCallEvidence({
+      sessionUpdate: 'tool_call_update',
+      status: 'completed',
+      _meta: { claudeCode: { toolName: 'mcp__lathe__list_sessions' } },
+      rawOutput: 'not a list result',
+    }),
+    false,
+  );
+
+  assert.equal(
+    hasLatheListSessionsCallEvidence({
+      sessionUpdate: 'tool_call_update',
+      _meta: {
+        claudeCode: {
+          toolName: 'mcp__lathe__list_sessions',
+          toolResponse: [{ type: 'text', text: '[{"id":"fixture-acp-smoke-session"}]' }],
+        },
+      },
+    }),
+    false,
   );
 });

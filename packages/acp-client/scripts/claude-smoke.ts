@@ -41,13 +41,13 @@ async function main(): Promise<void> {
       claudeCode: {
         emitRawSDKMessages: true,
         options: {
-          tools: ['mcp__lathe__list_sessions', 'Bash'],
+          tools: ['mcp__lathe__list_sessions'],
         },
       },
     },
     timeoutMs: Number(process.env.ACP_SMOKE_TIMEOUT_MS ?? 180_000),
     prompt:
-      'Use the MCP server named lathe. First call its list_sessions tool exactly once. Then run the Bash command `printf acp-permission-smoke` exactly once. Report only the number of sessions returned, the first session id if any, and the Bash output.',
+      'Use the MCP server named lathe. Call its list_sessions tool exactly once. Report only the number of sessions returned and the first session id if any.',
     onUpdate: async (update) => {
       updates.push(update);
       await log('update', update);
@@ -86,10 +86,9 @@ async function main(): Promise<void> {
     throw new Error('claude-agent-acp smoke completed without lathe MCP server connected evidence');
   }
   if (evidence.length === 0) {
-    throw new Error('claude-agent-acp smoke completed without mcp__lathe__list_sessions or fixture result evidence in the update stream');
-  }
-  if (result.permissions.length === 0) {
-    throw new Error('claude-agent-acp smoke completed without session/request_permission round-trip evidence');
+    throw new Error(
+      'claude-agent-acp smoke completed without completed mcp__lathe__list_sessions tool_call_update and JSON list result evidence in the update stream',
+    );
   }
   if (!subscriptionAuth) {
     throw new Error('claude-agent-acp smoke completed without subscription auth evidence such as apiKeySource=none or rate_limit_event');

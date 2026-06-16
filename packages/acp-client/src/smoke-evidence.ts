@@ -24,10 +24,44 @@ function hasToolResponse(update: SessionUpdate): boolean {
   return claudeCode.toolResponse !== undefined || update.rawOutput !== undefined || update.content !== undefined;
 }
 
+function textFromValue(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(textFromValue);
+  if (!isRecord(value)) return [];
+
+  const text = typeof value.text === 'string' ? [value.text] : [];
+  return [
+    ...text,
+    ...textFromValue(value.content),
+    ...textFromValue(value.toolResponse),
+    ...textFromValue(value.rawOutput),
+  ];
+}
+
+function hasListSessionsResult(update: SessionUpdate): boolean {
+  if (!hasToolResponse(update)) return false;
+  const meta = nestedRecord(update, '_meta');
+  const claudeCode = nestedRecord(meta, 'claudeCode');
+  const candidates = [
+    ...textFromValue(update.rawOutput),
+    ...textFromValue(update.content),
+    ...textFromValue(claudeCode.toolResponse),
+  ];
+
+  return candidates.some((candidate) => {
+    try {
+      return Array.isArray(JSON.parse(candidate.trim()));
+    } catch {
+      return false;
+    }
+  });
+}
+
 export function hasLatheListSessionsCallEvidence(update: SessionUpdate): boolean {
   if (claudeToolName(update) !== LATHE_LIST_SESSIONS_TOOL) return false;
-  if (update.sessionUpdate !== 'tool_call' && update.sessionUpdate !== 'tool_call_update') return false;
-  return update.status === 'completed' || hasToolResponse(update);
+  if (update.sessionUpdate !== 'tool_call_update') return false;
+  if (update.status !== 'completed') return false;
+  return hasListSessionsResult(update);
 }
 
 export function hasLatheServerConnectedEvidence(update: SessionUpdate): boolean {
