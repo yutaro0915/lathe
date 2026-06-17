@@ -1,7 +1,7 @@
 ---
 id: 25
 title: analyst を ACP セッションの consumer に載せ替え（loop/21 深掘りを B 上で整合）
-status: in-progress   # 2026-06-17 unblock: tasks/24 実スモーク GREEN + xhigh 監査 merge 可 + main 着地（3432ee0）
+status: done   # 2026-06-17 merge 済み（122367c）。ACP-only / backfill missing-only / hybrid recall 5/5（#1 cue 修正で 0→5/5）/ Tier A xhigh 監査 merge 可（5/5 genuine, N1 反証維持）
 assignee: codex (/goal loop)
 depends_on: [24]
 estimated: large
