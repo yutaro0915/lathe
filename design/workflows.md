@@ -100,6 +100,14 @@ tmux capture-pane -t lathe-loop-<NN> -p | tail -5
   （注: 旧表現「1 ターン 1 項目」は plain prompt 駆動だと「1 項目で停止」と解釈され
   loop 11 が条件 1 で停止した。継続を明示すること）
 
+**Graphite（stacked PR、2026-06-17 ユーザー決定）**:
+- 目的は **(A) 長 branch ブロックの解消のみ**。1 本の長い loop branch で他作業が止まるのを、`gt` の stacked PR で並走可能にする。
+- **レビューは自前据え置き**（Codex xhigh Tier A + `engineering-norms.md`）。**Graphite Agent / AI review（有料）は入れない**（サブスク増やさない）。
+- 課金しない範囲: `gt` CLI 無料・ローカル（stack 管理 = `gt create/modify/restack/log/track`）。`gt submit`（PR 作成）は **無料 Hobby + token（`GRAPHITE_AUTH_TOKEN` / `gt auth`）**。headless 可（`gt submit --no-interactive`）。
+- worktree 互換は公式確認済み（changelog v1.4.5/v1.8.0）。Codex は普通に `git commit` → 後で `gt track` で stack 取り込み。
+- **安全ガード（一次未確認の事故報告あり）**: `gt sync` は **dirty な / 他 worktree の作業がある状態で走らせない**（他 worktree を壊す恐れ、個人検証報告）。本採用前に **worktree 2 本で track/submit/sync の挙動を小実地検証**する。
+- 導入順: **② loop/25 が merge してから** gt init（in-flight loop を壊さない）。ユーザーの 1 ステップ = `gt auth`（Hobby 無料）。
+
 **監視・停止**:
 
 ```bash
