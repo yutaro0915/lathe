@@ -1,0 +1,101 @@
+import { appendFile, mkdir, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { latheMcpServer, runSession } from '../src/index.js';
+import {
+  hasLatheListSessionsCallEvidence,
+  hasLatheServerConnectedEvidence,
+  hasSubscriptionAuthEvidence,
+} from '../src/smoke-evidence.js';
+import type { McpServer, SessionUpdate } from '../src/index.js';
+
+const repoRoot = resolve(import.meta.dirname, '..', '..', '..');
+const logDir = resolve(repoRoot, 'tmp');
+const logPath = process.env.ACP_SMOKE_LOG_PATH ? resolve(process.env.ACP_SMOKE_LOG_PATH) : resolve(logDir, 'acp-client-claude-smoke.jsonl');
+const databaseUrl = process.env.DATABASE_URL;
+
+function stringify(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+async function log(event: string, data: unknown): Promise<void> {
+  await mkdir(dirname(logPath), { recursive: true });
+  await appendFile(logPath, `${JSON.stringify({ ts: new Date().toISOString(), event, data })}\n`);
+}
+
+async function main(): Promise<void> {
+  if (!databaseUrl) throw new Error('DATABASE_URL is required for lathe MCP smoke');
+  await mkdir(dirname(logPath), { recursive: true });
+  await writeFile(logPath, '');
+
+  const updates: SessionUpdate[] = [];
+  const mcpServers: McpServer[] =
+    process.env.ACP_SMOKE_NO_MCP_SERVERS === '1' ? [] : [latheMcpServer({ repoRoot, databaseUrl })];
+  const result = await runSession({
+    adapter: {
+      command: 'npx',
+      args: ['-y', '@agentclientprotocol/claude-agent-acp@latest'],
+    },
+    cwd: repoRoot,
+    mcpServers,
+    sessionMeta: {
+      claudeCode: {
+        emitRawSDKMessages: true,
+        options: {
+          tools: ['mcp__lathe__list_sessions'],
+        },
+      },
+    },
+    timeoutMs: Number(process.env.ACP_SMOKE_TIMEOUT_MS ?? 180_000),
+    prompt:
+      'Use the MCP server named lathe. Call its list_sessions tool exactly once. Report only the number of sessions returned and the first session id if any.',
+    onUpdate: async (update) => {
+      updates.push(update);
+      await log('update', update);
+    },
+    onPermission: async (request) => {
+      await log('permission_request', request);
+      const allow =
+        request.options.find((option) => option.kind === 'allow_once' || option.kind === 'allow_always') ?? request.options[0];
+      const outcome = allow ? { outcome: 'selected' as const, optionId: allow.optionId } : { outcome: 'cancelled' as const };
+      await log('permission_response', outcome);
+      return outcome;
+    },
+  });
+
+  await log('result', result);
+  const evidence = updates.filter(hasLatheListSessionsCallEvidence);
+  const connected = updates.some(hasLatheServerConnectedEvidence);
+  const subscriptionAuth = updates.some(hasSubscriptionAuthEvidence);
+  console.log(
+    stringify({
+      logPath,
+      sessionId: result.sessionId,
+      stopReason: result.prompt.stopReason,
+      updateCount: updates.length,
+      permissionCount: result.permissions.length,
+      latheToolEvidenceCount: evidence.length,
+      latheServerConnected: connected,
+      subscriptionAuthEvidence: subscriptionAuth,
+      stderrTail: result.stderr.slice(-4000),
+    }),
+  );
+  if (updates.length === 0) {
+    throw new Error('claude-agent-acp smoke completed without session/update stream evidence');
+  }
+  if (!connected) {
+    throw new Error('claude-agent-acp smoke completed without lathe MCP server connected evidence');
+  }
+  if (evidence.length === 0) {
+    throw new Error(
+      'claude-agent-acp smoke completed without completed mcp__lathe__list_sessions tool_call_update and JSON list result evidence in the update stream',
+    );
+  }
+  if (!subscriptionAuth) {
+    throw new Error('claude-agent-acp smoke completed without subscription auth evidence such as apiKeySource=none or rate_limit_event');
+  }
+}
+
+main().catch((error) => {
+  console.error(`[claude-smoke] ${(error as Error).message}`);
+  process.exitCode = 1;
+});
