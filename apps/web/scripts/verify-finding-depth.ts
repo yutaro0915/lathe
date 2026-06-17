@@ -239,6 +239,37 @@ async function verifyKnownIncidentSmoke(): Promise<void> {
   });
 }
 
+async function verifyAcpFailureFailsClosed(): Promise<void> {
+  await withScratch('finding_depth_acp_required', async () => {
+    await applySchema();
+    const sessionIds = knownIncidentSessionIds();
+    if (!sessionIds.length) fail('known incident fixture file has no session ids');
+    await copyKnownIncidentRows(sessionIds);
+    const previousCommand = process.env.LATHE_ANALYST_ACP_COMMAND;
+    const previousArgs = process.env.LATHE_ANALYST_ACP_ARGS;
+    try {
+      process.env.LATHE_ANALYST_ACP_COMMAND = '/bin/false';
+      delete process.env.LATHE_ANALYST_ACP_ARGS;
+      const result = await runAnalyst({
+        candidate: 'hybrid-v1',
+        sessionIds,
+        source: 'smoke',
+        maxLlmSessions: sessionIds.length,
+      });
+      if (!result.skipped) fail(`hybrid-v1 did not fail closed when ACP adapter failed: ${JSON.stringify(result)}`);
+      const rows = await getPool().query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM findings WHERE analyst = 'hybrid-v1'`,
+      );
+      if ((rows.rows[0]?.n ?? 0) !== 0) fail('hybrid-v1 created findings while ACP adapter was forced to fail');
+    } finally {
+      if (previousCommand === undefined) delete process.env.LATHE_ANALYST_ACP_COMMAND;
+      else process.env.LATHE_ANALYST_ACP_COMMAND = previousCommand;
+      if (previousArgs === undefined) delete process.env.LATHE_ANALYST_ACP_ARGS;
+      else process.env.LATHE_ANALYST_ACP_ARGS = previousArgs;
+    }
+  });
+}
+
 async function verifyFinding110To114Backfill(): Promise<void> {
   await withScratch('finding_depth_existing_findings', async () => {
     await applySchema();
@@ -291,6 +322,7 @@ async function main(): Promise<void> {
   await verifyExistingMigration();
   await verifyRulesAnalysis();
   await verifyGenericAnalysisRejected();
+  await verifyAcpFailureFailsClosed();
   await verifyKnownIncidentSmoke();
   await verifyFinding110To114Backfill();
   console.log('[verify-finding-depth] GREEN migration=true rules_analysis=true recall_insight=true backfill_110_114=true');

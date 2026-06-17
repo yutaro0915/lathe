@@ -795,7 +795,7 @@ async function runAcpSession(input: {
     let after = await querySubmittedCandidateFindings(input.analyst, input.sessionIds);
     const createdIds = after.filter((row) => !beforeIds.has(row.id)).map((row) => row.id);
     if (createdIds.length) {
-      await backfillFindingAnalysis(createdIds, { overwrite: true });
+      await backfillFindingAnalysis(createdIds);
       after = await querySubmittedCandidateFindings(input.analyst, input.sessionIds);
     }
     return submittedRowsToResult(input.options, beforeIds, after, [
@@ -897,27 +897,14 @@ async function runHybridCandidate(options: RunAnalystOptions): Promise<RunAnalys
   const sessionIds = [...new Set(rules.map(primarySessionId).filter((id): id is string => Boolean(id)))];
   const prompt = `${acpFindingInstructions('hybrid-v1', options.submit !== false)}
 
-Call submit_finding exactly once for every rule-selected source below.
-Preserve the observable phenomenon, but deepen the analysis. Use the source evidence coordinates when calling submit_finding.
-Each source includes an exact submit_finding payload. Call submit_finding with that payload, preserving analysis fields. Do not omit a source because another source has the same session_id; different locator/evidence means a different finding.
-Prefer command semantics and error text over category labels: rg exit 1 = no match, git diff --check exit 2 = whitespace findings, No such file = wrong path/cwd, EADDRINUSE = occupied port, fixture-only checks = real-data gap.
+This hybrid analyst prompt already contains final finding payloads derived from deterministic rule preselection plus deep-dive analysis instructions.
+Call mcp__lathe__submit_finding exactly once for each payload below.
+Use the payloads semantically as-is: do not rewrite title, body, analysis, evidence, kind, analyst, confidence, project_id, or harness_version_id.
+Do not call any other tool. Do not omit a payload because another payload has the same session_id.
 
-Rule candidates:
-${rules
-  .map(
-    (finding, index) =>
-      `source_index=${index}\ndetector=${finding.detector}\nkind=${finding.kind}\ntitle=${finding.title}\nbody=${finding.body}\nevidence=${stableJson(finding.evidence[0])}\nsubmit_finding_payload=${stableJson(findingToMcpPayload(finding))}`,
-  )
-  .join('\n\n')}
-
-${mcpSubmitExample('hybrid-v1')}`;
-  const acpResult = await runAcpSession({ analyst: 'hybrid-v1', prompt, sessionIds, options });
-  if (options.submit !== false && (acpResult.skipped || acpResult.created < rules.length)) {
-    const completed = await submitDrafts(rules, options);
-    completed.logs.unshift(...acpResult.logs, `hybrid-v1 deterministic completion after ACP created=${acpResult.created}/${rules.length}`);
-    return completed;
-  }
-  return acpResult;
+Payloads:
+${rules.map((finding, index) => `payload_${index}=${stableJson(findingToMcpPayload(finding))}`).join('\n')}`;
+  return runAcpSession({ analyst: 'hybrid-v1', prompt, sessionIds, options });
 }
 
 interface AnalysisContext {
@@ -1304,10 +1291,7 @@ function analysisJsonPayload(analysis: NonNullable<SubmitFindingInput['analysis'
   };
 }
 
-export async function backfillFindingAnalysis(
-  findingIds: number[],
-  options: { overwrite?: boolean } = {},
-): Promise<{ considered: number; updated: number; skipped: number }> {
+export async function backfillFindingAnalysis(findingIds: number[]): Promise<{ considered: number; updated: number; skipped: number }> {
   if (!findingIds.length) return { considered: 0, updated: 0, skipped: 0 };
   const rows = await queryRows<{
     id: number;
@@ -1329,7 +1313,7 @@ export async function backfillFindingAnalysis(
   let updated = 0;
   let skipped = 0;
   for (const row of rows) {
-    if (!options.overwrite && parseStoredAnalysis(row.analysis)) {
+    if (parseStoredAnalysis(row.analysis)) {
       skipped++;
       continue;
     }

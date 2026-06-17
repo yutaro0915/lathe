@@ -332,6 +332,7 @@ async function verifySubmitFinding(): Promise<void> {
   const event = await firstEvent();
   const analyst = `mcp-verify-${process.pid}-${Date.now()}`;
   const strictAnalyst = `${analyst}-primary`;
+  const analysisAnalyst = `${analyst}-analysis`;
   const validFinding = {
     analyst,
     kind: 'failure_loop',
@@ -400,6 +401,17 @@ async function verifySubmitFinding(): Promise<void> {
         }),
       'submitFinding evidence count limit',
     );
+    const analysisResult = await submitFinding({
+      ...validLibFinding,
+      analyst: analysisAnalyst,
+      title: 'MCP verify non-string analysis normalization',
+      analysis: {
+        causeHypothesis: 42 as unknown as string,
+        agentIntent: 'agent intent survives',
+        impact: { nested: true } as unknown as string,
+      },
+    });
+    if (!analysisResult.created) fail(`submitFinding non-string analysis normalization did not create: ${JSON.stringify(analysisResult)}`);
 
     await withClient(async (client) => {
       assertToolError(
@@ -532,7 +544,7 @@ async function verifySubmitFinding(): Promise<void> {
       }
     });
   } finally {
-    await getPool().query('DELETE FROM findings WHERE analyst IN ($1, $2)', [analyst, strictAnalyst]);
+    await getPool().query('DELETE FROM findings WHERE analyst IN ($1, $2, $3)', [analyst, strictAnalyst, analysisAnalyst]);
   }
   console.log('[verify-mcp:3-submit-finding] GREEN');
 }

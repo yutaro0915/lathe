@@ -241,8 +241,9 @@ function toFinding(row: FindingRow, evidence: EvidenceRow[]) {
   };
 }
 
-function cleanAnalysisText(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
+function cleanAnalysisText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
   return trimmed ? trimmed.slice(0, 1200) : null;
 }
 
