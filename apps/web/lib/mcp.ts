@@ -51,6 +51,12 @@ export interface FindingEvidenceInput {
   note?: string;
 }
 
+export interface FindingAnalysisInput {
+  causeHypothesis?: string | null;
+  agentIntent?: string | null;
+  impact?: string | null;
+}
+
 export interface SubmitFindingInput {
   analyst: string;
   kind: FindingKind;
@@ -59,6 +65,7 @@ export interface SubmitFindingInput {
   confidence: number;
   projectId?: string;
   harnessVersionId?: string | null;
+  analysis?: FindingAnalysisInput | null;
   evidence: FindingEvidenceInput[];
 }
 
@@ -82,6 +89,9 @@ interface FindingRow {
   confidence: number;
   harness_version_id: string | null;
   project_id: string;
+  analysis: string | Record<string, unknown> | null;
+  backlog_status: string | null;
+  backlog_actor: string | null;
   verdict: string | null;
   reason: string | null;
   decided_at: string | null;
@@ -216,6 +226,9 @@ function toFinding(row: FindingRow, evidence: EvidenceRow[]) {
     confidence: row.confidence,
     harnessVersionId: row.harness_version_id,
     projectId: row.project_id,
+    analysis: parseStoredAnalysis(row.analysis),
+    backlogStatus: row.backlog_status,
+    backlogActor: row.backlog_actor,
     latestVerdict: row.verdict
       ? {
           verdict: row.verdict,
@@ -226,6 +239,43 @@ function toFinding(row: FindingRow, evidence: EvidenceRow[]) {
       : null,
     evidence: evidence.map(toEvidence),
   };
+}
+
+function cleanAnalysisText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 1200) : null;
+}
+
+function normalizeAnalysis(input: FindingAnalysisInput | null | undefined): Record<string, string | null> | null {
+  if (!input) return null;
+  const analysis = {
+    cause_hypothesis: cleanAnalysisText(input.causeHypothesis),
+    agent_intent: cleanAnalysisText(input.agentIntent),
+    impact: cleanAnalysisText(input.impact),
+  };
+  return analysis.cause_hypothesis || analysis.agent_intent || analysis.impact ? analysis : null;
+}
+
+function parseStoredAnalysis(value: FindingRow['analysis']): Record<string, string | null> | null {
+  if (value == null) return null;
+  let parsed: Record<string, unknown>;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  } else if (typeof value === 'object' && !Array.isArray(value)) {
+    parsed = value;
+  } else {
+    return null;
+  }
+  return normalizeAnalysis({
+    causeHypothesis: typeof parsed.cause_hypothesis === 'string' ? parsed.cause_hypothesis : null,
+    agentIntent: typeof parsed.agent_intent === 'string' ? parsed.agent_intent : null,
+    impact: typeof parsed.impact === 'string' ? parsed.impact : null,
+  });
 }
 
 function validateEvidenceInput(evidence: FindingEvidenceInput): FindingEvidenceInput {
@@ -460,6 +510,7 @@ export async function submitFinding(input: SubmitFindingInput) {
   const projectId = cleanString(input.projectId) ?? inferred?.project_id;
   if (!projectId) throw new Error('finding.project_id is required when evidence cannot infer a project');
   const harnessVersionId = input.harnessVersionId === undefined ? inferred?.harness_version_id ?? null : input.harnessVersionId;
+  const analysis = normalizeAnalysis(input.analysis);
 
   const pool = getPool();
   const client = await pool.connect();
@@ -511,10 +562,10 @@ export async function submitFinding(input: SubmitFindingInput) {
     }
 
     const inserted = await client.query<{ id: number }>(
-      `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id,analysis)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
        RETURNING id`,
-      [analyst, input.kind, title, body, input.confidence, harnessVersionId, projectId],
+      [analyst, input.kind, title, body, input.confidence, harnessVersionId, projectId, analysis],
     );
     const findingId = inserted.rows[0]?.id;
     if (!findingId) throw new Error('finding insert returned no id');

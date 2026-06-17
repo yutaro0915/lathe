@@ -1,6 +1,6 @@
 import { once } from 'node:events';
 import { isAbsolute, resolve } from 'node:path';
-import { StdioJsonRpc } from './json-rpc.js';
+import { StdioJsonRpc } from './json-rpc';
 import type {
   AdapterCommand,
   ContentBlock,
@@ -12,7 +12,7 @@ import type {
   RunSessionOptions,
   SessionResult,
   SessionUpdate,
-} from './types.js';
+} from './types';
 
 type IncomingRequest = {
   id?: string | number;

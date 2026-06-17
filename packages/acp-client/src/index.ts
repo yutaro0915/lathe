@@ -1,4 +1,4 @@
-export { AcpClient, latheMcpServer, runSession } from './client.js';
+export { AcpClient, latheMcpServer, runSession } from './client';
 export type {
   AdapterCommand,
   ContentBlock,
@@ -13,4 +13,4 @@ export type {
   SdkPresenceCheck,
   SessionResult,
   SessionUpdate,
-} from './types.js';
+} from './types';

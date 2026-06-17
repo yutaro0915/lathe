@@ -2,9 +2,9 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AcpClient, latheMcpServer, runSession } from './index.js';
-import { hasLatheListSessionsCallEvidence } from './smoke-evidence.js';
-import type { AdapterCommand, McpServer, PermissionRequest, SessionUpdate } from './index.js';
+import { AcpClient, latheMcpServer, runSession } from './index';
+import { hasLatheListSessionsCallEvidence } from './smoke-evidence';
+import type { AdapterCommand, McpServer, PermissionRequest, SessionUpdate } from './index';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, '..');

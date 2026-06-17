@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import type { AdapterCommand, JsonRecord, JsonValue } from './types.js';
+import type { AdapterCommand, JsonRecord, JsonValue } from './types';
 
 type JsonRpcId = string | number;
 

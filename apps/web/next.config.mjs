@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ["@lathe/shared"],
+  transpilePackages: ["@lathe/acp-client", "@lathe/shared"],
 };
 
 export default nextConfig;
