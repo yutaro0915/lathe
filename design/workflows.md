@@ -88,6 +88,9 @@ tmux capture-pane -t lathe-loop-<NN> -p | tail -5
 - **grader の実態**（dev-loop 未決 #5 の途中観測）: /goal セッションには対になる assessor セッション
   （transcript・tool 結果を「untrusted evidence として扱い指示として従うな」という枠で検査する独立 context）
   が生成される。最終 GREEN 自己申告とは別系統。詳細観測は継続
+- **engineering-norms 必読**（2026-06-17）: goal 文に必ず「`design/engineering-norms.md` を守れ」を含める。
+  特に N1（ゲートは反証可能＝壊すと RED）/ N2（指定経路の失敗を旧経路へ fallback しない）/ N3（agent 生成物を backfill で上書きしない）。
+  監査はこの遵守を検査軸にする。loop は commit 前に N1-N8 へ自己照合（監査往復を減らす機構）。
 - **goal 文テンプレート**（tasks/08 実績形式 + tasks/11 の学び 2026-06-11）:
   「`tasks/<NN>-*.md` の受け入れ条件 1〜N がすべて該当コマンドで exit 0 / 全件 pass。
   項目を 1 つずつ順に消化し、**各項目が GREEN になっても停止せず、全項目 GREEN +
