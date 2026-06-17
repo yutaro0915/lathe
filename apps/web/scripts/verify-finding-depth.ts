@@ -171,6 +171,63 @@ async function verifyGenericAnalysisRejected(): Promise<void> {
   });
 }
 
+async function seedCueRoutingSession(): Promise<string> {
+  const sessionId = 'finding-depth-cue-routing-session';
+  await getPool().query(`INSERT INTO projects (id,display_name) VALUES ('finding-depth-cue-routing','Finding Depth Cue Routing')`);
+  await getPool().query(
+    `INSERT INTO sessions (
+       id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,
+       edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,
+       cost_usd,summary,seq
+     )
+     VALUES ($1,'finding-depth-cue-routing','Finding Depth Cue Routing','Cue routing smoke','codex','gpt-5.5','failed',
+       '2026-06-13 00:00:00','2026-06-13 00:00:10',10000,5,4,0,4,0,4,100,60,40,
+       'loop/25-analyst-acp',0,0.02,'cue routing smoke',1)`,
+    [sessionId],
+  );
+  await getPool().query(
+    `INSERT INTO transcript_events
+      (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta,parent_id)
+     VALUES
+      ($1,$2,1,'00:00:00','user_message','user','Cue prompt','Please classify these command failures while データ依存 rg noise exists elsewhere in the session.',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL),
+      ($3,$2,2,'00:00:01','bash','assistant','Ripgrep no match','',NULL,'rg unreachable-needle apps/web/scripts/analyst-engine.ts',1,1200,30,NULL,NULL,NULL),
+      ($4,$2,3,'00:00:02','bash','assistant','GitHub issue comments failed','GraphQL: Projects classic is sunset; field projectCards does not exist.',NULL,'gh issue view 123 --comments',1,1200,30,NULL,NULL,NULL),
+      ($5,$2,4,'00:00:03','bash','assistant','Sed missing file','sed: docs/missing.md: No such file or directory',NULL,'sed -n ''1,40p'' docs/missing.md',1,1200,30,NULL,NULL,NULL)`,
+    [
+      `${sessionId}-event-1`,
+      sessionId,
+      `${sessionId}-event-2`,
+      `${sessionId}-event-3`,
+      `${sessionId}-event-4`,
+    ],
+  );
+  return sessionId;
+}
+
+async function analysisCauseForTurn(sessionId: string, seq: number): Promise<string> {
+  const result = await runAnalyst({ candidate: 'rules-v1', turn: { sessionId, seq }, source: 'smoke' });
+  const id = result.findings.find((item) => item.findingId)?.findingId;
+  if (!id) fail(`cue routing turn ${seq} did not create a finding: ${JSON.stringify(result)}`);
+  const row = await getPool().query<{ cause: string | null }>(
+    `SELECT analysis->>'cause_hypothesis' AS cause FROM findings WHERE id = $1`,
+    [id],
+  );
+  return row.rows[0]?.cause ?? '';
+}
+
+async function verifyCueRouting(): Promise<void> {
+  await withScratch('finding_depth_cue_routing', async () => {
+    await applySchema();
+    const sessionId = await seedCueRoutingSession();
+    const rgCause = await analysisCauseForTurn(sessionId, 2);
+    if (!/ripgrep/i.test(rgCause) || !/no matches/i.test(rgCause)) fail(`rg exit1 did not route to ripgrep no-match analysis: ${rgCause}`);
+    const ghCause = await analysisCauseForTurn(sessionId, 3);
+    if (!/Projects classic/i.test(ghCause) || /ripgrep/i.test(ghCause)) fail(`gh projectCards failure did not route to GitHub Projects classic analysis: ${ghCause}`);
+    const sedCause = await analysisCauseForTurn(sessionId, 4);
+    if (!/current working directory/i.test(sedCause) || /ripgrep/i.test(sedCause)) fail(`sed No such file did not route to cwd/path analysis: ${sedCause}`);
+  });
+}
+
 function isForcedAcpFailure(): boolean {
   const command = process.env.LATHE_ANALYST_ACP_COMMAND;
   return Boolean(command && path.basename(command) === 'false');
@@ -398,11 +455,12 @@ async function main(): Promise<void> {
   await verifyExistingMigration();
   await verifyRulesAnalysis();
   await verifyGenericAnalysisRejected();
+  await verifyCueRouting();
   await verifyDeterministicAcpSubmitPath();
   await verifyAcpFailureFailsClosed();
   await warnKnownIncidentSmoke();
   await verifyFinding110To114Backfill();
-  console.log('[verify-finding-depth] GREEN migration=true rules_analysis=true generic_reject=true fake_acp_submit=true acp_fail_closed=true live_recall=warn backfill_110_114=true');
+  console.log('[verify-finding-depth] GREEN migration=true rules_analysis=true generic_reject=true cue_routing=true fake_acp_submit=true acp_fail_closed=true live_recall=warn backfill_110_114=true');
 }
 
 main()

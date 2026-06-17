@@ -124,6 +124,7 @@ const PHENOMENON_LINT_PATTERNS = [
 ];
 const RISKY_COMMAND = /\b(rm\s+-rf|git\s+reset\s+--hard|git\s+checkout\s+--|kill\s+-9|pkill\s+-f|drop\s+database|truncate\s+table|docker\s+compose\s+down)\b/i;
 const SELF_SUFFICIENT_FIXTURE = /(自己充足|fixture).{0,80}(実データ|検出|循環|自己充足|0 行|0件)/i;
+const PORT_COLLISION = /EADDRINUSE|address already in use/i;
 const DATA_DEPENDENT_FLAKE = /(データ依存|flake|flaky|EADDRINUSE|address already in use)/i;
 const BISECTION_ACCIDENT = /(二分法事故|二分法|existence-proof|存在証明).{0,120}(無視|推測|事故|誤り|見落と)/i;
 
@@ -373,28 +374,40 @@ function detectFailureLoops(
       );
     }
 
+    const seenCueDetectors = new Set<string>();
     const cueEvents = sessionEvents.filter((event) => {
       const text = eventText(event);
-      return DATA_DEPENDENT_FLAKE.test(text) || SELF_SUFFICIENT_FIXTURE.test(text);
+      return DATA_DEPENDENT_FLAKE.test(text) || SELF_SUFFICIENT_FIXTURE.test(text) || PORT_COLLISION.test(text);
     });
-    for (const event of cueEvents.slice(0, 2)) {
+    for (const event of cueEvents) {
       const text = eventText(event);
       const fixture = SELF_SUFFICIENT_FIXTURE.test(text);
+      const portCollision = PORT_COLLISION.test(text);
+      const detector = fixture ? 'self_sufficient_fixture_cue' : portCollision ? 'port_collision_cue' : 'data_dependent_flake_cue';
+      if (seenCueDetectors.has(detector)) continue;
+      seenCueDetectors.add(detector);
       out.push(
         makeFinding({
           analyst,
-          detector: fixture ? 'self_sufficient_fixture_cue' : 'data_dependent_flake_cue',
+          detector,
           kind: 'failure_loop',
-          title: fixture ? `Fixture-only validation cue in ${session.title}` : `Data-dependent failure cue in ${session.title}`,
+          title: fixture
+            ? `Fixture-only validation cue in ${session.title}`
+            : portCollision
+              ? `Port collision failure cue in ${session.title}`
+              : `Data-dependent failure cue in ${session.title}`,
           body: fixture
             ? `The transcript describes a validation path that passed fixture-like checks while real data behavior diverged. The phenomenon is a self-contained verification loop that did not cover the observed production-shaped data.`
+            : portCollision
+              ? `The transcript shows an EADDRINUSE or address-in-use failure. The phenomenon is a local runtime port collision, not stable product behavior.`
             : `The transcript calls out a failure as data-dependent or environment-dependent. The phenomenon is a test result that changed with the selected data or occupied runtime resource, not a stable product behavior.`,
-          confidence: fixture ? 0.9 : 0.88,
+          confidence: fixture ? 0.9 : portCollision ? 0.89 : 0.88,
           projectId: session.project_id,
           harnessVersionId: session.harness_version_id,
-          evidence: [turnEvidence(sessionId, event.seq, fixture ? 'fixture/self-sufficiency cue' : 'data-dependent failure cue')],
+          evidence: [turnEvidence(sessionId, event.seq, fixture ? 'fixture/self-sufficiency cue' : portCollision ? 'port collision cue' : 'data-dependent failure cue')],
         }),
       );
+      if (seenCueDetectors.size >= 3) break;
     }
   }
   return out;
@@ -991,7 +1004,8 @@ async function buildAnalysisContext(finding: AnalystFindingDraft): Promise<Analy
 
 function structuralAnalysis(finding: AnalystFindingDraft, ctx: AnalysisContext): SubmitFindingInput['analysis'] | null {
   const targetText = [ctx.target?.title, ctx.target?.command, firstLine(ctx.target?.body)].filter(Boolean).join(' / ');
-  const corpus = [finding.title, finding.body, targetText, ctx.session?.title, ctx.path, ctx.cueText].filter(Boolean).join('\n');
+  const targetCorpus = [finding.title, finding.body, targetText, ctx.session?.title, ctx.path].filter(Boolean).join('\n');
+  const corpus = [targetCorpus, ctx.cueText].filter(Boolean).join('\n');
   const intent = analysisText(
     ctx.trigger
       ? `The agent was responding to the user request "${shorten(firstLine(ctx.trigger.body) ?? ctx.trigger.title, 220)}".`
@@ -1010,46 +1024,46 @@ function structuralAnalysis(finding: AnalystFindingDraft, ctx: AnalysisContext):
   if (finding.kind === 'excess_cost' && /(過大計上|overcount|prefix|3\s*倍|3x|opus|cache|cached)/i.test(corpus)) {
     cause = analysisText('Mechanism: the cost spike is tied to Opus prefix/cache token accounting overcount, not simply to a large amount of useful work.');
     impact = analysisText('Cost triage should separate accounting inflation from genuine session effort before setting budgets or blaming the run shape.');
-  } else if (/eaddrinuse|address already in use/i.test(corpus)) {
+  } else if (/eaddrinuse|address already in use/i.test(targetCorpus)) {
     cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} failed because the requested local port was already occupied, so this is runtime/setup state rather than product or harness-code behavior.`);
     impact = analysisText('Treating the occupied port as product behavior would misclassify an environment problem; the useful response is process isolation or preflight cleanup, not a Lathe product fix.');
-  } else if (/(自己充足|self[- ]?sufficient|fixture)/i.test(corpus) && /(実データリンク|0\s*行|0\s*rows?|real[- ]?data|absent|empty)/i.test(corpus)) {
+  } else if (/(自己充足|self[- ]?sufficient|fixture)/i.test(targetCorpus) && /(実データリンク|0\s*行|0\s*rows?|real[- ]?data|absent|empty)/i.test(targetCorpus)) {
     cause = analysisText('Mechanism: fixture-shaped checks passed while the real-data link set was empty, so validation proved the self-contained fixture path rather than production-shaped behavior.');
     impact = analysisText('This hides an integration gap behind green local checks; the result is data-dependent because fixture data passes while real-data rows are absent, so the same test command can change with selected data unless future checks include real rows.');
-  } else if (/データ依存|data[- ]dependent|flake|flaky/i.test(corpus)) {
+  } else if (/データ依存|data[- ]dependent|flake|flaky/i.test(targetCorpus)) {
     cause = analysisText('Mechanism: the failure depends on selected data or environment state, so the same test command can change result without a code change.');
     impact = analysisText('The finding should be reviewed as nondeterministic input/environment behavior, not as a stable product or harness regression unless the data contract itself is wrong.');
-  } else if (finding.kind === 'risky_action' && /(二分法|binary framing|existence[- ]proof|存在証明)/i.test(corpus)) {
+  } else if (finding.kind === 'risky_action' && /(二分法|binary framing|existence[- ]proof|存在証明)/i.test(targetCorpus)) {
     cause = analysisText('Mechanism: the agent framed the design as a binary choice before using existence proof from observed working behavior, narrowing the search space prematurely.');
     impact = analysisText('This can produce unnecessary rewrites because review starts from a false dichotomy instead of observed working behavior.');
-  } else if ((/\brg\b|\bripgrep\b/i.test(corpus)) && ctx.target?.exit_code === 1) {
+  } else if ((/\brg\b|\bripgrep\b/i.test(targetCorpus)) && ctx.target?.exit_code === 1) {
     cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} returned exit 1 from ripgrep, which normally means no matches rather than a crashed command.`);
     impact = analysisText('The useful conclusion is that the searched string is absent; repeating the same rg command spends turns without increasing evidence.');
-  } else if (/git\s+diff\b[^\n]*--check/i.test(corpus) && (ctx.target?.exit_code === 2 || /trailing whitespace|whitespace/i.test(corpus))) {
+  } else if (/git\s+diff\b[^\n]*--check/i.test(targetCorpus) && (ctx.target?.exit_code === 2 || /trailing whitespace|whitespace/i.test(targetCorpus))) {
     cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} is a git diff --check diagnostic whose non-zero exit reports whitespace findings.`);
     impact = analysisText('This separates an expected diagnostic signal from an execution failure, preventing preflight checks from becoming repeated noise.');
-  } else if (/gh\s+issue\s+view/i.test(corpus) && /--comments/i.test(corpus) && /(projectcards|projects classic|sunset|classic)/i.test(corpus)) {
+  } else if (/gh\s+issue\s+view/i.test(targetCorpus) && /--comments/i.test(targetCorpus) && /(projectcards|projects classic|sunset|classic)/i.test(targetCorpus)) {
     cause = analysisText('Mechanism: gh issue view --comments hit the retired Projects classic GraphQL path, so changing issue numbers repeats the same API failure.');
     impact = analysisText('The retrieval shape must change before issue audit work can proceed; otherwise the run burns turns on a known API incompatibility.');
-  } else if (/no such file|enoent|cannot open|can't open/i.test(corpus)) {
+  } else if (/no such file|enoent|cannot open|can't open/i.test(targetCorpus)) {
     cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} failed because the target path was absent from the current working directory.`);
     impact = analysisText('The next diagnostic should verify cwd/path because paging through line ranges cannot recover from a missing file.');
-  } else if (/eaddrinuse|address already in use/i.test(corpus)) {
+  } else if (/eaddrinuse|address already in use/i.test(targetCorpus)) {
     cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} failed because the requested local port was already occupied, so this is runtime/setup state rather than product or harness-code behavior.`);
     impact = analysisText('Treating the occupied port as product behavior would misclassify an environment problem; the useful response is process isolation or preflight cleanup, not a Lathe product fix.');
-  } else if (/(自己充足|self[- ]?sufficient|fixture)/i.test(corpus) && /(実データリンク|0\s*行|0\s*rows?|real[- ]?data|absent|empty)/i.test(corpus)) {
+  } else if (/(自己充足|self[- ]?sufficient|fixture)/i.test(targetCorpus) && /(実データリンク|0\s*行|0\s*rows?|real[- ]?data|absent|empty)/i.test(targetCorpus)) {
     cause = analysisText('Mechanism: fixture-shaped checks passed while the real-data link set was empty, so validation proved the self-contained fixture path rather than production-shaped behavior.');
     impact = analysisText('This hides an integration gap behind green local checks; future verification needs real rows or it will keep accepting self-contained evidence.');
   } else if (/aivisspeech|bert|user dictionary|127\.0\.0\.1:10101/i.test(corpus)) {
     cause = analysisText('Mechanism: the observed failure depends on the local AivisSpeech engine and its BERT/user-dictionary load state, so exit status is controlled by external runtime setup rather than product or harness code alone.');
     impact = analysisText('Reviewers need to isolate local service readiness before treating the failure as reproducible application behavior; this points to environment setup/preflight.');
-  } else if (/データ依存|data[- ]dependent|flake|flaky/i.test(corpus)) {
+  } else if (/データ依存|data[- ]dependent|flake|flaky/i.test(targetCorpus)) {
     cause = analysisText('Mechanism: the failure depends on selected data or environment state, so the same test command can change result without a code change.');
     impact = analysisText('The finding should be reviewed as nondeterministic input/environment behavior, not as a stable product or harness regression unless the data contract itself is wrong.');
   } else if (finding.kind === 'excess_cost' && /(過大計上|overcount|prefix|3\s*倍|3x|opus|cache|cached)/i.test(corpus)) {
     cause = analysisText('Mechanism: the cost spike is tied to Opus prefix/cache token accounting overcount, not simply to a large amount of useful work.');
     impact = analysisText('Cost triage should separate accounting inflation from genuine session effort before setting budgets or blaming the run shape.');
-  } else if (finding.kind === 'risky_action' && /(二分法|binary framing|existence[- ]proof|存在証明)/i.test(corpus)) {
+  } else if (finding.kind === 'risky_action' && /(二分法|binary framing|existence[- ]proof|存在証明)/i.test(targetCorpus)) {
     cause = analysisText('Mechanism: the agent framed the design as a binary choice before using existence proof from observed working behavior, narrowing the search space prematurely.');
     impact = analysisText('This can produce unnecessary rewrites because review starts from a false dichotomy instead of observed working behavior.');
   } else if (finding.kind === 'unattributed_diff' && ctx.path) {
