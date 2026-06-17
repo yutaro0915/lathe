@@ -1,7 +1,7 @@
 ---
 id: 25
 title: analyst を ACP セッションの consumer に載せ替え（loop/21 深掘りを B 上で整合）
-status: blocked   # tasks/24 の実スモークが GREEN（存在証明成立）になってから着手
+status: in-progress   # 2026-06-17 unblock: tasks/24 実スモーク GREEN + xhigh 監査 merge 可 + main 着地（3432ee0）
 assignee: codex (/goal loop)
 depends_on: [24]
 estimated: large
@@ -28,17 +28,20 @@ env-vs-product）と backlog を B 上で整合させ、まとめて main へ。
    - dry-run はその submit を抑止するモードで実現。
 4. **深掘り instructions**（cause/intent/impact + env-vs-product）は session に渡す instructions/context として注入
    （将来 SKILL.md 化できる形に。ADR 0009 §skill）。
-5. loop/21 ブランチ（commit 6d39aff、finding 深掘り + backlog UI/migration）を本線に取り込み、ACP 経路と整合。
+5. **loop/21 からは「analysis モデル（`analysis` JSONB + `backlog_status` 等）の migration」と「深掘り analysis の中身」だけを取り込む**。
+   **loop/21 の findings UI（3-panel）/ backlog UI は取り込まない** → design system 建て替え（論点 #18）へ defer。
+   本 task は **backend（analyst の ACP 化 + analysis schema/migration + `submit_finding` 経路）に絞る**。UI は現行のまま（壊さない）か最小。
 
 ## 受け入れ条件
 - analyst が ACP セッション経由で finding を生成し、lathe MCP `submit_finding` で投入（実 incident で実走）。
+- finding に深掘り analysis（cause/intent/impact + env-vs-product）が入る。`analysis` 列の migration 適用（冪等）。
 - `verify:finding-depth`（recall + insight、generic 拒否は維持）/ build / E2E_PORT 指定 e2e / coverage 全 GREEN。
 - rules-v1 は LLM 不要のまま動く。dry-run は submit しない。
 - #110-114 が深掘り（env-vs-product 含む）であることを実 DB 読みで確認。共有 DB を汚さない（scratch）。
 - 旧 provider 直叩き（spawnSync('claude')/anthropic API fetch）が analyst から消えている（grep）。
 
 ## Out of scope
-- chat（P2.5）。dual-operability UI 本体。
+- chat（P2.5）。dual-operability UI 本体。**loop/21 の findings/backlog UI（3-panel）= design system 建て替え（#18）へ**。
 
 ## Loop 運用
 - ブランチ `loop/25-analyst-acp`（main から）。loop/21 を取り込む。commit prefix `[25]`。
