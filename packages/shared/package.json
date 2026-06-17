@@ -18,5 +18,12 @@
       "types": "./src/hook-harness-source.d.ts",
       "default": "./src/hook-harness-source.js"
     }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
   }
 }

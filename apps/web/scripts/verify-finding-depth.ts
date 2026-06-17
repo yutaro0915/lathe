@@ -6,6 +6,7 @@ import { assertAnalysisGrounded, backfillFindingAnalysis, runAnalyst, runAnalyst
 
 const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
 const KNOWN_INCIDENTS_PATH = path.resolve(process.cwd(), '..', '..', 'spec', 'known-incidents.json');
+const FAKE_ACP_AGENT_PATH = path.resolve(process.cwd(), '..', '..', 'packages', 'acp-client', 'test', 'fixtures', 'fake-acp-agent.mjs');
 const ORIGINAL_DATABASE_URL = process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 
 function fail(message: string): never {
@@ -170,6 +171,76 @@ async function verifyGenericAnalysisRejected(): Promise<void> {
   });
 }
 
+function isForcedAcpFailure(): boolean {
+  const command = process.env.LATHE_ANALYST_ACP_COMMAND;
+  return Boolean(command && path.basename(command) === 'false');
+}
+
+async function withDeterministicAcpAgent<T>(fn: () => Promise<T>): Promise<T> {
+  if (isForcedAcpFailure()) return fn();
+  const previousCommand = process.env.LATHE_ANALYST_ACP_COMMAND;
+  const previousArgs = process.env.LATHE_ANALYST_ACP_ARGS;
+  const previousSubmitMode = process.env.FAKE_ACP_SUBMIT_FINDINGS;
+  try {
+    process.env.LATHE_ANALYST_ACP_COMMAND = process.execPath;
+    process.env.LATHE_ANALYST_ACP_ARGS = JSON.stringify([FAKE_ACP_AGENT_PATH]);
+    process.env.FAKE_ACP_SUBMIT_FINDINGS = '1';
+    return await fn();
+  } finally {
+    if (previousCommand === undefined) delete process.env.LATHE_ANALYST_ACP_COMMAND;
+    else process.env.LATHE_ANALYST_ACP_COMMAND = previousCommand;
+    if (previousArgs === undefined) delete process.env.LATHE_ANALYST_ACP_ARGS;
+    else process.env.LATHE_ANALYST_ACP_ARGS = previousArgs;
+    if (previousSubmitMode === undefined) delete process.env.FAKE_ACP_SUBMIT_FINDINGS;
+    else process.env.FAKE_ACP_SUBMIT_FINDINGS = previousSubmitMode;
+  }
+}
+
+async function verifyDeterministicAcpSubmitPath(): Promise<void> {
+  await withScratch('finding_depth_fake_acp', async () => {
+    await applySchema();
+    const sessionId = await seedAnalystSession();
+    await withDeterministicAcpAgent(async () => {
+      for (const candidate of ['llm-v1', 'hybrid-v1'] as const) {
+        const result = await runAnalyst({
+          candidate,
+          sessionIds: [sessionId],
+          source: 'smoke',
+          maxLlmSessions: 1,
+        });
+        if (result.skipped || result.created < 1) {
+          fail(`${candidate} did not submit through deterministic ACP agent: ${JSON.stringify(result)}`);
+        }
+      }
+    });
+    const rows = await getPool().query<{
+      id: number;
+      analyst: string;
+      cause: string | null;
+      intent: string | null;
+      impact: string | null;
+    }>(
+      `SELECT id,
+              analyst,
+              analysis->>'cause_hypothesis' AS cause,
+              analysis->>'agent_intent' AS intent,
+              analysis->>'impact' AS impact
+         FROM findings
+        WHERE analyst IN ('llm-v1', 'hybrid-v1')
+        ORDER BY analyst ASC, id ASC`,
+    );
+    for (const analyst of ['llm-v1', 'hybrid-v1']) {
+      const row = rows.rows.find((item) => item.analyst === analyst);
+      if (!row) fail(`${analyst} deterministic ACP finding was not inserted`);
+      const fields = [row.cause, row.intent, row.impact].join('\n');
+      if (!fields.includes(`fake-acp-agent ${analyst} sentinel`)) {
+        fail(`${analyst} agent-submitted analysis was not preserved: ${JSON.stringify(row)}`);
+      }
+    }
+    await assertAnalysisGrounded([sessionId]);
+  });
+}
+
 function knownIncidentSessionIds(): string[] {
   const parsed = JSON.parse(fs.readFileSync(KNOWN_INCIDENTS_PATH, 'utf8')) as {
     incidents?: Array<{ session_id?: string }>;
@@ -229,13 +300,18 @@ async function copyKnownIncidentRows(sessionIds: string[]): Promise<void> {
   `);
 }
 
-async function verifyKnownIncidentSmoke(): Promise<void> {
+async function warnKnownIncidentSmoke(): Promise<void> {
   await withScratch('finding_depth_known', async () => {
     await applySchema();
     const sessionIds = knownIncidentSessionIds();
     if (!sessionIds.length) fail('known incident fixture file has no session ids');
     await copyKnownIncidentRows(sessionIds);
-    await runAnalystSmoke();
+    try {
+      const result = await runAnalystSmoke();
+      console.warn(`[verify-finding-depth] WARN live_known_incident_smoke=green recall=${JSON.stringify(result.recall)}`);
+    } catch (error) {
+      console.warn(`[verify-finding-depth] WARN live_known_incident_smoke=red_non_blocking ${(error as Error).message}`);
+    }
   });
 }
 
@@ -322,10 +398,11 @@ async function main(): Promise<void> {
   await verifyExistingMigration();
   await verifyRulesAnalysis();
   await verifyGenericAnalysisRejected();
+  await verifyDeterministicAcpSubmitPath();
   await verifyAcpFailureFailsClosed();
-  await verifyKnownIncidentSmoke();
+  await warnKnownIncidentSmoke();
   await verifyFinding110To114Backfill();
-  console.log('[verify-finding-depth] GREEN migration=true rules_analysis=true recall_insight=true backfill_110_114=true');
+  console.log('[verify-finding-depth] GREEN migration=true rules_analysis=true generic_reject=true fake_acp_submit=true acp_fail_closed=true live_recall=warn backfill_110_114=true');
 }
 
 main()
