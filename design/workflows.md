@@ -106,7 +106,8 @@ tmux capture-pane -t lathe-loop-<NN> -p | tail -5
 - 課金しない範囲: `gt` CLI 無料・ローカル（stack 管理 = `gt create/modify/restack/log/track`）。`gt submit`（PR 作成）は **無料 Hobby + token（`GRAPHITE_AUTH_TOKEN` / `gt auth`）**。headless 可（`gt submit --no-interactive`）。
 - worktree 互換は公式確認済み（changelog v1.4.5/v1.8.0）。Codex は普通に `git commit` → 後で `gt track` で stack 取り込み。
 - **安全ガード（一次未確認の事故報告あり）**: `gt sync` は **dirty な / 他 worktree の作業がある状態で走らせない**（他 worktree を壊す恐れ、個人検証報告）。本採用前に **worktree 2 本で track/submit/sync の挙動を小実地検証**する。
-- 導入順: **② loop/25 が merge してから** gt init（in-flight loop を壊さない）。ユーザーの 1 ステップ = `gt auth`（Hobby 無料）。
+- 導入順: **② loop/25 が merge してから** gt init（in-flight loop を壊さない）。~~ユーザーの 1 ステップ = `gt auth`~~ → **2026-06-17 確認: gt 1.8.6 導入済み・authed as yutaro0915・lathe gt init 済み = 接続完了**。
+- **分割基準は [stacking-norms.md](stacking-norms.md)**（Graphite 公式準拠: 単一責務 / ~50・<200 行・<10 ファイル / 依存方向で底→上 / 無関係は別スタック）。タスクをスタック設計するとき必読。
 
 **監視・停止**:
 
