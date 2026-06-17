@@ -52,6 +52,9 @@ const locatorSchema = z
   });
 
 function mapFinding(input: JsonRecord) {
+  const analysis = input.analysis && typeof input.analysis === 'object' && !Array.isArray(input.analysis)
+    ? (input.analysis as JsonRecord)
+    : undefined;
   return {
     analyst: String(input.analyst ?? ''),
     kind: String(input.kind ?? '') as FindingKind,
@@ -60,6 +63,13 @@ function mapFinding(input: JsonRecord) {
     confidence: Number(input.confidence),
     projectId: optionalString(input.project_id),
     harnessVersionId: input.harness_version_id === null ? null : optionalString(input.harness_version_id),
+    analysis: analysis
+      ? {
+          causeHypothesis: optionalString(analysis.cause_hypothesis),
+          agentIntent: optionalString(analysis.agent_intent),
+          impact: optionalString(analysis.impact),
+        }
+      : undefined,
     evidence: Array.isArray(input.evidence)
       ? input.evidence.map((item) => {
           const record = item && typeof item === 'object' ? (item as JsonRecord) : {};
@@ -80,36 +90,38 @@ function createServer(): McpServer {
     name: 'lathe-mcp',
     version: '0.0.0',
   });
+  const onlySubmitFinding = process.env.LATHE_MCP_ONLY_SUBMIT_FINDING === '1';
 
-  server.registerTool(
-    'list_sessions',
-    {
-      title: 'List Lathe sessions',
-      description: 'List session summaries with paging and optional project/runner/model filters.',
-      inputSchema: {
-        filter: z
-          .object({
-            project_id: z.string().optional(),
-            runner: z.string().optional(),
-            model: z.string().optional(),
-            limit: z.number().int().positive().max(200).optional(),
-            offset: z.number().int().min(0).optional(),
-          })
-          .optional(),
+  if (!onlySubmitFinding) {
+    server.registerTool(
+      'list_sessions',
+      {
+        title: 'List Lathe sessions',
+        description: 'List session summaries with paging and optional project/runner/model filters.',
+        inputSchema: {
+          filter: z
+            .object({
+              project_id: z.string().optional(),
+              runner: z.string().optional(),
+              model: z.string().optional(),
+              limit: z.number().int().positive().max(200).optional(),
+              offset: z.number().int().min(0).optional(),
+            })
+            .optional(),
+        },
+        annotations: { readOnlyHint: true, openWorldHint: false },
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    async ({ filter }) =>
-      jsonResult(
-        await listMcpSessions({
-          projectId: optionalString(filter?.project_id),
-          runner: optionalString(filter?.runner),
-          model: optionalString(filter?.model),
-          limit: optionalNumber(filter?.limit),
-          offset: optionalNumber(filter?.offset),
-        }),
-      ),
-  );
+      async ({ filter }) =>
+        jsonResult(
+          await listMcpSessions({
+            projectId: optionalString(filter?.project_id),
+            runner: optionalString(filter?.runner),
+            model: optionalString(filter?.model),
+            limit: optionalNumber(filter?.limit),
+            offset: optionalNumber(filter?.offset),
+          }),
+        ),
+    );
 
   server.registerTool(
     'get_session_bundle',
@@ -182,6 +194,8 @@ function createServer(): McpServer {
       ),
   );
 
+  }
+
   server.registerTool(
     'submit_finding',
     {
@@ -196,6 +210,13 @@ function createServer(): McpServer {
           confidence: z.number().min(0).max(1),
           project_id: z.string().optional(),
           harness_version_id: z.string().nullable().optional(),
+          analysis: z
+            .object({
+              cause_hypothesis: z.string().max(1200).nullable().optional(),
+              agent_intent: z.string().max(1200).nullable().optional(),
+              impact: z.string().max(1200).nullable().optional(),
+            })
+            .optional(),
           evidence: z
             .array(
               z.object({
@@ -212,7 +233,12 @@ function createServer(): McpServer {
       },
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
-    async ({ finding }) => jsonResult(await submitFinding(mapFinding(finding))),
+    async ({ finding }) => {
+      if (process.env.LATHE_MCP_DISABLE_SUBMIT_FINDING === '1') {
+        throw new Error('submit_finding is disabled for this Lathe MCP session');
+      }
+      return jsonResult(await submitFinding(mapFinding(finding)));
+    },
   );
 
   return server;

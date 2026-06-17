@@ -1,12 +1,12 @@
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { latheMcpServer, runSession } from '../src/index.js';
+import { latheMcpServer, runSession } from '../src/index';
 import {
   hasLatheListSessionsCallEvidence,
   hasLatheServerConnectedEvidence,
   hasSubscriptionAuthEvidence,
-} from '../src/smoke-evidence.js';
-import type { McpServer, SessionUpdate } from '../src/index.js';
+} from '../src/smoke-evidence';
+import type { McpServer, SessionUpdate } from '../src/index';
 
 const repoRoot = resolve(import.meta.dirname, '..', '..', '..');
 const logDir = resolve(repoRoot, 'tmp');

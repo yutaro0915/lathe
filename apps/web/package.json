@@ -47,6 +47,7 @@
     "ingest": "tsx scripts/ingest.ts",
     "analyst": "tsx scripts/analyst.ts",
     "analyst:smoke": "tsx scripts/analyst.ts smoke",
+    "verify:finding-depth": "tsx scripts/verify-finding-depth.ts",
     "coverage": "tsx scripts/coverage_check.ts",
     "verify:commits": "tsx scripts/verify-commits.ts",
     "verify:cost": "tsx scripts/verify-cost.ts",
@@ -70,6 +71,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@lathe/acp-client": "workspace:*",
     "@lathe/shared": "workspace:*",
     "next": "^15.5.4",
     "pg": "^8.16.3",

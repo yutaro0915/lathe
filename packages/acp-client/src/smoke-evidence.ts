@@ -1,4 +1,4 @@
-import type { JsonRecord, SessionUpdate } from './types.js';
+import type { JsonRecord, SessionUpdate } from './types';
 
 const LATHE_LIST_SESSIONS_TOOL = 'mcp__lathe__list_sessions';
 

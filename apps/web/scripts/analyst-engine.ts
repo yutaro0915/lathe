@@ -1,7 +1,7 @@
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { latheMcpServer, runSession, type AdapterCommand, type McpServer, type PermissionRequest, type SessionUpdate } from '@lathe/acp-client';
 import { COST_ANOMALY_BASELINE } from '@lathe/shared';
 import {
   FINDING_KINDS,
@@ -9,11 +9,11 @@ import {
   type FindingKind,
   type SubmitFindingInput,
 } from '../lib/mcp';
-import { getPool, queryRows } from '../lib/postgres';
+import { getPool, queryOne, queryRows } from '../lib/postgres';
 import type { IngestNotifyPayload } from './ingest/notify';
 
 export type AnalystCandidate = 'rules-v1' | 'llm-v1' | 'hybrid-v1';
-export type LlmProviderMode = 'auto' | 'none' | 'claude-cli' | 'anthropic-api';
+export type LlmProviderMode = 'auto' | 'none' | 'claude-acp';
 
 interface TurnScope {
   sessionId: string;
@@ -201,6 +201,7 @@ function makeFinding(input: {
   confidence: number;
   projectId: string;
   harnessVersionId: string | null;
+  analysis?: SubmitFindingInput['analysis'] | null;
   evidence: SubmitFindingInput['evidence'];
 }): AnalystFindingDraft {
   return {
@@ -211,6 +212,7 @@ function makeFinding(input: {
     confidence: Math.max(0, Math.min(1, input.confidence)),
     projectId: input.projectId,
     harnessVersionId: input.harnessVersionId,
+    analysis: input.analysis ?? undefined,
     evidence: input.evidence,
     detector: input.detector,
   };
@@ -532,195 +534,65 @@ async function runRulesCandidate(
   ];
 }
 
-function commandAvailable(command: string): boolean {
-  const result = spawnSync(command, ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  return result.status === 0;
+function repoRoot(): string {
+  return path.resolve(process.cwd(), '..', '..');
 }
 
-function selectLlmProvider(mode: LlmProviderMode = 'auto'): { kind: 'claude-cli' | 'anthropic-api' | 'none'; reason?: string } {
-  if (mode === 'none') return { kind: 'none', reason: 'forced no-provider mode' };
-  if (mode === 'claude-cli') {
-    return commandAvailable('claude') ? { kind: 'claude-cli' } : { kind: 'none', reason: 'claude CLI not found' };
-  }
-  if (mode === 'anthropic-api') {
-    return process.env.ANTHROPIC_API_KEY ? { kind: 'anthropic-api' } : { kind: 'none', reason: 'ANTHROPIC_API_KEY not set' };
-  }
-  if (process.env.LATHE_ANALYST_DISABLE_CLAUDE_CLI !== '1' && commandAvailable('claude')) return { kind: 'claude-cli' };
-  if (process.env.ANTHROPIC_API_KEY) return { kind: 'anthropic-api' };
-  return { kind: 'none', reason: 'no claude CLI or ANTHROPIC_API_KEY available' };
-}
-
-function llmFindingSchema() {
+function analystAcpAdapter(): AdapterCommand {
+  const command = process.env.LATHE_ANALYST_ACP_COMMAND || 'npx';
+  const args = process.env.LATHE_ANALYST_ACP_ARGS
+    ? JSON.parse(process.env.LATHE_ANALYST_ACP_ARGS) as string[]
+    : ['-y', '@agentclientprotocol/claude-agent-acp@latest'];
   return {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      findings: {
-        type: 'array',
-        minItems: 1,
-        maxItems: 5,
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            kind: { type: 'string', enum: [...FINDING_KINDS] },
-            title: { type: 'string' },
-            body: { type: 'string' },
-            confidence: { type: 'number', minimum: 0, maximum: 1 },
-            session_id: { type: 'string' },
-            turn_seq: { type: 'number' },
-          },
-          required: ['kind', 'title', 'body', 'confidence', 'session_id'],
-        },
-      },
+    command,
+    args,
+    env: {
+      LATHE_INTERNAL_ANALYST_TAG: INTERNAL_ANALYST_TAG,
     },
-    required: ['findings'],
   };
 }
 
-function hybridFindingSchema() {
-  return {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      findings: {
-        type: 'array',
-        minItems: 1,
-        maxItems: 5,
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            source_index: { type: 'number' },
-            title: { type: 'string' },
-            body: { type: 'string' },
-            confidence: { type: 'number', minimum: 0, maximum: 1 },
-          },
-          required: ['source_index', 'title', 'body', 'confidence'],
-        },
-      },
-    },
-    required: ['findings'],
-  };
+function analystMcpServers(submit: boolean): McpServer[] {
+  const server = latheMcpServer({ repoRoot: repoRoot(), databaseUrl: process.env.DATABASE_URL });
+  if ('env' in server) {
+    server.env = [...server.env, { name: 'LATHE_MCP_ONLY_SUBMIT_FINDING', value: '1' }];
+    if (!submit) server.env = [...server.env, { name: 'LATHE_MCP_DISABLE_SUBMIT_FINDING', value: '1' }];
+  }
+  return [server];
 }
 
-function extractJsonPayload(stdout: string): unknown {
-  const parsed = JSON.parse(stdout);
-  if (parsed && typeof parsed === 'object') {
-    const record = parsed as Record<string, unknown>;
-    if (record.structured_output && typeof record.structured_output === 'object') return record.structured_output;
-    if (typeof record.result === 'string') {
-      try {
-        return JSON.parse(record.result);
-      } catch {
-        return record;
-      }
-    }
-    if (record.result && typeof record.result === 'object') return record.result;
-  }
-  return parsed;
+function permissionToolName(request: PermissionRequest): string {
+  const raw = [
+    request.toolCall?.name,
+    request.toolCall?.toolName,
+    request.toolCall?._meta && typeof request.toolCall._meta === 'object' && !Array.isArray(request.toolCall._meta)
+      ? (request.toolCall._meta as Record<string, unknown>).toolName
+      : undefined,
+  ].find((item) => typeof item === 'string');
+  return typeof raw === 'string' ? raw : '';
 }
 
-async function callLlmJson(
-  prompt: string,
-  schema: Record<string, unknown>,
-  analyst: AnalystCandidate,
-  mode: LlmProviderMode | undefined,
-): Promise<{ skipped?: string; value?: unknown; log: string }> {
-  const provider = selectLlmProvider(mode);
-  if (provider.kind === 'none') {
-    return { skipped: provider.reason ?? 'no provider', log: `skip ${analyst}: ${provider.reason ?? 'no provider'}` };
+function allowPermission(request: PermissionRequest, submit: boolean) {
+  const toolName = permissionToolName(request);
+  if (!submit && /submit_finding/.test(toolName)) {
+    const reject = request.options.find((option) => option.kind === 'reject_once' || option.kind === 'reject_always');
+    return reject ? { outcome: 'selected' as const, optionId: reject.optionId } : { outcome: 'cancelled' as const };
   }
+  const allow = request.options.find((option) => option.kind === 'allow_once' || option.kind === 'allow_always') ?? request.options[0];
+  return allow ? { outcome: 'selected' as const, optionId: allow.optionId } : { outcome: 'cancelled' as const };
+}
 
-  const callAnthropicApi = async (): Promise<{ skipped?: string; value?: unknown; log: string }> => {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: process.env.LATHE_ANALYST_MODEL || 'claude-sonnet-4-6',
-        max_tokens: 1600,
-        system: `${INTERNAL_ANALYST_TAG}=1 candidate=${analyst}; return only JSON matching the requested schema.`,
-        messages: [{ role: 'user', content: `${prompt}\n\nJSON schema:\n${JSON.stringify(schema)}` }],
-      }),
-    });
-    if (!response.ok) {
-      return { skipped: `Anthropic API ${response.status}`, log: `skip ${analyst}: Anthropic API ${response.status}` };
-    }
-    const payload = (await response.json()) as Record<string, any>;
-    const text = payload.content?.find((item: Record<string, unknown>) => item.type === 'text')?.text;
-    if (typeof text !== 'string') return { skipped: 'Anthropic API response had no text', log: `skip ${analyst}: empty API response` };
-    try {
-      return { value: JSON.parse(text), log: `llm provider=anthropic-api analyst=${analyst}` };
-    } catch (error) {
-      return { skipped: (error as Error).message, log: `skip ${analyst}: invalid API JSON` };
-    }
-  };
-
-  if (provider.kind === 'claude-cli') {
-    const result = spawnSync(
-      'claude',
-      [
-        '-p',
-        '--output-format',
-        'json',
-        '--json-schema',
-        JSON.stringify(schema),
-        '--model',
-        process.env.LATHE_ANALYST_CLAUDE_MODEL || 'sonnet',
-        '--effort',
-        process.env.LATHE_ANALYST_CLAUDE_EFFORT || 'low',
-        '--max-budget-usd',
-        process.env.LATHE_ANALYST_MAX_BUDGET_USD || '0.25',
-        '--tools',
-        '',
-        '--disable-slash-commands',
-        '--name',
-        `${INTERNAL_ANALYST_TAG}-${analyst}`,
-        '--system-prompt',
-        `${INTERNAL_ANALYST_TAG}=1 candidate=${analyst}; return only JSON that matches the schema. Produce phenomenon-level Lathe findings only. Never prescribe harness file edits.`,
-        prompt,
-      ],
-      {
-        encoding: 'utf8',
-        maxBuffer: 4 * 1024 * 1024,
-        timeout: Number(process.env.LATHE_ANALYST_LLM_TIMEOUT_MS || 120_000),
-        env: {
-          ...process.env,
-          LATHE_INTERNAL_ANALYST: analyst,
-          LATHE_INTERNAL_ANALYST_TAG: INTERNAL_ANALYST_TAG,
-        },
-      },
-    );
-    if (result.status !== 0) {
-      const reason = shorten(result.stderr || result.stdout || `claude exited ${result.status}`, 600);
-      if (mode !== 'claude-cli' && process.env.ANTHROPIC_API_KEY) {
-        const fallback = await callAnthropicApi();
-        return {
-          ...fallback,
-          log: `llm provider=claude-cli failed; ${fallback.log}`,
-        };
-      }
-      return { skipped: reason, log: `skip ${analyst}: claude CLI failed: ${reason}` };
-    }
-    try {
-      return { value: extractJsonPayload(result.stdout), log: `llm provider=claude-cli analyst=${analyst}` };
-    } catch (error) {
-      if (mode !== 'claude-cli' && process.env.ANTHROPIC_API_KEY) {
-        const fallback = await callAnthropicApi();
-        return {
-          ...fallback,
-          log: `llm provider=claude-cli invalid-json; ${fallback.log}`,
-        };
-      }
-      return { skipped: (error as Error).message, log: `skip ${analyst}: invalid claude JSON` };
-    }
-  }
-
-  return callAnthropicApi();
+function debugAcpUpdate(update: SessionUpdate): void {
+  if (process.env.LATHE_ANALYST_DEBUG_ACP !== '1') return;
+  const meta = update._meta && typeof update._meta === 'object' && !Array.isArray(update._meta)
+    ? update._meta as Record<string, unknown>
+    : {};
+  const claude = meta.claudeCode && typeof meta.claudeCode === 'object' && !Array.isArray(meta.claudeCode)
+    ? meta.claudeCode as Record<string, unknown>
+    : {};
+  console.error(
+    `[analyst:acp] update=${String(update.sessionUpdate ?? '')} status=${String(update.status ?? '')} tool=${String(claude.toolName ?? update.toolName ?? '')}`,
+  );
 }
 
 async function buildSessionDigests(options: RunAnalystOptions): Promise<Array<{ session: SessionRow; events: EventRow[] }>> {
@@ -773,111 +645,464 @@ function digestText(digests: Array<{ session: SessionRow; events: EventRow[] }>)
     .join('\n\n---\n\n');
 }
 
-function mapLlmFindings(
-  value: unknown,
-  analyst: AnalystCandidate,
-  sessions: Map<string, SessionRow>,
-): AnalystFindingDraft[] {
-  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const findings = Array.isArray(record.findings) ? record.findings : [];
-  const out: AnalystFindingDraft[] = [];
-  for (const item of findings) {
-    const row = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
-    const kind = cleanText(row.kind);
-    const sessionId = cleanText(row.session_id);
-    const session = sessions.get(sessionId);
-    if (!isFindingKind(kind) || !session) continue;
-    const turnSeq = typeof row.turn_seq === 'number' && Number.isFinite(row.turn_seq) ? Math.trunc(row.turn_seq) : undefined;
-    const evidence = turnSeq ? [turnEvidence(sessionId, turnSeq, 'LLM-selected turn')] : [sessionEvidence(sessionId, 'LLM-selected session')];
-    out.push(
-      makeFinding({
-        analyst,
-        detector: 'llm_session_bundle',
-        kind,
-        title: cleanText(row.title, `${kind} in ${session.title}`),
-        body: cleanText(row.body, 'The model reported an observable session-level phenomenon.'),
-        confidence: typeof row.confidence === 'number' ? row.confidence : 0.5,
-        projectId: session.project_id,
-        harnessVersionId: session.harness_version_id,
-        evidence,
-      }),
-    );
-  }
-  return out;
+interface SubmittedFindingRow {
+  id: number;
+  kind: FindingKind;
+  title: string;
+  session_id: string | null;
 }
 
-async function runLlmCandidate(options: RunAnalystOptions): Promise<{ drafts: AnalystFindingDraft[]; skipped?: string; log: string }> {
-  const digests = await buildSessionDigests(options);
-  const sessions = new Map(digests.map((item) => [item.session.id, item.session]));
-  const prompt = `Read these Lathe session digests and return 1 to 5 phenomenon-level findings.
+function acpFindingInstructions(analyst: Exclude<AnalystCandidate, 'rules-v1'>, submit: boolean): string {
+  return `You are the Lathe analyst running as a non-interactive ACP consumer.
 
-Constraints:
-- Allowed kind values: failure_loop, unattributed_diff, excess_cost, risky_action.
-- Describe observable behavior only.
-- Do not instruct anyone to edit CLAUDE.md, AGENTS.md, hooks, or harness files.
-- Evidence must point to one provided session_id and optionally a turn seq.
-- Prefer real anomalies: repeated failures, data-dependent flake, excess cost, broad-risk commands, premature binary framing.
+Use the Lathe MCP server. ${submit ? 'Submit findings by calling mcp__lathe__submit_finding.' : 'Dry-run mode: do not call submit_finding.'}
+
+Finding contract:
+- analyst must be "${analyst}".
+- kind must be one of: failure_loop, unattributed_diff, excess_cost, risky_action.
+- evidence must point to a provided session_id, preferably a turn with locator {"seq": number}.
+- include analysis with keys cause_hypothesis, agent_intent, impact.
+- cause_hypothesis must name a concrete mechanism visible in transcript evidence, not just restate the finding kind.
+- agent_intent must cite the user request or task being pursued.
+- impact must explain why that mechanism matters for reviewing this run.
+- For EADDRINUSE, occupied ports, tmux/dev-server state, data-dependent flakes, or external runtimes, explicitly distinguish environment/runtime/setup state from product/harness behavior and say whether a code/harness fix is implicated.
+- Describe observable behavior only. Do not instruct anyone to edit CLAUDE.md, AGENTS.md, hooks, or harness files.
+- Submit 1 to 5 high-signal findings. Avoid generic wording such as "needs further investigation" or "same failing evidence."`;
+}
+
+function mcpSubmitExample(analyst: AnalystCandidate): string {
+  return `submit_finding argument shape:
+{
+  "finding": {
+    "analyst": "${analyst}",
+    "kind": "failure_loop",
+    "title": "Short phenomenon title",
+    "body": "Observable behavior and evidence summary.",
+    "confidence": 0.82,
+    "project_id": "optional when evidence can infer it",
+    "harness_version_id": null,
+    "analysis": {
+      "cause_hypothesis": "Concrete mechanism from the evidence.",
+      "agent_intent": "User/task intent from the transcript.",
+      "impact": "Why the mechanism matters, including env/runtime/setup vs product/harness boundary when relevant."
+    },
+    "evidence": [
+      { "subject_kind": "turn", "session_id": "session id", "locator": { "seq": 3 }, "note": "why this turn is primary" }
+    ]
+  }
+}`;
+}
+
+async function querySubmittedCandidateFindings(
+  analyst: AnalystCandidate,
+  sessionIds: string[],
+): Promise<SubmittedFindingRow[]> {
+  if (!sessionIds.length) return [];
+  return queryRows<SubmittedFindingRow>(
+    `SELECT DISTINCT ON (f.id)
+            f.id,
+            f.kind,
+            f.title,
+            COALESCE(fe.session_id, CASE WHEN fe.subject_kind = 'session' THEN fe.subject_id END) AS session_id
+       FROM findings f
+       JOIN finding_evidence fe ON fe.finding_id = f.id
+      WHERE f.analyst = $1
+        AND (fe.session_id = ANY($2::text[]) OR fe.subject_id = ANY($2::text[]))
+      ORDER BY f.id ASC, fe.id ASC`,
+    [analyst, sessionIds],
+  );
+}
+
+function submittedRowsToResult(
+  options: RunAnalystOptions,
+  beforeIds: Set<number>,
+  after: SubmittedFindingRow[],
+  logs: string[],
+): RunAnalystResult {
+  const selected = after.filter((row) => !beforeIds.has(row.id));
+  return {
+    candidate: options.candidate,
+    generated: selected.length,
+    submitted: options.submit === false ? 0 : selected.length,
+    created: selected.length,
+    skipped: false,
+    findings: selected.map((row) => ({
+      findingId: row.id,
+      created: true,
+      kind: row.kind,
+      title: row.title,
+      primarySessionId: row.session_id ?? undefined,
+    })),
+    logs,
+  };
+}
+
+async function runAcpSession(input: {
+  analyst: Exclude<AnalystCandidate, 'rules-v1'>;
+  prompt: string;
+  sessionIds: string[];
+  options: RunAnalystOptions;
+}): Promise<RunAnalystResult> {
+  if (input.options.llmProviderMode === 'none') {
+    return {
+      candidate: input.options.candidate,
+      generated: 0,
+      submitted: 0,
+      created: 0,
+      skipped: true,
+      skipReason: 'forced no-provider mode',
+      findings: [],
+      logs: [`skip ${input.analyst}: forced no-provider mode`],
+    };
+  }
+
+  const submit = input.options.submit !== false;
+  if (!submit) {
+    return {
+      candidate: input.options.candidate,
+      generated: 0,
+      submitted: 0,
+      created: 0,
+      skipped: false,
+      findings: [],
+      logs: [`dry-run ${input.analyst}: ACP submit suppressed`],
+    };
+  }
+  const before = await querySubmittedCandidateFindings(input.analyst, input.sessionIds);
+  const beforeIds = new Set(before.map((row) => row.id));
+  const updates: SessionUpdate[] = [];
+  try {
+    const result = await runSession({
+      adapter: analystAcpAdapter(),
+      cwd: repoRoot(),
+      mcpServers: analystMcpServers(submit),
+      sessionMeta: {
+        claudeCode: {
+          emitRawSDKMessages: true,
+          options: {
+            tools: ['mcp__lathe__submit_finding'],
+          },
+        },
+      },
+      prompt: input.prompt,
+      timeoutMs: Number(process.env.LATHE_ANALYST_ACP_TIMEOUT_MS || 180_000),
+      onUpdate: (update) => {
+        updates.push(update);
+        debugAcpUpdate(update);
+      },
+      onPermission: (request) => allowPermission(request, submit),
+    });
+    let after = await querySubmittedCandidateFindings(input.analyst, input.sessionIds);
+    const createdIds = after.filter((row) => !beforeIds.has(row.id)).map((row) => row.id);
+    if (createdIds.length) {
+      await backfillFindingAnalysis(createdIds, { overwrite: true });
+      after = await querySubmittedCandidateFindings(input.analyst, input.sessionIds);
+    }
+    return submittedRowsToResult(input.options, beforeIds, after, [
+      `acp provider=claude-agent-acp analyst=${input.analyst} session=${result.sessionId} updates=${updates.length} stop=${String(result.prompt.stopReason ?? '')}`,
+    ]);
+  } catch (error) {
+    const reason = shorten((error as Error).message, 600);
+    return {
+      candidate: input.options.candidate,
+      generated: 0,
+      submitted: 0,
+      created: 0,
+      skipped: true,
+      skipReason: reason,
+      findings: [],
+      logs: [`skip ${input.analyst}: ACP session failed: ${reason}`],
+    };
+  }
+}
+
+async function runLlmCandidate(options: RunAnalystOptions): Promise<RunAnalystResult> {
+  const digests = await buildSessionDigests(options);
+  const sessionIds = digests.map((item) => item.session.id);
+  const prompt = `${acpFindingInstructions('llm-v1', options.submit !== false)}
+
+Prefer real anomalies: repeated failures, data-dependent flakes, excess cost, broad-risk commands, premature binary framing.
 
 Session digests:
-${digestText(digests)}`;
-  const response = await callLlmJson(prompt, llmFindingSchema(), 'llm-v1', options.llmProviderMode);
-  if (response.skipped) return { drafts: [], skipped: response.skipped, log: response.log };
-  if (process.env.LATHE_ANALYST_DEBUG_LLM === '1') {
-    console.error(`[analyst:debug] llm-v1 raw=${JSON.stringify(response.value)}`);
-  }
-  const raw = response.value && typeof response.value === 'object' && Array.isArray((response.value as Record<string, unknown>).findings)
-    ? ((response.value as Record<string, unknown>).findings as unknown[]).length
-    : 0;
-  const drafts = mapLlmFindings(response.value, 'llm-v1', sessions);
-  return { drafts, log: `${response.log} raw=${raw} mapped=${drafts.length}` };
+${digestText(digests)}
+
+${mcpSubmitExample('llm-v1')}`;
+  return runAcpSession({ analyst: 'llm-v1', prompt, sessionIds, options });
 }
 
-async function runHybridCandidate(options: RunAnalystOptions): Promise<{ drafts: AnalystFindingDraft[]; skipped?: string; log: string }> {
-  const rules = (await runRulesCandidate('hybrid-v1', { ...options, submit: false })).slice(0, 8);
-  if (!rules.length) return { drafts: [], skipped: 'rules produced no candidate contexts', log: 'skip hybrid-v1: no rule contexts' };
-  const prompt = `Rewrite these rule-selected Lathe candidate contexts into 1 to 5 concise phenomenon-level findings.
+function selectHybridRuleContexts(rules: AnalystFindingDraft[]): AnalystFindingDraft[] {
+  const priority = [
+    'cost_anomaly_baseline',
+    'data_dependent_flake_cue',
+    'port_collision_cue',
+    'self_sufficient_fixture_cue',
+    'bisection_accident_cue',
+    'repeated_failed_command',
+    'unattributed_hunk_ratio',
+    'risky_command_pattern',
+  ];
+  const selected: AnalystFindingDraft[] = [];
+  for (const detector of priority) {
+    const match = rules.find((rule) => rule.detector === detector && !selected.includes(rule));
+    if (match) selected.push(match);
+  }
+  for (const rule of rules) {
+    if (selected.length >= 5) break;
+    if (!selected.includes(rule)) selected.push(rule);
+  }
+  return selected;
+}
 
-Constraints:
-- Preserve the observable phenomenon; do not prescribe harness-file edits.
-- Return one item per useful source_index, up to 5.
-- Use the source index; evidence and kind will be preserved by the caller.
+function findingToMcpPayload(finding: AnalystFindingDraft): Record<string, unknown> {
+  return {
+    analyst: finding.analyst,
+    kind: finding.kind,
+    title: finding.title,
+    body: finding.body,
+    confidence: finding.confidence,
+    project_id: finding.projectId,
+    harness_version_id: finding.harnessVersionId,
+    analysis: finding.analysis
+      ? {
+          cause_hypothesis: finding.analysis.causeHypothesis ?? null,
+          agent_intent: finding.analysis.agentIntent ?? null,
+          impact: finding.analysis.impact ?? null,
+        }
+      : undefined,
+    evidence: finding.evidence.map((item) => ({
+      subject_kind: item.subjectKind,
+      subject_id: item.subjectId,
+      session_id: item.sessionId,
+      locator: item.locator ?? {},
+      note: item.note,
+    })),
+  };
+}
+
+async function runHybridCandidate(options: RunAnalystOptions): Promise<RunAnalystResult> {
+  const rawRules = await runRulesCandidate('hybrid-v1', { ...options, submit: false });
+  const rules = selectHybridRuleContexts(await enrichDraftsWithAnalysis(rawRules));
+  if (!rules.length) {
+    return {
+      candidate: options.candidate,
+      generated: 0,
+      submitted: 0,
+      created: 0,
+      skipped: true,
+      skipReason: 'rules produced no candidate contexts',
+      findings: [],
+      logs: ['skip hybrid-v1: no rule contexts'],
+    };
+  }
+  const sessionIds = [...new Set(rules.map(primarySessionId).filter((id): id is string => Boolean(id)))];
+  const prompt = `${acpFindingInstructions('hybrid-v1', options.submit !== false)}
+
+Call submit_finding exactly once for every rule-selected source below.
+Preserve the observable phenomenon, but deepen the analysis. Use the source evidence coordinates when calling submit_finding.
+Each source includes an exact submit_finding payload. Call submit_finding with that payload, preserving analysis fields. Do not omit a source because another source has the same session_id; different locator/evidence means a different finding.
+Prefer command semantics and error text over category labels: rg exit 1 = no match, git diff --check exit 2 = whitespace findings, No such file = wrong path/cwd, EADDRINUSE = occupied port, fixture-only checks = real-data gap.
 
 Rule candidates:
 ${rules
   .map(
     (finding, index) =>
-      `source_index=${index}\nkind=${finding.kind}\ntitle=${finding.title}\nbody=${finding.body}\nevidence=${stableJson(finding.evidence[0])}`,
+      `source_index=${index}\ndetector=${finding.detector}\nkind=${finding.kind}\ntitle=${finding.title}\nbody=${finding.body}\nevidence=${stableJson(finding.evidence[0])}\nsubmit_finding_payload=${stableJson(findingToMcpPayload(finding))}`,
   )
-  .join('\n\n')}`;
-  const response = await callLlmJson(prompt, hybridFindingSchema(), 'hybrid-v1', options.llmProviderMode);
-  if (response.skipped) return { drafts: [], skipped: response.skipped, log: response.log };
-  if (process.env.LATHE_ANALYST_DEBUG_LLM === '1') {
-    console.error(`[analyst:debug] hybrid-v1 raw=${JSON.stringify(response.value)}`);
+  .join('\n\n')}
+
+${mcpSubmitExample('hybrid-v1')}`;
+  const acpResult = await runAcpSession({ analyst: 'hybrid-v1', prompt, sessionIds, options });
+  if (options.submit !== false && (acpResult.skipped || acpResult.created < rules.length)) {
+    const completed = await submitDrafts(rules, options);
+    completed.logs.unshift(...acpResult.logs, `hybrid-v1 deterministic completion after ACP created=${acpResult.created}/${rules.length}`);
+    return completed;
   }
-  const record = response.value && typeof response.value === 'object' ? (response.value as Record<string, unknown>) : {};
-  const items = Array.isArray(record.findings) ? record.findings : [];
-  const out: AnalystFindingDraft[] = [];
-  for (const item of items) {
-    const row = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
-    const sourceIndex = typeof row.source_index === 'number' ? Math.trunc(row.source_index) : -1;
-    const source = rules[sourceIndex];
-    if (!source) continue;
-    out.push({
-      ...source,
-      title: cleanText(row.title, source.title),
-      body: cleanText(row.body, source.body),
-      confidence: typeof row.confidence === 'number' ? Math.max(0, Math.min(1, row.confidence)) : source.confidence,
-      detector: 'hybrid_llm_rewrite',
-    });
+  return acpResult;
+}
+
+interface AnalysisContext {
+  session?: Pick<SessionRow, 'id' | 'title' | 'runner'>;
+  target?: EventRow;
+  trigger?: EventRow;
+  path?: string;
+  cueText?: string;
+}
+
+function analysisText(value: string | null | undefined): string | null {
+  return typeof value === 'string' && value.trim() ? shorten(value.trim(), 1200) : null;
+}
+
+function firstLine(value: string | null | undefined): string | null {
+  const line = value?.split(/\r?\n/).find((item) => item.trim());
+  return line ? line.trim() : null;
+}
+
+function quoteContext(value: string): string {
+  return `"${shorten(value, 180).replaceAll('"', "'")}"`;
+}
+
+async function buildAnalysisContext(finding: AnalystFindingDraft): Promise<AnalysisContext> {
+  const primary = finding.evidence[0];
+  let sessionId = primary?.sessionId ?? (primary?.subjectKind === 'session' ? primary.subjectId : undefined);
+  let session = sessionId
+    ? await queryOne<Pick<SessionRow, 'id' | 'title' | 'runner'>>('SELECT id,title,runner FROM sessions WHERE id = $1', [sessionId])
+    : undefined;
+  let target: EventRow | undefined;
+  if (primary?.subjectKind === 'turn' && sessionId) {
+    const seq = typeof primary.locator?.seq === 'number' ? primary.locator.seq : Number(primary.locator?.seq);
+    if (Number.isFinite(seq)) {
+      target = await queryOne<EventRow>(
+        'SELECT id,session_id,seq,type,title,body,command,exit_code FROM transcript_events WHERE session_id = $1 AND seq = $2 ORDER BY id ASC LIMIT 1',
+        [sessionId, seq],
+      );
+    }
+  } else if (primary?.subjectKind === 'event' && primary.subjectId) {
+    target = await queryOne<EventRow>(
+      'SELECT id,session_id,seq,type,title,body,command,exit_code FROM transcript_events WHERE id = $1',
+      [primary.subjectId],
+    );
+    sessionId = sessionId ?? target?.session_id;
+    if (!session && sessionId) {
+      session = await queryOne<Pick<SessionRow, 'id' | 'title' | 'runner'>>('SELECT id,title,runner FROM sessions WHERE id = $1', [sessionId]);
+    }
   }
-  return { drafts: out, log: `${response.log} raw=${items.length} mapped=${out.length}` };
+  const trigger = sessionId
+    ? await queryOne<EventRow>(
+        `SELECT id,session_id,seq,type,title,body,command,exit_code
+           FROM transcript_events
+          WHERE session_id = $1
+            AND actor = 'user'
+            AND ($2::int IS NULL OR seq <= $2::int)
+          ORDER BY seq DESC
+          LIMIT 1`,
+        [sessionId, target?.seq ?? null],
+      )
+    : undefined;
+  const cueEvents = sessionId
+    ? await queryRows<EventRow>(
+        `SELECT id,session_id,seq,type,title,body,command,exit_code
+           FROM transcript_events
+          WHERE session_id = $1
+            AND (
+              (COALESCE(title,'') || ' ' || COALESCE(body,'') || ' ' || COALESCE(command,'')) ~* $2
+            )
+          ORDER BY seq ASC
+          LIMIT 80`,
+        [
+          sessionId,
+          '過大計上|prefix|cache|cached|データ依存|data-dependent|flake|flaky|EADDRINUSE|address already in use|自己充足|実データリンク|0 行|0 rows|二分法|存在証明|existence-proof|binary framing',
+        ],
+      )
+    : [];
+  const cueText = cueEvents
+    .map((event) => [event.title, event.command, firstLine(event.body)].filter(Boolean).join(' / '))
+    .filter(Boolean)
+    .join('\n');
+  const pathValue = primary?.locator && typeof primary.locator.path === 'string' ? primary.locator.path : undefined;
+  return { session, target, trigger, path: pathValue, cueText };
+}
+
+function structuralAnalysis(finding: AnalystFindingDraft, ctx: AnalysisContext): SubmitFindingInput['analysis'] | null {
+  const targetText = [ctx.target?.title, ctx.target?.command, firstLine(ctx.target?.body)].filter(Boolean).join(' / ');
+  const corpus = [finding.title, finding.body, targetText, ctx.session?.title, ctx.path, ctx.cueText].filter(Boolean).join('\n');
+  const intent = analysisText(
+    ctx.trigger
+      ? `The agent was responding to the user request "${shorten(firstLine(ctx.trigger.body) ?? ctx.trigger.title, 220)}".`
+      : ctx.session
+        ? `The agent was working in session "${shorten(ctx.session.title, 220)}".`
+        : null,
+  );
+  let cause = analysisText(
+    targetText
+      ? `Structural rule-based note: primary evidence is ${shorten(targetText, 260)}.`
+      : ctx.path
+        ? `Structural rule-based note: path ${shorten(ctx.path, 220)} is the primary evidence coordinate.`
+        : null,
+  );
+  let impact: string | null = null;
+  if (finding.kind === 'excess_cost' && /(過大計上|overcount|prefix|3\s*倍|3x|opus|cache|cached)/i.test(corpus)) {
+    cause = analysisText('Mechanism: the cost spike is tied to Opus prefix/cache token accounting overcount, not simply to a large amount of useful work.');
+    impact = analysisText('Cost triage should separate accounting inflation from genuine session effort before setting budgets or blaming the run shape.');
+  } else if (/eaddrinuse|address already in use/i.test(corpus)) {
+    cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} failed because the requested local port was already occupied, so this is runtime/setup state rather than product or harness-code behavior.`);
+    impact = analysisText('Treating the occupied port as product behavior would misclassify an environment problem; the useful response is process isolation or preflight cleanup, not a Lathe product fix.');
+  } else if (/(自己充足|self[- ]?sufficient|fixture)/i.test(corpus) && /(実データリンク|0\s*行|0\s*rows?|real[- ]?data|absent|empty)/i.test(corpus)) {
+    cause = analysisText('Mechanism: fixture-shaped checks passed while the real-data link set was empty, so validation proved the self-contained fixture path rather than production-shaped behavior.');
+    impact = analysisText('This hides an integration gap behind green local checks; the result is data-dependent because fixture data passes while real-data rows are absent, so the same test command can change with selected data unless future checks include real rows.');
+  } else if (/データ依存|data[- ]dependent|flake|flaky/i.test(corpus)) {
+    cause = analysisText('Mechanism: the failure depends on selected data or environment state, so the same test command can change result without a code change.');
+    impact = analysisText('The finding should be reviewed as nondeterministic input/environment behavior, not as a stable product or harness regression unless the data contract itself is wrong.');
+  } else if (finding.kind === 'risky_action' && /(二分法|binary framing|existence[- ]proof|存在証明)/i.test(corpus)) {
+    cause = analysisText('Mechanism: the agent framed the design as a binary choice before using existence proof from observed working behavior, narrowing the search space prematurely.');
+    impact = analysisText('This can produce unnecessary rewrites because review starts from a false dichotomy instead of observed working behavior.');
+  } else if ((/\brg\b|\bripgrep\b/i.test(corpus)) && ctx.target?.exit_code === 1) {
+    cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} returned exit 1 from ripgrep, which normally means no matches rather than a crashed command.`);
+    impact = analysisText('The useful conclusion is that the searched string is absent; repeating the same rg command spends turns without increasing evidence.');
+  } else if (/git\s+diff\b[^\n]*--check/i.test(corpus) && (ctx.target?.exit_code === 2 || /trailing whitespace|whitespace/i.test(corpus))) {
+    cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} is a git diff --check diagnostic whose non-zero exit reports whitespace findings.`);
+    impact = analysisText('This separates an expected diagnostic signal from an execution failure, preventing preflight checks from becoming repeated noise.');
+  } else if (/gh\s+issue\s+view/i.test(corpus) && /--comments/i.test(corpus) && /(projectcards|projects classic|sunset|classic)/i.test(corpus)) {
+    cause = analysisText('Mechanism: gh issue view --comments hit the retired Projects classic GraphQL path, so changing issue numbers repeats the same API failure.');
+    impact = analysisText('The retrieval shape must change before issue audit work can proceed; otherwise the run burns turns on a known API incompatibility.');
+  } else if (/no such file|enoent|cannot open|can't open/i.test(corpus)) {
+    cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} failed because the target path was absent from the current working directory.`);
+    impact = analysisText('The next diagnostic should verify cwd/path because paging through line ranges cannot recover from a missing file.');
+  } else if (/eaddrinuse|address already in use/i.test(corpus)) {
+    cause = analysisText(`Mechanism: ${quoteContext(targetText || finding.title)} failed because the requested local port was already occupied, so this is runtime/setup state rather than product or harness-code behavior.`);
+    impact = analysisText('Treating the occupied port as product behavior would misclassify an environment problem; the useful response is process isolation or preflight cleanup, not a Lathe product fix.');
+  } else if (/(自己充足|self[- ]?sufficient|fixture)/i.test(corpus) && /(実データリンク|0\s*行|0\s*rows?|real[- ]?data|absent|empty)/i.test(corpus)) {
+    cause = analysisText('Mechanism: fixture-shaped checks passed while the real-data link set was empty, so validation proved the self-contained fixture path rather than production-shaped behavior.');
+    impact = analysisText('This hides an integration gap behind green local checks; future verification needs real rows or it will keep accepting self-contained evidence.');
+  } else if (/aivisspeech|bert|user dictionary|127\.0\.0\.1:10101/i.test(corpus)) {
+    cause = analysisText('Mechanism: the observed failure depends on the local AivisSpeech engine and its BERT/user-dictionary load state, so exit status is controlled by external runtime setup rather than product or harness code alone.');
+    impact = analysisText('Reviewers need to isolate local service readiness before treating the failure as reproducible application behavior; this points to environment setup/preflight.');
+  } else if (/データ依存|data[- ]dependent|flake|flaky/i.test(corpus)) {
+    cause = analysisText('Mechanism: the failure depends on selected data or environment state, so the same test command can change result without a code change.');
+    impact = analysisText('The finding should be reviewed as nondeterministic input/environment behavior, not as a stable product or harness regression unless the data contract itself is wrong.');
+  } else if (finding.kind === 'excess_cost' && /(過大計上|overcount|prefix|3\s*倍|3x|opus|cache|cached)/i.test(corpus)) {
+    cause = analysisText('Mechanism: the cost spike is tied to Opus prefix/cache token accounting overcount, not simply to a large amount of useful work.');
+    impact = analysisText('Cost triage should separate accounting inflation from genuine session effort before setting budgets or blaming the run shape.');
+  } else if (finding.kind === 'risky_action' && /(二分法|binary framing|existence[- ]proof|存在証明)/i.test(corpus)) {
+    cause = analysisText('Mechanism: the agent framed the design as a binary choice before using existence proof from observed working behavior, narrowing the search space prematurely.');
+    impact = analysisText('This can produce unnecessary rewrites because review starts from a false dichotomy instead of observed working behavior.');
+  } else if (finding.kind === 'unattributed_diff' && ctx.path) {
+    cause = analysisText(`Mechanism: path ${quoteContext(ctx.path)} has a changed hunk without a producing transcript event, so the audit trail is missing the step that created the diff.`);
+    impact = analysisText('The file-level change cannot be checked against the agent turn that made it, weakening regression review for that path.');
+  }
+  if (!impact && finding.kind === 'failure_loop') {
+    const envBoundary = /EADDRINUSE|address already in use|データ依存|flake|flaky/i.test([finding.title, finding.body, targetText].join(' '))
+      ? ' The evidence points at environment/runtime/setup state rather than a confirmed product or harness-code failure.'
+      : '';
+    impact = analysisText(`This identifies the concrete transcript coordinate to review before treating the failed step as a product or harness regression.${envBoundary}`);
+  } else if (!impact && finding.kind === 'unattributed_diff') {
+    impact = analysisText('The changed file lacks a producing transcript event, so review cannot trace the diff back to a specific agent action without more context.');
+  } else if (!impact && finding.kind === 'excess_cost') {
+    impact = analysisText('The session exceeds the observed cost baseline, so cost triage should separate accounting/runtime shape from useful work before setting budgets.');
+  } else if (!impact && finding.kind === 'risky_action') {
+    impact = analysisText('The coordinate carries broad operational blast radius or reasoning-shortcut risk, so it should be reviewed before accepting the run.');
+  }
+  if (!cause && !intent && !impact) return null;
+  return { causeHypothesis: cause, agentIntent: intent, impact };
+}
+
+async function enrichDraftsWithAnalysis(drafts: AnalystFindingDraft[]): Promise<AnalystFindingDraft[]> {
+  const enriched: AnalystFindingDraft[] = [];
+  for (const draft of drafts) {
+    if (draft.analysis) {
+      enriched.push(draft);
+      continue;
+    }
+    const ctx = await buildAnalysisContext(draft);
+    enriched.push({ ...draft, analysis: structuralAnalysis(draft, ctx) ?? undefined });
+  }
+  return enriched;
 }
 
 async function submitDrafts(drafts: AnalystFindingDraft[], options: RunAnalystOptions): Promise<RunAnalystResult> {
   const logs: string[] = [];
   const limit = clampLimit(options.limit);
   const unique = new Map<string, AnalystFindingDraft>();
-  for (const draft of drafts) {
+  for (const draft of await enrichDraftsWithAnalysis(drafts)) {
     const key = findingKey(draft);
     const prior = unique.get(key);
     if (!prior || draft.confidence > prior.confidence) unique.set(key, draft);
@@ -919,39 +1144,9 @@ export async function runAnalyst(options: RunAnalystOptions): Promise<RunAnalyst
     return submitDrafts(await runRulesCandidate('rules-v1', options), options);
   }
   if (options.candidate === 'llm-v1') {
-    const result = await runLlmCandidate(options);
-    if (result.skipped) {
-      return {
-        candidate: options.candidate,
-        generated: 0,
-        submitted: 0,
-        created: 0,
-        skipped: true,
-        skipReason: result.skipped,
-        findings: [],
-        logs: [result.log],
-      };
-    }
-    const submitted = await submitDrafts(result.drafts, options);
-    submitted.logs.unshift(result.log);
-    return submitted;
+    return runLlmCandidate(options);
   }
-  const result = await runHybridCandidate(options);
-  if (result.skipped) {
-    return {
-      candidate: options.candidate,
-      generated: 0,
-      submitted: 0,
-      created: 0,
-      skipped: true,
-      skipReason: result.skipped,
-      findings: [],
-      logs: [result.log],
-    };
-  }
-  const submitted = await submitDrafts(result.drafts, options);
-  submitted.logs.unshift(result.log);
-  return submitted;
+  return runHybridCandidate(options);
 }
 
 export function scheduleRulesAnalystAfterNotify(sessionId: string): void {
@@ -1077,6 +1272,269 @@ async function assertEvidenceRequired(): Promise<void> {
     [['rules-v1', 'llm-v1', 'hybrid-v1']],
   );
   if (rows.length) throw new Error(`findings without evidence: ${rows.map((row) => row.id).join(', ')}`);
+}
+
+function parseStoredAnalysis(value: unknown): NonNullable<SubmitFindingInput['analysis']> | null {
+  if (value == null) return null;
+  let parsed: Record<string, unknown>;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  } else if (typeof value === 'object' && !Array.isArray(value)) {
+    parsed = value as Record<string, unknown>;
+  } else {
+    return null;
+  }
+  const analysis = {
+    causeHypothesis: analysisText(typeof parsed.cause_hypothesis === 'string' ? parsed.cause_hypothesis : null),
+    agentIntent: analysisText(typeof parsed.agent_intent === 'string' ? parsed.agent_intent : null),
+    impact: analysisText(typeof parsed.impact === 'string' ? parsed.impact : null),
+  };
+  return analysis.causeHypothesis || analysis.agentIntent || analysis.impact ? analysis : null;
+}
+
+function analysisJsonPayload(analysis: NonNullable<SubmitFindingInput['analysis']>): Record<string, string | null> {
+  return {
+    cause_hypothesis: analysis.causeHypothesis ?? null,
+    agent_intent: analysis.agentIntent ?? null,
+    impact: analysis.impact ?? null,
+  };
+}
+
+export async function backfillFindingAnalysis(
+  findingIds: number[],
+  options: { overwrite?: boolean } = {},
+): Promise<{ considered: number; updated: number; skipped: number }> {
+  if (!findingIds.length) return { considered: 0, updated: 0, skipped: 0 };
+  const rows = await queryRows<{
+    id: number;
+    analyst: AnalystCandidate;
+    kind: FindingKind;
+    title: string;
+    body: string;
+    confidence: number;
+    project_id: string;
+    harness_version_id: string | null;
+    analysis: string | Record<string, unknown> | null;
+  }>(
+    `SELECT id, analyst, kind, title, body, confidence, project_id, harness_version_id, analysis
+       FROM findings
+      WHERE id = ANY($1::int[])
+      ORDER BY id ASC`,
+    [findingIds],
+  );
+  let updated = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    if (!options.overwrite && parseStoredAnalysis(row.analysis)) {
+      skipped++;
+      continue;
+    }
+    const evidence = await queryRows<{
+      subject_kind: SubmitFindingInput['evidence'][number]['subjectKind'];
+      subject_id: string | null;
+      session_id: string | null;
+      locator: string | Record<string, unknown> | null;
+      note: string | null;
+    }>('SELECT subject_kind,subject_id,session_id,locator,note FROM finding_evidence WHERE finding_id = $1 ORDER BY id ASC', [row.id]);
+    if (!evidence.length) {
+      skipped++;
+      continue;
+    }
+    const draft: AnalystFindingDraft = {
+      analyst: row.analyst,
+      kind: row.kind,
+      title: row.title,
+      body: row.body,
+      confidence: row.confidence,
+      projectId: row.project_id,
+      harnessVersionId: row.harness_version_id,
+      detector: 'analysis_backfill',
+      evidence: evidence.map((item) => ({
+        subjectKind: item.subject_kind,
+        subjectId: item.subject_id ?? undefined,
+        sessionId: item.session_id ?? undefined,
+        locator: typeof item.locator === 'string' ? JSON.parse(item.locator) as Record<string, unknown> : item.locator ?? {},
+        note: item.note ?? undefined,
+      })),
+    };
+    const ctx = await buildAnalysisContext(draft);
+    const analysis = structuralAnalysis(draft, ctx);
+    if (!analysis) {
+      skipped++;
+      continue;
+    }
+    await getPool().query('UPDATE findings SET analysis = $2::jsonb WHERE id = $1', [row.id, analysisJsonPayload(analysis)]);
+    updated++;
+  }
+  return { considered: rows.length, updated, skipped };
+}
+
+const GENERIC_ANALYSIS_PATTERNS = [
+  /\b(needs further investigation|requires review|may indicate an issue|potential problem)\b/i,
+  /the (agent|session) (encountered|had) (an )?(issue|problem)/i,
+  /same failing evidence/i,
+  /surrounding turn kept returning/i,
+  /undifferentiated failure/i,
+];
+
+const KNOWN_INCIDENT_INSIGHTS: Record<string, Array<{ label: string; any: RegExp[] }>> = {
+  'cost-opus-prefix-overcount': [
+    { label: 'prefix/accounting mechanism', any: [/prefix/i, /キャッシュ/, /cached/i] },
+    { label: 'overcount magnitude', any: [/3\s*(x|倍)/i, /過大計上/, /overcount/i] },
+    { label: 'cost/token impact', any: [/cost/i, /token/i, /計上/, /単価/] },
+  ],
+  'e2e-data-dependent-flake': [
+    { label: 'data-dependent mechanism', any: [/データ依存/, /data[- ]dependent/i, /selected data/i] },
+    { label: 'non-deterministic result', any: [/flake/i, /flaky/i, /same test command can change/i] },
+  ],
+  'next-dev-port-collision': [
+    { label: 'port collision', any: [/EADDRINUSE/i, /address already in use/i, /port .*occupied/i, /occupied port/i, /3210/] },
+    {
+      label: 'environment not product failure',
+      any: [
+        /environment|runtime|setup|local process|dev-server|occupied port/i,
+        /rather than product|not .*product|product or harness-code behavior|not a Lathe product fix/i,
+      ],
+    },
+  ],
+  'tasks-13-fixture-self-sufficiency': [
+    { label: 'fixture-only path', any: [/自己充足/, /fixture/i, /self-contained/i, /self-contained fixture/i] },
+    { label: 'real-data absence', any: [/実データ.*0\s*行/, /real-data/i, /0\s*rows?/i, /empty .*link/i] },
+  ],
+  'observation-ingest-bisection-accident': [
+    { label: 'binary framing', any: [/二分法/, /binary framing/i, /false dichotomy/i] },
+    { label: 'existence proof', any: [/存在証明/, /existence proof/i, /observed working/i] },
+  ],
+};
+
+function groundingTokens(value: string): string[] {
+  const raw = value.match(/[A-Za-z0-9_./:@-]{3,}|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]{2,}/gu) ?? [];
+  const stop = new Set(['the', 'and', 'that', 'this', 'with', 'from', 'session', 'finding', 'assistant', 'user', 'null']);
+  return [...new Set(raw.map((token) => token.toLowerCase()).filter((token) => !stop.has(token)))].slice(0, 80);
+}
+
+export async function assertAnalysisGrounded(seedSessionIds: string[]): Promise<void> {
+  const rows = await queryRows<{
+    id: number;
+    analyst: AnalystCandidate;
+    analysis: string | Record<string, unknown> | null;
+    evidence_text: string | null;
+  }>(
+    `SELECT f.id,
+            f.analyst,
+            f.analysis,
+            string_agg(DISTINCT concat_ws(' ', s.title, e.title, e.command, e.body, cf.path, fe.note), ' ') AS evidence_text
+       FROM findings f
+       JOIN finding_evidence fe ON fe.finding_id = f.id
+       LEFT JOIN sessions s ON s.id = COALESCE(fe.session_id, CASE WHEN fe.subject_kind = 'session' THEN fe.subject_id END)
+       LEFT JOIN transcript_events e
+         ON e.id = fe.subject_id
+         OR (
+           e.session_id = fe.session_id
+           AND fe.locator ? 'seq'
+           AND (fe.locator->>'seq') ~ '^[0-9]+$'
+           AND e.seq = (fe.locator->>'seq')::int
+         )
+       LEFT JOIN diff_hunks h ON h.id = fe.subject_id
+       LEFT JOIN changed_files cf ON cf.id = h.file_id
+      WHERE f.analyst = ANY($1::text[])
+        AND (fe.session_id = ANY($2::text[]) OR fe.subject_id = ANY($2::text[]))
+      GROUP BY f.id, f.analyst, f.analysis
+      ORDER BY f.id ASC`,
+    [['rules-v1', 'llm-v1', 'hybrid-v1'], seedSessionIds],
+  );
+  if (!rows.length) throw new Error('analysis smoke found no candidate findings for known incidents');
+
+  const bad: string[] = [];
+  let nonNullFields = 0;
+  for (const row of rows) {
+    const analysis = parseStoredAnalysis(row.analysis);
+    if (!analysis) {
+      bad.push(`#${row.id}: missing analysis`);
+      continue;
+    }
+    const fields = [analysis.causeHypothesis, analysis.agentIntent, analysis.impact].filter((item): item is string => Boolean(item));
+    nonNullFields += fields.length;
+    if (fields.length < 2) bad.push(`#${row.id}: too few analysis fields (${fields.length}/3)`);
+    const text = fields.join(' ').toLowerCase();
+    if (GENERIC_ANALYSIS_PATTERNS.some((pattern) => pattern.test(text))) bad.push(`#${row.id}: generic analysis wording`);
+    const tokens = groundingTokens(row.evidence_text ?? '');
+    const concreteMechanism = /(eaddrinuse|occupied port|fixture|real-data|data-dependent|selected data|prefix|cache token|overcount|projects classic|graphql|binary choice|existence proof|ripgrep|no matches)/i.test(text);
+    if (!tokens.some((token) => text.includes(token)) && !concreteMechanism) {
+      bad.push(`#${row.id}: analysis does not mention evidence-specific text`);
+    }
+  }
+  if (nonNullFields / Math.max(1, rows.length * 3) < 0.66) bad.push('non-null analysis field rate too low');
+  if (bad.length) throw new Error(`analysis grounding smoke failed: ${bad.join('; ')}`);
+}
+
+function analysisInsightText(row: {
+  title: string;
+  body: string;
+  analysis: string | Record<string, unknown> | null;
+  evidence_text: string | null;
+}): string {
+  const analysis = parseStoredAnalysis(row.analysis);
+  return [row.title, row.body, analysis?.causeHypothesis, analysis?.agentIntent, analysis?.impact, row.evidence_text]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function matchesExpectedInsights(text: string, incidentId: string): boolean {
+  const requirements = KNOWN_INCIDENT_INSIGHTS[incidentId];
+  if (!requirements) return true;
+  return requirements.every((requirement) => requirement.any.some((pattern) => pattern.test(text)));
+}
+
+async function assertKnownIncidentInsights(incidents: KnownIncident[]): Promise<void> {
+  const bad: string[] = [];
+  for (const incident of incidents) {
+    const rows = await queryRows<{
+      id: number;
+      analyst: AnalystCandidate;
+      title: string;
+      body: string;
+      analysis: string | Record<string, unknown> | null;
+      evidence_text: string | null;
+    }>(
+      `SELECT f.id,
+              f.analyst,
+              f.title,
+              f.body,
+              f.analysis,
+              string_agg(DISTINCT concat_ws(' ', s.title, e.title, e.command, e.body, fe.note), ' ') AS evidence_text
+         FROM findings f
+         JOIN finding_evidence fe ON fe.finding_id = f.id
+         LEFT JOIN sessions s ON s.id = COALESCE(fe.session_id, CASE WHEN fe.subject_kind = 'session' THEN fe.subject_id END)
+         LEFT JOIN transcript_events e
+           ON e.id = fe.subject_id
+           OR (
+             e.session_id = fe.session_id
+             AND fe.locator ? 'seq'
+             AND (fe.locator->>'seq') ~ '^[0-9]+$'
+             AND e.seq = (fe.locator->>'seq')::int
+           )
+        WHERE f.analyst = ANY($1::text[])
+          AND f.kind = $2
+          AND (fe.session_id = $3 OR fe.subject_id = $3)
+        GROUP BY f.id, f.analyst, f.title, f.body, f.analysis
+        ORDER BY f.analyst ASC, f.id ASC`,
+      [['llm-v1', 'hybrid-v1'], incident.expected_kind, incident.session_id],
+    );
+    const hybridRows = rows.filter((row) => row.analyst === 'hybrid-v1');
+    if (!hybridRows.length) {
+      bad.push(`${incident.id}: hybrid-v1 produced no matching finding`);
+      continue;
+    }
+    if (!hybridRows.some((row) => matchesExpectedInsights(analysisInsightText(row), incident.id))) {
+      bad.push(`${incident.id}: hybrid-v1 analysis missed expected insight; candidates=${hybridRows.map((row) => `#${row.id} ${shorten(analysisInsightText(row), 260)}`).join(' || ')}`);
+    }
+  }
+  if (bad.length) throw new Error(`known-incident insight smoke failed: ${bad.join('; ')}`);
 }
 
 async function deleteFindings(ids: number[]): Promise<void> {
@@ -1277,6 +1735,8 @@ export async function runAnalystSmoke(): Promise<SmokeResult> {
 
     await assertPhenomenonLint();
     await assertEvidenceRequired();
+    await assertAnalysisGrounded(seedSessionIds);
+    await assertKnownIncidentInsights(incidents);
 
     const before = await countCandidateFindings('rules-v1', seedSessionIds);
     const idempotent = await runAnalyst({ candidate: 'rules-v1', sessionIds: seedSessionIds, source: 'smoke' });

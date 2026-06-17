@@ -10,6 +10,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@lathe/acp-client':
+        specifier: workspace:*
+        version: link:../../packages/acp-client
       '@lathe/shared':
         specifier: workspace:*
         version: link:../../packages/shared
