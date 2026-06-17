@@ -1,0 +1,9 @@
+/* ============================================================================
+   Lathe Design System v1 — single entry point.
+   Import THIS one file. It pulls in the tokens (CSS variables + fonts), the
+   component primitive classes (lds-*), and the app-shell / Sessions-surface
+   layout classes. light is canonical.
+   ========================================================================== */
+@import './tokens.css';
+@import './components.css';
+@import './shell.css';

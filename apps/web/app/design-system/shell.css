@@ -1,0 +1,111 @@
+/* ============================================================================
+   Lathe Design System v1 — app-shell + Sessions-surface layout classes.
+   Ported from the DS v1 bundle ui_kits/lathe-web/kit.css (the shell + Sessions
+   list parts only). Reusable primitives live in components.css; this file holds
+   the layout/domain classes that aren't primitives.
+
+   Shell = a single horizontal split: one persistent left RAIL (all navigation)
+   and a WORK AREA whose Sessions list lives full-width directly in MAIN.
+   No shadow; depth comes from hairline borders. Header heights are unified.
+   ========================================================================== */
+
+/* ---- shell root ---------------------------------------------------------- */
+.lds-app{display:flex;flex-direction:row;height:100vh;min-height:0;background:var(--bg);overflow:hidden;}
+
+/* ---- left rail: persistent navigation ------------------------------------ */
+.lds-railnav{flex:0 0 var(--rail-w);width:var(--rail-w);display:flex;flex-direction:column;min-height:0;
+  background:var(--sidebar-bg);border-right:1px solid var(--border);overflow:hidden;}
+.lds-rail-brand{display:flex;align-items:center;gap:9px;height:54px;flex:0 0 auto;padding:0 14px;
+  border-bottom:1px solid var(--border);font-weight:700;font-size:13.5px;color:var(--text);letter-spacing:.01em;
+  text-decoration:none;cursor:pointer;}
+.lds-rail-brand:hover{text-decoration:none;}
+.lds-rail-brand .lds-rail-logo{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+  font-weight:800;letter-spacing:-.5px;border:1px solid var(--border-strong);border-radius:5px;font-size:12px;
+  color:var(--text);background:var(--panel);}
+.lds-rail-brand .lds-rail-ph{margin-left:auto;}
+.lds-rail-nav{flex:0 0 auto;display:flex;flex-direction:column;gap:2px;padding:8px;border-bottom:1px solid var(--border);}
+.lds-rail-nav-item{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border:1px solid transparent;
+  border-radius:var(--radius-sm);background:transparent;color:var(--muted);font-family:var(--sans);font-size:12.5px;
+  font-weight:550;cursor:pointer;text-align:left;text-decoration:none;}
+.lds-rail-nav-item:hover{background:var(--panel-hover);color:var(--text);text-decoration:none;}
+.lds-rail-nav-item .lds-rail-ic{display:inline-flex;color:var(--muted-2);flex:0 0 auto;}
+.lds-rail-nav-item.active{background:var(--accent-weak);color:var(--text);font-weight:650;box-shadow:inset 3px 0 0 var(--accent);}
+.lds-rail-nav-item.active .lds-rail-ic{color:var(--accent);}
+.lds-rail-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;}
+.lds-rail-user{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 12px;border-top:1px solid var(--border);
+  background:var(--sidebar-bg);}
+.lds-rail-user .lds-avatar{width:24px;height:24px;border-radius:50%;background:var(--text-soft);color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex:0 0 auto;}
+.lds-rail-user .lds-uname{font-size:12px;font-weight:600;color:var(--text);}
+.lds-rail-user .lds-gear{margin-left:auto;color:var(--muted-2);display:inline-flex;cursor:pointer;}
+
+/* ---- work area (everything right of the rail) ---------------------------- */
+.lds-workarea{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0;background:var(--bg);overflow:hidden;}
+
+/* ---- a generic page surface (page-head + scroll body) -------------------- */
+.lds-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
+.lds-page-head{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:14px 20px;background:var(--panel);
+  border-bottom:1px solid var(--border);}
+.lds-page-head .lds-ph-title{font-size:14px;font-weight:700;color:var(--text);flex:0 0 auto;}
+.lds-page-head .lds-ph-sub{font-size:12px;color:var(--muted);flex:0 0 auto;white-space:nowrap;}
+.lds-page-head .lds-spacer{flex:1 1 auto;}
+.lds-page-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;}
+
+/* project scope select in the page head */
+.lds-project-select{display:flex;align-items:center;gap:7px;height:28px;padding:0 9px;
+  border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--panel);font-weight:600;
+  font-size:12px;color:var(--text);cursor:pointer;white-space:nowrap;flex:0 0 auto;}
+.lds-project-select select{appearance:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;cursor:pointer;}
+.lds-project-select .lds-caret{margin-left:2px;color:var(--muted-2);}
+
+/* ---- collapsible filters (Sessions surface) ------------------------------ */
+.lds-sessions-filters{flex:0 0 auto;display:flex;flex-direction:column;gap:10px;padding:12px 20px;
+  background:var(--panel);border-bottom:1px solid var(--border);}
+.lds-sessions-filters .lds-sf-row{display:flex;align-items:flex-start;gap:14px;}
+.lds-sessions-filters .lds-sf-row .lds-flabel{margin-top:3px;flex:0 0 auto;}
+.lds-sessions-filters .lds-sf-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.lds-flabel{display:block;font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.05em;}
+.lds-chip-filters{display:flex;flex-wrap:wrap;gap:5px;}
+.lds-fchip{display:inline-flex;align-items:center;gap:5px;height:18px;padding:0 6px;border:1px solid var(--border);
+  border-radius:var(--radius-xs);background:var(--panel);color:var(--muted);font-size:10px;cursor:pointer;}
+.lds-fchip .lds-fchip-n{font-family:var(--mono);color:var(--muted-2);}
+.lds-fchip .lds-fchip-d{width:5px;height:5px;border-radius:50%;flex:0 0 auto;}
+.lds-fchip.err{border-color:var(--red-chip);color:var(--red-text);}
+
+/* ---- sessions grid: full-width, lives directly in MAIN ------------------- */
+.lds-sessions-grid{display:flex;flex-direction:column;gap:0;padding:0;}
+.lds-sg-head,.lds-sg-row{display:grid;grid-template-columns:minmax(0,1fr) 132px 92px 64px 72px 84px;
+  align-items:center;column-gap:14px;padding:0 20px;}
+.lds-sg-head{height:34px;flex:0 0 auto;position:sticky;top:0;z-index:1;background:var(--bg-sunken);
+  border-bottom:1px solid var(--border);font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--muted-2);}
+.lds-sg-head .r,.lds-sg-row .r{text-align:right;justify-self:end;}
+.lds-sg-row{min-height:54px;padding-top:9px;padding-bottom:9px;border-bottom:1px solid var(--border-faint);
+  cursor:pointer;background:transparent;border-left:0;border-right:0;border-top:0;width:100%;text-align:left;font:inherit;color:inherit;}
+.lds-sg-row:hover{background:var(--panel-hover);}
+.lds-sg-row.active{background:var(--accent-weak);box-shadow:inset 3px 0 0 var(--accent);}
+.lds-sg-main{display:flex;flex-direction:column;gap:3px;min-width:0;}
+.lds-sg-main .lds-sg-title{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lds-sg-main .lds-sg-meta{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;white-space:nowrap;
+  font-family:var(--mono);font-size:11px;color:var(--muted);}
+.lds-sg-main .lds-sg-meta > span{flex:0 0 auto;}
+.lds-sg-main .lds-sg-meta > span:last-child{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;}
+.lds-sg-main .lds-sg-meta .lds-sep{color:var(--muted-2);}
+.lds-sg-num{font-family:var(--mono);font-size:12px;color:var(--text-soft);}
+.lds-sg-cost{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text-soft);}
+.lds-sg-cost.muted{color:var(--muted-2);font-weight:400;}
+.lds-sg-zero{font-family:var(--mono);font-size:12px;color:var(--muted-2);}
+.lds-sg-flags{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;}
+.lds-sg-empty{color:var(--muted-2);font-size:12px;padding:14px 20px;}
+
+/* ---- compatibility shim --------------------------------------------------
+   The rail keeps the legacy `globalnav` / `globalnav-tab` hooks (machine-
+   readable axis contract used by agents + e2e). The old globals.css styled
+   those as a TOP bar; these higher-specificity selectors re-assert the rail
+   geometry so the legacy single-class rules can't shrink/reflow the rail. */
+.lds-railnav.globalnav{position:static;flex:0 0 var(--rail-w);width:var(--rail-w);height:auto;
+  align-items:stretch;}
+.lds-rail-nav.globalnav-tabs{flex:0 0 auto;padding:8px;}
+.lds-rail-nav-item.globalnav-tab{height:30px;border-bottom:1px solid transparent;}
+.lds-rail-nav-item.globalnav-tab.active{border-bottom-color:transparent;box-shadow:inset 3px 0 0 var(--accent);}
+.lds-rail-brand.globalnav-brand{width:auto;min-width:0;border-right:0;}

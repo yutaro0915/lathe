@@ -1,8 +1,16 @@
-// app/page.tsx — Screen A: session viewer.
+// app/page.tsx — the Sessions AXIS.
 //
-// Thin SERVER wrapper. Loads the session list + the requested SessionBundle
-// (falling back to the primary session) and renders the interactive client
-// component <SessionViewer>. The client never touches lib/db.
+// Thin SERVER wrapper. Two states of the same axis:
+//   • bare "/"          → the cross-session Sessions LIST surface (full-width in
+//                         the work area; the left is navigation only — design.md
+//                         IA decision). Rendered by <SessionsSurface>.
+//   • "/?session=<id>"  → the per-session WORKSPACE (transcript / git / stats /
+//     (or any state param)  findings …), rendered by the existing <SessionViewer>.
+//
+// Opening a row on the list navigates to "/?session=<id>"; the global rail still
+// reads "Sessions" (same axis, different state). Overview drill-downs land here
+// with seed params (model / from-to / errors / tab / seq / fromFinding) and open
+// the workspace already scoped.
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +23,7 @@ import {
   listFindings,
 } from "@/lib/db";
 import SessionViewer from "@/components/SessionViewer";
+import SessionsSurface from "@/components/SessionsSurface";
 
 const TABS = ["transcript", "tools", "git", "skills", "subagents", "annotations", "findings", "raw", "stats"] as const;
 type Tab = (typeof TABS)[number];
@@ -26,27 +35,23 @@ export default async function Page({
 }) {
   const sp = await searchParams;
   const req = typeof sp.session === "string" ? sp.session : undefined;
-  // Fetch everything that does NOT depend on resolving the session id up front,
-  // in parallel: the session list, the sidebar project rollup, PR summaries,
-  // findings, and the requested session's bundle. This used to run as three
-  // sequential awaits (listSessions → getSessionBundle → Promise.all[stats,…]),
-  // adding two server round-trips to every cross-session navigation (issue #8).
-  // The common deep-link case carries a valid ?session=, so its bundle is already
-  // resolved here; the getPrimarySession fallback below only runs when it isn't.
-  const [sessions, projectStats, sessionPrs, findings, requestedBundle] = await Promise.all([
-    listSessions(),
-    getProjectStats(),
-    getSessionPrSummary(),
-    listFindings(),
-    req ? getSessionBundle(req) : Promise.resolve(undefined),
-  ]);
-  const id = requestedBundle ? req! : (await getPrimarySession()).id;
-  const bundle = requestedBundle ?? (await getSessionBundle(id))!;
-  // Project list is only used by the sidebar's session-list scope selector here.
-  // Cross-session ANALYTICS (charts) live on /overview, not in the viewer — the
-  // viewer is per-session, and cross-session aggregates would be off-topic in it.
-  // getProjectStats is the just-the-projects slice of getStats (skips the skills /
-  // subagents / memory / hooks / models aggregates the viewer never renders).
+
+  // "Workspace mode" = any param that scopes/targets a single session. Bare "/"
+  // (no such param) is the LIST surface. Overview drill-downs (model/from/to/
+  // errors) and finding jumps (seq/fromFinding) and ?tab all open the workspace.
+  const hasState =
+    !!req ||
+    typeof sp.tab === "string" ||
+    typeof sp.seq === "string" ||
+    typeof sp.fromFinding === "string" ||
+    typeof sp.model === "string" ||
+    typeof sp.from === "string" ||
+    typeof sp.to === "string" ||
+    typeof sp.errors === "string";
+
+  // The project scope select + the session->project map are needed by BOTH the
+  // list surface and the viewer's sidebar, so compute them once up front.
+  const [sessions, projectStats] = await Promise.all([listSessions(), getProjectStats()]);
   const projects = projectStats.map((p) => ({
     project: p.project,
     sessions: p.sessions,
@@ -55,29 +60,35 @@ export default async function Page({
   }));
   const sessionProject: Record<string, string> = {};
   for (const p of projectStats) for (const r of p.sessionRefs) sessionProject[r.id] = p.project;
+
+  // ---- LIST surface (bare "/") --------------------------------------------
+  if (!hasState) {
+    return (
+      <SessionsSurface sessions={sessions} projects={projects} sessionProject={sessionProject} />
+    );
+  }
+
+  // ---- WORKSPACE (per-session viewer) -------------------------------------
+  const [sessionPrs, findings, requestedBundle] = await Promise.all([
+    getSessionPrSummary(),
+    listFindings(),
+    req ? getSessionBundle(req) : Promise.resolve(undefined),
+  ]);
+  const id = requestedBundle ? req! : (await getPrimarySession()).id;
+  const bundle = requestedBundle ?? (await getSessionBundle(id))!;
   const initialTab: Tab =
     typeof sp.tab === "string" && (TABS as readonly string[]).includes(sp.tab)
       ? (sp.tab as Tab)
       : "transcript";
-  // seq deep link: a finding's evidence in ANOTHER session links here with
-  // ?session=…&tab=transcript&seq=N; the viewer scrolls to + flashes that step.
   const seqRaw = typeof sp.seq === "string" ? Number(sp.seq) : NaN;
   const initialSeq = Number.isInteger(seqRaw) && seqRaw > 0 ? seqRaw : undefined;
-  // fromFinding: the originating finding id when a finding's evidence jumped here
-  // (requirement D). The viewer shows a dismissible "from finding #N" landing
-  // banner so the user knows where they came from and where they landed.
   const fromFindingRaw = typeof sp.fromFinding === "string" ? Number(sp.fromFinding) : NaN;
   const initialFromFinding =
     Number.isInteger(fromFindingRaw) && fromFindingRaw > 0 ? fromFindingRaw : undefined;
-  // Overview drill-down deep links: ?model=…, ?from=&to=, ?errors=yes seed the
-  // session-list filters so a click on /overview lands the Sessions axis already
-  // scoped. These are STATE of this screen (a filtered session list), not a
-  // separate screen — the global bar still shows "Sessions".
   const initialModel = typeof sp.model === "string" && sp.model.trim() ? sp.model : undefined;
   const initialFrom = typeof sp.from === "string" && sp.from.trim() ? sp.from : undefined;
   const initialTo = typeof sp.to === "string" && sp.to.trim() ? sp.to : undefined;
-  const initialErrors =
-    sp.errors === "yes" ? "yes" : sp.errors === "no" ? "no" : undefined;
+  const initialErrors = sp.errors === "yes" ? "yes" : sp.errors === "no" ? "no" : undefined;
   return (
     <SessionViewer
       sessions={sessions}

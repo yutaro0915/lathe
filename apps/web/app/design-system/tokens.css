@@ -1,0 +1,228 @@
+/* ============================================================================
+   Lathe Design System v1 — design tokens (light = canonical).
+   Ported verbatim from the DS v1 bundle tokens/* (typography / colors /
+   category / spacing / base), merged into one file.
+
+   "observability-dense": cool-gray ground, white surfaces, hairline borders,
+   no shadow. Saturation is rationed; error red is the one privileged hue.
+   Numbers render tabular so columns align. Two type stacks only: --sans + --mono.
+   ========================================================================== */
+
+/* ---- fonts (typography.css) --------------------------------------------- */
+/* JetBrains Mono is the canonical mono so columns align on every machine; on
+   macOS it falls back to SF Mono first. */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* ---- families ---- */
+  --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic",
+          "Noto Sans CJK JP", "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Menlo",
+          "Cascadia Code", "Roboto Mono", monospace;
+
+  /* ---- type scale (compact; this is a dense instrument) ---- */
+  --fs-root:   12.5px;
+  --fs-micro:   9px;
+  --fs-2xs:    10px;
+  --fs-xs:     10.5px;
+  --fs-sm:     11px;
+  --fs-base:   11.5px;
+  --fs-md:     12px;
+  --fs-lg:     13px;
+  --fs-xl:     20px;
+
+  /* ---- weights ---- */
+  --fw-regular: 450;
+  --fw-medium:  550;
+  --fw-semi:    600;
+  --fw-bold:    650;
+  --fw-heavy:   750;
+
+  /* ---- line heights ---- */
+  --lh-tight: 1.25;
+  --lh-base:  1.4;
+  --lh-code:  1.5;
+
+  /* ---- micro-label tracking (small uppercase) ---- */
+  --track-label: .06em;
+  --track-wide:  .07em;
+
+  /* ---- typography semantic aliases ---- */
+  --font-body:    var(--sans);
+  --font-numeric: var(--mono);
+
+  /* ---- ground & surfaces (colors.css) ---- */
+  --bg:            #f7f8fa;
+  --bg-sunken:     #f0f2f5;
+  --panel:         #ffffff;
+  --panel-2:       #fafbfc;
+  --panel-hover:   #f3f5f8;
+  --sidebar-bg:    #f7f8fa;
+
+  /* ---- borders (hairline discipline) ---- */
+  --border:        #e0e4ea;
+  --border-strong: #c3cad3;
+  --border-faint:  #eaecf1;
+
+  /* ---- text ramp (contrast-tuned) ---- */
+  --text:      #161d27;
+  --text-soft: #333d4c;
+  --muted:     #555f6d;
+  --muted-2:   #818b98;
+
+  /* ---- accent (interactive / selection) — rationed ---- */
+  --accent:        #3b6fd4;
+  --accent-strong: #2e5fc2;
+  --accent-weak:   #edf2fb;
+  --accent-ring:   rgba(59,111,212,.30);
+
+  /* ---- semantic: success / additions (sage green) ---- */
+  --green:        #3d8f63;
+  --green-text:   #2c7a50;
+  --green-bg:     #ecf5f0;
+  --green-chip:   #d9ece2;
+  --add-bg:       #eef7f1;
+  --add-bg-strong:#dcefe3;
+  --add-text:     #2c7a50;
+  --add-marker:   #55a87c;
+
+  /* ---- semantic: error / deletions (privileged red) ---- */
+  --red:        #d64545;
+  --red-text:   #b42318;
+  --red-bg:     #fdeceb;
+  --red-chip:   #f7d8d5;
+  --del-bg:     #fdf0ef;
+  --del-bg-strong:#f6dcd9;
+  --del-text:   #b8453a;
+  --del-marker: #d97063;
+
+  /* ---- semantic: warning / modifications (amber) ---- */
+  --amber:      #b08530;
+  --amber-text: #94691f;
+  --amber-bg:   #f9f3e6;
+  --amber-chip: #efe2c4;
+
+  /* ---- neutral chip ---- */
+  --gray-chip:    #eef0f3;
+  --gray-chip-tx: #646e7e;
+
+  /* ---- color semantic aliases ---- */
+  --surface:        var(--panel);
+  --surface-raised: var(--panel-2);
+  --surface-hover:  var(--panel-hover);
+  --text-body:      var(--text-soft);
+  --text-label:     var(--muted);
+  --divider:        var(--border);
+  --focus-ring:     var(--accent-ring);
+
+  /* ---- category & signal tokens (rationed palette — category.css) ---- */
+  --cat-message:   #6982bd;
+  --cat-tool:      #5fa07b;
+  --cat-file:      #c2984f;
+  --cat-subagent:  #9079c9;
+  --cat-git:       #569cbd;
+  --cat-uncertain: #9aa3b0;
+  --cat-error:     #d64545;
+
+  --chart-bar:  #6982bd;
+  --chart-line: #5fa07b;
+
+  /* per-event-type dot colors */
+  --c-user:      var(--cat-message);
+  --c-assistant: var(--cat-subagent);
+  --c-read:      var(--cat-git);
+  --c-edit:      var(--cat-file);
+  --c-write:     var(--cat-tool);
+  --c-bash:      var(--cat-tool);
+  --c-subagent:  var(--cat-subagent);
+  --c-skill:     var(--cat-file);
+  --c-commit:    var(--cat-git);
+  --c-test:      var(--cat-git);
+  --c-error:     var(--cat-error);
+  --c-todo:      var(--cat-uncertain);
+  --c-memory:    var(--cat-git);
+  --c-hook:      var(--cat-uncertain);
+
+  /* minimap / ribbon kind buckets */
+  --k-message:   var(--cat-message);
+  --k-tool:      var(--cat-tool);
+  --k-file:      var(--cat-file);
+  --k-skill:     var(--cat-file);
+  --k-subagent:  var(--cat-subagent);
+  --k-git:       var(--cat-git);
+  --k-error:     var(--cat-error);
+  --k-edit:      var(--cat-subagent);
+  --k-command:   var(--cat-file);
+  --k-commit:    var(--cat-tool);
+  --k-uncertain: var(--cat-uncertain);
+
+  /* runner identity dots — prominent provider colors */
+  --r-claude: #d97757;  /* Claude Code — Anthropic clay/coral */
+  --r-codex:  #10a37f;  /* Codex — OpenAI teal-green          */
+  --r-cursor: #4f6ef2;  /* Cursor — vivid indigo-blue         */
+
+  /* ---- spacing scale (4px base, compact — spacing.css) ---- */
+  --sp-0:  0;
+  --sp-1:  2px;
+  --sp-2:  4px;
+  --sp-3:  6px;
+  --sp-4:  8px;
+  --sp-5:  10px;
+  --sp-6:  12px;
+  --sp-7:  14px;
+  --sp-8:  16px;
+  --sp-9:  18px;
+  --sp-10: 22px;
+  --sp-12: 24px;
+
+  /* ---- corner radii (small, technical) ---- */
+  --radius:    6px;
+  --radius-sm: 5px;
+  --radius-xs: 4px;
+  --radius-pill: 999px;
+
+  /* ---- shadows (whisper-quiet; depth is mostly borders) ---- */
+  --shadow-sm:  0 1px 2px rgba(16,24,40,.04);
+  --shadow-md:  0 2px 6px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.03);
+  --shadow-pop: 0 8px 24px rgba(16,24,40,.10);
+
+  /* ---- chrome band heights (fixed app shell) ---- */
+  --appbar-h:  46px;
+  --metrics-h: 46px;
+  --tabs-h:    38px;
+  --minimap-h: 150px;
+
+  /* ---- rail / aside widths ---- */
+  --rail-w:    264px;  /* persistent left navigation rail */
+  --sidebar-w: 264px;  /* alias (kept for back-compat)    */
+  --aside-w:   336px;  /* toggleable detail / chat panel  */
+
+  /* ---- standard control heights ---- */
+  --control-h:    26px;
+  --control-h-sm: 22px;
+  --row-h:        24px;
+
+  /* ---- spacing semantic aliases ---- */
+  --gap-row:    var(--sp-3);
+  --pad-panel:  var(--sp-6);
+  --pad-cell:   var(--sp-7);
+}
+
+/* ---- base element defaults (base.css) ----------------------------------- */
+.lds-mono,
+.lds-root code,
+.lds-root kbd,
+.lds-root samp,
+.lds-root pre {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* small uppercase micro-label — every section head & classifier */
+.lds-micro-label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+}

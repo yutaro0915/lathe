@@ -116,6 +116,31 @@ const SUBAGENT_FIXTURE = {
   unlinkedLauncherId: "fixture-subagent-parent-session-event-3",
 };
 
+// ---- IA helper (DS v1 shell) ----------------------------------------------
+// The bare "/" route is now the cross-session Sessions LIST surface (full-width
+// in the work area; the left is navigation only). The per-session WORKSPACE
+// (transcript / tabs / ribbon / detail) lives at "/?session=<id>". These helpers
+// open the workspace from the list — preserving each workspace test's oracle
+// (it still drives the viewer), only the entry URL changed from "/" to a row.
+async function firstSessionId(page: Page): Promise<string> {
+  await expect(page.locator(".session-list .session-item").first()).toBeVisible();
+  const id = await page
+    .locator(".session-list .session-item")
+    .first()
+    .getAttribute("data-session-id");
+  if (!id) throw new Error("no session row found on the Sessions surface");
+  return id;
+}
+// Open the workspace on the most-recent session (optionally on a given ?tab=…).
+// Use where a test previously did goto("/") and then drove the viewer.
+async function gotoViewer(page: Page, query = ""): Promise<string> {
+  await page.goto("/");
+  const id = await firstSessionId(page);
+  const sep = query ? `&${query}` : "";
+  await page.goto(`/?session=${encodeURIComponent(id)}${sep}`);
+  return id;
+}
+
 function fmtCompactForTest(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
@@ -1028,18 +1053,20 @@ async function seedPrFixture() {
 // than tied to specific seeded titles, so they stay green as the ingested
 // transcripts grow.
 
-test.describe("Session viewer (/)", () => {
-  test("loads with sessions, a named header and a timeline", async ({ page }) => {
+test.describe("Sessions surface + viewer (/)", () => {
+  test("the list surface shows sessions; opening a row reveals the named viewer", async ({ page }) => {
+    // bare "/" is the full-width Sessions LIST surface (left = nav only).
     await page.goto("/");
-    await expect(page.locator(".session-item").first()).toBeVisible();
-    // refined header: session is named + a compact stat cluster
+    await expect(page.locator(".session-list .session-item").first()).toBeVisible();
+    // opening a row drills into the per-session WORKSPACE: named header + timeline.
+    await gotoViewer(page);
     await expect(page.locator(".sessbar .sessbar-title")).toBeVisible();
     await expect(page.locator(".sessbar .sessbar-stats")).toContainText("tokens");
     expect(await page.locator(".event-row").count()).toBeGreaterThan(0);
   });
 
   test("tabs switch the centre content", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     const tabs = page.locator(".tabs .tab");
     await tabs.filter({ hasText: "Raw JSON" }).click();
     await expect(page.locator(".tabs .tab.active")).toHaveText(/Raw JSON/);
@@ -1051,7 +1078,7 @@ test.describe("Session viewer (/)", () => {
   });
 
   test("event-type filter reduces the timeline", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     const before = await page.locator(".event-row").count();
     await page.locator(".filters .event-type-badge").first().click();
     await expect
@@ -1060,7 +1087,7 @@ test.describe("Session viewer (/)", () => {
   });
 
   test("clicking an event selects it (detail panel)", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     const rows = page.locator(".event-row");
     await expect(rows.first()).toBeVisible();
     const n = await rows.count();
@@ -1069,29 +1096,32 @@ test.describe("Session viewer (/)", () => {
     await expect(page.locator(".event-row.selected")).toHaveCount(1);
   });
 
-  test("session search filters the list and clears", async ({ page }) => {
+  test("the surface search filters the list and clears", async ({ page }) => {
+    // the search box lives on the list surface itself (no session open yet).
     await page.goto("/");
+    await expect(page.locator(".session-list .session-item").first()).toBeVisible();
     const before = await page.locator(".session-item").count();
+    expect(before).toBeGreaterThan(0);
     const box = page.getByPlaceholder(/Search sessions/i);
     await box.fill("zzz-no-such-session-zzz");
-    // requirement C: a no-match search hides every OTHER session but the session
-    // currently being viewed is force-included so it is never lost — so the list
-    // collapses to exactly the one active row, not to zero.
-    await expect(page.locator(".session-item")).toHaveCount(1);
-    await expect(page.locator(".session-item.active")).toHaveCount(1);
+    // a no-match search collapses the full-width list (there is no session being
+    // viewed to force-include on this surface).
+    await expect(page.locator(".session-item")).toHaveCount(0);
     await box.fill("");
     await expect(page.locator(".session-item")).toHaveCount(before);
   });
 
-  test("switching session navigates with ?session=", async ({ page }) => {
+  test("clicking a list row navigates with ?session= into the viewer", async ({ page }) => {
     await page.goto("/");
-    await page.locator(".session-item").nth(1).click();
+    await expect(page.locator(".session-list .session-item").first()).toBeVisible();
+    await page.locator(".session-item").first().click();
     await expect(page).toHaveURL(/\?session=/);
+    // the viewer keeps its own sidebar list, with the open session marked active.
     await expect(page.locator(".session-item.active")).toHaveCount(1);
   });
 
   test("Pin persists to localStorage", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     await page.locator(".event-row").nth(0).click();
     await page.locator(".btn", { hasText: /Pin/i }).first().click();
     const pins = await page.evaluate(() => localStorage.getItem("lathe.pins"));
@@ -1099,14 +1129,16 @@ test.describe("Session viewer (/)", () => {
   });
 
   test("cost is derived from token usage and shown ($)", async ({ page }) => {
+    // the list surface shows priceable (Opus) sessions with a real dollar amount.
     await page.goto("/");
-    // header stat cluster has a Cost figure
+    await expect(page.locator(".session-list .session-item").first()).toBeVisible();
+    const dollarCosts = page.locator(".session-item .chip.cost", { hasText: "$" });
+    expect(await dollarCosts.count()).toBeGreaterThan(0);
+    // and the viewer header carries the matching Cost stat.
+    await gotoViewer(page);
     await expect(
       page.locator(".sessbar-stats .kstat", { hasText: "cost" })
     ).toBeVisible();
-    // priceable (Opus) sessions show a real dollar amount in the list, not "—"
-    const dollarCosts = page.locator(".session-item .chip.cost", { hasText: "$" });
-    expect(await dollarCosts.count()).toBeGreaterThan(0);
   });
 });
 
@@ -1151,9 +1183,8 @@ test.describe("Cost anomaly detection", () => {
 
     await page.goto("/");
     await page.getByPlaceholder(/Search sessions/i).fill("E2E fallback cost");
-    // the three cost fixtures match the search. (The session currently being
-    // viewed is force-included for rail sync — requirement C — so the total row
-    // count may be 3 or 4; assert on the three fixture rows specifically.)
+    // the three cost fixtures match the search on the full-width Sessions list
+    // surface; assert on the three fixture rows specifically.
     for (const id of COST_FIXTURE_IDS) {
       await expect(page.locator(`.session-item[data-session-id="${id}"]`)).toHaveCount(1);
     }
@@ -1297,7 +1328,7 @@ test.describe("Cross-screen navigation & time ribbon", () => {
   test("Git is an in-page tab: diff shows, session list stays, no navigation", async ({
     page,
   }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     await page.locator(".tabs .tab", { hasText: "Git" }).click();
     // does NOT navigate away to /diff…
     await expect(page).not.toHaveURL(/\/diff/);
@@ -1322,13 +1353,13 @@ test.describe("Cross-screen navigation & time ribbon", () => {
   });
 
   test("time ribbon renders with segments on the session viewer", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     await expect(page.locator(".ribbon-track")).toBeVisible();
     expect(await page.locator(".ribbon-seg").count()).toBeGreaterThan(0);
   });
 
   test("time ribbon zoom widens the track", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     const track = page.locator(".ribbon-track");
     const w0 = await track.evaluate((el) => el.style.width);
     await page.locator(".ribbon .minimap-zoom button", { hasText: "+" }).click();
@@ -1579,7 +1610,7 @@ test.describe("Changed-files tree (compact folders)", () => {
 
 test.describe("Time ribbon & annotations", () => {
   test("ribbon: hovering reads out the exact time + step", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     const track = page.locator(".ribbon-track");
     await expect(track).toBeVisible();
     const box = await track.boundingBox();
@@ -1590,7 +1621,7 @@ test.describe("Time ribbon & annotations", () => {
   });
 
   test("ribbon: clicking the track selects the step at the cursor", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     const track = page.locator(".ribbon-track");
     const box = await track.boundingBox();
     if (box) {
@@ -1600,7 +1631,7 @@ test.describe("Time ribbon & annotations", () => {
   });
 
   test("ribbon: zooming in adds more time-axis ticks", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     const before = await page.locator(".ribbon-axis .tick").count();
     await page.locator(".minimap-zoom button", { hasText: "+" }).click();
     await page.locator(".minimap-zoom button", { hasText: "+" }).click();
@@ -2262,7 +2293,7 @@ test.describe("Global nav & IA axes", () => {
   });
 
   test("no Chat entry point survives in the session viewer (chat removed)", async ({ page }) => {
-    await page.goto("/");
+    await gotoViewer(page);
     // neither the old tab nor the sessbar Discuss chip exist anymore.
     await expect(page.locator(".tabs .tab", { hasText: "Chat" })).toHaveCount(0);
     await expect(page.locator(".chat-session-chip")).toHaveCount(0);

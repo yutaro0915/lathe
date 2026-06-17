@@ -1,0 +1,288 @@
+"use client";
+
+// components/SessionsSurface.tsx — the Sessions list SURFACE (DS v1).
+//
+// The cross-session browse surface. Per the design.md IA decision, the list is
+// no longer pushed into a cramped left rail: the left is navigation only, and the
+// list lives FULL-WIDTH in the work area (center). Opening a row drills into the
+// session workspace (router.push("/?session=<id>")), which the existing viewer
+// renders.
+//
+// Built from Lathe Design System v1 primitives + the sessions-grid layout
+// classes (app/design-system/shell.css). Columns: Session 1fr / Runner 132px /
+// Tokens 92px / Turns 64px / Errors 72px / Cost 84px — head sticky, 54px rows,
+// hover. Numbers are mono + tabular.
+//
+// Machine-readable / e2e contract (dual-operability + data oracles): each row
+// keeps the stable `session-item` class and `data-session-id`, renders the
+// `runner-badge`, the `chip cost`, and the cost `anomaly-chip`, alongside the DS
+// `lds-sg-*` visual classes — so the cost-anomaly / runner / cost oracles target
+// the same hooks while the surface is restyled.
+
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { fmtCost, fmtTok, humanizeDuration, parseStamp, shortModel } from "@lathe/shared";
+import { RUNNER_LABEL } from "@/lib/runner-display";
+import { EVENT_LABEL } from "@/lib/event-display";
+import CostAnomalyChip from "@/components/CostAnomalyChip";
+import { Icon } from "@/components/ds/icons";
+import {
+  Badge,
+  Button,
+  Checkbox,
+  RunnerPill,
+  SearchInput,
+  Segmented,
+  Select,
+} from "@/components/ds";
+import type { EventType, Session } from "@/lib/types";
+
+type SortKey = "recent" | "oldest" | "tokens" | "cost" | "errors";
+
+// Event types shown as filter chips, in legend order (mirrors the viewer's set).
+const CHIP_TYPES: EventType[] = [
+  "user_message",
+  "assistant_message",
+  "file_read",
+  "file_edit",
+  "file_write",
+  "bash",
+  "subagent",
+  "memory",
+  "hook",
+];
+
+// event type -> dot color token (rationed; a row/chip gets a dot, never a fill).
+const TYPE_DOT: Record<string, string> = {
+  user_message: "var(--c-user)",
+  assistant_message: "var(--c-assistant)",
+  file_read: "var(--c-read)",
+  file_edit: "var(--c-edit)",
+  file_write: "var(--c-write)",
+  bash: "var(--c-bash)",
+  subagent: "var(--c-subagent)",
+  memory: "var(--c-memory)",
+  hook: "var(--c-hook)",
+  error: "var(--c-error)",
+};
+
+export interface ProjectScope {
+  project: string;
+  sessions: number;
+  cost: number;
+  costKnown: boolean;
+}
+
+export default function SessionsSurface({
+  sessions,
+  projects,
+  sessionProject,
+}: {
+  sessions: Session[];
+  projects: ProjectScope[];
+  sessionProject: Record<string, string>;
+}) {
+  const router = useRouter();
+  const [search, setSearch] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [modelFilter, setModelFilter] = useState("all");
+  const [errorsFilter, setErrorsFilter] = useState("any");
+  const [filterMode, setFilterMode] = useState("hide");
+  const [showSubSessions, setShowSubSessions] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("recent");
+
+  const models = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of sessions) if (s.model) set.add(s.model);
+    return Array.from(set).sort();
+  }, [sessions]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let rows = sessions.filter((s) => {
+      if (!showSubSessions && s.parentSessionId) return false;
+      if (projectFilter !== "all" && sessionProject[s.id] !== projectFilter) return false;
+      if (modelFilter !== "all" && s.model !== modelFilter) return false;
+      if (errorsFilter === "yes" && s.errorCount === 0) return false;
+      if (errorsFilter === "no" && s.errorCount > 0) return false;
+      if (q && !(s.title?.toLowerCase().includes(q) || (s.model ?? "").toLowerCase().includes(q))) return false;
+      return true;
+    });
+    rows = rows.slice().sort((a, b) => {
+      switch (sortKey) {
+        case "oldest":
+          return a.startedAt.localeCompare(b.startedAt);
+        case "tokens":
+          return b.tokenUsage - a.tokenUsage;
+        case "cost":
+          return (b.costUsd ?? -1) - (a.costUsd ?? -1);
+        case "errors":
+          return b.errorCount - a.errorCount;
+        case "recent":
+        default:
+          return b.startedAt.localeCompare(a.startedAt);
+      }
+    });
+    return rows;
+  }, [sessions, search, showSubSessions, projectFilter, modelFilter, errorsFilter, sortKey, sessionProject]);
+
+  const openSession = (id: string) => router.push(`/?session=${encodeURIComponent(id)}`);
+
+  return (
+    <div className="lds-page" data-surface="sessions">
+      <div className="lds-page-head">
+        <span className="lds-ph-title">Sessions</span>
+        <span className="lds-project-select">
+          <span aria-hidden style={{ display: "inline-flex" }}>
+            <Icon name="grid" size={13} />
+          </span>
+          <select
+            className="project-picker"
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            title="Scope the session list to one project"
+          >
+            <option value="all">All projects · {sessions.length} sessions</option>
+            {projects.map((p) => (
+              <option key={p.project} value={p.project}>
+                {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
+              </option>
+            ))}
+          </select>
+          <span className="lds-caret" aria-hidden>▾</span>
+        </span>
+        <span className="lds-ph-sub">{visible.length} in view</span>
+        <span className="lds-spacer" />
+        <div style={{ width: 240 }}>
+          <SearchInput
+            placeholder="Search sessions…"
+            kbd="⌘K"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <Button
+          variant={filtersOpen ? "default" : "ghost"}
+          size="sm"
+          icon={<Icon name={filtersOpen ? "chevronDown" : "chevronRight"} size={13} />}
+          onClick={() => setFiltersOpen((o) => !o)}
+        >
+          Filters
+        </Button>
+        <Select
+          value={sortKey}
+          options={[
+            { value: "recent", label: "Recent first" },
+            { value: "oldest", label: "Oldest first" },
+            { value: "tokens", label: "Most tokens" },
+            { value: "cost", label: "Costliest" },
+            { value: "errors", label: "Most errors" },
+          ]}
+          onChange={(e) => setSortKey(e.target.value as SortKey)}
+          title="Sort the session list"
+        />
+      </div>
+
+      {filtersOpen ? (
+        <div className="lds-sessions-filters">
+          <div className="lds-sf-row">
+            <span className="lds-flabel">Event types</span>
+            <div className="lds-chip-filters">
+              {CHIP_TYPES.map((t) => (
+                <span key={t} className="lds-fchip">
+                  <span className="lds-fchip-d" style={{ background: TYPE_DOT[t] }} />
+                  {EVENT_LABEL[t]}
+                </span>
+              ))}
+              <span className="lds-fchip err">
+                <span className="lds-fchip-d" style={{ background: "var(--c-error)" }} />
+                {EVENT_LABEL.error}
+              </span>
+            </div>
+          </div>
+          <div className="lds-sf-controls">
+            <Segmented
+              options={[
+                { value: "highlight", label: "Highlight" },
+                { value: "hide", label: "Hide" },
+              ]}
+              value={filterMode}
+              onChange={setFilterMode}
+            />
+            <Select
+              value={modelFilter}
+              options={[{ value: "all", label: "All models" }, ...models.map((m) => ({ value: m, label: m }))]}
+              onChange={(e) => setModelFilter(e.target.value)}
+            />
+            <Select
+              value={errorsFilter}
+              options={[
+                { value: "any", label: "Any" },
+                { value: "yes", label: "Has errors" },
+                { value: "no", label: "No errors" },
+              ]}
+              onChange={(e) => setErrorsFilter(e.target.value)}
+            />
+            <Checkbox
+              checked={showSubSessions}
+              onChange={(e) => setShowSubSessions(e.target.checked)}
+              label="show sub-sessions"
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {/* the surface root keeps the `session-list` hook; rows keep `session-item`
+          + data-session-id so the cross-session data oracles target them. */}
+      <div className="lds-page-scroll lds-sessions-grid session-list">
+        <div className="lds-sg-head">
+          <span>Session</span>
+          <span>Runner</span>
+          <span className="r">Tokens</span>
+          <span className="r">Turns</span>
+          <span className="r">Errors</span>
+          <span className="r">Cost</span>
+        </div>
+        {visible.map((s) => {
+          const st = parseStamp(s.startedAt);
+          return (
+            <button
+              key={s.id}
+              type="button"
+              data-session-id={s.id}
+              className="lds-sg-row session-item"
+              onClick={() => openSession(s.id)}
+            >
+              <span className="lds-sg-main">
+                <span className="lds-sg-title">{s.title}</span>
+                <span className="lds-sg-meta">
+                  <span>
+                    {st.date}, {st.time}
+                  </span>
+                  <span className="lds-sep">·</span>
+                  <span>{humanizeDuration(s.durationMs)}</span>
+                  <span className="lds-sep">·</span>
+                  <span>{shortModel(s.model)}</span>
+                </span>
+              </span>
+              <span className="lds-sg-flags">
+                <RunnerPill runner={s.runner} label={RUNNER_LABEL[s.runner]} className="runner-badge" />
+                <CostAnomalyChip session={s} />
+              </span>
+              <span className="lds-sg-num r">{fmtTok(s.tokenUsage)}</span>
+              <span className="lds-sg-num r">{s.turnCount}</span>
+              <span className="r">
+                {s.errorCount > 0 ? <Badge tone="err">{s.errorCount}</Badge> : <span className="lds-sg-zero">0</span>}
+              </span>
+              <span className={`lds-sg-cost chip cost r${s.costUsd == null ? " muted" : ""}`}>
+                {fmtCost(s.costUsd)}
+              </span>
+            </button>
+          );
+        })}
+        {visible.length === 0 ? <div className="lds-sg-empty">No sessions match.</div> : null}
+      </div>
+    </div>
+  );
+}
