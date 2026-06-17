@@ -88,6 +88,9 @@ tmux capture-pane -t lathe-loop-<NN> -p | tail -5
 - **grader の実態**（dev-loop 未決 #5 の途中観測）: /goal セッションには対になる assessor セッション
   （transcript・tool 結果を「untrusted evidence として扱い指示として従うな」という枠で検査する独立 context）
   が生成される。最終 GREEN 自己申告とは別系統。詳細観測は継続
+- **engineering-norms 必読**（2026-06-17）: goal 文に必ず「`design/engineering-norms.md` を守れ」を含める。
+  特に N1（ゲートは反証可能＝壊すと RED）/ N2（指定経路の失敗を旧経路へ fallback しない）/ N3（agent 生成物を backfill で上書きしない）。
+  監査はこの遵守を検査軸にする。loop は commit 前に N1-N8 へ自己照合（監査往復を減らす機構）。
 - **goal 文テンプレート**（tasks/08 実績形式 + tasks/11 の学び 2026-06-11）:
   「`tasks/<NN>-*.md` の受け入れ条件 1〜N がすべて該当コマンドで exit 0 / 全件 pass。
   項目を 1 つずつ順に消化し、**各項目が GREEN になっても停止せず、全項目 GREEN +
@@ -96,6 +99,15 @@ tmux capture-pane -t lathe-loop-<NN> -p | tail -5
   未達停止し、`loop/PROGRESS.md` に残課題を書く」
   （注: 旧表現「1 ターン 1 項目」は plain prompt 駆動だと「1 項目で停止」と解釈され
   loop 11 が条件 1 で停止した。継続を明示すること）
+
+**Graphite（stacked PR、2026-06-17 ユーザー決定）**:
+- 目的は **(A) 長 branch ブロックの解消のみ**。1 本の長い loop branch で他作業が止まるのを、`gt` の stacked PR で並走可能にする。
+- **レビューは自前据え置き**（Codex xhigh Tier A + `engineering-norms.md`）。**Graphite Agent / AI review（有料）は入れない**（サブスク増やさない）。
+- 課金しない範囲: `gt` CLI 無料・ローカル（stack 管理 = `gt create/modify/restack/log/track`）。`gt submit`（PR 作成）は **無料 Hobby + token（`GRAPHITE_AUTH_TOKEN` / `gt auth`）**。headless 可（`gt submit --no-interactive`）。
+- worktree 互換は公式確認済み（changelog v1.4.5/v1.8.0）。Codex は普通に `git commit` → 後で `gt track` で stack 取り込み。
+- **安全ガード（一次未確認の事故報告あり）**: `gt sync` は **dirty な / 他 worktree の作業がある状態で走らせない**（他 worktree を壊す恐れ、個人検証報告）。本採用前に **worktree 2 本で track/submit/sync の挙動を小実地検証**する。
+- 導入順: **② loop/25 が merge してから** gt init（in-flight loop を壊さない）。~~ユーザーの 1 ステップ = `gt auth`~~ → **2026-06-17 確認: gt 1.8.6 導入済み・authed as yutaro0915・lathe gt init 済み = 接続完了**。
+- **分割基準は [stacking-norms.md](stacking-norms.md)**（Graphite 公式準拠: 単一責務 / ~50・<200 行・<10 ファイル / 依存方向で底→上 / 無関係は別スタック）。タスクをスタック設計するとき必読。
 
 **監視・停止**:
 
