@@ -26,6 +26,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import Surface from "@/components/Surface";
 import StatsView from "@/components/StatsView";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
 import type { Session } from "@/lib/types";
@@ -170,42 +171,61 @@ export default function OverviewView({
   const attentionEmpty =
     costAlerts.length === 0 && errorSessions.length === 0 && pendingSessions.length === 0;
 
-  return (
-    <div className="overview-page" data-testid="overview-page">
-      {/* Header — mirrors the session viewer's sessbar so the chrome stays
-          consistent. Project SCOPE is no longer a control here — it moved to the
-          shell TopBar selector (?project=), which this view reads. The scope
-          label + totals stay so the active scope is visible. */}
-      <div className="lds-session-bar" data-testid="sessbar">
-        <div className="lds-session-bar-id" data-testid="sessbar-id">
-          <span className="lds-session-bar-title" data-testid="sessbar-title">Overview</span>
-          <span className="lds-session-bar-scope" data-testid="overview-scope-label">{scopeLabel}</span>
-          <span className="lds-session-bar-meta" data-testid="sessbar-meta">attention items, then the cross-session breakdown</span>
-        </div>
-        <div className="lds-session-bar-stats" data-testid="sessbar-stats">
-          <div className="kstat" data-testid="kstat">
-            <b>{fmtInt(scopeTotals.sessions)}</b>
-            <span>sessions</span>
-          </div>
-          <div className="kstat" data-testid="kstat">
-            <b>{scopeTotals.durationMs > 0 ? humanizeDuration(scopeTotals.durationMs) : "—"}</b>
-            <span>duration</span>
-          </div>
-          <div className="kstat" data-testid="kstat">
-            <b>{fmtCompact(scopeTotals.tokens)}</b>
-            <span>tokens</span>
-          </div>
-          <div className="kstat" data-testid="kstat">
-            <b>{scopeTotals.cost > 0 ? fmtCost(scopeTotals.cost) : "—"}</b>
-            <span>cost</span>
-          </div>
-          <div className="kstat" data-testid="kstat" title="G9: cost > 5× runner median, min $50">
-            <b>{fmtInt(scopeTotals.anomalies)}</b>
-            <span>cost outliers</span>
-          </div>
-        </div>
-      </div>
+  // The WorkareaHeader meta (left, beside the title): the active scope label
+  // (overview-scope-label, reflecting ?project=) plus the lead-in to the panels.
+  // The two keep their original testid split from the old self-drawn band — the
+  // scope rides on `overview-scope-label`, and `sessbar-meta` stays the static
+  // lead-in — so a project selection updates the scope label without `sessbar-meta`
+  // ever reading "All projects" (the e2e scope-label contract is unchanged).
+  const meta = (
+    <>
+      <span className="lds-session-bar-scope" data-testid="overview-scope-label">{scopeLabel}</span>
+      <span data-testid="sessbar-meta">attention items, then the cross-session breakdown</span>
+    </>
+  );
 
+  // The WorkareaHeader actions (right): the scope totals (sessions / duration /
+  // tokens / cost / cost outliers), unchanged kstats moved off the self-drawn
+  // band onto the shell-owned header. Project SCOPE is not a control here — it
+  // moved to the shell TopBar selector (?project=), which this view reads.
+  const actions = (
+    <span className="lds-sv-stats" data-testid="sessbar-stats">
+      <div className="kstat" data-testid="kstat">
+        <b>{fmtInt(scopeTotals.sessions)}</b>
+        <span>sessions</span>
+      </div>
+      <div className="kstat" data-testid="kstat">
+        <b>{scopeTotals.durationMs > 0 ? humanizeDuration(scopeTotals.durationMs) : "—"}</b>
+        <span>duration</span>
+      </div>
+      <div className="kstat" data-testid="kstat">
+        <b>{fmtCompact(scopeTotals.tokens)}</b>
+        <span>tokens</span>
+      </div>
+      <div className="kstat" data-testid="kstat">
+        <b>{scopeTotals.cost > 0 ? fmtCost(scopeTotals.cost) : "—"}</b>
+        <span>cost</span>
+      </div>
+      <div className="kstat" data-testid="kstat" title="G9: cost > 5× runner median, min $50">
+        <b>{fmtInt(scopeTotals.anomalies)}</b>
+        <span>cost outliers</span>
+      </div>
+    </span>
+  );
+
+  return (
+    // The Overview no longer draws its own .lds-session-bar band: the shell-owned
+    // Surface WorkareaHeader carries the title + scope meta + totals (and the
+    // `sessbar` testid via headerTestId), so the analysis canvas starts flush
+    // under one uniform header — no self-drawn header step (Layout v2, slice 4).
+    <Surface
+      surface="overview"
+      headerTestId="sessbar"
+      title={<span data-testid="sessbar-title">Overview</span>}
+      meta={meta}
+      actions={actions}
+    >
+      <div className="overview-page" data-testid="overview-page">
       {/* Full-width analysis canvas — no rail. */}
       <div className="overview-canvas" data-testid="overview-canvas" data-overview-version="2">
         {/* ======================= Attention (the lead panel) ======================= */}
@@ -370,6 +390,7 @@ export default function OverviewView({
           sessionHref={sessionHref}
         />
       </div>
-    </div>
+      </div>
+    </Surface>
   );
 }

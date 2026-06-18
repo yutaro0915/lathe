@@ -483,13 +483,11 @@
 /* sidebar Overview link — entry to project-/all-projects-level analytics */
 .overview-link{display:flex;align-items:center;gap:8px;margin:10px 10px 0;padding:6px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);color:var(--text);font-size:12px;font-weight:650;text-decoration:none;}
 .overview-link:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);text-decoration:none;}
-/* Overview screen (v2): a full-width analysis canvas — NO session rail. The
-   project scope lives in the header session bar (an analysis condition). */
+/* Overview screen (v2): a full-width analysis canvas — NO session rail. Project
+   scope is set by the shell TopBar selector (?project=); this view renders its
+   header through the shared Surface WorkareaHeader, not a self-drawn band. */
 .overview-page{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;background:var(--bg);}
 .overview-canvas{flex:1 1 auto;overflow-y:auto;padding:14px 18px 26px;min-width:0;}
-/* project scope, inline in the Overview header (compact, no margins) */
-.project-select.overview-scope{display:inline-flex;align-items:center;gap:6px;margin:0 0 0 4px;padding:2px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-sunken);flex:0 1 auto;min-width:0;}
-.project-select.overview-scope .project-picker{font-size:11.5px;}
 
 /* chart rows become drill-down links (Overview only); biggest-session rows carry
    an inline status chip set. Color stays rationed — only `err` is red. */
@@ -551,16 +549,11 @@
 .findings-session-select .project-picker{height:24px;font-size:11.5px;}
 .findings-axis-link{flex:0 0 auto;font-size:11.5px;color:var(--accent);font-family:var(--mono);}
 .findings-axis-link:hover{text-decoration:underline;}
-/* the Findings AXIS screen (route /findings) reuses the same chrome bands */
-.findings-axis-page{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;}
-.findings-axis-shell{flex:1 1 auto;min-height:0;}
-/* the axis shell is a SINGLE-column grid (FindingsAxisView overrides
-   grid-template-columns to minmax(0,1fr)), but this element also carries the
-   .lds-layout-main class whose `.lds-layout-main{grid-column:2}` would pin it to a non-existent 2nd
-   track — creating a phantom empty first column (the ~280–650px left blank /
-   rightward shift, intermittently sized by the selected finding's content).
-   Force it back into column 1 so the findings master-detail starts flush left. */
-.findings-axis-main{grid-column:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+/* the Findings AXIS screen (route /findings) renders through the shell-owned
+   Surface (Layout v2, slice 4): the WorkareaHeader owns the title/meta band, and
+   this is the body wrapper that lets the master-detail fill the Surface body
+   flush-left (no grid, so no phantom first column / left-blank shift). */
+.findings-axis-main{flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
 .findings-axis-main .findings-tab{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
 .finding-verdict-toast{display:flex;align-items:center;gap:8px;padding:7px 8px;margin:0 0 8px;
   border:1px solid var(--border);background:var(--panel-hover);font-size:11.5px;color:var(--text-soft);}

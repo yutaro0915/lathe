@@ -12,6 +12,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Surface from "@/components/Surface";
 import FindingsExplorer, {
   evidenceSessionId,
   type ResolvedEvidence,
@@ -101,53 +102,53 @@ export default function FindingsAxisView({
     };
   }
 
-  return (
-    <div className="findings-axis-page" data-testid="findings-axis-page">
-      {/* sessbar-like header so the chrome matches the Sessions / Overview axes */}
-      <div className="lds-session-bar" data-testid="sessbar">
-        <div className="lds-session-bar-id" data-testid="sessbar-id">
-          <span className="lds-session-bar-title" data-testid="sessbar-title">Findings</span>
-          <span className="lds-session-bar-meta" data-testid="sessbar-meta">
-            All findings across every session — the cross-session axis. Pick a session to scope.
-          </span>
-        </div>
-      </div>
+  // The cross-session axis description (left of the WorkareaHeader, as `meta`).
+  // The Pending/Decided/All filter + the session select are FindingsExplorer's
+  // own toolbar (it is the same master-detail component the in-session tab uses,
+  // and the e2e contract reads findings-filter / findings-session-select there) —
+  // they ride at the top of the Surface body, not duplicated into the header.
+  const meta = "All findings across every session — the cross-session axis. Pick a session to scope.";
 
-      <div
-        className="lds-layout3 findings-axis-shell" data-testid="layout3"
-        data-tab="findings"
-        style={{ gridTemplateColumns: "minmax(0,1fr)" }}
-      >
-        <main className="lds-layout-main findings-axis-main" data-testid="main">
-          <FindingsExplorer
-            findings={findings}
-            setFindings={setFindings}
-            sessions={sessions}
-            mode="axis"
-            resolveEvidence={resolveEvidence}
-            initialStatusFilter="pending"
-            initialSessionFilter={initialSessionFilter}
-            // SESSION / TURN header jumps deep-link into the owning session's
-            // transcript — the SAME Sessions axis in a different state. `from`
-            // carries the originating finding id so the destination transcript
-            // shows a "from finding #N" landing banner (requirement D).
-            onJumpToSession={(sessionId, findingId) =>
-              router.push(
-                `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
-                  findingId != null ? `&fromFinding=${findingId}` : ""
-                }`,
-              )
-            }
-            onJumpToTurn={(sessionId, _turn, headSeq, findingId) =>
-              router.push(
-                `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
-                  headSeq != null ? `&seq=${headSeq}` : ""
-                }${findingId != null ? `&fromFinding=${findingId}` : ""}`,
-              )
-            }
-          />
-        </main>
+  return (
+    // The Findings axis no longer draws its own .lds-session-bar band: the
+    // shell-owned Surface WorkareaHeader carries the title + meta (and the
+    // `sessbar` testid via headerTestId), so the master-detail body starts flush
+    // under one uniform header — no self-drawn header step (Layout v2, slice 4).
+    <Surface
+      surface="findings"
+      headerTestId="sessbar"
+      title={<span data-testid="sessbar-title">Findings</span>}
+      meta={<span data-testid="sessbar-meta">{meta}</span>}
+    >
+      <div className="findings-axis-main" data-testid="main" data-tab="findings">
+        <FindingsExplorer
+          findings={findings}
+          setFindings={setFindings}
+          sessions={sessions}
+          mode="axis"
+          resolveEvidence={resolveEvidence}
+          initialStatusFilter="pending"
+          initialSessionFilter={initialSessionFilter}
+          // SESSION / TURN header jumps deep-link into the owning session's
+          // transcript — the SAME Sessions axis in a different state. `from`
+          // carries the originating finding id so the destination transcript
+          // shows a "from finding #N" landing banner (requirement D).
+          onJumpToSession={(sessionId, findingId) =>
+            router.push(
+              `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
+                findingId != null ? `&fromFinding=${findingId}` : ""
+              }`,
+            )
+          }
+          onJumpToTurn={(sessionId, _turn, headSeq, findingId) =>
+            router.push(
+              `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
+                headSeq != null ? `&seq=${headSeq}` : ""
+              }${findingId != null ? `&fromFinding=${findingId}` : ""}`,
+            )
+          }
+        />
       </div>
-    </div>
+    </Surface>
   );
 }
