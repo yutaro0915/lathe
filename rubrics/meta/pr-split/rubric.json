@@ -8,8 +8,8 @@
       "value": "1 PR が単一責務で小さいこと(stacking)。守るとレビュー・revert・並走が容易になり、大 branch ブロックや無関係変更の混入を防ぐ。サイズは測れるが『単一責務か』は agent-judge で測る。",
       "verify": {
         "judge": {
-          "prompt": "あなたは PR 分割ジャッジ。次の diff stat が (a) 単一責務か (b) 目安 <200 LOC・<10 ファイルに概ね収まるか を判定。複数の無関係な責務の混在、または大幅超過なら違反 1、適切なら 0。",
-          "input_cmd": "git diff --stat loop/26-ui-shell...HEAD 2>/dev/null | tail -40 || git show --stat HEAD 2>/dev/null | tail -40"
+          "prompt": "あなたは PR 分割ジャッジ。次の diff stat が『単一の一貫した変更』(1 機能追加/1 修正/1 surface の restyle/1 種のリファクタ/1 群の relocate 等)かを判定する。サイズは副次的——単一目的なら大きくてもよい。複数の無関係な関心が明確に混在する場合(例: 認証修正 + 無関係な UI restyle + 設定変更を一緒に)、または無関係ファイルに広く跨り常識的に過大(目安 >10 無関係ファイル かつ >800 LOC)な場合のみ VERDICT:1。単一目的に見える、または判断に迷う場合は VERDICT:0(迷ったら通す)。出力の最後に必ず 'VERDICT:0' か 'VERDICT:1' の 1 行を付ける。",
+          "input_cmd": "if ! git diff --quiet HEAD 2>/dev/null; then git diff --stat HEAD 2>/dev/null | tail -60; else git show --stat HEAD 2>/dev/null | tail -60; fi"
         },
         "expect": "le:0",
         "means": "agent-judge が『単一責務でない/過大』と判定したら 1(違反)、適切なら 0"
