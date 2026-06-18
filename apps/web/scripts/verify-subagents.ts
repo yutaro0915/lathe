@@ -2,10 +2,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Pool } from 'pg';
 import { closePool, getPool, queryRows } from '../lib/postgres';
-import { DEFAULT_DATABASE_URL } from '../lib/postgres';
 import { getStats } from '../lib/db';
 import { insertBuilt } from './ingest/db';
 import type { Built } from './ingest/built';
+import { currentDatabaseUrl, withScratchDatabase } from './verify/scratch';
 
 // Issue #11: this verifier used to insert/delete its fixtures through the
 // shared DB (whatever search_path DATABASE_URL resolved to), so a caller that
@@ -16,7 +16,6 @@ import type { Built } from './ingest/built';
 // depending on the DATABASE_URL search_path and never touching shared rows.
 
 const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
-const ORIGINAL_DATABASE_URL = process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 
 // A linkable parent/child pair we seed ourselves so the spawn→child link
 // assertions have real data without a cloud transcript. The maintainer
@@ -64,46 +63,12 @@ function assertOk(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-// A unique, collision-free scratch schema name. Random sources may be
-// unavailable in some runners, so the identity is pid + timestamp + counter.
-let scratchCounter = 0;
-function scratchSchemaName(): string {
-  return `lathe_verifysub_${process.pid}_${Date.now()}_${scratchCounter++}`.replace(/[^a-zA-Z0-9_]/g, '_');
-}
-
-function scratchDatabaseUrl(schema: string): string {
-  const url = new URL(ORIGINAL_DATABASE_URL);
-  url.searchParams.set('options', `-c search_path=${schema},public`);
-  return url.toString();
-}
-
-// Run `fn` against a private scratch schema. The schema is created with an admin
-// connection on the unmodified DATABASE_URL, the global pool is repointed at the
-// scratch search_path for the duration, and the schema is dropped CASCADE at the
-// end regardless of outcome — so shared rows are never read or written.
-async function withScratchDatabase<T>(fn: () => Promise<T>): Promise<T> {
-  const schema = scratchSchemaName();
-  const admin = new Pool({ connectionString: ORIGINAL_DATABASE_URL });
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  const previousDatabaseUrl = process.env.DATABASE_URL;
-  process.env.DATABASE_URL = scratchDatabaseUrl(schema);
-  try {
-    return await fn();
-  } finally {
-    await closePool();
-    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = previousDatabaseUrl;
-    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-    await admin.end();
-  }
-}
-
 // Count rows in the SHARED schema (unmodified DATABASE_URL) so we can prove the
 // verifier left no side-effects there. Returns null when the shared schema has
 // not been initialised (e.g. no `lathe` tables yet), in which case there is
 // nothing that could have been polluted.
 async function sharedRowCounts(): Promise<Record<string, number> | null> {
-  const admin = new Pool({ connectionString: ORIGINAL_DATABASE_URL });
+  const admin = new Pool({ connectionString: currentDatabaseUrl() });
   try {
     const tables = ['projects', 'sessions', 'transcript_events'];
     const counts: Record<string, number> = {};
@@ -471,7 +436,7 @@ async function main(): Promise<void> {
   // Prove the verifier leaves the shared schema untouched: snapshot its row
   // counts before and after the scratch-bound run and assert they are unchanged.
   const before = await sharedRowCounts();
-  await withScratchDatabase(verify);
+  await withScratchDatabase('lathe_verifysub', verify);
   const after = await sharedRowCounts();
 
   if (before && after) {

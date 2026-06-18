@@ -11,9 +11,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Pool } from 'pg';
-import { getDatabaseUrl } from '../lib/postgres';
 import { insertBuilt, replaceBuiltSession } from './ingest/db';
 import type { Built } from './ingest/built';
+import { withScratchDatabase } from './verify/scratch';
 
 const PROJECT = 'fixture:relink';
 const PARENT = 'relink-parent-0001';
@@ -186,82 +186,71 @@ async function launcherStamp(pool: Pool): Promise<string | null> {
 }
 
 async function main(): Promise<void> {
-  const schema = `relink_test_${process.pid}_${Date.now()}`;
-  const admin = new Pool({ connectionString: getDatabaseUrl() });
-  await admin.query(`CREATE SCHEMA "${schema}"`);
-
-  // A pool whose every connection lives entirely inside the scratch schema.
-  // search_path is set at connection startup (libpq `options`) so no per-query
-  // SET is needed and connections never touch `public`.
-  const scratch = new Pool({
-    connectionString: getDatabaseUrl(),
-    options: `-c search_path=${schema}`,
-  });
-
-  try {
+  await withScratchDatabase('relink_test', async ({ createPool }) => {
+    const scratch = createPool();
     const schemaSql = fs.readFileSync(path.join(__dirname, '..', 'db', 'schema.sql'), 'utf8');
-    await scratch.query(schemaSql);
+    try {
+      await scratch.query(schemaSql);
 
-    // (a) full ingest establishes the link.
-    await insertBuilt(scratch, [parentBuilt(), childBuilt(CHILD), childBuilt(ORPHAN)], {
-      backfillHarness: false,
-    });
-    let link = await childLink(scratch, CHILD);
-    assertOk(link, 'child session was not inserted by full ingest');
-    assertOk(
-      link?.parent_session_id === PARENT,
-      `full ingest: child parent_session_id=${link?.parent_session_id} expected ${PARENT}`,
-    );
-    assertOk(
-      link?.spawned_by_seq === 2,
-      `full ingest: child spawned_by_seq=${link?.spawned_by_seq} expected 2`,
-    );
-    assertOk(
-      (await launcherStamp(scratch)) === CHILD,
-      'full ingest: launcher meta.child_session_id was not stamped',
-    );
-    const orphan = await childLink(scratch, ORPHAN);
-    assertOk(
-      orphan?.parent_session_id == null,
-      `full ingest: orphan child fabricated parent_session_id=${orphan?.parent_session_id}`,
-    );
+      // (a) full ingest establishes the link.
+      await insertBuilt(scratch, [parentBuilt(), childBuilt(CHILD), childBuilt(ORPHAN)], {
+        backfillHarness: false,
+      });
+      let link = await childLink(scratch, CHILD);
+      assertOk(link, 'child session was not inserted by full ingest');
+      assertOk(
+        link?.parent_session_id === PARENT,
+        `full ingest: child parent_session_id=${link?.parent_session_id} expected ${PARENT}`,
+      );
+      assertOk(
+        link?.spawned_by_seq === 2,
+        `full ingest: child spawned_by_seq=${link?.spawned_by_seq} expected 2`,
+      );
+      assertOk(
+        (await launcherStamp(scratch)) === CHILD,
+        'full ingest: launcher meta.child_session_id was not stamped',
+      );
+      const orphan = await childLink(scratch, ORPHAN);
+      assertOk(
+        orphan?.parent_session_id == null,
+        `full ingest: orphan child fabricated parent_session_id=${orphan?.parent_session_id}`,
+      );
 
-    // (b) child-only incremental re-ingest preserves the link.
-    await replaceBuiltSession(scratch, childBuilt(CHILD), { backfillHarness: false });
-    link = await childLink(scratch, CHILD);
-    assertOk(link, 'child session disappeared after incremental re-ingest');
-    assertOk(
-      link?.parent_session_id === PARENT,
-      `incremental: child parent_session_id=${link?.parent_session_id} expected ${PARENT} (issue #10 regression)`,
-    );
-    assertOk(
-      link?.spawned_by_seq === 2,
-      `incremental: child spawned_by_seq=${link?.spawned_by_seq} expected 2`,
-    );
-    assertOk(
-      (await launcherStamp(scratch)) === CHILD,
-      'incremental: launcher meta.child_session_id lost after re-ingest',
-    );
+      // (b) child-only incremental re-ingest preserves the link.
+      await replaceBuiltSession(scratch, childBuilt(CHILD), { backfillHarness: false });
+      link = await childLink(scratch, CHILD);
+      assertOk(link, 'child session disappeared after incremental re-ingest');
+      assertOk(
+        link?.parent_session_id === PARENT,
+        `incremental: child parent_session_id=${link?.parent_session_id} expected ${PARENT} (issue #10 regression)`,
+      );
+      assertOk(
+        link?.spawned_by_seq === 2,
+        `incremental: child spawned_by_seq=${link?.spawned_by_seq} expected 2`,
+      );
+      assertOk(
+        (await launcherStamp(scratch)) === CHILD,
+        'incremental: launcher meta.child_session_id lost after re-ingest',
+      );
 
-    // (c) anti-fabrication: re-ingesting an orphan never invents a parent.
-    await replaceBuiltSession(scratch, childBuilt(ORPHAN), { backfillHarness: false });
-    const orphanAfter = await childLink(scratch, ORPHAN);
-    assertOk(
-      orphanAfter?.parent_session_id == null,
-      `incremental: orphan child fabricated parent_session_id=${orphanAfter?.parent_session_id}`,
-    );
+      // (c) anti-fabrication: re-ingesting an orphan never invents a parent.
+      await replaceBuiltSession(scratch, childBuilt(ORPHAN), { backfillHarness: false });
+      const orphanAfter = await childLink(scratch, ORPHAN);
+      assertOk(
+        orphanAfter?.parent_session_id == null,
+        `incremental: orphan child fabricated parent_session_id=${orphanAfter?.parent_session_id}`,
+      );
 
-    console.log('================ Lathe sub-agent relink verification ================');
-    console.log('full ingest      : child linked to parent, launcher stamped');
-    console.log('incremental      : child link preserved after child-only re-ingest');
-    console.log('anti-fabrication : orphan child stays unlinked (no invented parent)');
-    console.log('=====================================================================');
-    console.log('VERDICT: GREEN — incremental re-ingest restores the real parent link (#10).');
-  } finally {
-    await scratch.end().catch(() => undefined);
-    await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).catch(() => undefined);
-    await admin.end().catch(() => undefined);
-  }
+      console.log('================ Lathe sub-agent relink verification ================');
+      console.log('full ingest      : child linked to parent, launcher stamped');
+      console.log('incremental      : child link preserved after child-only re-ingest');
+      console.log('anti-fabrication : orphan child stays unlinked (no invented parent)');
+      console.log('=====================================================================');
+      console.log('VERDICT: GREEN — incremental re-ingest restores the real parent link (#10).');
+    } finally {
+      await scratch.end().catch(() => undefined);
+    }
+  });
 }
 
 main().catch((error) => {

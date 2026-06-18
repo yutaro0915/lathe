@@ -10,6 +10,7 @@ import {
   hhmmss,
   isCommit,
   isTest,
+  langOf,
   lineCount,
   preview,
   type LooseRecord,
@@ -22,15 +23,6 @@ import type { ProviderBuildOptions, TranscriptProvider } from './types';
 // SAME repo's sessions (by cwd) into lathe's schema with runner='codex'. Notes:
 // cost is null (db/pricing.json only covers Claude); `reasoning` is encrypted
 // (no thinking text); there is no read tool (file reads are inferred from cat/sed).
-
-function codexLangOf(p: string): string | null {
-  const ext = p.split('.').pop()?.toLowerCase();
-  const m: Record<string, string> = {
-    ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx', py: 'python',
-    sql: 'sql', css: 'css', md: 'markdown', json: 'json', sh: 'bash', mjs: 'javascript', html: 'html',
-  };
-  return (ext && m[ext]) || null;
-}
 
 // Pull the read target out of a shell read (`sed -n '1,220p' hot.md`,
 // `cat memory/USER.md`, `head -40 lib/db.ts`) and resolve it against the session
@@ -153,7 +145,7 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
   };
   const ensureFile = (p: string) => {
     let f = filesByPath.get(p);
-    if (!f) { f = { id: `chf_${sessionId}_${filesByPath.size + 1}`, session_id: sessionId, path: p, status: 'modified', additions: 0, deletions: 0, language: codexLangOf(p), seq: filesByPath.size + 1, _hunkSeq: 0 }; filesByPath.set(p, f); }
+    if (!f) { f = { id: `chf_${sessionId}_${filesByPath.size + 1}`, session_id: sessionId, path: p, status: 'modified', additions: 0, deletions: 0, language: langOf(p), seq: filesByPath.size + 1, _hunkSeq: 0 }; filesByPath.set(p, f); }
     return f;
   };
 
