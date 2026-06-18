@@ -75,16 +75,32 @@ warn-first（CI を落とさない）で始め、warn→error 昇格は各 slice
 | I4 (max-lines-per-function) | r7/r8/r9 完了後 |
 | I6-no-orphans | r1-deadcode 完了後 |
 
-## 検証ゲート
+## 検証ゲート（実施結果 2026-06-18）
 
-- [x] `pnpm install` が ERROR なく完了
-- [x] `pnpm lint:deps` が構文/解決エラーなく完了
-- [x] I2 違反（packages/mcp/src/server.ts, verify.ts）が warn として検出
-- [x] I1 違反（verdict route.ts:2 の lib/postgres 直 import）が warn として検出
-- [x] N1 反証: I2 ルールの from を変更→warn 消滅、戻す→再び出現（反証可能性確認）
-- [x] `pnpm lint:ox` で grandfather 6 本が warn ゼロ、非 grandfather 500+ が warn 出力
-- [x] `pnpm -F web build` が ERROR ゼロ
-- e2e: 設定ファイル追加のみで runtime 不変のため full 実行は省略（または軽量 1 件で確認）
+- [x] `pnpm install` が ERROR なく完了（dependency-cruiser@16.10.4, oxlint@0.16.12 インストール済み）
+- [x] `pnpm lint:deps` が構文/解決エラーなく完了（10 warnings, 0 errors）
+- [x] I2 違反が warn として検出（3 件: server.ts→mcp.ts, verify.ts→mcp.ts, verify.ts→postgres.ts）
+- [x] I1 違反が warn として検出（2 件: verdict/route.ts→@/lib/postgres, mcp.ts→postgres.ts）
+- [x] N1 反証: I2 の from を `^NONEXISTENT_PACKAGE/` に変更 → warn ゼロ（✔ no violations）、元に戻す → 3 件復活
+- [x] `pnpm lint:ox` で grandfather 6 本の max-lines warn がゼロ（実測値 = max に設定済み）
+- [x] 非 grandfather 500+ ファイルが warn 出力（mcp.ts:641, verify-phase2.ts:704, verify.ts:555, claude.ts:566）
+- [x] `pnpm -F web build` が ERROR ゼロ（all routes compiled successfully）
+- e2e: 設定ファイル追加のみで runtime 不変のため full 実行を省略（next build GREEN = 無退行を確認）
+
+### lint:deps の実測 warn（全 10 件）
+
+```
+warn I1-postgres-boundary: apps/web/app/api/findings/[id]/verdict/route.ts → @/lib/postgres
+warn I1-postgres-boundary: apps/web/lib/mcp.ts → apps/web/lib/postgres.ts
+warn I2-package-to-app: packages/mcp/src/verify.ts → apps/web/lib/postgres.ts
+warn I2-package-to-app: packages/mcp/src/verify.ts → apps/web/lib/mcp.ts
+warn I2-package-to-app: packages/mcp/src/server.ts → apps/web/lib/mcp.ts
+warn I6-no-orphans: packages/acp-client/src/types.ts
+warn I6-no-orphans: apps/web/lib/types.ts
+warn I6-no-orphans: apps/web/lib/runner-display.ts
+warn I6-no-orphans: apps/web/lib/event-display.ts
+warn I6-no-orphans: apps/web/app/loading.tsx
+```
 
 ## 後続 slice との接続
 
