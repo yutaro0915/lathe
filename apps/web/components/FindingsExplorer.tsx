@@ -1,199 +1,34 @@
 "use client";
 
-// components/FindingsExplorer.tsx — the Findings master-detail, shared by both
-// the cross-session Findings AXIS (route /findings) and the per-session Findings
-// TAB inside the session viewer.
-//
-// IA principle (design/ui-design-language.md, 2026-06-12): the cross-session
-// theme lives on the global bar; the session viewer's tab shows ONLY findings
-// attached to that one session. This component is the single rendering of the
-// list + detail + verdict flow, parameterised by `mode`:
-//
-//   • mode "axis"    — the /findings screen. Session filter (All sessions / a
-//                       specific session) is available; evidence jumps deep-link
-//                       into the owning session's transcript (?session=&seq=).
-//   • mode "session" — the viewer tab. Pre-scoped to one session; NO session
-//                       filter (cross-session is the axis's job); evidence jumps
-//                       are resolved in-page by the host (resolveEvidence prop).
-//
-// All verdict state (drafts, busy, toast, error, selection) is owned here so the
-// component is self-contained on both screens.
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { parseStamp, shortModel } from "@lathe/shared";
+import {
+  FINDING_KIND_LABEL,
+  TurnEventRow,
+  evidenceSessionId,
+  findingConfidenceLabel,
+  findingTouchesSession,
+  findingVerdictLabel,
+  groupEvidence,
+  shortHash,
+  type FindingStatusFilter,
+  type ResolvedEvidence,
+} from "@/components/findings-explorer/model";
 import type {
   Finding,
   FindingEvidence,
-  FindingEvidenceNarrative,
   FindingVerdict,
   FindingVerdictValue,
   Session,
   TurnContext,
-  TurnContextEvent,
 } from "@/lib/types";
 
-export type FindingStatusFilter = "pending" | "decided" | "all";
-
-// One resolved evidence target — either an in-page jump (session viewer) or a
-// deep link (the axis). `resolved:false` means the locator maps to nothing in
-// the data available to the current screen.
-export type ResolvedEvidence =
-  | { resolved: true; kind: FindingEvidence["subjectKind"]; label: string; title: string; jump: () => void }
-  | { resolved: false; kind: FindingEvidence["subjectKind"]; label: string; title: string };
-
-const FINDING_KIND_LABEL: Record<Finding["kind"], string> = {
-  failure_loop: "failure loop",
-  unattributed_diff: "unattributed diff",
-  excess_cost: "excess cost",
-  risky_action: "risky action",
-};
-
-function findingConfidenceLabel(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
-
-function findingVerdictLabel(value: FindingVerdictValue): string {
-  return value === "accept" ? "Accepted" : "Rejected";
-}
-
-function shortHash(value: string | null): string {
-  return value ? value.slice(0, 10) : "—";
-}
-
-function locatorString(evidence: FindingEvidence, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = evidence.locator[key];
-    if (typeof value === "string" && value.trim()) return value;
-    if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  }
-  return null;
-}
-
-export function evidenceSessionId(evidence: FindingEvidence): string | null {
-  return (
-    evidence.sessionId ??
-    (evidence.subjectKind === "session" ? evidence.subjectId : null) ??
-    locatorString(evidence, ["session_id", "sessionId", "session"])
-  );
-}
-
-export function findingTouchesSession(finding: Finding, sessionId: string): boolean {
-  return finding.evidence.some((evidence) => evidenceSessionId(evidence) === sessionId);
-}
-
-// One evidence group: a stretch of evidence that shares the same (session, turn).
-// The user's complaint was 4 near-identical cards differing only by `step`; this
-// collapses them into ONE card whose header is the session + turn position + the
-// single USER ASKED prompt, with one row per step inside. Evidence that lacks a
-// resolvable (sessionId, turn) — e.g. session-kind or unresolved locators — each
-// become a singleton group so nothing regresses.
-//
-// Grouping is a pure VIEW transform over finding.evidence; the data contract
-// (finding_evidence) is untouched (requirement B).
-export interface EvidenceGroup {
-  key: string;
-  // narrative shared by the group (taken from the first member that has one).
-  // null for singleton groups whose evidence carries no narrative.
-  narrative: FindingEvidenceNarrative | null;
-  sessionId: string | null;
-  turn: number | null;
-  members: FindingEvidence[];
-}
-
-export function groupEvidence(evidence: FindingEvidence[]): EvidenceGroup[] {
-  const groups: EvidenceGroup[] = [];
-  const byKey = new Map<string, EvidenceGroup>();
-  for (const item of evidence) {
-    const narrative = item.excerpt?.narrative ?? null;
-    const sessionId = narrative?.sessionId ?? evidenceSessionId(item);
-    const turn = narrative?.turn ?? null;
-    // Only fold together when BOTH the session and a turn number are known and a
-    // narrative is present (so the shared header is meaningful). Otherwise the
-    // evidence stands alone — keyed by its own id so it is never merged.
-    const groupable = narrative != null && sessionId != null && turn != null;
-    const key = groupable ? `t:${sessionId}::${turn}` : `e:${item.id}`;
-    let group = byKey.get(key);
-    if (!group) {
-      group = { key, narrative, sessionId, turn, members: [] };
-      byKey.set(key, group);
-      groups.push(group);
-    }
-    if (!group.narrative && narrative) group.narrative = narrative;
-    group.members.push(item);
-  }
-  // step order inside each group: by excerpt seq (the session-wide step index),
-  // falling back to evidence id so the order is always deterministic.
-  for (const group of groups) {
-    group.members.sort((a, b) => {
-      const sa = a.excerpt?.seq ?? Number.MAX_SAFE_INTEGER;
-      const sb = b.excerpt?.seq ?? Number.MAX_SAFE_INTEGER;
-      return sa - sb || a.id - b.id;
-    });
-  }
-  return groups;
-}
-
-// One compact row in the embedded turn transcript. Visual language is borrowed
-// from the transcript (type micro-label, mono command, error-red only) but this
-// is a deliberately light renderer — it never imports SessionViewer. Clicking a
-// row deep-links the host to that exact step (when a jump handler is supplied).
-const TURN_EVENT_TYPE_LABEL: Record<string, string> = {
-  user_message: "user",
-  assistant_message: "assistant",
-  thinking: "thinking",
-  file_read: "read",
-  file_edit: "edit",
-  file_write: "write",
-  bash: "bash",
-  subagent: "subagent",
-  skill: "skill",
-  commit: "commit",
-  test: "test",
-  error: "error",
-  todo: "todo",
-  memory: "memory",
-  hook: "hook",
-};
-
-function TurnEventRow({
-  event,
-  onClick,
-}: {
-  event: TurnContextEvent;
-  onClick?: () => void;
-}) {
-  const isError = event.type === "error" || (event.exitCode != null && event.exitCode !== 0);
-  const label = TURN_EVENT_TYPE_LABEL[event.type] ?? event.type;
-  const Tag = onClick ? "button" : "div";
-  return (
-    <Tag
-      type={onClick ? "button" : undefined}
-      role="listitem"
-      className={`finding-turn-event${isError ? " err" : ""}${event.isEvidence ? " evidence" : ""}`} data-testid="finding-turn-event"
-      data-seq={event.seq}
-      data-type={event.type}
-      data-evidence={event.isEvidence ? "true" : undefined}
-      onClick={onClick}
-      title={onClick ? "Jump to this step in the transcript" : undefined}
-    >
-      <span className="finding-turn-event-seq mono" data-testid="finding-turn-event-seq">{event.seq}</span>
-      <span className="finding-turn-event-type" data-testid="finding-turn-event-type">{label}</span>
-      <span className="finding-turn-event-body" data-testid="finding-turn-event-body">
-        {event.command ? (
-          <code className="finding-turn-event-cmd mono" data-testid="finding-turn-event-cmd">{event.command}</code>
-        ) : (
-          <span className="finding-turn-event-text" data-testid="finding-turn-event-text">{event.text ?? event.title}</span>
-        )}
-      </span>
-      {event.exitCode != null && (
-        <span className={`finding-turn-event-exit mono ${event.exitCode === 0 ? "ok" : "err"}`} data-testid="finding-turn-event-exit">
-          exit {event.exitCode}
-        </span>
-      )}
-    </Tag>
-  );
-}
+export {
+  evidenceSessionId,
+  findingTouchesSession,
+  type ResolvedEvidence,
+} from "@/components/findings-explorer/model";
 
 export default function FindingsExplorer({
   findings,
@@ -211,21 +46,11 @@ export default function FindingsExplorer({
   setFindings: React.Dispatch<React.SetStateAction<Finding[]>>;
   sessions: Session[];
   mode: "axis" | "session";
-  // session viewer: the session the tab is scoped to. Findings whose evidence
-  // does not touch this session are never shown (IA principle #2).
   scopeSessionId?: string;
   resolveEvidence: (evidence: FindingEvidence) => ResolvedEvidence;
   initialStatusFilter?: FindingStatusFilter;
   initialSessionFilter?: string;
-  // Jump from a SESSION header → that session's transcript (requirement A). The
-  // host decides whether that is an in-page tab switch (session viewer, same
-  // session) or a deep-link router.push (axis / cross-session). `findingId` lets
-  // the host record where the jump came from (landing banner, requirement D).
   onJumpToSession?: (sessionId: string, findingId?: number) => void;
-  // Jump from a TURN header → the transcript positioned at that turn. `headSeq`
-  // is the turn's first user_message seq (USER ASKED), used as the deep-link
-  // anchor when the host has no richer turn locator. `findingId` is carried so
-  // the landing transcript can show "from finding #N".
   onJumpToTurn?: (
     sessionId: string,
     turn: number,
@@ -246,9 +71,6 @@ export default function FindingsExplorer({
     title: string;
   } | null>(null);
 
-  // Embedded turn transcript (requirement B): which evidence groups are expanded
-  // and a per-(session,turn) cache of the lazily-fetched turn context. Keyed by
-  // `${sessionId}::${turn}` so the same turn is fetched at most once.
   const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>({});
   const [turnContexts, setTurnContexts] = useState<
     Record<string, { loading: boolean; error: string | null; data: TurnContext | null }>
@@ -307,7 +129,6 @@ export default function FindingsExplorer({
     if (initialSessionFilter !== undefined) setSessionFilter(initialSessionFilter);
   }, [initialSessionFilter]);
 
-  // session-scoped findings (the universe the tab is allowed to show)
   const scopedFindings = useMemo(() => {
     if (mode === "session" && scopeSessionId) {
       return findings.filter((finding) => findingTouchesSession(finding, scopeSessionId));
@@ -325,8 +146,6 @@ export default function FindingsExplorer({
       .filter((finding) => {
         if (statusFilter === "pending" && finding.verdict) return false;
         if (statusFilter === "decided" && !finding.verdict) return false;
-        // the explicit session filter only applies on the axis; the tab is
-        // already pre-scoped to one session.
         if (mode === "axis" && sessionFilter !== "all" && !findingTouchesSession(finding, sessionFilter)) {
           return false;
         }
@@ -353,10 +172,6 @@ export default function FindingsExplorer({
     }
   }, [selectedFinding, selectedFindingId]);
 
-  // Selection is pure client state — no server round-trip, no navigation, so the
-  // detail panel swaps instantly (requirement E). We only mirror the choice into
-  // the URL via history.replaceState (a `finding` query param) so the selection
-  // is shareable / survives reload WITHOUT re-running the route loader.
   const selectFinding = useCallback((id: number) => {
     setSelectedFindingId(id);
     if (typeof window !== "undefined") {
@@ -366,7 +181,6 @@ export default function FindingsExplorer({
     }
   }, []);
 
-  // honour an initial ?finding=<id> deep link on mount (one-shot).
   const initialFindingApplied = useRef(false);
   useEffect(() => {
     if (initialFindingApplied.current) return;
@@ -379,7 +193,6 @@ export default function FindingsExplorer({
     }
   }, [findings]);
 
-  // sessions that actually carry findings — used to populate the axis filter.
   const sessionsWithFindings = useMemo(() => {
     if (mode !== "axis") return [] as Session[];
     const ids = new Set<string>();
