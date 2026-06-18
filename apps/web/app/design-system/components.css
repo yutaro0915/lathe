@@ -401,7 +401,7 @@
 
 /* ---- diff (screen B) ------------------------------------------------------
    Bespoke unified-diff renderer for the DiffViewer (DiffPane). No DS primitive
-   duplicates the diff/attribution rendering; they use the --add-*/--del-* tokens.
+   duplicates the diff/attribution rendering; they use the --add-* and --del-* tokens.
    Migrated out of globals.css verbatim (DS v1 shrinks globals, grows here). ---- */
 .diff-wrap{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;min-width:0;}
 .diff-toolbar{flex:0 0 auto;display:flex;flex-wrap:nowrap;align-items:center;gap:12px;padding:9px 14px 8px;border-bottom:1px solid var(--border);min-width:0;background:var(--panel);}
@@ -780,3 +780,162 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .finding-turn-event-exit{font-size:10px;font-variant-numeric:tabular-nums;}
 .finding-turn-event-exit.ok{color:var(--green-text);}
 .finding-turn-event-exit.err{color:var(--red-text);}
+
+/* ============================================================================
+   Transcript / timeline (screen A) — the instrument table, event rows, turn
+   headers, child rows, rollup chips, the transcript toolbar/filters, and the
+   deep-link flash. Bespoke; no DS primitive duplicates the event-row grid or
+   the category-dot icons. Migrated out of globals.css verbatim (DS v1 shrinks
+   globals, grows here).
+   ========================================================================== */
+/* ---- timeline (screen A) ---------------------------------------------------
+   Instrument table: seq | time | dot | title/sub | metrics. Compact rows,
+   hairline dividers, hover highlight, mono columns that actually align. */
+.timeline{flex:1 1 auto;min-height:0;overflow-y:auto;}
+.event-row{display:grid;grid-template-columns:34px 64px 18px minmax(0,1fr) auto;align-items:start;column-gap:9px;
+  padding:5px 14px 5px 8px;border-bottom:1px solid var(--border-faint);border-left:2px solid transparent;cursor:pointer;}
+.event-row:hover{background:var(--panel-hover);}
+.event-row.selected{background:var(--accent-weak);border-left-color:var(--accent);}
+.event-row.nested{padding-left:30px;} .event-row.nested .event-seq{visibility:hidden;}
+.event-seq{font-family:var(--mono);font-size:10.5px;color:var(--muted-2);text-align:right;padding-top:2px;font-variant-numeric:tabular-nums;}
+.event-gutter{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;padding-top:2px;font-variant-numeric:tabular-nums;}
+/* event "icon" = a small category dot on a neutral row (no colored blocks) */
+.event-icon{position:relative;width:16px;height:16px;border-radius:0;display:inline-flex;align-items:center;justify-content:center;
+  font-size:0;color:transparent;background:transparent;margin-top:1px;flex:0 0 auto;}
+.event-icon::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--cat-uncertain);}
+.event-icon.user_message::before{background:var(--c-user);} .event-icon.assistant_message::before{background:var(--c-assistant);}
+.event-icon.file_read::before{background:var(--c-read);} .event-icon.file_edit::before{background:var(--c-edit);} .event-icon.file_write::before{background:var(--c-write);}
+.event-icon.bash::before{background:var(--c-bash);} .event-icon.subagent::before{background:var(--c-subagent);} .event-icon.skill::before{background:var(--c-skill);}
+.event-icon.commit::before{background:var(--c-commit);} .event-icon.test::before{background:var(--c-test);} .event-icon.todo::before{background:var(--c-todo);}
+.event-icon.memory::before{background:var(--c-memory);} .event-icon.hook::before{background:var(--c-hook);}
+.event-icon.thinking::before{background:var(--c-assistant);}
+/* error is privileged: bigger, red, ringed */
+.event-icon.error::before{width:8px;height:8px;background:var(--cat-error);box-shadow:0 0 0 2px var(--red-bg);}
+.event-main{min-width:0;display:flex;flex-direction:column;gap:1px;}
+.event-headline{display:flex;align-items:center;gap:7px;min-width:0;}
+.event-title{font-size:12px;font-weight:550;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;}
+.event-sub{font-size:11px;color:var(--muted);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.event-sub.path{color:var(--muted);} .event-sub.body{font-family:var(--sans);color:var(--text-soft);}
+/* metric cluster: fixed-width right-aligned mono cells -> a real column feel */
+.event-meta{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--muted-2);font-family:var(--mono);
+  white-space:nowrap;padding-top:2px;font-variant-numeric:tabular-nums;justify-content:flex-end;}
+.event-meta .tok{color:var(--muted-2);min-width:64px;text-align:right;}
+.event-meta .dur{color:var(--muted);min-width:46px;text-align:right;}
+.event-meta .ok{color:var(--green);min-width:12px;text-align:center;} .event-meta .err{color:var(--red);min-width:12px;text-align:center;font-weight:700;}
+.event-row.filter-dimmed{opacity:.42;}
+.event-row.filter-dimmed:hover{opacity:.72;}
+.step-timebar-track{position:relative;display:inline-block;width:74px;height:8px;border-radius:999px;background:var(--bg-sunken);border:1px solid var(--border);overflow:hidden;vertical-align:middle;}
+.step-timebar{position:absolute;top:1px;bottom:1px;min-width:2px;border-radius:999px;background:var(--accent);}
+/* type badge: neutral outline + category dot; error keeps red */
+.event-type-badge{display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 6px;border-radius:3px;
+  font-size:9px;font-weight:650;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;
+  border:1px solid var(--border);background:var(--panel);color:var(--muted);}
+.event-type-badge::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--cat-uncertain);flex:0 0 auto;}
+.event-type-badge.user_message::before{background:var(--c-user);} .event-type-badge.assistant_message::before{background:var(--c-assistant);}
+.event-type-badge.file_read::before{background:var(--c-read);} .event-type-badge.file_edit::before{background:var(--c-edit);} .event-type-badge.file_write::before{background:var(--c-write);}
+.event-type-badge.bash::before{background:var(--c-bash);} .event-type-badge.subagent::before{background:var(--c-subagent);} .event-type-badge.skill::before{background:var(--c-skill);}
+.event-type-badge.commit::before{background:var(--c-commit);} .event-type-badge.test::before{background:var(--c-test);} .event-type-badge.todo::before{background:var(--c-todo);}
+.event-type-badge.memory::before{background:var(--c-memory);} .event-type-badge.hook::before{background:var(--c-hook);}
+.event-type-badge.thinking::before{background:var(--c-assistant);}
+.event-type-badge.error{border-color:var(--red-chip);background:var(--red-bg);color:var(--red-text);}
+.event-type-badge.error::before{background:var(--cat-error);}
+
+/* deep-link / evidence jump flash on the destination transcript step */
+@keyframes lathe-flash-jump{
+  0%{box-shadow:inset 2px 0 0 var(--accent),0 0 0 2px var(--accent-ring);}
+  100%{box-shadow:none;}
+}
+.event-row.flash-jump{animation:lathe-flash-jump 2.2s ease-out 1;}
+
+/* ---- expandable sub-agent steps in the transcript ---- */
+.tw-expand{border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:10px;line-height:1;padding:3px 4px;border-radius:3px;}
+.tw-expand:hover{background:var(--panel-hover);color:var(--accent);}
+/* turn header: a user_message that starts a turn — a quiet divider band.
+   The chip carries "Turn N · N steps"; rollup chips are neutral, error privileged. */
+.event-row.turn-header{background:var(--bg-sunken);border-top:1px solid var(--border);box-shadow:inset 2px 0 0 var(--accent);}
+.event-row.turn-header.turn-has-error{background:var(--red-bg);box-shadow:inset 2px 0 0 var(--red);}
+.event-row.turn-header .event-title{font-weight:650;color:var(--text);}
+.event-row.turn-header .event-meta{justify-content:flex-end;flex-wrap:wrap;row-gap:4px;white-space:normal;}
+.event-row.turn-header .turn-summary{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.chip.turn-chip{background:var(--panel);color:var(--text-soft);border:1px solid var(--border-strong);font-weight:650;}
+.chip.rollup-chip{background:var(--panel);border:1px solid var(--border);color:var(--text-soft);font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.chip.rollup-chip.err{background:var(--red-chip);border-color:var(--red-bg);color:var(--red-text);}
+.chip.rollup-chip.is-empty{color:var(--muted-2);}
+.turn-files-chip{font:inherit;font-family:var(--mono);cursor:pointer;}
+.turn-files-chip:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);}
+.event-row.child-row{background:var(--panel-2);box-shadow:inset 2px 0 0 var(--border-strong);}
+.event-row.child-row .event-gutter{padding-left:14px;}
+.event-row.child-row .event-title{font-weight:450;}
+.event-meta .chip{font-size:10.5px;padding:1px 6px;}
+
+/* transcript search toolbar (above the timeline scroller — stays put) */
+.transcript-toolbar{flex:0 0 auto;background:var(--panel);border-bottom:1px solid var(--border-faint);}
+/* event-type filter, relocated from the removed left sidebar into the transcript
+   toolbar. Override the sidebar's vertical .filters layout to a single dense
+   horizontal row: label · type chips (wrap) · highlight/hide mode (pushed right). */
+.transcript-filters{padding:0 12px 8px;}
+.transcript-filters .filter-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:0;}
+.transcript-filters .filter-row .flabel{display:inline-block;margin-bottom:0;flex:0 0 auto;}
+
+/* thinking (extended reasoning) events — dot handled above */
+.event-row .event-icon.thinking{font-style:normal;}
+
+/* minimap legend + zoom control (live consumers in TimeRibbon; the rest of the
+   old .minimap-* family was superseded by the TimeRibbon and removed). The
+   minimap-zoom '+' button is the session-viewer time-ribbon zoom control. */
+.minimap-zoom{display:inline-flex;gap:4px;}
+.minimap-zoom button{width:22px;height:22px;border:1px solid var(--border-strong);border-radius:var(--radius-xs);background:var(--panel);color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;}
+.minimap-legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.legend-item{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted);font-family:var(--mono);}
+.legend-swatch{width:9px;height:9px;border-radius:2px;flex:0 0 auto;}
+.legend-swatch.message{background:var(--k-message);} .legend-swatch.tool{background:var(--k-tool);} .legend-swatch.file{background:var(--k-file);}
+.legend-swatch.skill{background:var(--k-skill);} .legend-swatch.subagent{background:var(--k-subagent);} .legend-swatch.git{background:var(--k-git);}
+.legend-swatch.error{background:var(--k-error);} .legend-swatch.edit{background:var(--k-edit);} .legend-swatch.command{background:var(--k-command);}
+.legend-swatch.commit{background:var(--k-commit);} .legend-swatch.test{background:var(--k-git);} .legend-swatch.uncertain{background:var(--k-uncertain);}
+
+/* ============================================================================
+   Step-detail aside (screen A) — the right aside that scrolls: detail head +
+   actions, the KV grid, linked files, code/JSON blocks, the redesigned compact
+   stat strip + prominent IO output, and the empty-state placeholder. Bespoke;
+   no DS primitive duplicates them. Migrated out of globals.css verbatim (DS v1
+   shrinks globals, grows here). The .code-block.output white-space:pre-wrap rule
+   is an e2e computed-style contract (session-viewer.spec) — kept byte-exact.
+   ========================================================================== */
+/* ---- detail aside (screen A) ---------------------------------------------*/
+/* Block flow (not a shrinking flex column): the aside itself scrolls. */
+.detail{display:block;}
+.detail-head{display:flex;align-items:center;gap:8px;padding:12px 14px 8px;}
+.detail-head .dtitle{font-size:13px;font-weight:650;color:var(--text);} .detail-head .spacer{flex:1 1 auto;}
+.detail-actions{display:flex;gap:6px;padding:0 14px 10px;}
+.kv{display:grid;grid-template-columns:88px minmax(0,1fr);row-gap:6px;column-gap:10px;padding:10px 14px;border-top:1px solid var(--border);font-size:12px;}
+.kv dt,.kv .k{color:var(--muted);} .kv dd,.kv .v{color:var(--text);margin:0;min-width:0;overflow-wrap:anywhere;}
+.kv .v.mono{font-family:var(--mono);font-size:11.5px;font-variant-numeric:tabular-nums;}
+.linked-files{padding:10px 14px;border-top:1px solid var(--border);}
+.linked-file{display:flex;align-items:center;gap:8px;padding:4px 0;font-family:var(--mono);font-size:11.5px;color:var(--text-soft);}
+.linked-file .role{font-size:9px;padding:0 5px;height:14px;border-radius:3px;display:inline-flex;align-items:center;font-family:var(--sans);font-weight:650;
+  text-transform:uppercase;letter-spacing:.04em;border:1px solid var(--border);background:var(--panel);color:var(--muted);}
+.linked-file .role.read{color:var(--muted);} .linked-file .role.edit{color:var(--amber-text);border-color:var(--amber-chip);} .linked-file .role.write{color:var(--green-text);border-color:var(--green-chip);}
+.code-block{margin:8px 14px 12px;padding:9px 11px;background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius-sm);
+  font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--text-soft);white-space:pre;overflow-x:auto;position:relative;}
+.code-block .copy{position:absolute;top:6px;right:6px;color:var(--muted-2);cursor:pointer;}
+.run-json{margin:8px 14px 14px;padding:9px 11px;background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius-sm);
+  font-family:var(--mono);font-size:10.5px;line-height:1.55;color:var(--text-soft);white-space:pre;overflow:auto;max-height:220px;}
+.json-key{color:#6b5fa8;} .json-str{color:#3d7a55;} .json-num{color:#3a6ea8;} .json-punct{color:var(--muted-2);}
+
+/* ---- right-aside placeholder (run open, no step picked) ------------------*/
+.detail-placeholder{padding:18px 16px;font-size:11.5px;color:var(--muted);font-style:normal;}
+
+/* ---- redesigned event-detail panel: compact stats, prominent output ---- */
+.stat-strip{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 6px;}
+.stat{display:flex;flex-direction:column;gap:1px;padding:5px 10px;background:var(--panel-2);border:1px solid var(--border);border-radius:5px;min-width:58px;}
+.stat-k{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:650;}
+.stat-v{font-size:13.5px;font-weight:600;color:var(--text);font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.stat-v.ok{color:var(--green-text);} .stat-v.err{color:var(--red);}
+.detail-sub{padding:0 14px 5px;font-size:11px;color:var(--muted);font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.detail-path{padding:0 14px 8px;font-size:11px;color:var(--text-soft);word-break:break-all;font-family:var(--mono);}
+.io-block{display:flex;flex-direction:column;min-height:0;padding:6px 14px 2px;}
+.io-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.io-copy{border:1px solid var(--border);background:var(--panel);color:var(--muted);font-size:10.5px;padding:2px 6px;border-radius:4px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;font-family:var(--mono);}
+.io-copy:hover{color:var(--accent);border-color:var(--accent-ring);}
+.code-block.cmd{margin:0;max-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
+.code-block.output{margin:0;max-height:54vh;min-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
