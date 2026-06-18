@@ -13,7 +13,7 @@ import { getPool, queryOne, queryRows } from '../lib/postgres';
 import type { IngestNotifyPayload } from './ingest/notify';
 
 export type AnalystCandidate = 'rules-v1' | 'llm-v1' | 'hybrid-v1';
-export type LlmProviderMode = 'auto' | 'none' | 'claude-acp';
+export type LlmProviderMode = 'none' | 'claude-acp';
 
 interface TurnScope {
   sessionId: string;

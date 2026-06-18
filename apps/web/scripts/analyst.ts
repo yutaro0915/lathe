@@ -8,7 +8,7 @@ import {
 } from './analyst-engine';
 
 const CANDIDATES: AnalystCandidate[] = ['rules-v1', 'llm-v1', 'hybrid-v1'];
-const LLM_PROVIDER_MODES: LlmProviderMode[] = ['auto', 'none', 'claude-acp'];
+const LLM_PROVIDER_MODES: LlmProviderMode[] = ['none', 'claude-acp'];
 
 interface ParsedArgs {
   candidate?: AnalystCandidate;
@@ -30,7 +30,7 @@ function usage(): string {
     'Options:',
     '  --limit <n>                 Submit at most n findings, capped at 20',
     '  --dry-run                   Generate without submitting',
-    '  --llm-provider <mode>       auto | none | claude-acp',
+    '  --llm-provider <mode>       none | claude-acp',
     '  --max-llm-sessions <n>      Limit real sessions bundled into LLM prompts',
     '  --json                      Print machine-readable JSON summary',
   ].join('\n');
