@@ -110,7 +110,7 @@ baseline の選択肢（project 別中央値 × k / percentile / 絶対閾値）
    click で「この turn が触ったファイル / diff」へ飛べるオプション的 affordance とする。
    hover プレビューは任意。§5-2（diff 側のファイル → step 履歴）は維持。
 4. **この領域は「作りながら詰める」**（ユーザー認識）。構造（初期視界・rollup の有無・遷移）は
-   E2E で機械検証できるが、**見た目の細部は goal loop に向かない**（dev-loop §4 の「向かない」例に該当）。
+   E2E で機械検証できるが、**見た目の細部は goal loop に向かない**（`skills/lathe-loop` の「goal loop に向かないタスク」例に該当）。
    実装の進め方はこの性質に合わせて分ける。
 
 ### 残る未決
