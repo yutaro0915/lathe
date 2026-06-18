@@ -288,3 +288,66 @@
 .failed-steps-chip{font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;color:var(--muted-2);}
 .stat-v .stat-note.failed-steps-note{margin-left:6px;font-family:var(--mono);font-size:10px;font-weight:500;
   font-variant-numeric:tabular-nums;color:var(--muted-2);}
+
+/* ============================================================================
+   Session header bar + KStat + metric strip + cost-anomaly chips/banners.
+   Bespoke chrome at the top of the session viewer and the leaf jump/anomaly
+   chips. No DS primitive duplicates these (the metric STRIP is distinct from
+   the lds-metric stat primitive; the runner-pill/runner-dot in globals.css are
+   left there for later primitive-adoption, since lds-runner already covers them).
+   Migrated out of globals.css verbatim (DS v1 shrinks globals, grows here).
+   ========================================================================== */
+
+/* metrics band */
+.metrics{flex:0 0 var(--metrics-h);height:var(--metrics-h);display:flex;align-items:center;gap:24px;
+  padding:0 18px 0 calc(var(--sidebar-w) + 18px);background:var(--panel);border-bottom:1px solid var(--border);overflow-x:auto;}
+.metric{display:flex;flex-direction:column;gap:1px;white-space:nowrap;}
+.metric .label{font-size:10px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;}
+.metric .value{font-size:12.5px;font-weight:600;color:var(--text);display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.metric .value.mono{font-family:var(--mono);font-weight:500;}
+.metric .sub{font-size:10px;color:var(--muted-2);font-family:var(--mono);}
+.metric-branch{display:inline-flex;align-items:center;gap:6px;}
+.metric-commit{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);}
+.metric-sep{width:1px;height:24px;background:var(--border);flex:0 0 auto;}
+
+/* ---- refined session header (denser, named, mono numerics) ----
+   Height is the shared header band (--appbar-h) so the session bar's bottom hairline
+   lines up with the rail brand's into one unbroken line (vertical padding drops
+   to 0; align-items centres the content in the fixed band). */
+.lds-session-bar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--border);height:var(--appbar-h);}
+.lds-session-bar-id{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
+.lds-session-bar-id .runner-dot{flex:0 0 auto;}
+.lds-session-bar-title{font-size:13.5px;font-weight:650;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46ch;flex:0 1 auto;}
+.lds-session-bar-meta{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.lds-session-bar-stats{display:flex;align-items:center;gap:20px;flex:0 0 auto;}
+.kstat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;}
+.kstat b{font-size:13.5px;font-weight:650;color:var(--text);font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.kstat span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.lds-session-bar-jumps{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
+
+/* active date-range deep-link banner in the session-list sidebar */
+.date-range-banner{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--text-soft);background:var(--bg-sunken);border:1px solid var(--border-faint);border-radius:var(--radius-sm);padding:2px 7px;}
+.date-range-banner .clear{margin-left:auto;}
+
+/* ---- jump landing banner (requirement D) --------------------------------- */
+/* Shown directly under the header when a finding's evidence jump lands here, so
+   "where did I come from / where am I now" is answered at a glance. Neutral
+   chrome + accent dot; only `err` is allowed red elsewhere, so this stays calm. */
+.jump-landing-banner{display:flex;align-items:center;gap:8px;margin:8px 12px 0;
+  padding:5px 10px;font-size:11px;color:var(--text-soft);background:var(--accent-weak);
+  border:1px solid var(--accent-ring);border-radius:var(--radius-sm);}
+.jump-landing-dot{color:var(--accent);font-size:10px;}
+.jump-landing-text{font-variant-numeric:tabular-nums;letter-spacing:.03em;font-weight:650;color:var(--accent);}
+.jump-landing-dismiss{margin-left:auto;border:0;background:transparent;color:var(--muted);
+  font:inherit;font-size:11px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:3px;}
+.jump-landing-dismiss:hover{color:var(--text);background:var(--panel-hover);}
+.jump-landing-dismiss:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
+
+/* ---- G9 cost anomaly chips (loop 12, restyled to ui-design-language) ----
+   Variants on the shared .chip base (the base stays in globals.css). */
+.chip.anomaly-chip{background:var(--amber-bg);border:1px solid var(--amber-chip);color:var(--amber-text);font-weight:700;}
+.chip.jump-chip{border:1px solid var(--border);background:var(--panel);color:var(--text-soft);cursor:pointer;}
+.chip.jump-chip:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);}
+.chip.error-turn-chip{border-color:var(--red-chip);color:var(--red-text);}
+.session-item .si-flags{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;}
