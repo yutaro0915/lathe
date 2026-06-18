@@ -939,3 +939,112 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .io-copy:hover{color:var(--accent);border-color:var(--accent-ring);}
 .code-block.cmd{margin:0;max-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
 .code-block.output{margin:0;max-height:54vh;min-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
+
+/* ============================================================================
+   Session tab strip — the session-viewer + standalone-diff chrome tabs.
+   Bespoke: the TabBar primitive (lds-tabs) has no trailing-tool slot, and this
+   strip is sticky-by-band with a spacer + trailing tool. Migrated out of
+   globals.css verbatim (DS v1 shrinks globals, grows here).
+   ========================================================================== */
+/* tab strip — stays put while panes below scroll (sticky by band layout) */
+.lds-session-tabs{position:sticky;top:0;z-index:20;flex:0 0 var(--tabs-h);height:var(--tabs-h);display:flex;align-items:stretch;gap:0;
+  padding:0 20px;background:var(--panel);border-bottom:1px solid var(--border);}
+.lds-session-tab{display:inline-flex;align-items:center;height:100%;padding:0 11px;margin-bottom:-1px;border:0;background:transparent;
+  border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--sans);}
+.lds-session-tab:hover{color:var(--text-soft);}
+.lds-session-tab.active{color:var(--text);font-weight:650;border-bottom-color:var(--accent);}
+.lds-session-tabs-spacer{flex:1 1 auto;} .lds-session-tabs-tool{display:inline-flex;align-items:center;padding-right:4px;}
+/* tab count badge (Annotations / Findings) */
+.lds-session-tab .lds-session-tab-count{margin-left:6px;font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;
+  color:var(--muted-2);background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;padding:0 5px;line-height:15px;}
+.lds-session-tab.active .lds-session-tab-count{color:var(--text-soft);}
+/* trailing sort/count tool in the strip */
+.sort-select{height:24px;padding:0 7px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);
+  background:var(--panel);color:var(--text-soft);font-size:11px;display:inline-flex;align-items:center;gap:5px;
+  font-family:var(--mono);font-variant-numeric:tabular-nums;}
+
+/* ============================================================================
+   PR linkage chips (G1) — neutral base + status-only color (B discipline).
+   Bespoke link chips for the session header PR row + PullRequestView; no DS
+   primitive duplicates them. Migrated out of globals.css verbatim.
+   ========================================================================== */
+.pr-chip-row{display:inline-flex;align-items:center;gap:5px;margin-left:8px;flex-wrap:wrap;}
+.pr-chip{display:inline-flex;align-items:center;gap:4px;height:19px;padding:0 7px;border-radius:5px;
+  border:1px solid var(--border);background:var(--bg-sunken);color:var(--text-soft);
+  font-size:11px;font-family:var(--mono);font-weight:650;white-space:nowrap;text-decoration:none;cursor:pointer;}
+.pr-chip:hover{text-decoration:none;background:var(--panel-hover);}
+.pr-chip.open{background:var(--accent-weak);border-color:var(--accent-ring);color:var(--accent-strong);}
+.pr-chip.merged{background:var(--green-bg);border-color:var(--green-chip);color:var(--green-text);}
+.pr-chip.closed{background:var(--red-bg);border-color:var(--red-chip);color:var(--red-text);}
+.pr-chip.mini{height:18px;padding:0 6px;font-size:10.5px;}
+
+/* ============================================================================
+   Sessions list co-class remnants — the full-width Sessions surface is on the
+   lds-sessions-grid / lds-sg-* classes (shell.css); .session-list / .session-item
+   stay as the surface + row hooks (cross-session data oracles target them).
+   Bespoke; migrated out of globals.css verbatim.
+   ========================================================================== */
+.session-list{display:flex;flex-direction:column;padding:0 6px 8px;}
+.session-item{display:flex;flex-direction:column;gap:3px;padding:7px 9px;border:1px solid transparent;border-radius:var(--radius-sm);cursor:pointer;}
+.session-item:hover{background:var(--panel-hover);}
+.session-item.active{background:var(--panel);border-color:var(--border-strong);box-shadow:inset 2px 0 0 var(--accent);}
+.session-item .si-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+.session-item .si-title{font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.session-item .si-meta{font-size:10.5px;color:var(--muted);display:flex;align-items:center;gap:5px;flex-wrap:wrap;
+  font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.session-item .si-meta .dot{color:var(--muted-2);}
+.session-item .si-stats{display:flex;align-items:center;gap:5px;width:100%;}
+.session-item .si-stats .chip.cost{margin-left:auto;} /* cost right-aligned: scan a column */
+.session-item .runner-badge{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted);}
+
+/* ============================================================================
+   Transcript filter container — the transcript toolbar (.transcript-filters
+   above) overrides the layout; these bespoke base rows are used by TranscriptTab
+   (filters / filter-row / flabel). Migrated out of globals.css verbatim.
+   ========================================================================== */
+.filters{padding:8px 10px 2px;}
+.filter-row{margin-bottom:8px;}
+.filter-row .flabel{display:block;font-size:10px;color:var(--muted-2);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em;}
+
+/* ============================================================================
+   Annotations — the detail-aside attribution notes (AttributionPane) AND the
+   session-wide Annotations tab (AnnotationsTab). Bespoke; no DS primitive
+   duplicates the kind-dot / kind-tag / step rows. Migrated out of globals.css
+   verbatim (DS v1 shrinks globals, grows here).
+   ========================================================================== */
+.annotations{padding:10px 14px;border-top:1px solid var(--border);}
+.annotations .ahead{font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;}
+.annotations .ahead .count{color:var(--muted-2);font-weight:500;font-family:var(--mono);}
+.annotations .asub{font-size:10.5px;color:var(--muted);line-height:1.45;margin-bottom:6px;}
+.annotation{display:flex;align-items:flex-start;gap:8px;padding:5px 0;font-size:11.5px;color:var(--text-soft);border-top:1px solid var(--border-faint);}
+.annotation:hover{background:var(--panel-hover);}
+.annotation .akind{width:7px;height:7px;border-radius:50%;flex:0 0 auto;margin-top:4px;}
+.annotation .akind.error{background:var(--k-error);} .annotation .akind.test{background:var(--k-git);} .annotation .akind.edit{background:var(--k-edit);}
+.annotation .akind.commit{background:var(--k-commit);} .annotation .akind.note{background:var(--muted-2);}
+/* labelled annotation item (session viewer): kind tag + step + note text */
+.annotation .amain{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1 1 auto;}
+.annotation .ameta{display:flex;align-items:center;gap:7px;}
+.annotation .akind-tag{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:1px 5px;border-radius:3px;white-space:nowrap;flex:0 0 auto;
+  border:1px solid var(--border);background:var(--panel);color:var(--muted);}
+.annotation .akind-tag.error{background:var(--red-bg);color:var(--red-text);border-color:var(--red-chip);}
+.annotation .akind-tag.commit{color:var(--green-text);border-color:var(--green-chip);}
+.annotation .akind-tag.test{color:var(--text-soft);}
+.annotation .akind-tag.edit{color:var(--text-soft);}
+.annotation .akind-tag.note{color:var(--gray-chip-tx);}
+.annotation .aseq{font-family:var(--mono);font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
+.annotation .atxt{font-size:11px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);}
+/* Annotations tab (session-wide, moved out of the right aside) */
+.annotations-tab{padding:12px 14px;}
+.annotations-tab-head{display:flex;align-items:center;gap:8px;}
+.annotations-tab-head .ann-tab-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.annotations-tab-head .count{color:var(--muted-2);font-weight:500;font-size:11px;font-variant-numeric:tabular-nums;}
+.annotations-tab-sub{font-size:11px;color:var(--muted);line-height:1.5;margin:4px 0 8px;}
+.annotation.annotation-tab-row{padding:7px 4px;border-top:1px solid var(--border-faint);}
+.annotation.annotation-tab-row:hover{background:var(--panel-hover);}
+
+/* ============================================================================
+   Findings tab chips — the session-scope finding chip + its pending sub-count
+   in the MetricsBar. Bespoke; migrated out of globals.css verbatim.
+   ========================================================================== */
+.chip-sub{margin-left:6px;color:var(--muted-2);font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;}
+.findings-session-chip{gap:6px;}
