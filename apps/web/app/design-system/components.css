@@ -133,3 +133,24 @@
   display:inline-flex;align-items:center;justify-content:center;border-radius:var(--radius-sm);
   color:var(--muted-2);font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;}
 .attn-col-close:hover{background:var(--panel-hover);color:var(--text);}
+
+/* ---- time ribbon (bottom of both screens; segment width = real elapsed time)
+   One of the two surfaces where the category palette is allowed.
+   Migrated out of globals.css (DS v1 shrinks globals, grows here). ---- */
+.ribbon{flex:0 0 auto;border-top:1px solid var(--border);background:var(--panel);padding:8px 16px 10px;}
+.ribbon-head{display:flex;align-items:center;gap:14px;margin-bottom:6px;}
+.ribbon-head .mtitle{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.ribbon-total{font-size:11px;color:var(--text-soft);font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.ribbon-read{font-size:11px;color:var(--text-soft);font-family:var(--mono);max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.ribbon-read b{color:var(--text);font-weight:700;}
+.ribbon-scroll{overflow-x:auto;overflow-y:hidden;}
+.ribbon-track{position:relative;display:flex;align-items:stretch;height:28px;min-width:100%;background:var(--bg-sunken);border:1px solid var(--border);border-radius:4px;overflow:hidden;cursor:crosshair;}
+.ribbon-seg{height:100%;border:0;padding:0;margin:0;opacity:.92;background:var(--k-uncertain);border-right:1px solid rgba(255,255,255,.4);pointer-events:none;}
+.ribbon-seg.hover{opacity:1;filter:brightness(1.1);}
+.ribbon-seg.active{outline:2px solid var(--accent);outline-offset:-2px;opacity:1;z-index:1;}
+.ribbon-seg.peak{box-shadow:inset 0 0 0 2px rgba(28,36,48,.30);}
+.ribbon-seg.message{background:var(--k-message);} .ribbon-seg.tool{background:var(--k-tool);} .ribbon-seg.file{background:var(--k-file);}
+.ribbon-seg.skill{background:var(--k-skill);} .ribbon-seg.subagent{background:var(--k-subagent);} .ribbon-seg.git{background:var(--k-git);} .ribbon-seg.error{background:var(--k-error);}
+.ribbon-playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);box-shadow:0 0 0 1px rgba(255,255,255,.65);pointer-events:none;z-index:2;}
+.ribbon-axis{position:relative;height:13px;margin-top:4px;}
+.ribbon-axis .tick{position:absolute;top:0;font-size:9.5px;color:var(--muted-2);white-space:nowrap;font-family:var(--mono);font-variant-numeric:tabular-nums;}
