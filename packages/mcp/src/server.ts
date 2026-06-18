@@ -10,15 +10,17 @@ import {
   FINDING_NOTE_MAX_LENGTH,
   FINDING_TITLE_MAX_LENGTH,
   VERDICT_FILTERS,
+  type EvidenceSubjectKind,
+  type FindingKind,
+  type VerdictFilter,
+} from '@lathe/domain';
+import {
   getEvidenceContext,
   getMcpSessionBundle,
   listMcpSessions,
   queryFindings,
   submitFinding,
-  type EvidenceSubjectKind,
-  type FindingKind,
-  type VerdictFilter,
-} from '../../../apps/web/lib/mcp.js';
+} from './service';
 
 type JsonRecord = Record<string, unknown>;
 

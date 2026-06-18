@@ -2,11 +2,15 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { latheMcpServer, runSession, type AdapterCommand, type McpServer, type PermissionRequest, type SessionUpdate } from '@lathe/acp-client';
+import {
+  isFindingKind,
+  parseStoredAnalysis,
+  stableJson,
+  type FindingKind,
+} from '@lathe/domain';
 import { COST_ANOMALY_BASELINE } from '@lathe/shared';
 import {
-  FINDING_KINDS,
   submitFinding,
-  type FindingKind,
   type SubmitFindingInput,
 } from '../lib/mcp';
 import { getPool, queryOne, queryRows } from '../lib/postgres';
@@ -133,10 +137,6 @@ function clampLimit(value: number | undefined): number {
   return Math.min(MAX_LIMIT, Math.max(1, Math.trunc(value ?? DEFAULT_LIMIT)));
 }
 
-function isFindingKind(value: string): value is FindingKind {
-  return (FINDING_KINDS as readonly string[]).includes(value);
-}
-
 function cleanText(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
@@ -144,17 +144,6 @@ function cleanText(value: unknown, fallback = ''): string {
 function shorten(value: string, max: number): string {
   const compact = value.replace(/\s+/g, ' ').trim();
   return compact.length <= max ? compact : `${compact.slice(0, max - 1)}…`;
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function primarySessionId(finding: SubmitFindingInput): string | undefined {
@@ -1273,28 +1262,6 @@ async function assertEvidenceRequired(): Promise<void> {
     [['rules-v1', 'llm-v1', 'hybrid-v1']],
   );
   if (rows.length) throw new Error(`findings without evidence: ${rows.map((row) => row.id).join(', ')}`);
-}
-
-function parseStoredAnalysis(value: unknown): NonNullable<SubmitFindingInput['analysis']> | null {
-  if (value == null) return null;
-  let parsed: Record<string, unknown>;
-  if (typeof value === 'string') {
-    try {
-      parsed = JSON.parse(value) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-  } else if (typeof value === 'object' && !Array.isArray(value)) {
-    parsed = value as Record<string, unknown>;
-  } else {
-    return null;
-  }
-  const analysis = {
-    causeHypothesis: analysisText(typeof parsed.cause_hypothesis === 'string' ? parsed.cause_hypothesis : null),
-    agentIntent: analysisText(typeof parsed.agent_intent === 'string' ? parsed.agent_intent : null),
-    impact: analysisText(typeof parsed.impact === 'string' ? parsed.impact : null),
-  };
-  return analysis.causeHypothesis || analysis.agentIntent || analysis.impact ? analysis : null;
 }
 
 function analysisJsonPayload(analysis: NonNullable<SubmitFindingInput['analysis']>): Record<string, string | null> {

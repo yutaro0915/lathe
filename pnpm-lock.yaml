@@ -20,6 +20,9 @@ importers:
       '@lathe/acp-client':
         specifier: workspace:*
         version: link:../../packages/acp-client
+      '@lathe/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@lathe/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -87,8 +90,20 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/domain:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.20
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/mcp:
     dependencies:
+      '@lathe/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@lathe/shared':
         specifier: workspace:*
         version: link:../shared

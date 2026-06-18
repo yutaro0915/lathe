@@ -13,6 +13,7 @@
     "verify:placement": "tsx src/verify.ts placement"
   },
   "dependencies": {
+    "@lathe/domain": "workspace:*",
     "@lathe/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "pg": "^8.16.3",

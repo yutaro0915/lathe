@@ -1,16 +1,19 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { Pool } from 'pg';
 import {
   FINDING_BODY_MAX_LENGTH,
   FINDING_EVIDENCE_MAX_ITEMS,
   FINDING_LOCATOR_MAX_LENGTH,
   FINDING_NOTE_MAX_LENGTH,
   FINDING_TITLE_MAX_LENGTH,
-  submitFinding,
+  stableJson,
   type SubmitFindingInput,
-} from '../../../apps/web/lib/mcp.js';
-import { closePool, getPool } from '../../../apps/web/lib/postgres.js';
+} from '@lathe/domain';
+import { closePool, DEFAULT_DATABASE_URL, getPool } from '../../../apps/web/lib/postgres.js';
+import { closePool as closeMcpPool } from './postgres';
+import { submitFinding } from './service';
 
 type JsonRecord = Record<string, any>;
 
@@ -21,6 +24,7 @@ const TOOL_NAMES = [
   'get_evidence_context',
   'submit_finding',
 ];
+const ORIGINAL_DATABASE_URL = process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 
 function fail(message: string): never {
   throw new Error(message);
@@ -35,15 +39,87 @@ function findRepoRoot(): string {
   return process.cwd();
 }
 
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value as JsonRecord)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
-      .join(',')}}`;
+function scratchDatabaseUrl(schema: string): string {
+  const url = new URL(ORIGINAL_DATABASE_URL);
+  url.searchParams.set('options', `-c search_path=${schema},public`);
+  return url.toString();
+}
+
+async function seedScratchDatabase(): Promise<void> {
+  const root = findRepoRoot();
+  const schemaSql = fs.readFileSync(path.join(root, 'apps', 'web', 'db', 'schema.sql'), 'utf8');
+  const pool = getPool();
+  await pool.query(schemaSql);
+  await pool.query(
+    `INSERT INTO projects (id, display_name, git_remote, cwd_hint)
+     VALUES ('mcp-fixture-project', 'MCP fixture project', NULL, NULL)`,
+  );
+  await pool.query(
+    `INSERT INTO sessions (
+       id, project_id, project, title, runner, model, status, started_at, ended_at,
+       duration_ms, turn_count, tool_count, edit_count, bash_count, subagent_count,
+       error_count, token_usage, token_in, token_out, git_branch, commit_count,
+       cost_usd, summary, harness_version_id, parent_session_id, spawned_by_seq, seq
+     )
+     VALUES (
+       'mcp-fixture-session', 'mcp-fixture-project', 'lathe', 'MCP fixture session',
+       'codex', 'gpt-fixture', 'done', '2026-06-18T00:00:00.000Z',
+       '2026-06-18T00:01:00.000Z', 60000, 1, 1, 1, 1, 0, 0, 42, 24, 18,
+       'conv/r3-mcp-boundary', 0, 0.01, 'fixture session', NULL, NULL, NULL, 1
+     )`,
+  );
+  await pool.query(
+    `INSERT INTO transcript_events (
+       id, session_id, seq, ts, type, actor, title, body, file_path, command,
+       exit_code, duration_ms, token_usage, subagent, meta, parent_id
+     )
+     VALUES
+       ('mcp-fixture-event-user', 'mcp-fixture-session', 1, '00:00:01',
+        'user_message', 'user', 'User asked', 'Implement MCP fixture', NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL, NULL),
+       ('mcp-fixture-event-bash', 'mcp-fixture-session', 2, '00:00:02',
+        'bash', 'assistant', 'Ran fixture command', 'fixture output', NULL,
+        'printf fixture', 0, 100, NULL, NULL, NULL, NULL)`,
+  );
+  await pool.query(
+    `INSERT INTO changed_files (id, session_id, path, status, additions, deletions, language, seq)
+     VALUES ('mcp-fixture-file', 'mcp-fixture-session', 'packages/mcp/src/server.ts', 'modified', 3, 1, 'ts', 1)`,
+  );
+  await pool.query(
+    `INSERT INTO diff_hunks (id, file_id, seq, header, content)
+     VALUES ('mcp-fixture-hunk', 'mcp-fixture-file', 1, '@@ -1 +1 @@', '-old\n+new')`,
+  );
+  await pool.query(
+    `INSERT INTO attributions (id, hunk_id, event_id, confidence, method, note)
+     VALUES ('mcp-fixture-attribution', 'mcp-fixture-hunk', 'mcp-fixture-event-bash', 'high', 'edit_event', 'fixture attribution')`,
+  );
+  await pool.query(
+    `INSERT INTO event_files (event_id, path, role)
+     VALUES ('mcp-fixture-event-bash', 'packages/mcp/src/server.ts', 'edit')`,
+  );
+  await pool.query(
+    `INSERT INTO annotations (session_id, at_seq, kind, note)
+     VALUES ('mcp-fixture-session', 2, 'edit', 'fixture annotation')`,
+  );
+}
+
+async function withScratchDatabase<T>(fn: () => Promise<T>): Promise<T> {
+  const schema = `mcp_verify_${process.pid}_${Date.now()}`.replace(/[^a-zA-Z0-9_]/g, '_');
+  const admin = new Pool({ connectionString: ORIGINAL_DATABASE_URL });
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = scratchDatabaseUrl(schema);
+  try {
+    await seedScratchDatabase();
+    return await fn();
+  } finally {
+    await closeMcpPool();
+    await closePool();
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+    await admin.end();
   }
-  return JSON.stringify(value);
 }
 
 function assertDeepEqual(actual: unknown, expected: unknown, label: string): void {
@@ -552,15 +628,17 @@ async function verifySubmitFinding(): Promise<void> {
 async function verifyPlacement(): Promise<void> {
   const root = findRepoRoot();
   const server = fs.readFileSync(path.join(root, 'packages', 'mcp', 'src', 'server.ts'), 'utf8');
-  const logic = fs.readFileSync(path.join(root, 'apps', 'web', 'lib', 'mcp.ts'), 'utf8');
-  if (!server.includes("../../../apps/web/lib/mcp.js")) {
-    fail('MCP server does not call the apps/web/lib MCP business logic module');
-  }
+  const service = fs.readFileSync(path.join(root, 'packages', 'mcp', 'src', 'service.ts'), 'utf8');
+  const forbiddenAppPath = ['apps', 'web'].join('/');
+  if (!server.includes("from '@lathe/domain'")) fail('MCP server does not import schema/types from @lathe/domain');
+  if (!server.includes("from './service'")) fail('MCP server does not call the local MCP service module');
+  if (server.includes(forbiddenAppPath)) fail('MCP server still imports the web app');
   for (const pattern of [/INSERT\s+INTO/i, /SELECT\s+.+\s+FROM/i, /getPool\s*\(/, /queryRows\s*\(/, /queryOne\s*\(/]) {
     if (pattern.test(server)) fail(`MCP tool handler contains DB logic matching ${pattern}`);
   }
-  if (!logic.includes('getSessionBundle')) fail('apps/web/lib/mcp.ts does not reuse getSessionBundle');
-  if (!logic.includes('submitFinding')) fail('apps/web/lib/mcp.ts does not expose submitFinding');
+  if (!service.includes("from '@lathe/domain'")) fail('MCP service does not use @lathe/domain');
+  if (service.includes(forbiddenAppPath)) fail('MCP service still imports the web app');
+  if (!service.includes('submitFinding')) fail('packages/mcp/src/service.ts does not expose submitFinding');
   console.log('[verify-mcp:4-placement] GREEN');
 }
 
@@ -579,11 +657,12 @@ async function run(command: string | undefined): Promise<void> {
   fail('usage: tsx src/verify.ts handshake|read|submit|placement|all');
 }
 
-run(process.argv[2])
+withScratchDatabase(() => run(process.argv[2]))
   .catch((error) => {
     console.error(`[verify-mcp] failed: ${(error as Error).message}`);
     process.exitCode = 1;
   })
   .finally(async () => {
+    await closeMcpPool();
     await closePool();
   });
