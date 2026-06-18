@@ -1,0 +1,17 @@
+{
+  "title": "スタイルは DS v1 単一系 (旧 globals.css を 0 へ) — I3",
+  "scope": ["apps/web/app", "apps/web/components"],
+  "pass_to_task": "新規/変更するスタイルは DS v1 (lds-*/tokens.css) を使う。旧 globals.css のクラスを増やさず、触ったものは lds-* へ寄せて globals.css を減らす。",
+  "checks": [
+    {
+      "id": "globals-css-shrinking",
+      "value": "旧スタイル系(globals.css)と DS v1 が二重に存在する状態を解消し、単一系にすること(I3)。守ると token/クラスの二重定義・値衝突が無くなり、UI 改修が一系統で済む。現状 1008 行=backlog、目標 0。",
+      "verify": {
+        "cmd": "wc -l < apps/web/app/globals.css 2>/dev/null || echo 0",
+        "expect": "le:1008",
+        "means": "globals.css の行数 ≤1008(現天井)。収束で天井を締めて 0 へ。増やしたら RED"
+      }
+    }
+  ],
+  "origin": "r4 で :root 一本化・一部クラス移行。globals.css 1008 行の完全撤去は backlog (2026-06-18)"
+}
