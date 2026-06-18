@@ -13,12 +13,6 @@
       }
     },
     {
-      "files": ["apps/web/components/SessionViewer.tsx"],
-      "rules": {
-        "max-lines": ["warn", { "max": 2518, "skipBlankLines": true, "skipComments": true }]
-      }
-    },
-    {
       "files": ["apps/web/lib/db.ts"],
       "rules": {
         "max-lines": ["warn", { "max": 1612, "skipBlankLines": true, "skipComments": true }]
@@ -34,6 +28,36 @@
       "files": ["apps/web/components/FindingsExplorer.tsx"],
       "rules": {
         "max-lines": ["warn", { "max": 1030, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["apps/web/scripts/verify-phase2.ts"],
+      "rules": {
+        "max-lines": ["warn", { "max": 704, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["apps/web/scripts/ingest/providers/claude.ts"],
+      "rules": {
+        "max-lines": ["warn", { "max": 609, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["packages/mcp/src/service.ts"],
+      "rules": {
+        "max-lines": ["warn", { "max": 883, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["packages/mcp/src/verify.ts"],
+      "rules": {
+        "max-lines": ["warn", { "max": 632, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["apps/web/e2e/helpers.ts"],
+      "rules": {
+        "max-lines": ["warn", { "max": 1013, "skipBlankLines": true, "skipComments": true }]
       }
     }
   ]

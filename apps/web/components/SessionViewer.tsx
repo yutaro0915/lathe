@@ -1,214 +1,29 @@
 "use client";
 
-// components/SessionViewer.tsx — Screen A: fully-interactive session viewer.
-//
-// Client component. The route (app/page.tsx) is a thin server wrapper that
-// loads the SessionBundle and the session list, then renders this. The ONLY
-// interaction that navigates is switching sessions (router.push("/?session=…"));
-// everything else is local React state (filters, tabs, selection, pins, notes).
-//
-// Visual structure, classNames and helpers are preserved from the original
-// static app/page.tsx — this file adds interactivity + real data wiring.
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import TimeRibbon from "@/components/TimeRibbon";
-import DiffViewer from "@/components/DiffViewer";
-import SessionStatsView from "@/components/SessionStatsView";
-import CostAnomalyChip from "@/components/CostAnomalyChip";
-import FindingsExplorer, {
-  evidenceSessionId,
-  findingTouchesSession,
-  type ResolvedEvidence,
-} from "@/components/FindingsExplorer";
-import Link from "next/link";
-import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
-import {
-  fmtCompact,
-  fmtCost,
-  fmtInt,
-  fmtTok,
-  humanizeDuration,
-  parseStamp,
-  shortModel,
-} from "@lathe/shared";
-import type {
-  Session,
-  SessionBundle,
-  TranscriptEvent,
-  EventType,
-  AnnotationKind,
-  PullRequestSummary,
-  Finding,
-  FindingEvidence,
-} from "@/lib/types";
-
-function durLabel(ms: number | null): string {
-  if (ms == null) return "";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-// Map an event type onto a minimap "kind" class (legend buckets).
-function minimapKind(t: EventType): string {
-  switch (t) {
-    case "user_message":
-    case "assistant_message":
-    case "thinking":
-      return "message";
-    case "bash":
-    case "test":
-    case "hook":
-      return "tool";
-    case "file_read":
-    case "file_edit":
-    case "file_write":
-    case "memory":
-      return "file";
-    case "skill":
-      return "skill";
-    case "subagent":
-      return "subagent";
-    case "commit":
-      return "git";
-    case "error":
-      return "error";
-    default:
-      return "tool";
-  }
-}
-
-// All filterable event types, in legend order.
-const ALL_TYPES: EventType[] = [
-  "user_message",
-  "assistant_message",
-  "thinking",
-  "file_read",
-  "file_edit",
-  "file_write",
-  "bash",
-  "subagent",
-  "skill",
-  "memory",
-  "hook",
-  "commit",
-  "test",
-  "todo",
-  "error",
-];
-
-// Tools tab shows these "tool-ish" event types.
-const TOOL_TYPES: EventType[] = ["bash", "file_read", "file_edit", "file_write", "test", "commit"];
-
-type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "annotations" | "findings" | "raw" | "stats";
-type FilterMode = "highlight" | "hide";
-
-type TurnFile = { id: string; path: string };
-type TurnRollup = {
-  turn: number;
-  steps: number;
-  edits: number;
-  bash: number;
-  errors: number;
-  tokens: number;
-  durationMs: number;
-  wallDurationMs: number;
-  costUsd: number | null;
-  files: TurnFile[];
-  summary: string;
-  collapsed: boolean;
-};
+import { findingTouchesSession } from "@/components/FindingsExplorer";
+import type { EventType, Finding, Session, SessionBundle, TranscriptEvent } from "@/lib/types";
+import { clampPct, hmsToMs, ALL_TYPES, type FilterMode, type Tab } from "@/components/session-viewer/types";
+import { useTurnRollups } from "@/components/session-viewer/useTurnRollups";
+import { useEvidenceResolver } from "@/components/session-viewer/useEvidenceResolver";
+import { MetricsBar } from "@/components/session-viewer/MetricsBar";
+import { SessionTabs } from "@/components/session-viewer/SessionTabs";
+import { GitTab } from "@/components/session-viewer/GitTab";
+import { StatsTab } from "@/components/session-viewer/StatsTab";
+import { TranscriptTab } from "@/components/session-viewer/TranscriptTab";
+import { ToolsTab } from "@/components/session-viewer/ToolsTab";
+import { SkillsTab } from "@/components/session-viewer/SkillsTab";
+import { SubagentsTab } from "@/components/session-viewer/SubagentsTab";
+import { AnnotationsTab } from "@/components/session-viewer/AnnotationsTab";
+import { FindingsTab } from "@/components/session-viewer/FindingsTab";
+import { RawTab } from "@/components/session-viewer/RawTab";
+import { SessionAside } from "@/components/session-viewer/SessionAside";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
 const LS_PINS = "lathe.pins";
 const LS_NOTES = "lathe.notes";
-
-// Finding kind/verdict/confidence/hash label helpers now live in
-// FindingsExplorer (where the findings master-detail is rendered).
-
-function locatorString(evidence: FindingEvidence, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = evidence.locator[key];
-    if (typeof value === "string" && value.trim()) return value;
-    if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  }
-  return null;
-}
-
-function locatorNumber(evidence: FindingEvidence, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = evidence.locator[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
-  }
-  return null;
-}
-
-// `evidenceSessionId` / `findingTouchesSession` are imported from
-// FindingsExplorer (single source of truth, shared with the Findings axis).
-
-function firstNonEmptyLine(text: string | null | undefined): string {
-  return (text ?? "").split("\n").map((line) => line.trim()).find(Boolean) ?? "";
-}
-
-function readMetaCostUsd(e: TranscriptEvent): number | null {
-  if (!e.meta) return null;
-  try {
-    const meta = JSON.parse(e.meta);
-    return typeof meta.costUsd === "number" ? meta.costUsd : null;
-  } catch {
-    return null;
-  }
-}
-
-function hmsToMs(ts: string): number | null {
-  const m = /(\d{2}):(\d{2}):(\d{2})/.exec(ts);
-  if (!m) return null;
-  return (Number(m[1]) * 60 * 60 + Number(m[2]) * 60 + Number(m[3])) * 1000;
-}
-
-function clampPct(n: number): number {
-  return Math.max(0, Math.min(100, n));
-}
-
-// ---- tiny JSON renderer for the Run JSON panel (.json-* spans) -------------
-
-function JsonView({ value }: { value: Record<string, unknown> }) {
-  const entries = Object.entries(value);
-  const out: React.ReactNode[] = [];
-  out.push(
-    <span key="open" className="json-punct" data-testid="json-punct">
-      {"{\n"}
-    </span>
-  );
-  entries.forEach(([k, v], i) => {
-    const comma = i < entries.length - 1 ? "," : "";
-    let valNode: React.ReactNode;
-    if (v === null) valNode = <span className="json-num" data-testid="json-num">null</span>;
-    else if (typeof v === "number" || typeof v === "boolean")
-      valNode = <span className="json-num" data-testid="json-num">{String(v)}</span>;
-    else valNode = <span className="json-str" data-testid="json-str">{JSON.stringify(String(v))}</span>;
-    out.push(
-      <span key={`r${i}`}>
-        {"  "}
-        <span className="json-key" data-testid="json-key">{JSON.stringify(k)}</span>
-        <span className="json-punct" data-testid="json-punct">: </span>
-        {valNode}
-        <span className="json-punct" data-testid="json-punct">{comma}</span>
-        {"\n"}
-      </span>
-    );
-  });
-  out.push(
-    <span key="close" className="json-punct" data-testid="json-punct">
-      {"}"}
-    </span>
-  );
-  return <>{out}</>;
-}
-
-// ============================================================================
 
 export default function SessionViewer({
   sessions,
@@ -225,156 +40,73 @@ export default function SessionViewer({
   findings: Finding[];
   initialTab?: Tab;
   initialSeq?: number;
-  // Originating finding id when a finding's evidence jumped here (requirement D):
-  // drives the dismissible "JUMPED TO STEP N — from finding #M" landing banner.
   initialFromFinding?: number;
-  // NOTE: the Overview drill-down deep links (model / from / to / errors) and the
-  // project/sessionPrs props seeded the removed session-list sidebar. They are no
-  // longer consumed here; the page still parses them but the per-session viewer
-  // ignores them now that the cross-session list lives on the Sessions surface.
 }) {
   const router = useRouter();
-
   const primary = bundle.session;
   const primaryPrs = bundle.pullRequests;
   const events = bundle.events;
   const typeCounts = bundle.typeCounts;
   const annotations = bundle.annotations;
-  const [findings, setFindings] = useState<Finding[]>(initialFindings);
 
-  // ---- timeline / tab / selection state -----------------------------------
+  const [findings, setFindings] = useState<Finding[]>(initialFindings);
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  // Findings master-detail state (filters, selection, verdict drafts/busy/toast)
-  // now lives inside <FindingsExplorer>, shared with the cross-session Findings
-  // axis. The viewer only keeps `findings` (for the per-session tab + the sessbar
-  // chip) and the bundle-aware `resolveEvidence` it hands the explorer.
   const [typeFilter, setTypeFilter] = useState<Set<EventType>>(() => new Set(ALL_TYPES));
   const [filterMode, setFilterMode] = useState<FilterMode>("hide");
   const [transcriptSearch, setTranscriptSearch] = useState("");
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(() => new Set());
-  // turn groups: each top-level user_message starts a "Turn N" (matches Linked
-  // Events numbering). Collapsing a turn hides the assistant/tool steps until
-  // the NEXT user_message — so a long run can be scanned at the turn level and
-  // then drilled into. Default = all open; the session-change effect below
-  // collapses turns after the turn headers are known.
   const [collapsedTurns, setCollapsedTurns] = useState<Set<string>>(() => new Set());
-
-  // ---- Subagents tab: which run is open ("overview" or a launcher event id) --
   const [subAgentTab, setSubAgentTab] = useState<string>("overview");
-  // transcript → Git jump target (the edit whose diff to focus). Set only via the
-  // "see this edit's diff" action; cleared when Git is opened from the tab bar.
   const [gitFocusEvent, setGitFocusEvent] = useState<string | undefined>(undefined);
   const [gitFocusFileId, setGitFocusFileId] = useState<string | undefined>(undefined);
   const [gitFocusHunkId, setGitFocusHunkId] = useState<string | undefined>(undefined);
+  const [flashEventId, setFlashEventId] = useState<string | null>(null);
+  const [landing, setLanding] = useState<{ seq: number | null; fromFinding: number | null } | null>(
+    initialFromFinding != null || initialSeq != null ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null } : null,
+  );
+  const [pins, setPins] = useState<Set<string>>(() => new Set());
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    setFindings(initialFindings);
-  }, [initialFindings]);
+  useEffect(() => setFindings(initialFindings), [initialFindings]);
+  useEffect(() => setSubAgentTab("overview"), [primary.id]);
 
-  // Selected event seed: the failing build (bash, exit != 0) is most
-  // informative; fall back gracefully. Re-seed whenever the session changes.
-  // default to the session's first top-level step (usually the opening prompt),
-  // not an arbitrary tool — opening the panel on a random "tool" was confusing.
   const seedId = useMemo(() => {
     const first = events.find((e) => !e.parentId) ?? events[0];
     return first?.id;
   }, [events]);
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>(seedId);
-  // a transiently-flashed step (deep-link / evidence jump): the row gets a brief
-  // outline so the user can SEE where the jump landed. Cleared on a timer.
-  const [flashEventId, setFlashEventId] = useState<string | null>(null);
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // landing banner (requirement D): when arriving via a finding's evidence jump
-  // (?fromFinding=N, optionally with &seq=), show a small dismissible banner that
-  // says where we came from and which step/turn we landed on. Persists (no timer)
-  // until the user dismisses it, unlike the transient flash outline.
-  const [landing, setLanding] = useState<{ seq: number | null; fromFinding: number | null } | null>(
-    initialFromFinding != null || initialSeq != null
-      ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null }
-      : null,
-  );
-  useEffect(() => {
-    setSelectedEventId(seedId);
-  }, [seedId]);
-  // re-seed the Subagents tab back to the overview when the session changes
-  useEffect(() => {
-    setSubAgentTab("overview");
-  }, [primary.id]);
+  useEffect(() => setSelectedEventId(seedId), [seedId]);
 
-  // When an event is selected (from the timeline, the time ribbon, or an
-  // annotation), bring its row into view in the current list — so clicking a
-  // ribbon segment visibly "jumps" to that step, not just updates the aside.
   useEffect(() => {
     if (!selectedEventId || typeof document === "undefined") return;
-    const sel =
-      typeof CSS !== "undefined" && CSS.escape
-        ? `[data-eid="${CSS.escape(selectedEventId)}"]`
-        : null;
-    if (!sel) return;
-    const el = document.querySelector(sel);
+    const sel = typeof CSS !== "undefined" && CSS.escape ? `[data-eid="${CSS.escape(selectedEventId)}"]` : null;
+    const el = sel ? document.querySelector(sel) : null;
     if (el) el.scrollIntoView({ block: "center" });
   }, [selectedEventId, activeTab]);
-
-  // ---- minimap zoom --------------------------------------------------------
-  const [zoom, setZoom] = useState(1);
-
-  // ---- pins + notes (localStorage) ----------------------------------------
-  const [pins, setPins] = useState<Set<string>>(() => new Set());
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [noteDraft, setNoteDraft] = useState<string | null>(null); // open editor when non-null
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const rawPins = window.localStorage.getItem(LS_PINS);
       if (rawPins) setPins(new Set(JSON.parse(rawPins) as string[]));
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     try {
       const rawNotes = window.localStorage.getItem(LS_NOTES);
       if (rawNotes) setNotes(JSON.parse(rawNotes) as Record<string, string>);
-    } catch {
-      /* ignore */
-    }
+    } catch {}
   }, []);
 
-  function persistPins(next: Set<string>) {
-    setPins(next);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(LS_PINS, JSON.stringify(Array.from(next)));
-    }
-  }
-  function persistNotes(next: Record<string, string>) {
-    setNotes(next);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(LS_NOTES, JSON.stringify(next));
-    }
-  }
-
-  // ---- copy feedback -------------------------------------------------------
-  const [copied, setCopied] = useState<string | null>(null);
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  function copy(key: string, text: string) {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
-    setCopied(key);
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-    copyTimer.current = setTimeout(() => setCopied(null), 1200);
-  }
   useEffect(() => {
     return () => {
       if (copyTimer.current) clearTimeout(copyTimer.current);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
     };
   }, []);
 
-  // The session-list sidebar (and its filtered/sorted list, model list, and
-  // scroll-into-view sync) was removed: cross-session navigation now lives in
-  // the persistent left nav rail, and the Sessions surface ("/") owns the list.
-
-  // ---- derived: filtered timeline events ----------------------------------
-  // sub-agent child steps grouped under their launching event id
   const childrenByParent = useMemo(() => {
     const m = new Map<string, TranscriptEvent[]>();
     for (const e of events) {
@@ -393,18 +125,7 @@ export default function SessionViewer({
     for (const s of sessions) m.set(s.id, s);
     return m;
   }, [sessions]);
-
-  // ---- sub-agent invocations -----------------------------------------------
-  // One top-level `subagent` launcher = one distinct sub-agent RUN. The old tab
-  // grouped by agent *type name* ("general-purpose"), mashing many separate runs
-  // into one flat list. Group by the launcher instead so each run is its own unit.
-  const invocations = useMemo(
-    () => events.filter((e) => e.type === "subagent" && !e.parentId),
-    [events]
-  );
-
-  // which transcript events produced a Git hunk (via attribution) — these offer a
-  // "see this edit's diff" jump into the Git tab (the reverse link lives there).
+  const invocations = useMemo(() => events.filter((e) => e.type === "subagent" && !e.parentId), [events]);
   const eventsWithDiff = useMemo(() => {
     const s = new Set<string>();
     for (const hunkList of Object.values(bundle.hunks)) {
@@ -415,95 +136,25 @@ export default function SessionViewer({
     return s;
   }, [bundle.hunks, bundle.attributions]);
 
-  // Roll up one invocation: its child steps, declared tool-call count, and whether
-  // any step failed. Cheap enough to call inline while rendering.
-  function summarizeInvocation(launcher: TranscriptEvent) {
-    const kids = childrenByParent.get(launcher.id) ?? [];
-    let toolUses: number | undefined;
-    let model: string | undefined;
-    let costUsd: number | undefined;
-    let tokens: number | undefined;
-    let agentId: string | undefined;
-    let childSessionId: string | undefined;
-    try {
-      const m = launcher.meta ? JSON.parse(launcher.meta) : {};
-      if (typeof m.toolUses === "number") toolUses = m.toolUses;
-      if (typeof m.model === "string") model = m.model; // the model the sub-agent ran on
-      if (typeof m.costUsd === "number") costUsd = m.costUsd; // priced from the sub-agent's own usage
-      if (typeof m.tokens === "number") tokens = m.tokens; // same usage the cost was priced from
-      if (typeof m.agent_id === "string") agentId = m.agent_id;
-      if (typeof m.child_session_id === "string") childSessionId = m.child_session_id;
-    } catch {
-      /* ignore */
-    }
-    const linkedChild = childSessionId
-      ? sessionById.get(childSessionId)
-      : agentId
-        ? sessionById.get(agentId)
-        : undefined;
-    // Result = the RUN's own verdict (the launcher's is_error / exit), NOT a
-    // roll-up of child failures. A grep that exits 1 mid-run does not make the
-    // whole run "error". `failedSteps` is the separate, factual count of child
-    // steps that exited non-zero (surfaced as its own chip, never as Result).
-    let metaIsError: boolean | undefined;
-    try {
-      const m = launcher.meta ? JSON.parse(launcher.meta) : {};
-      if (typeof m.isError === "boolean") metaIsError = m.isError;
-    } catch {
-      /* ignore */
-    }
-    const runFailed =
-      metaIsError ?? (launcher.exitCode != null ? launcher.exitCode !== 0 : false);
-    const failedSteps = kids.filter((k) => k.exitCode != null && k.exitCode !== 0).length;
-    // observed fallback: tool-ish steps counted from the child transcript, for
-    // runs that did not report a toolUses total of their own
-    const observedTools = kids.filter(
-      (k) => !["user_message", "assistant_message", "thinking"].includes(k.type),
-    ).length;
-    return { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools, linkedChild };
-  }
-
-  // The agent's own one-line summary of what it did (its result), else its title.
-  function invocationSummaryLine(e: TranscriptEvent): string {
-    const body = (e.body ?? "").trim();
-    if (body) return body.split("\n").find((l) => l.trim()) ?? e.title;
-    return e.title;
-  }
-
   const matchesSearch = useMemo(() => {
     const q = transcriptSearch.trim().toLowerCase();
     return (e: TranscriptEvent) => {
-      if (q) {
-        const hay = `${e.title} ${e.command ?? ""} ${e.filePath ?? ""} ${e.body ?? ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
+      if (!q) return true;
+      const hay = `${e.title} ${e.command ?? ""} ${e.filePath ?? ""} ${e.body ?? ""}`.toLowerCase();
+      return hay.includes(q);
     };
   }, [transcriptSearch]);
-
-  const matchesType = useMemo(() => {
-    return (e: TranscriptEvent) => typeFilter.has(e.type);
-  }, [typeFilter]);
-
-  const shouldRenderTimelineEvent = useMemo(() => {
-    return (e: TranscriptEvent) =>
-      matchesSearch(e) && (filterMode === "highlight" || matchesType(e));
-  }, [filterMode, matchesSearch, matchesType]);
-
-  // top-level events drive the timeline + ribbon; children expand under parents
-  const topEvents = useMemo(() => events.filter((e) => !e.parentId), [events]);
-  const visibleEvents = useMemo(
-    () => topEvents.filter(shouldRenderTimelineEvent),
-    [topEvents, shouldRenderTimelineEvent]
+  const matchesType = useMemo(() => (e: TranscriptEvent) => typeFilter.has(e.type), [typeFilter]);
+  const shouldRenderTimelineEvent = useMemo(
+    () => (e: TranscriptEvent) => matchesSearch(e) && (filterMode === "highlight" || matchesType(e)),
+    [filterMode, matchesSearch, matchesType],
   );
+  const topEvents = useMemo(() => events.filter((e) => !e.parentId), [events]);
+  const visibleEvents = useMemo(() => topEvents.filter(shouldRenderTimelineEvent), [topEvents, shouldRenderTimelineEvent]);
 
-  // turn numbering: each top-level user_message starts a new turn. A row's
-  // owning turn = the most recent user_message at or before it. The user_message
-  // event itself IS the turn header; everything after it (assistant/tool/…)
-  // belongs to that turn until the NEXT user_message.
   const { turnNumberByEventId, turnHeaderIds } = useMemo(() => {
     const turnNumberByEventId = new Map<string, number>();
-    const turnHeaderIds = new Map<string, string>(); // event id -> header (user_message) id
+    const turnHeaderIds = new Map<string, string>();
     let n = 0;
     let header: string | null = null;
     for (const e of topEvents) {
@@ -517,157 +168,21 @@ export default function SessionViewer({
     return { turnNumberByEventId, turnHeaderIds };
   }, [topEvents]);
   const turnCount = turnNumberByEventId.size;
+  const turnRollups = useTurnRollups({ bundle, childrenByParent, topEvents, turnHeaderIds, turnNumberByEventId });
 
-  function toggleTurn(headerId: string) {
-    setCollapsedTurns((prev) => {
-      const next = new Set(prev);
-      if (next.has(headerId)) next.delete(headerId);
-      else next.add(headerId);
-      return next;
-    });
-  }
-  function collapseAllTurns() {
-    setCollapsedTurns(new Set(turnNumberByEventId.keys()));
-  }
-  function expandAllTurns() {
-    setCollapsedTurns(new Set());
-  }
-
-  useEffect(() => {
-    setCollapsedTurns(new Set(turnNumberByEventId.keys()));
-  }, [primary.id, turnNumberByEventId]);
-
-  const changedFileByPath = useMemo(() => {
-    const m = new Map<string, TurnFile>();
-    for (const f of bundle.changedFiles) m.set(f.path, { id: f.id, path: f.path });
-    return m;
-  }, [bundle.changedFiles]);
-
-  const changedFilesByEventId = useMemo(() => {
-    const m = new Map<string, Map<string, TurnFile>>();
-    const add = (eventId: string | null | undefined, file: TurnFile | undefined) => {
-      if (!eventId || !file) return;
-      let filesForEvent = m.get(eventId);
-      if (!filesForEvent) {
-        filesForEvent = new Map();
-        m.set(eventId, filesForEvent);
-      }
-      filesForEvent.set(file.id, file);
-    };
-
-    for (const [eventId, files] of Object.entries(bundle.eventFiles)) {
-      for (const f of files) add(eventId, changedFileByPath.get(f.path));
-    }
-    for (const f of bundle.changedFiles) {
-      for (const h of bundle.hunks[f.id] ?? []) {
-        for (const a of bundle.attributions[h.id] ?? []) add(a.eventId, { id: f.id, path: f.path });
-      }
-    }
-    return m;
-  }, [bundle.attributions, bundle.changedFiles, bundle.eventFiles, bundle.hunks, changedFileByPath]);
-
-  const turnRollups = useMemo(() => {
-    type MutableTurnRollup = Omit<TurnRollup, "files" | "collapsed"> & {
-      fileMap: Map<string, TurnFile>;
-    };
-
-    const rollups = new Map<string, MutableTurnRollup>();
-    const collect = (r: MutableTurnRollup, e: TranscriptEvent) => {
-      if (e.type === "file_edit" || e.type === "file_write") r.edits += 1;
-      if (e.type === "bash") r.bash += 1;
-      if (e.type === "error" || (e.exitCode != null && e.exitCode !== 0)) r.errors += 1;
-      r.tokens += e.tokenUsage ?? 0;
-      r.durationMs += e.durationMs ?? 0;
-
-      const directCost = readMetaCostUsd(e);
-      const tokenCost =
-        directCost == null && primary.costUsd != null && primary.tokenUsage > 0 && e.tokenUsage != null
-          ? (primary.costUsd * e.tokenUsage) / primary.tokenUsage
-          : null;
-      const cost = directCost ?? tokenCost;
-      if (cost != null) r.costUsd = (r.costUsd ?? 0) + cost;
-
-      for (const file of changedFilesByEventId.get(e.id)?.values() ?? []) {
-        r.fileMap.set(file.id, file);
-      }
-    };
-
-    for (const e of topEvents) {
-      if (e.type !== "user_message") continue;
-      rollups.set(e.id, {
-        turn: turnNumberByEventId.get(e.id) ?? 0,
-        steps: 0,
-        edits: 0,
-        bash: 0,
-        errors: 0,
-        tokens: 0,
-        durationMs: 0,
-        wallDurationMs: 0,
-        costUsd: null,
-        fileMap: new Map(),
-        summary: firstNonEmptyLine(e.body) || e.title,
-      });
-    }
-
-    for (const e of topEvents) {
-      const headerId = turnHeaderIds.get(e.id);
-      if (!headerId) continue;
-      const r = rollups.get(headerId);
-      if (!r) continue;
-      if (e.id !== headerId) r.steps += 1;
-      collect(r, e);
-      for (const child of childrenByParent.get(e.id) ?? []) collect(r, child);
-    }
-
-    const sessionStart = hmsToMs(topEvents[0]?.ts ?? "") ?? 0;
-    const normalizeMs = (e: TranscriptEvent | undefined) => {
-      const raw = e ? hmsToMs(e.ts) : null;
-      if (raw == null) return sessionStart;
-      return raw < sessionStart ? raw + DAY_MS : raw;
-    };
-    const headers = topEvents.filter((e) => e.type === "user_message");
-    const lastTop = topEvents.at(-1);
-    for (let i = 0; i < headers.length; i += 1) {
-      const start = normalizeMs(headers[i]);
-      const end = i + 1 < headers.length ? normalizeMs(headers[i + 1]) : normalizeMs(lastTop);
-      const r = rollups.get(headers[i].id);
-      if (r) r.wallDurationMs = Math.max(0, end - start);
-    }
-
-    const out = new Map<string, Omit<TurnRollup, "collapsed">>();
-    for (const [headerId, r] of rollups) {
-      const { fileMap, ...rest } = r;
-      out.set(headerId, { ...rest, files: [...fileMap.values()] });
-    }
-    return out;
-  }, [
-    changedFilesByEventId,
-    childrenByParent,
-    primary.costUsd,
-    primary.tokenUsage,
-    topEvents,
-    turnHeaderIds,
-    turnNumberByEventId,
-  ]);
+  useEffect(() => setCollapsedTurns(new Set(turnNumberByEventId.keys())), [primary.id, turnNumberByEventId]);
 
   const highestTurnJump = useMemo(() => {
     let best: { headerId: string; turn: number; score: number; basis: "cost" | "duration" } | null = null;
-    const useCostBasis =
-      primary.runner === "claude-code" &&
-      [...turnRollups.values()].some((r) => r.costUsd != null && Number.isFinite(r.costUsd));
+    const useCostBasis = primary.runner === "claude-code" && [...turnRollups.values()].some((r) => r.costUsd != null && Number.isFinite(r.costUsd));
     for (const [headerId, r] of turnRollups.entries()) {
-      const costScore = r.costUsd ?? -1;
-      const durationScore = r.wallDurationMs > 0 ? r.wallDurationMs : r.durationMs;
       const basis: "cost" | "duration" = useCostBasis ? "cost" : "duration";
-      const score = basis === "cost" ? costScore : durationScore;
+      const score = basis === "cost" ? (r.costUsd ?? -1) : r.wallDurationMs > 0 ? r.wallDurationMs : r.durationMs;
       if (score < 0) continue;
-      if (!best || score > best.score || (score === best.score && r.turn < best.turn)) {
-        best = { headerId, turn: r.turn, score, basis };
-      }
+      if (!best || score > best.score || (score === best.score && r.turn < best.turn)) best = { headerId, turn: r.turn, score, basis };
     }
     return best;
   }, [primary.runner, turnRollups]);
-
   const firstErrorTurnJump = useMemo(() => {
     for (const [headerId, r] of [...turnRollups.entries()].sort((a, b) => a[1].turn - b[1].turn)) {
       if (r.errors > 0) return { headerId, turn: r.turn, errors: r.errors };
@@ -693,110 +208,13 @@ export default function SessionViewer({
     return m;
   }, [events, primary.durationMs, topEvents]);
 
-  const selected: TranscriptEvent | undefined = useMemo(
-    () => events.find((e) => e.id === selectedEventId),
-    [events, selectedEventId]
-  );
+  const selected = useMemo(() => events.find((e) => e.id === selectedEventId), [events, selectedEventId]);
   const selectedFiles = selected ? bundle.eventFiles[selected.id] ?? [] : [];
-
-  // ---- aside scoping while a sub-agent run is open ------------------------
-  // On the Subagents tab, opening a run sets selectedEventId = launcher id so the
-  // EXECUTION list highlights its own header. But the right aside then mirrored
-  // the launcher's own detail — a near-duplicate of the centre stats strip +
-  // RESULT·SUMMARY. While a run is open, the aside is reserved for the EXECUTION
-  // *step* the user picks; if nothing is picked yet (selection is still the
-  // launcher), show a quiet placeholder instead of re-printing the run.
-  const asideIsLauncherDup =
-    activeTab === "subagents" &&
-    subAgentTab !== "overview" &&
-    selectedEventId === subAgentTab;
-
-  // ---- metrics band derived values (REAL data) ----------------------------
   const branch = primary.gitBranch ?? "main";
   const commitLabel = `${primary.commitCount} commit${primary.commitCount === 1 ? "" : "s"}`;
-
-  // ---- minimap density buckets (deterministic from data) ------------------
-  // Bucket events along the run and size each tick by the bucket's event count,
-  // so bar heights are derived from data (not random / index math).
-  const minimapTicks = useMemo(() => {
-    const N = events.length;
-    if (N === 0) return [] as { kind: string; h: number; id: string; ts: string; title: string }[];
-    const buckets = Math.min(N, Math.max(12, Math.round(48 * zoom)));
-    const counts = new Array(buckets).fill(0);
-    events.forEach((_, i) => {
-      const b = Math.min(buckets - 1, Math.floor((i / N) * buckets));
-      counts[b] += 1;
-    });
-    const maxCount = Math.max(1, ...counts);
-    return events.map((e, i) => {
-      const b = Math.min(buckets - 1, Math.floor((i / N) * buckets));
-      // height scales with local density; errors always tall so they stand out.
-      const base = 10 + (counts[b] / maxCount) * 24;
-      const h = e.type === "error" ? 34 : Math.round(base);
-      return { kind: minimapKind(e.type), h, id: e.id, ts: e.ts, title: e.title };
-    });
-  }, [events, zoom]);
-
-  // Playhead/window position from the selected event's index along the run.
-  const selIndex = useMemo(
-    () => events.findIndex((e) => e.id === selectedEventId),
-    [events, selectedEventId]
-  );
-  const playPct = events.length > 1 ? (Math.max(0, selIndex) / (events.length - 1)) * 100 : 50;
-
-  // ---- detail metadata for the selected event ----------------------------
-  const selType = (selected?.type ?? "bash") as EventType;
-  const sessionDate = parseStamp(primary.startedAt).date;
-  const selTime = selected ? selected.ts.slice(0, 8) : "";
-  // tool-call count (sub-agents) parsed from meta; tool name for the label
-  const selMeta: { tool?: string; toolUses?: number } = (() => {
-    try {
-      return selected?.meta ? JSON.parse(selected.meta) : {};
-    } catch {
-      return {};
-    }
-  })();
-  const fmtDur2 = (ms: number | null): string =>
-    ms == null ? "—" : ms < 1000 ? `${ms}ms` : humanizeDuration(ms);
-  const selStatusClass =
-    selected?.exitCode == null ? "neutral" : selected.exitCode === 0 ? "success" : "failed";
-  const selStatusText =
-    selected?.exitCode == null ? "Done" : selected.exitCode === 0 ? "Success" : "Failed";
-  const selPinned = selected ? pins.has(selected.id) : false;
-  const selNote = selected ? notes[selected.id] : undefined;
-
-  const runJson: Record<string, unknown> = selected
-    ? {
-        id: selected.id,
-        seq: selected.seq,
-        type: selected.type,
-        actor: selected.actor,
-        ts: selected.ts,
-        command: selected.command,
-        exit_code: selected.exitCode,
-        duration_ms: selected.durationMs,
-      }
-    : {};
-
-  // findings attached to THIS session — drives both the per-session Findings tab
-  // (via FindingsExplorer's session scope) and the sessbar chip / tab badge.
-  const currentSessionFindings = useMemo(
-    () => findings.filter((finding) => findingTouchesSession(finding, currentId)),
-    [currentId, findings],
-  );
-  const currentSessionPendingFindings = useMemo(
-    () => currentSessionFindings.filter((finding) => !finding.verdict),
-    [currentSessionFindings],
-  );
-  // tab badge = pending findings FOR THIS SESSION (the tab is session-scoped).
-  const pendingFindingsCount = currentSessionPendingFindings.length;
-
-  const eventById = useMemo(() => {
-    const map = new Map<string, TranscriptEvent>();
-    for (const event of events) map.set(event.id, event);
-    return map;
-  }, [events]);
-
+  const currentSessionFindings = useMemo(() => findings.filter((finding) => findingTouchesSession(finding, currentId)), [currentId, findings]);
+  const currentSessionPendingFindings = useMemo(() => currentSessionFindings.filter((finding) => !finding.verdict), [currentSessionFindings]);
+  const eventById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
   const eventBySeq = useMemo(() => {
     const map = new Map<number, TranscriptEvent>();
     for (const event of events) {
@@ -806,9 +224,6 @@ export default function SessionViewer({
     return map;
   }, [events]);
 
-  // seq deep link (cross-session evidence jump): once the requested session's
-  // bundle is loaded, open the transcript, expand the owning turn, select the
-  // step at that seq and flash it. Re-runs only when the session or seq changes.
   useEffect(() => {
     if (initialSeq == null) return;
     const target = eventBySeq.get(initialSeq);
@@ -817,199 +232,41 @@ export default function SessionViewer({
     expandTurnForEvent(target.id);
     setSelectedEventId(target.id);
     flashStep(target.id);
-    // ensure the landed step is centred even if the selection-scroll effect
-    // raced the turn expansion (requirement D: scroll + highlight on landing).
     if (typeof document !== "undefined") {
       requestAnimationFrame(() => {
-        const sel =
-          typeof CSS !== "undefined" && CSS.escape
-            ? `[data-eid="${CSS.escape(target.id)}"]`
-            : null;
+        const sel = typeof CSS !== "undefined" && CSS.escape ? `[data-eid="${CSS.escape(target.id)}"]` : null;
         const el = sel ? document.querySelector(sel) : null;
         if (el) el.scrollIntoView({ block: "center" });
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primary.id, initialSeq, eventBySeq]);
 
-  // keep the landing banner in sync if the deep-link props change (client nav).
   useEffect(() => {
-    setLanding(
-      initialFromFinding != null || initialSeq != null
-        ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null }
-        : null,
-    );
+    setLanding(initialFromFinding != null || initialSeq != null ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null } : null);
   }, [primary.id, initialSeq, initialFromFinding]);
 
-  useEffect(() => {
-    return () => {
-      if (flashTimer.current) clearTimeout(flashTimer.current);
-    };
-  }, []);
-
-  const hunkTargetById = useMemo(() => {
-    const map = new Map<string, { fileId: string; hunkId: string; hunkSeq: number; path: string }>();
-    for (const file of bundle.changedFiles) {
-      for (const hunk of bundle.hunks[file.id] ?? []) {
-        map.set(hunk.id, { fileId: file.id, hunkId: hunk.id, hunkSeq: hunk.seq, path: file.path });
-      }
-    }
-    return map;
-  }, [bundle.changedFiles, bundle.hunks]);
-
-  function resolveEvidence(evidence: FindingEvidence): ResolvedEvidence {
-    const targetSessionId = evidenceSessionId(evidence);
-    const sameSession = !targetSessionId || targetSessionId === currentId;
-
-    if (evidence.subjectKind === "session") {
-      if (!targetSessionId || sessions.some((session) => session.id === targetSessionId)) {
-        return {
-          resolved: true,
-          kind: "session",
-          label: targetSessionId === currentId || !targetSessionId ? "session" : "session ↗",
-          title: targetSessionId ?? currentId,
-          jump: () => {
-            if (targetSessionId && targetSessionId !== currentId) {
-              router.push(`/?session=${encodeURIComponent(targetSessionId)}&tab=transcript`);
-              return;
-            }
-            setActiveTab("transcript");
-          },
-        };
-      }
-    }
-
-    // event AND turn evidence both point at one transcript step. The analyst
-    // (analyst-engine.ts) writes turn evidence as { subjectKind:"turn",
-    // locator:{ seq } } where `seq` is the EVENT seq — NOT a turn number. So both
-    // kinds resolve through the same locator: subject_id (event id) OR seq.
-    // (Historical fixtures may carry an actual turn number under `turn`; keep
-    // that as a fallback so they still resolve.)
-    if (evidence.subjectKind === "event" || evidence.subjectKind === "turn") {
-      const eventId = evidence.subjectId ?? locatorString(evidence, ["event_id", "eventId"]);
-      const seq = locatorNumber(evidence, ["seq", "at_seq", "step"]);
-      const target = sameSession
-        ? (eventId ? eventById.get(eventId) : undefined) ?? (seq != null ? eventBySeq.get(seq) : undefined)
-        : undefined;
-      if (target) {
-        return {
-          resolved: true,
-          kind: evidence.subjectKind,
-          label: `step ${target.seq}`,
-          title: target.title,
-          jump: () => {
-            setActiveTab("transcript");
-            selectTimelineEvent(target.id, true);
-          },
-        };
-      }
-      // same-session turn-number fallback (only meaningful for `turn` evidence
-      // that carries a real turn number rather than an event seq).
-      if (evidence.subjectKind === "turn") {
-        const turn = locatorNumber(evidence, ["turn", "turn_number", "turnNumber"]);
-        const headerId =
-          turn == null
-            ? null
-            : [...turnNumberByEventId.entries()].find(([, value]) => value === turn)?.[0] ?? null;
-        if (sameSession && headerId) {
-          return {
-            resolved: true,
-            kind: "turn",
-            label: `turn ${turn}`,
-            title: `Turn ${turn}`,
-            jump: () => jumpToTurn(headerId),
-          };
-        }
-      }
-      if (targetSessionId && targetSessionId !== currentId) {
-        // deep link into the other session's transcript at the same seq; the
-        // destination scrolls + flashes that step (see the seq deep-link effect).
-        const seqParam = seq != null ? `&seq=${seq}` : "";
-        return {
-          resolved: true,
-          kind: evidence.subjectKind,
-          label: seq != null ? `step ${seq} ↗` : "step ↗",
-          title: targetSessionId,
-          jump: () =>
-            router.push(
-              `/?session=${encodeURIComponent(targetSessionId)}&tab=transcript${seqParam}`,
-            ),
-        };
-      }
-    }
-
-    if (evidence.subjectKind === "hunk") {
-      const hunkId = evidence.subjectId ?? locatorString(evidence, ["hunk_id", "hunkId"]);
-      const path = locatorString(evidence, ["path", "file_path", "filePath"]);
-      const hunkSeq = locatorNumber(evidence, ["hunk_seq", "hunkSeq", "seq"]);
-      let target = hunkId ? hunkTargetById.get(hunkId) : undefined;
-      if (!target && path && hunkSeq != null) {
-        for (const file of bundle.changedFiles) {
-          if (file.path !== path) continue;
-          const hunk = (bundle.hunks[file.id] ?? []).find((item) => item.seq === hunkSeq);
-          if (hunk) {
-            target = { fileId: file.id, hunkId: hunk.id, hunkSeq: hunk.seq, path: file.path };
-            break;
-          }
-        }
-      }
-      if (sameSession && target) {
-        return {
-          resolved: true,
-          kind: "hunk",
-          label: `hunk ${target.hunkSeq}`,
-          title: target.path,
-          jump: () => {
-            setGitFocusFileId(target.fileId);
-            setGitFocusHunkId(target.hunkId);
-            setGitFocusEvent(undefined);
-            setActiveTab("git");
-          },
-        };
-      }
-      if (targetSessionId && targetSessionId !== currentId) {
-        return {
-          resolved: true,
-          kind: "hunk",
-          label: hunkSeq != null ? `hunk ${hunkSeq} ↗` : "hunk ↗",
-          title: targetSessionId,
-          jump: () => router.push(`/?session=${encodeURIComponent(targetSessionId)}&tab=git`),
-        };
-      }
-    }
-
-    if (evidence.subjectKind === "pr") {
-      const prId = evidence.subjectId ?? locatorString(evidence, ["pr_id", "prId"]);
-      const prNumber = locatorNumber(evidence, ["number", "pr_number", "prNumber"]);
-      const pr = prId
-        ? primaryPrs.find((item) => item.id === prId)
-        : prNumber != null
-          ? primaryPrs.find((item) => item.number === prNumber)
-          : undefined;
-      const targetPrId = prId ?? pr?.id;
-      if (targetPrId) {
-        return {
-          resolved: true,
-          kind: "pr",
-          label: pr ? `PR #${pr.number}` : "PR ↗",
-          title: pr?.title ?? targetPrId,
-          jump: () => router.push(`/pr?pr=${encodeURIComponent(targetPrId)}`),
-        };
-      }
-    }
-
-    // Could not map the locator to anything in the current bundle / session
-    // list. Mark it explicitly "unresolved" — never echo the kind name as a
-    // label (that read as a meaningless duplicate of the kind tag).
-    return {
-      resolved: false,
-      kind: evidence.subjectKind,
-      label: "unresolved",
-      title: evidence.note ?? "This evidence cannot be resolved against the current data",
-    };
+  function persistPins(next: Set<string>) {
+    setPins(next);
+    if (typeof window !== "undefined") window.localStorage.setItem(LS_PINS, JSON.stringify(Array.from(next)));
   }
-
-  // ---- handlers ------------------------------------------------------------
+  function persistNotes(next: Record<string, string>) {
+    setNotes(next);
+    if (typeof window !== "undefined") window.localStorage.setItem(LS_NOTES, JSON.stringify(next));
+  }
+  function copy(key: string, text: string) {
+    if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+    setCopied(key);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(null), 1200);
+  }
+  function toggleTurn(headerId: string) {
+    setCollapsedTurns((prev) => {
+      const next = new Set(prev);
+      if (next.has(headerId)) next.delete(headerId);
+      else next.add(headerId);
+      return next;
+    });
+  }
   function expandTurnForEvent(eventId: string) {
     const headerId = turnHeaderIds.get(eventId);
     if (!headerId) return;
@@ -1020,87 +277,46 @@ export default function SessionViewer({
       return next;
     });
   }
-
   function flashStep(eventId: string) {
     setFlashEventId(eventId);
     if (flashTimer.current) clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setFlashEventId(null), 2200);
   }
-
   function selectTimelineEvent(eventId: string, expandTurn = false) {
     if (expandTurn) expandTurnForEvent(eventId);
     setSelectedEventId(eventId);
     flashStep(eventId);
   }
-
   function jumpToTurn(headerId: string) {
     setActiveTab("transcript");
     expandTurnForEvent(headerId);
     setSelectedEventId(headerId);
   }
-
-  // Findings SESSION-header jump (requirement A). Same session → switch to the
-  // transcript in-page; a different session → deep-link into that session's
-  // viewer (the same Sessions axis, new state).
   function jumpToFindingSession(sessionId: string, findingId?: number) {
     if (sessionId === currentId) {
       setActiveTab("transcript");
-      // same-session jump: still surface the landing banner (requirement D) so
-      // the user sees where they came from even without a page navigation.
       if (findingId != null) setLanding({ seq: null, fromFinding: findingId });
       return;
     }
-    router.push(
-      `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
-        findingId != null ? `&fromFinding=${findingId}` : ""
-      }`,
-    );
+    router.push(`/?session=${encodeURIComponent(sessionId)}&tab=transcript${findingId != null ? `&fromFinding=${findingId}` : ""}`);
   }
-
-  // Findings TURN-header / embedded-row jump (requirement A/B). `headSeq` is the
-  // step to land on (turn head or a specific row). Same session → select that
-  // step in-page; otherwise deep-link with &seq= so the destination flashes it.
-  function jumpToFindingTurn(
-    sessionId: string,
-    _turn: number,
-    headSeq: number | null,
-    findingId?: number,
-  ) {
+  function jumpToFindingTurn(sessionId: string, _turn: number, headSeq: number | null, findingId?: number) {
     if (sessionId === currentId) {
       setActiveTab("transcript");
       const target = headSeq != null ? eventBySeq.get(headSeq) : undefined;
       if (target) selectTimelineEvent(target.id, true);
-      if (findingId != null || headSeq != null) {
-        setLanding({ seq: headSeq, fromFinding: findingId ?? null });
-      }
+      if (findingId != null || headSeq != null) setLanding({ seq: headSeq, fromFinding: findingId ?? null });
       return;
     }
-    router.push(
-      `/?session=${encodeURIComponent(sessionId)}&tab=transcript${
-        headSeq != null ? `&seq=${headSeq}` : ""
-      }${findingId != null ? `&fromFinding=${findingId}` : ""}`,
-    );
+    router.push(`/?session=${encodeURIComponent(sessionId)}&tab=transcript${headSeq != null ? `&seq=${headSeq}` : ""}${findingId != null ? `&fromFinding=${findingId}` : ""}`);
   }
-
-  function openTurnFile(fileId: string) {
-    setGitFocusFileId(fileId);
-    setGitFocusEvent(undefined);
-    setGitFocusHunkId(undefined);
-    setActiveTab("git");
-  }
-
-  // Open one sub-agent run's detail tab and surface its summary on the right.
   function openAgent(launcherId: string) {
     setSubAgentTab(launcherId);
     setSelectedEventId(launcherId);
   }
-
   function openSubSession(id: string) {
     router.push(`/?session=${encodeURIComponent(id)}&tab=transcript`);
   }
-
-  // Toggle one event type in the transcript's type filter (lives in the
-  // transcript toolbar now that the left sidebar is gone).
   function toggleType(t: EventType) {
     setTypeFilter((prev) => {
       const next = new Set(prev);
@@ -1109,7 +325,6 @@ export default function SessionViewer({
       return next;
     });
   }
-
   function togglePin() {
     if (!selected) return;
     const next = new Set(pins);
@@ -1117,10 +332,8 @@ export default function SessionViewer({
     else next.add(selected.id);
     persistPins(next);
   }
-
   function openNoteEditor() {
-    if (!selected) return;
-    setNoteDraft(notes[selected.id] ?? "");
+    if (selected) setNoteDraft(notes[selected.id] ?? "");
   }
   function saveNote() {
     if (!selected || noteDraft == null) return;
@@ -1132,1398 +345,124 @@ export default function SessionViewer({
     setNoteDraft(null);
   }
 
-  function selectNearestTick(clientX: number, trackEl: HTMLElement) {
-    if (events.length === 0) return;
-    const rect = trackEl.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    const idx = Math.min(events.length - 1, Math.round(ratio * (events.length - 1)));
-    selectTimelineEvent(events[idx].id, true);
-  }
+  const resolveEvidence = useEvidenceResolver({
+    bundle,
+    currentId,
+    sessions,
+    eventById,
+    eventBySeq,
+    turnNumberByEventId,
+    setActiveTab,
+    selectTimelineEvent,
+    jumpToTurn,
+    setGitFocusFileId,
+    setGitFocusHunkId,
+    setGitFocusEvent,
+  });
 
-  function prStateLabel(pr: PullRequestSummary): string {
-    if (pr.mergedAt || pr.state === "merged") return "merged";
-    return pr.state;
-  }
-
-  // The sessbar chip opens the (already session-scoped) Findings tab in-page —
-  // same screen, different tab. Cross-session lives on the Findings axis.
-  function openCurrentSessionFindings() {
-    setActiveTab("findings");
-  }
+  const asideIsLauncherDup = activeTab === "subagents" && subAgentTab !== "overview" && selectedEventId === subAgentTab;
+  const setSelected = (eventId: string) => setSelectedEventId(eventId);
+  const clearGitFocus = () => {
+    setGitFocusEvent(undefined);
+    setGitFocusFileId(undefined);
+    setGitFocusHunkId(undefined);
+  };
 
   return (
     <>
-      {/* ===================== Band 2 — metrics ===================== */}
-      <div className="sessbar" data-testid="sessbar">
-        <div className="sessbar-id" data-testid="sessbar-id">
-          <span className={`runner-dot ${primary.runner}`} data-testid="runner-dot" aria-hidden />
-          <span className="sessbar-title" data-testid="sessbar-title" title={primary.title}>
-            {primary.title}
-          </span>
-          {primary.errorCount > 0 && (
-            <span
-              className="badge err" data-testid="badge"
-              title={`${primary.errorCount} tool call(s) returned a non-zero exit (incl. sub-agents). Not a session-level verdict.`}
-            >
-              {primary.errorCount} error{primary.errorCount === 1 ? "" : "s"}
-            </span>
-          )}
-          <span className="sessbar-meta" data-testid="sessbar-meta">
-            {primary.model ?? "—"} · <span className="mono" data-testid="mono">⎇ {branch}</span> · {commitLabel} ·{" "}
-            {sessionDate} {parseStamp(primary.startedAt).time}
-          </span>
-          <CostAnomalyChip session={primary} />
-          {currentSessionFindings.length > 0 && (
-            <button
-              type="button"
-              className="chip jump-chip findings-session-chip" data-testid="chip"
-              data-finding-session-count={currentSessionFindings.length}
-              data-finding-session-pending={currentSessionPendingFindings.length}
-              title="Show findings attached to this session"
-              onClick={openCurrentSessionFindings}
-            >
-              {currentSessionFindings.length} finding{currentSessionFindings.length === 1 ? "" : "s"}
-              {currentSessionPendingFindings.length > 0 && (
-                <span className="chip-sub mono" data-testid="chip-sub">{currentSessionPendingFindings.length} pending</span>
-              )}
-            </button>
-          )}
-          <span className="sessbar-jumps" data-testid="sessbar-jumps">
-            {highestTurnJump && (
-              <button
-                type="button"
-                className="chip jump-chip high-turn-chip" data-testid="chip"
-                data-jump-kind="highest-cost-turn"
-                data-turn={highestTurnJump.turn}
-                data-turn-score-basis={highestTurnJump.basis}
-                title={
-                  highestTurnJump.basis === "cost"
-                    ? `Jump to the highest estimated-cost turn (${fmtCost(highestTurnJump.score)})`
-                    : `Jump to the longest-duration turn (${humanizeDuration(highestTurnJump.score)})`
-                }
-                onClick={() => jumpToTurn(highestTurnJump.headerId)}
-              >
-                {highestTurnJump.basis === "cost" ? "COSTLIEST TURN" : "LONGEST TURN"}
-              </button>
-            )}
-            {firstErrorTurnJump && (
-              <button
-                type="button"
-                className="chip jump-chip error-turn-chip" data-testid="chip"
-                data-jump-kind="error-turn"
-                data-turn={firstErrorTurnJump.turn}
-                title={`Jump to turn ${firstErrorTurnJump.turn} with ${firstErrorTurnJump.errors} error(s)`}
-                onClick={() => jumpToTurn(firstErrorTurnJump.headerId)}
-              >
-                FIRST ERROR TURN
-              </button>
-            )}
-          </span>
-          {primaryPrs.length > 0 && (
-            <span className="pr-chip-row" data-testid="pr-chip-row">
-              {primaryPrs.slice(0, 3).map((pr) => (
-                <Link
-                  key={pr.id}
-                  href={`/pr?pr=${encodeURIComponent(pr.id)}`}
-                  className={`pr-chip ${prStateLabel(pr)}`} data-testid="pr-chip"
-                  title={pr.title}
-                >
-                  #{pr.number} {prStateLabel(pr)}
-                </Link>
-              ))}
-            </span>
-          )}
-        </div>
-        <div className="sessbar-stats" data-testid="sessbar-stats">
-          <div className="kstat" data-testid="kstat">
-            <b>{humanizeDuration(primary.durationMs)}</b>
-            <span>duration</span>
-          </div>
-          <div className="kstat" data-testid="kstat">
-            <b>{fmtInt(primary.turnCount)}</b>
-            <span>turns</span>
-          </div>
-          <div className="kstat" data-testid="kstat">
-            <b>{fmtInt(primary.toolCount)}</b>
-            <span>tools</span>
-          </div>
-          <div className="kstat" data-testid="kstat">
-            <b>{fmtInt(primary.editCount)}</b>
-            <span>edits</span>
-          </div>
-          <div
-            className="kstat" data-testid="kstat"
-            title={`${fmtInt(primary.tokenIn)} in · ${fmtInt(primary.tokenOut)} out`}
-          >
-            <b>{fmtCompact(primary.tokenUsage)}</b>
-            <span>tokens</span>
-          </div>
-          <div
-            className="kstat" data-testid="kstat"
-            title="Estimated cost = real token usage × model pricing (input/output/cache-write/cache-read, per db/pricing.json). Sub-agent tokens not included; '—' when the model isn't priceable."
-          >
-            <b>{fmtCost(primary.costUsd)}</b>
-            <span>cost</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ===================== Band 3 — tabs ===================== */}
-      <div className="tabs" data-testid="tabs" role="tablist">
-        {(
-          [
-            ["transcript", "Transcript"],
-            ["tools", "Tools"],
-            ["git", "Git"],
-            ["skills", "Skills"],
-            ["subagents", "Subagents"],
-            ["annotations", "Annotations"],
-            ["findings", "Findings"],
-            ["raw", "Raw JSON"],
-            ["stats", "Stats"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === key}
-            data-tab={key}
-            className={`tab${activeTab === key ? " active" : ""}`} data-testid="tab"
-            onClick={() => {
-              setActiveTab(key);
-              if (key === "git") {
-                setGitFocusEvent(undefined);
-                setGitFocusFileId(undefined);
-                setGitFocusHunkId(undefined);
-              }
-            }}
-          >
-            {label}
-            {key === "annotations" && annotations.length > 0 && (
-              <span className="tab-count" data-testid="tab-count">{annotations.length}</span>
-            )}
-            {key === "findings" && pendingFindingsCount > 0 && (
-              <span className="tab-count" data-testid="tab-count">{pendingFindingsCount}</span>
-            )}
-          </button>
-        ))}
-        <span className="tabs-spacer" data-testid="tabs-spacer" />
-        <span className="tabs-tool" data-testid="tabs-tool">
-          <span className="sort-select" data-testid="sort-select">{visibleEvents.length} shown</span>
-        </span>
-      </div>
-
-      {/* ===================== Band 4 — work area ===================== */}
-      {/* The session-list sidebar was removed: cross-session navigation lives in
-          the persistent left nav rail (RailNav), so a second session list here
-          was redundant. The work area is now just the main timeline + the
-          event-detail aside; switch sessions from the Sessions surface ("/").
-          Findings is a self-contained master-detail screen, so its aside is
-          dropped and the width handed to the findings detail. */}
-      <div
-        className="layout3" data-testid="layout3"
-        data-tab={activeTab}
-        style={{
-          // The removed session-list sidebar was column 1. .main / .aside (and the
-          // embedded diff/stats grids) still target the SHARED grid cells 2 and 3,
-          // so we keep three columns and COLLAPSE column 1 to 0 rather than
-          // renumber those shared cells. Findings also drops the aside → its
-          // column 3 collapses too, handing the full width to the master-detail.
-          gridTemplateColumns:
-            activeTab === "findings"
-              ? "0 minmax(0,1fr) 0"
-              : "0 minmax(0,1fr) var(--aside-w)",
-        }}
-      >
-        {/* COLUMN 1 (the session-list sidebar) was removed — its grid track is
-            collapsed to 0 above; the work area opens directly with the timeline. */}
-
-        {/* The "Git" tab is an in-page tab like every other one: the session
-            list above stays put, and only the centre+right swap to the diff.
-            (It used to navigate to a separate /diff page that replaced the whole
-            sidebar — losing session navigation. Now the diff is embedded here.) */}
+      <MetricsBar
+        primary={primary}
+        primaryPrs={primaryPrs}
+        branch={branch}
+        commitLabel={commitLabel}
+        currentSessionFindingsCount={currentSessionFindings.length}
+        currentSessionPendingFindingsCount={currentSessionPendingFindings.length}
+        highestTurnJump={highestTurnJump}
+        firstErrorTurnJump={firstErrorTurnJump}
+        openCurrentSessionFindings={() => setActiveTab("findings")}
+        jumpToTurn={jumpToTurn}
+      />
+      <SessionTabs activeTab={activeTab} setActiveTab={setActiveTab} annotationsCount={annotations.length} pendingFindingsCount={currentSessionPendingFindings.length} visibleCount={visibleEvents.length} clearGitFocus={clearGitFocus} />
+      <div className="layout3" data-testid="layout3" data-tab={activeTab} style={{ gridTemplateColumns: activeTab === "findings" ? "0 minmax(0,1fr) 0" : "0 minmax(0,1fr) var(--aside-w)" }}>
         {activeTab === "git" ? (
-          <DiffViewer
-            embedded
-            sessions={sessions}
-            bundle={bundle}
-            currentId={currentId}
-            focusEventId={gitFocusEvent}
-            focusFileId={gitFocusFileId}
-            focusHunkId={gitFocusHunkId}
-            onJumpToEvent={(eid) => {
-              setActiveTab("transcript");
-              selectTimelineEvent(eid, true);
-              setGitFocusEvent(undefined);
-              setGitFocusFileId(undefined);
-              setGitFocusHunkId(undefined);
-            }}
-          />
+          <GitTab sessions={sessions} bundle={bundle} currentId={currentId} focusEventId={gitFocusEvent} focusFileId={gitFocusFileId} focusHunkId={gitFocusHunkId} onJumpToEvent={(eid) => { setActiveTab("transcript"); selectTimelineEvent(eid, true); clearGitFocus(); }} />
         ) : activeTab === "stats" ? (
-          <SessionStatsView bundle={bundle} />
+          <StatsTab bundle={bundle} />
         ) : (
           <>
-        {/* ---------- COLUMN 2: main / timeline ---------- */}
-        <main className="main" data-testid="main">
-          {/* landing banner (requirement D): shows where this jump came from and
-              which step/turn it landed on, directly under the header. Dismissible;
-              persists until closed so "where am I / where did I come from" is
-              answered at a glance. */}
-          {landing && (landing.fromFinding != null || landing.seq != null) && (
-            <div className="jump-landing-banner" data-testid="jump-landing-banner" data-from-finding={landing.fromFinding ?? undefined}>
-              <span className="jump-landing-dot" data-testid="jump-landing-dot" aria-hidden>
-                ▸
-              </span>
-              <span className="jump-landing-text mono" data-testid="jump-landing-text">
-                {landing.seq != null ? `JUMPED TO STEP ${landing.seq}` : "JUMPED TO THIS SESSION"}
-                {landing.fromFinding != null ? ` — from finding #${landing.fromFinding}` : ""}
-              </span>
-              <button
-                type="button"
-                className="jump-landing-dismiss" data-testid="jump-landing-dismiss"
-                title="Dismiss"
-                aria-label="Dismiss landing banner"
-                onClick={() => setLanding(null)}
-              >
-                ✕
-              </button>
-            </div>
-          )}
-          {/* Transcript controls live above the timeline (transcript tab only):
-              a filter box + turn expand/collapse on the top row, and the
-              event-type filter (which type-dims/-hides timeline rows) on a second
-              row. These moved here from the removed left sidebar so the timeline
-              filters live with the timeline they act on. */}
-          {activeTab === "transcript" && (
-            <div className="transcript-toolbar" data-testid="transcript-toolbar">
-              <div
-                className="transcript-toolbar-row" data-testid="transcript-toolbar-row"
-                style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 12px 6px" }}
-              >
-                <div className="search" data-testid="search" style={{ flex: "1 1 auto" }}>
-                  <span aria-hidden>⌕</span>
-                  <input
-                    placeholder="Filter timeline…"
-                    value={transcriptSearch}
-                    onChange={(e) => setTranscriptSearch(e.target.value)}
-                  />
-                </div>
-                {turnCount > 1 && (
-                  <span className="segmented turn-filter" data-testid="turn-filter" title="Show/hide every turn in this session">
-                    <button
-                      type="button"
-                      className={collapsedTurns.size === 0 ? "active" : ""}
-                      onClick={expandAllTurns}
-                    >
-                      Expand turns
-                    </button>
-                    <button
-                      type="button"
-                      className={collapsedTurns.size === turnCount ? "active" : ""}
-                      onClick={collapseAllTurns}
-                    >
-                      Collapse turns
-                    </button>
+            <main className="main" data-testid="main">
+              {landing && (landing.fromFinding != null || landing.seq != null) && (
+                <div className="jump-landing-banner" data-testid="jump-landing-banner" data-from-finding={landing.fromFinding ?? undefined}>
+                  <span className="jump-landing-dot" data-testid="jump-landing-dot" aria-hidden>▸</span>
+                  <span className="jump-landing-text mono" data-testid="jump-landing-text">
+                    {landing.seq != null ? `JUMPED TO STEP ${landing.seq}` : "JUMPED TO THIS SESSION"}
+                    {landing.fromFinding != null ? ` — from finding #${landing.fromFinding}` : ""}
                   </span>
-                )}
-              </div>
-              <div className="filters transcript-filters" data-testid="transcript-filters">
-                <div className="filter-row" data-testid="filter-row">
-                  <span className="flabel" data-testid="flabel">Event types</span>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                    {ALL_TYPES.map((t) => {
-                      const on = typeFilter.has(t);
-                      return (
-                        <button
-                          key={t}
-                          type="button"
-                          className={`event-type-badge ${t}`} data-testid="event-type-badge" data-event-kind={t}
-                          title={`${EVENT_LABEL[t]} — click to ${on ? "hide" : "show"}`}
-                          onClick={() => toggleType(t)}
-                          style={{ cursor: "pointer", opacity: on ? 1 : 0.38 }}
-                        >
-                          {EVENT_LABEL[t]}
-                          <span className="mono" data-testid="mono" style={{ marginLeft: "auto", color: "var(--muted-2)" }}>
-                            {typeCounts[t] ?? 0}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <span
-                    className="segmented filter-mode" data-testid="filter-mode"
-                    style={{ marginLeft: "auto" }}
-                    title="Choose whether non-matching event types stay visible (dimmed) or are hidden"
-                  >
-                    <button
-                      type="button"
-                      className={filterMode === "highlight" ? "active" : ""}
-                      onClick={() => setFilterMode("highlight")}
-                    >
-                      Highlight
-                    </button>
-                    <button
-                      type="button"
-                      className={filterMode === "hide" ? "active" : ""}
-                      onClick={() => setFilterMode("hide")}
-                    >
-                      Hide
-                    </button>
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ===== TRANSCRIPT (timeline) ===== */}
-          {activeTab === "transcript" && (
-            <div className="timeline" data-testid="timeline">
-              {(() => {
-                const renderRow = (
-                  e: TranscriptEvent,
-                  depth: number,
-                  childCount: number,
-                  turnStats?: TurnRollup,
-                ) => {
-                  const isSel = selectedEventId === e.id;
-                  const glyph = TYPE_GLYPH[e.type] ?? "•";
-                  const pinned = pins.has(e.id);
-                  const expanded = expandedAgents.has(e.id);
-                  const isTurnHeader = turnStats != null;
-                  const ownerHeaderId = turnHeaderIds.get(e.id);
-                  const ownerTurn = isTurnHeader
-                    ? turnStats.turn
-                    : ownerHeaderId
-                      ? turnRollups.get(ownerHeaderId)?.turn
-                      : undefined;
-                  const rollupDurationMs =
-                    isTurnHeader && turnStats.durationMs > 0
-                      ? turnStats.durationMs
-                      : isTurnHeader
-                        ? turnStats.wallDurationMs
-                        : 0;
-                  const isDimmed = filterMode === "highlight" && !matchesType(e);
-                  const timebar = eventTimeBars.get(e.id) ?? { startPct: 0, widthPct: 0.35 };
-                  let subNode: React.ReactNode = null;
-                  if (isTurnHeader) {
-                    subNode = <div className="event-sub body turn-summary" data-testid="event-sub">{turnStats.summary}</div>;
-                  } else if (e.filePath) subNode = <div className="event-sub path" data-testid="event-sub">{e.filePath}</div>;
-                  else if (e.command) subNode = <div className="event-sub mono" data-testid="event-sub">{e.command}</div>;
-                  else if (e.body)
-                    subNode = <div className="event-sub body" data-testid="event-sub">{e.body.split("\n")[0]}</div>;
-                  const showBadge =
-                    e.type === "subagent" ||
-                    e.type === "skill" ||
-                    e.type === "error" ||
-                    e.type === "commit" ||
-                    e.type === "thinking" ||
-                    e.type === "memory" ||
-                    e.type === "hook";
-                  return (
-                    <div
-                      key={e.id}
-                      data-eid={e.id}
-                      data-filter-match={isDimmed ? "false" : "true"}
-                      data-turn={ownerTurn}
-                      data-rollup-steps={isTurnHeader ? turnStats.steps : undefined}
-                      data-rollup-edits={isTurnHeader ? turnStats.edits : undefined}
-                      data-rollup-errors={isTurnHeader ? turnStats.errors : undefined}
-                      data-rollup-files={isTurnHeader ? turnStats.files.length : undefined}
-                      data-rollup-duration-ms={isTurnHeader ? rollupDurationMs : undefined}
-                      data-turn-has-error={isTurnHeader && turnStats.errors > 0 ? "true" : undefined}
-                      data-flash={flashEventId === e.id ? "true" : undefined}
-                      data-selected={isSel ? "true" : undefined}
-                      data-row-kind={isTurnHeader ? "turn-header" : "step"}
-                      data-child-row={depth > 0 ? "true" : undefined}
-                      data-dimmed={isDimmed ? "true" : undefined}
-                      className={`event-row${depth > 0 ? " child-row" : ""}${!isTurnHeader ? " step-row" : ""}${isSel ? " selected" : ""}${flashEventId === e.id ? " flash-jump" : ""}${isTurnHeader ? " turn-header" : ""}${isTurnHeader && turnStats.errors > 0 ? " turn-has-error" : ""}${isDimmed ? " filter-dimmed" : ""}`} data-testid="event-row"
-                      onClick={() => {
-                        if (isTurnHeader) {
-                          setSelectedEventId(e.id);
-                          toggleTurn(e.id);
-                        } else {
-                          selectTimelineEvent(e.id);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Enter" || ev.key === " ") {
-                          ev.preventDefault();
-                          if (isTurnHeader) {
-                            setSelectedEventId(e.id);
-                            toggleTurn(e.id);
-                          } else {
-                            selectTimelineEvent(e.id);
-                          }
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="event-seq" data-testid="event-seq">
-                        {isTurnHeader ? (
-                          <button
-                            type="button"
-                            className="tw-expand" data-testid="tw-expand"
-                            aria-label={turnStats.collapsed ? "Expand turn" : "Collapse turn"}
-                            title={turnStats.collapsed ? "Expand this turn" : "Collapse this turn"}
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              toggleTurn(e.id);
-                            }}
-                          >
-                            {turnStats.collapsed ? "▸" : "▾"}
-                          </button>
-                        ) : childCount > 0 ? (
-                          <button
-                            type="button"
-                            className="tw-expand" data-testid="tw-expand"
-                            aria-label={expanded ? "Collapse sub-agent" : "Expand sub-agent"}
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              setExpandedAgents((prev) => {
-                                const n = new Set(prev);
-                                if (n.has(e.id)) n.delete(e.id);
-                                else n.add(e.id);
-                                return n;
-                              });
-                            }}
-                          >
-                            {expanded ? "▾" : "▸"}
-                          </button>
-                        ) : depth > 0 ? (
-                          ""
-                        ) : (
-                          e.seq
-                        )}
-                      </span>
-                      <span className="event-gutter" data-testid="event-gutter">{e.ts}</span>
-                      <span className={`event-icon ${e.type}`} data-testid="event-icon" data-event-kind={e.type} aria-hidden>
-                        {glyph}
-                      </span>
-                      <div className="event-main" data-testid="event-main">
-                        <div className="event-headline" data-testid="event-headline">
-                          <span className="event-title" data-testid="event-title">{e.title}</span>
-                          {pinned && <span title="Pinned" aria-label="Pinned">📌</span>}
-                          {notes[e.id] && <span title="Has note" aria-label="Has note">🗒</span>}
-                          {showBadge && (
-                            <span className={`event-type-badge ${e.type}`} data-testid="event-type-badge" data-event-kind={e.type}>{EVENT_LABEL[e.type]}</span>
-                          )}
-                          {depth === 0 && e.subagent && (
-                            <span className="event-type-badge subagent" data-testid="event-type-badge" data-event-kind="subagent">{e.subagent}</span>
-                          )}
-                        </div>
-                        {subNode}
-                      </div>
-                      <span className="event-meta" data-testid="event-meta">
-                        {isTurnHeader && (
-                          <span className="chip turn-chip" data-testid="chip" data-chip-kind="turn" title={`Turn ${turnStats.turn} of ${turnCount}`}>
-                            Turn {turnStats.turn}
-                          </span>
-                        )}
-                        {isTurnHeader && (
-                          <>
-                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="steps">
-                              {turnStats.steps} step{turnStats.steps === 1 ? "" : "s"}
-                            </span>
-                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="edits">
-                              {turnStats.edits} edits
-                            </span>
-                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="bash">
-                              {turnStats.bash} bash
-                            </span>
-                            <span
-                              className={`chip rollup-chip${turnStats.errors > 0 ? " err" : ""}`} data-testid="chip"
-                              data-rollup-kind="errors"
-                            >
-                              {turnStats.errors} errors
-                            </span>
-                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="cost">
-                              {fmtCost(turnStats.costUsd)}
-                            </span>
-                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="tokens">
-                              {fmtCompact(turnStats.tokens)} tok
-                            </span>
-                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="duration">
-                              {humanizeDuration(rollupDurationMs)}
-                            </span>
-                            {turnStats.files.length > 0 ? (
-                              <button
-                                type="button"
-                                className="chip rollup-chip turn-files-chip" data-testid="chip"
-                                data-file-id={turnStats.files[0].id}
-                                title={turnStats.files.map((f) => f.path).join("\n")}
-                                onClick={(ev) => {
-                                  ev.stopPropagation();
-                                  openTurnFile(turnStats.files[0].id);
-                                }}
-                              >
-                                {turnStats.files.length} files
-                              </button>
-                            ) : (
-                              <span className="chip rollup-chip is-empty" data-testid="chip" data-rollup-kind="files">
-                                0 files
-                              </span>
-                            )}
-                          </>
-                        )}
-                        {childCount > 0 && (
-                          <span className="chip" data-testid="chip">{childCount} steps</span>
-                        )}
-                        {depth === 0 && e.type === "subagent" && (
-                          <button
-                            type="button"
-                            className="sa-jump" data-testid="sa-jump"
-                            title="Open this run in the Subagents tab"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              setActiveTab("subagents");
-                              openAgent(e.id);
-                            }}
-                          >
-                            ⌥ open →
-                          </button>
-                        )}
-                        {e.type === "commit" && <span className="chip hash" data-testid="chip">{commitLabel}</span>}
-                        {e.tokenUsage != null && <span className="tok" data-testid="tok">+{fmtInt(e.tokenUsage)} -0</span>}
-                        {e.durationMs != null && <span className="dur" data-testid="dur">{durLabel(e.durationMs)}</span>}
-                        {e.exitCode != null &&
-                          (e.exitCode === 0 ? (
-                            <span className="ok" data-testid="ok">✓</span>
-                          ) : (
-                            <span className="err" data-testid="err">✗</span>
-                          ))}
-                        {!isTurnHeader && (
-                          <span
-                            className="step-timebar-track" data-testid="step-timebar-track"
-                            title={`time ${timebar.startPct.toFixed(1)}% · duration ${e.durationMs ?? 0}ms`}
-                          >
-                            <span
-                              className="step-timebar" data-testid="step-timebar"
-                              data-start-pct={timebar.startPct.toFixed(3)}
-                              data-width-pct={timebar.widthPct.toFixed(3)}
-                              data-duration-ms={e.durationMs ?? 0}
-                              style={{
-                                left: `${timebar.startPct}%`,
-                                width: `${timebar.widthPct}%`,
-                              }}
-                            />
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  );
-                };
-                const rows: React.ReactNode[] = [];
-                for (const e of visibleEvents) {
-                  const header = turnHeaderIds.get(e.id);
-                  const isHeader = e.type === "user_message" && turnNumberByEventId.has(e.id);
-                  const collapsed = header != null && collapsedTurns.has(header);
-                  // hide non-header rows whose owning turn is collapsed
-                  if (collapsed && !isHeader) continue;
-                  const kids = childrenByParent.get(e.id) ?? [];
-                  const rollup = isHeader ? turnRollups.get(e.id) : undefined;
-                  const turnStats = rollup ? { ...rollup, collapsed } : undefined;
-                  rows.push(renderRow(e, 0, kids.length, turnStats));
-                  if (!isHeader && kids.length && expandedAgents.has(e.id)) {
-                    for (const k of kids) if (shouldRenderTimelineEvent(k)) rows.push(renderRow(k, 1, 0));
-                  }
-                }
-                return rows;
-              })()}
-              {visibleEvents.length === 0 && (
-                <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
-                  No events match the current filters.
+                  <button type="button" className="jump-landing-dismiss" data-testid="jump-landing-dismiss" title="Dismiss" aria-label="Dismiss landing banner" onClick={() => setLanding(null)}>✕</button>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* ===== TOOLS ===== */}
-          {activeTab === "tools" && (
-            <div className="timeline" data-testid="timeline">
-              {events
-                .filter((e) => TOOL_TYPES.includes(e.type))
-                .map((e) => {
-                  const isSel = selectedEventId === e.id;
-                  return (
-                    <div
-                      key={e.id}
-                      data-eid={e.id}
-                      data-selected={isSel ? "true" : undefined}
-                      data-event-kind={e.type}
-                      className={`event-row${isSel ? " selected" : ""}`} data-testid="event-row"
-                      onClick={() => setSelectedEventId(e.id)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Enter" || ev.key === " ") {
-                          ev.preventDefault();
-                          setSelectedEventId(e.id);
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="event-seq" data-testid="event-seq">{e.seq}</span>
-                      <span className="event-gutter" data-testid="event-gutter">{e.ts}</span>
-                      <span className={`event-icon ${e.type}`} data-testid="event-icon" data-event-kind={e.type} aria-hidden>
-                        {TYPE_GLYPH[e.type] ?? "•"}
-                      </span>
-                      <div className="event-main" data-testid="event-main">
-                        <div className="event-headline" data-testid="event-headline">
-                          <span className="event-title" data-testid="event-title">{e.title}</span>
-                          <span className={`event-type-badge ${e.type}`} data-testid="event-type-badge" data-event-kind={e.type}>{EVENT_LABEL[e.type]}</span>
-                        </div>
-                        {(e.command || e.filePath) && (
-                          <div className={`event-sub ${e.filePath ? "path" : "mono"}`} data-testid="event-sub">
-                            {e.command ?? e.filePath}
-                          </div>
-                        )}
-                      </div>
-                      <span className="event-meta" data-testid="event-meta">
-                        {e.durationMs != null && <span className="dur" data-testid="dur">{durLabel(e.durationMs)}</span>}
-                        {e.exitCode != null &&
-                          (e.exitCode === 0 ? (
-                            <span className="ok" data-testid="ok">exit 0 ✓</span>
-                          ) : (
-                            <span className="err" data-testid="err">exit {e.exitCode} ✗</span>
-                          ))}
-                      </span>
-                    </div>
-                  );
-                })}
-              {events.filter((e) => TOOL_TYPES.includes(e.type)).length === 0 && (
-                <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
-                  No tool events.
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ===== SKILLS ===== */}
-          {activeTab === "skills" && (
-            <div className="timeline" data-testid="timeline">
-              {events
-                .filter((e) => e.type === "skill")
-                .map((e) => {
-                  const isSel = selectedEventId === e.id;
-                  return (
-                    <div
-                      key={e.id}
-                      data-eid={e.id}
-                      data-selected={isSel ? "true" : undefined}
-                      data-event-kind={e.type}
-                      className={`event-row${isSel ? " selected" : ""}`} data-testid="event-row"
-                      onClick={() => setSelectedEventId(e.id)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Enter" || ev.key === " ") {
-                          ev.preventDefault();
-                          setSelectedEventId(e.id);
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <span className="event-seq" data-testid="event-seq">{e.seq}</span>
-                      <span className="event-gutter" data-testid="event-gutter">{e.ts}</span>
-                      <span className="event-icon skill" data-testid="event-icon" data-event-kind="skill" aria-hidden>
-                        {TYPE_GLYPH.skill}
-                      </span>
-                      <div className="event-main" data-testid="event-main">
-                        <div className="event-headline" data-testid="event-headline">
-                          <span className="event-title" data-testid="event-title">{e.title}</span>
-                          <span className="event-type-badge skill" data-testid="event-type-badge">Skill</span>
-                        </div>
-                        {e.body && <div className="event-sub body" data-testid="event-sub">{e.body.split("\n")[0]}</div>}
-                      </div>
-                      <span className="event-meta" data-testid="event-meta">
-                        {e.durationMs != null && <span className="dur" data-testid="dur">{durLabel(e.durationMs)}</span>}
-                      </span>
-                    </div>
-                  );
-                })}
-              {events.filter((e) => e.type === "skill").length === 0 && (
-                <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
-                  No skill events.
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ===== SUBAGENTS (per-run tabs + overview spine) ===== */}
-          {activeTab === "subagents" && (
-            <div className="sa-wrap" data-testid="sa-wrap">
-              {invocations.length === 0 ? (
-                <div className="timeline" data-testid="timeline">
-                  <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
-                    No sub-agent runs in this session.
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {/* sub-tab bar: Overview + one tab per distinct run */}
-                  <div className="sa-tabbar" data-testid="sa-tabbar" role="tablist" aria-label="Sub-agent runs">
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={subAgentTab === "overview"}
-                      className={`sa-tab${subAgentTab === "overview" ? " active" : ""}`} data-testid="sa-tab"
-                      onClick={() => setSubAgentTab("overview")}
-                    >
-                      ◇ Overview
-                      <span className="sa-tab-count" data-testid="sa-tab-count">{invocations.length}</span>
-                    </button>
-                    {invocations.map((inv, i) => {
-                      const on = subAgentTab === inv.id;
-                      const label = inv.subagent ?? "sub-agent";
-                      return (
-                        <button
-                          key={inv.id}
-                          type="button"
-                          role="tab"
-                          aria-selected={on}
-                          className={`sa-tab${on ? " active" : ""}`} data-testid="sa-tab"
-                          onClick={() => openAgent(inv.id)}
-                          title={`Agent ${i + 1} · ${label}`}
-                        >
-                          <span className="sa-tab-idx" data-testid="sa-tab-idx">{i + 1}</span>
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="timeline" data-testid="timeline">
-                    {subAgentTab === "overview" ? (
-                      /* ---------- OVERVIEW: chronological spine of every run ---------- */
-                      invocations.map((e, i) => {
-                        const { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools, linkedChild } = summarizeInvocation(e);
-                        const displaySteps = linkedChild ? linkedChild.stepCount : kids.length;
-                        const displayTools = linkedChild ? linkedChild.toolCount : (toolUses ?? observedTools);
-                        const displayModel = linkedChild?.model ?? model;
-                        const displayDuration = linkedChild?.durationMs ?? e.durationMs;
-                        const displayTokens = linkedChild ? linkedChild.tokenUsage : (e.tokenUsage ?? tokens ?? null);
-                        const displayCost = linkedChild ? linkedChild.costUsd : costUsd;
-                        const unlinkedNoSteps = !linkedChild && kids.length === 0;
-                        return (
-                          <button
-                            key={e.id}
-                            type="button"
-                            className="sa-card" data-testid="sa-card"
-                            onClick={() => (linkedChild ? openSubSession(linkedChild.id) : openAgent(e.id))}
-                          >
-                            <span className="sa-card-idx" data-testid="sa-card-idx">{i + 1}</span>
-                            <div className="sa-card-main" data-testid="sa-card-main">
-                              <div className="sa-card-top" data-testid="sa-card-top">
-                                <span className="event-type-badge subagent" data-testid="event-type-badge">⌥ {e.subagent ?? "sub-agent"}</span>
-                                {displayModel && <span className="sa-model" data-testid="sa-model" title="model the sub-agent ran on">{shortModel(displayModel)}</span>}
-                                <span className="sa-card-time" data-testid="sa-card-time">{e.ts}</span>
-                                {runFailed && <span className="badge failed" data-testid="badge">error</span>}
-                                {linkedChild && <span className="badge neutral" data-testid="badge">linked</span>}
-                                {failedSteps > 0 && (
-                                  <span
-                                    className="chip failed-steps-chip" data-testid="chip"
-                                    title={`${failedSteps} child step(s) exited non-zero — distinct from the run's own result`}
-                                  >
-                                    {failedSteps} failed step{failedSteps === 1 ? "" : "s"}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="sa-card-task" data-testid="sa-card-task">{invocationSummaryLine(e)}</div>
-                              {kids.length > 0 && (
-                                <div className="sa-card-steps" data-testid="sa-card-steps" aria-hidden>
-                                  {kids.slice(0, 16).map((k) => (
-                                    <span
-                                      key={k.id}
-                                      className={`sa-glyph ${k.type}`} data-testid="sa-glyph"
-                                      title={`${EVENT_LABEL[k.type]} · ${k.title}`}
-                                    >
-                                      {TYPE_GLYPH[k.type] ?? "•"}
-                                    </span>
-                                  ))}
-                                  {kids.length > 16 && <span className="sa-more" data-testid="sa-more">+{kids.length - 16}</span>}
-                                </div>
-                              )}
-                            </div>
-                            <span className="sa-card-meta" data-testid="sa-card-meta">
-                              {unlinkedNoSteps ? (
-                                <span className="sa-capture-note" data-testid="sa-capture-note">internal steps not captured</span>
-                              ) : (
-                                <>
-                                  <span className="chip" data-testid="chip">{displaySteps} steps</span>
-                                  <span className="chip" data-testid="chip">{displayTools} tools</span>
-                                  {displayDuration != null && <span className="dur" data-testid="dur">{durLabel(displayDuration)}</span>}
-                                  {displayTokens != null && <span className="tok" data-testid="tok">{fmtTok(displayTokens)} tok</span>}
-                                  {displayCost != null && <span className="sa-cost" data-testid="sa-cost">{fmtCost(displayCost)}</span>}
-                                </>
-                              )}
-                              <span className="sa-go" data-testid="sa-go">{linkedChild ? "OPEN SUB-SESSION →" : "Open →"}</span>
-                            </span>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      /* ---------- DETAIL: one run's full execution ---------- */
-                      (() => {
-                        const e = invocations.find((x) => x.id === subAgentTab);
-                        if (!e) return null;
-                        const { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools, linkedChild } = summarizeInvocation(e);
-                        const displaySteps = linkedChild ? linkedChild.stepCount : kids.length;
-                        const displayTools = linkedChild ? linkedChild.toolCount : (toolUses ?? observedTools);
-                        const displayModel = linkedChild?.model ?? model ?? null;
-                        const displayDuration = linkedChild?.durationMs ?? e.durationMs;
-                        const tokensShown = linkedChild ? linkedChild.tokenUsage : (e.tokenUsage ?? tokens ?? null);
-                        const displayCost = linkedChild ? linkedChild.costUsd : costUsd;
-                        return (
-                          <div className="sa-detail" data-testid="sa-detail">
-                            {/* run selection / back / position all live in the .sa-tabbar above —
-                                no second header row (it duplicated Overview, the active tab, and
-                                tab-click navigation). Model sits in the stats strip below. */}
-                            {/* fixed 7-column strip: every run shows the same cards so runs are
-                                comparable at a glance. A missing value renders as "—" (not
-                                recorded in the transcript), never by dropping the card — a
-                                vanished "Tool calls" reads as "this model can't use tools". */}
-                            <div className="sa-detail-stats" data-testid="sa-detail-stats">
-                              <div className="stat" data-testid="stat">
-                                <span className="stat-k" data-testid="stat-k">Steps</span>
-                                <span className="stat-v" data-testid="stat-v">
-                                  {displaySteps}
-                                  {failedSteps > 0 && (
-                                    <span
-                                      className="stat-note failed-steps-note" data-testid="stat-note"
-                                      title={`${failedSteps} child step(s) exited non-zero — distinct from the run's own result`}
-                                    >
-                                      {failedSteps} failed
-                                    </span>
-                                  )}
-                                </span>
-                              </div>
-                              <div className="stat" data-testid="stat">
-                                <span className="stat-k" data-testid="stat-k">Tool calls</span>
-                                {linkedChild || toolUses != null ? (
-                                  <span className="stat-v" data-testid="stat-v">{displayTools}</span>
-                                ) : (
-                                  <span
-                                    className="stat-v" data-testid="stat-v"
-                                    title="not reported by the run; counted from observed tool steps in the transcript"
-                                  >
-                                    {displayTools}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="stat" data-testid="stat">
-                                <span className="stat-k" data-testid="stat-k">Model</span>
-                                <span className="stat-v" data-testid="stat-v" style={{ fontSize: "12.5px" }} title={displayModel ?? "not recorded in the transcript"}>
-                                  {displayModel ? shortModel(displayModel) : "—"}
-                                </span>
-                              </div>
-                              <div className="stat" data-testid="stat">
-                                <span className="stat-k" data-testid="stat-k">Duration</span>
-                                <span className="stat-v" data-testid="stat-v" title={displayDuration == null ? "not recorded in the transcript" : undefined}>
-                                  {displayDuration != null ? fmtDur2(displayDuration) : "—"}
-                                </span>
-                              </div>
-                              <div className="stat" data-testid="stat">
-                                <span className="stat-k" data-testid="stat-k">Tokens</span>
-                                <span
-                                  className="stat-v" data-testid="stat-v"
-                                  title={
-                                    e.tokenUsage != null
-                                      ? undefined
-                                      : tokensShown != null
-                                        ? "summed from the sub-agent's own transcript (cache reads excluded) — the same usage its cost is priced from"
-                                        : "no usage recorded in either transcript"
-                                  }
-                                >
-                                  {tokensShown != null ? fmtInt(tokensShown) : "—"}
-                                </span>
-                              </div>
-                              <div className="stat" data-testid="stat">
-                                <span className="stat-k" data-testid="stat-k">Cost</span>
-                                <span className="stat-v" data-testid="stat-v" title={displayCost == null ? "model or token usage not recorded — cost is not invented" : undefined}>
-                                  {displayCost != null ? fmtCost(displayCost) : "—"}
-                                </span>
-                              </div>
-                              <div className="stat" data-testid="stat">
-                                <span className="stat-k" data-testid="stat-k">Result</span>
-                                <span
-                                  className={`stat-v ${runFailed ? "err" : "ok"}`} data-testid="stat-v"
-                                  title="The run's own verdict (the launcher's is_error / exit). Child-step failures are reported separately under Steps."
-                                >
-                                  {runFailed ? "error" : "ok"}
-                                </span>
-                              </div>
-                            </div>
-
-                            {e.body && (
-                              <div className="sa-detail-summary" data-testid="sa-detail-summary">
-                                <div className="io-head" data-testid="io-head">
-                                  <span>Result · summary</span>
-                                  <button
-                                    type="button"
-                                    className="io-copy" data-testid="io-copy"
-                                    onClick={() => copy(`sa-${e.id}`, e.body ?? "")}
-                                  >
-                                    {copied === `sa-${e.id}` ? "✓ copied" : "⧉ copy"}
-                                  </button>
-                                </div>
-                                <div
-                                  className="sa-summary-body" data-testid="sa-summary-body"
-                                  onClick={() => setSelectedEventId(e.id)}
-                                  role="button"
-                                  tabIndex={0}
-                                  onKeyDown={(ev) => {
-                                    if (ev.key === "Enter" || ev.key === " ") {
-                                      ev.preventDefault();
-                                      setSelectedEventId(e.id);
-                                    }
-                                  }}
-                                >
-                                  {invocationSummaryLine(e)}
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="panel-title" data-testid="panel-title" style={{ padding: "10px 14px 0" }}>
-                              Execution <span className="count" data-testid="count">({displaySteps} steps)</span>
-                            </div>
-                            {linkedChild ? (
-                              <div className="sa-linked-session" data-testid="sa-linked-session" style={{ margin: "8px 14px 14px" }}>
-                                <div className="sa-linked-title" data-testid="sa-linked-title">{linkedChild.title}</div>
-                                <div className="muted small" data-testid="muted">
-                                  Open the linked sub-session to inspect its captured transcript.
-                                </div>
-                                <button
-                                  type="button"
-                                  className="btn btn-sm" data-testid="btn"
-                                  onClick={() => openSubSession(linkedChild.id)}
-                                >
-                                  OPEN SUB-SESSION →
-                                </button>
-                              </div>
-                            ) : kids.length === 0 ? (
-                              <div className="empty" data-testid="empty" style={{ padding: "8px 16px 16px" }}>
-                                internal steps not captured
-                              </div>
-                            ) : (
-                              kids.map((k) => {
-                                const isSel = selectedEventId === k.id;
-                                return (
-                                  <div
-                                    key={k.id}
-                                    data-selected={isSel ? "true" : undefined}
-                                    data-child-row="true"
-                                    data-event-kind={k.type}
-                                    className={`event-row child-row${isSel ? " selected" : ""}`} data-testid="event-row"
-                                    onClick={() => setSelectedEventId(k.id)}
-                                    role="button"
-                                    tabIndex={0}
-                                    onKeyDown={(ev) => {
-                                      if (ev.key === "Enter" || ev.key === " ") {
-                                        ev.preventDefault();
-                                        setSelectedEventId(k.id);
-                                      }
-                                    }}
-                                    style={{ cursor: "pointer" }}
-                                  >
-                                    <span className="event-seq" data-testid="event-seq">{k.seq}</span>
-                                    <span className="event-gutter" data-testid="event-gutter">{k.ts}</span>
-                                    <span className={`event-icon ${k.type}`} data-testid="event-icon" data-event-kind={k.type} aria-hidden>
-                                      {TYPE_GLYPH[k.type] ?? "•"}
-                                    </span>
-                                    <div className="event-main" data-testid="event-main">
-                                      <div className="event-headline" data-testid="event-headline">
-                                        <span className="event-title" data-testid="event-title">{k.title}</span>
-                                        <span className={`event-type-badge ${k.type}`} data-testid="event-type-badge" data-event-kind={k.type}>
-                                          {EVENT_LABEL[k.type]}
-                                        </span>
-                                      </div>
-                                      {k.command ? (
-                                        <div className="event-sub mono" data-testid="event-sub">{k.command}</div>
-                                      ) : k.filePath ? (
-                                        <div className="event-sub path" data-testid="event-sub">{k.filePath}</div>
-                                      ) : k.body ? (
-                                        <div className="event-sub body" data-testid="event-sub">{k.body.split("\n")[0]}</div>
-                                      ) : null}
-                                    </div>
-                                    <span className="event-meta" data-testid="event-meta">
-                                      {k.durationMs != null && (
-                                        <span className="dur" data-testid="dur">{durLabel(k.durationMs)}</span>
-                                      )}
-                                      {k.exitCode != null &&
-                                        (k.exitCode === 0 ? (
-                                          <span className="ok" data-testid="ok">✓</span>
-                                        ) : (
-                                          <span className="err" data-testid="err">✗</span>
-                                        ))}
-                                    </span>
-                                  </div>
-                                );
-                              })
-                            )}
-                          </div>
-                        );
-                      })()
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* ===== ANNOTATIONS (session-wide notable moments) ===== */}
-          {activeTab === "annotations" && (
-            <div className="timeline annotations-tab" data-testid="timeline" data-panel="annotations">
-              <div className="annotations-tab-head" data-testid="annotations-tab-head">
-                <span className="ann-tab-label" data-testid="ann-tab-label">Annotations</span>
-                <span className="count mono" data-testid="count">{annotations.length}</span>
-              </div>
-              <div className="annotations-tab-sub" data-testid="annotations-tab-sub">
-                Notable moments flagged along the run — errors, commits &amp; tests, in time order.
-                Click one to jump to that step in the Transcript.
-              </div>
-              {annotations.length === 0 ? (
-                <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
-                  No flagged moments in this session.
-                </div>
-              ) : (
-                [...annotations]
-                  .sort((a, b) => a.atSeq - b.atSeq)
-                  .map((a) => {
-                    const target =
-                      events.find((e) => e.seq === a.atSeq && !e.parentId) ??
-                      events.find((e) => e.seq === a.atSeq);
-                    const jump = () => {
-                      if (!target) return;
-                      setActiveTab("transcript");
-                      selectTimelineEvent(target.id, true);
-                    };
-                    return (
-                      <div
-                        key={a.id}
-                        className="annotation annotation-tab-row" data-testid="annotation"
-                        data-annotation-seq={a.atSeq}
-                        onClick={jump}
-                        role={target ? "button" : undefined}
-                        tabIndex={target ? 0 : undefined}
-                        onKeyDown={(ev) => {
-                          if (target && (ev.key === "Enter" || ev.key === " ")) {
-                            ev.preventDefault();
-                            jump();
-                          }
-                        }}
-                        title={
-                          target
-                            ? `${a.kind} at step ${a.atSeq} — click to jump to the Transcript`
-                            : `${a.kind} at step ${a.atSeq}`
-                        }
-                        style={{ cursor: target ? "pointer" : "default" }}
-                      >
-                        <span className="amain" data-testid="amain">
-                          <span className="ameta" data-testid="ameta">
-                            <span className={`akind-tag ${a.kind as AnnotationKind}`} data-testid="akind-tag">{a.kind}</span>
-                            <span className="aseq" data-testid="aseq">step {a.atSeq}</span>
-                          </span>
-                          {a.note && <span className="atxt" data-testid="atxt">{a.note}</span>}
-                        </span>
-                      </div>
-                    );
-                  })
-              )}
-            </div>
-          )}
-
-          {/* ===== FINDINGS — per-session tab =====
-              Scoped to THIS session: only findings whose evidence touches the
-              current session appear (IA principle 2026-06-12 — the cross-session
-              list is the Findings AXIS's job, not this tab). Reuses the same
-              master-detail component as the axis. The cross-session axis is
-              reached from the global bar, so no in-tab "all findings" link is
-              needed (requirement F). */}
-          {activeTab === "findings" && (
-            <FindingsExplorer
-              findings={findings}
-              setFindings={setFindings}
-              sessions={sessions}
-              mode="session"
-              scopeSessionId={currentId}
-              resolveEvidence={resolveEvidence}
-              initialStatusFilter="pending"
-              onJumpToSession={jumpToFindingSession}
-              onJumpToTurn={jumpToFindingTurn}
-            />
-          )}
-
-          {/* Git is handled above as an embedded DiffViewer (in-page tab),
-              so there is no changed-files block inside <main> anymore. */}
-
-          {/* ===== RAW JSON ===== */}
-          {activeTab === "raw" && (
-            <div className="timeline" data-testid="timeline" style={{ padding: "12px 14px" }}>
-              <div
-                className="panel-title" data-testid="panel-title"
-                style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}
-              >
-                <span>{selected ? `Selected event ${selected.seq}` : "Events array"}</span>
-                <button
-                  type="button"
-                  className="btn btn-sm" data-testid="btn"
-                  onClick={() =>
-                    copy("raw-main", JSON.stringify(selected ?? events, null, 2))
-                  }
-                >
-                  {copied === "raw-main" ? "Copied ✓" : "⧉ Copy"}
-                </button>
-              </div>
-              <pre className="run-json" data-testid="run-json" style={{ whiteSpace: "pre-wrap" }}>
-                {JSON.stringify(selected ?? events, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {/* ---------- bottom strip: real time ribbon (width = elapsed time) ---------- */}
-          <TimeRibbon
-            events={topEvents}
-            selectedId={selectedEventId}
-            onSelect={(eventId) => selectTimelineEvent(eventId, true)}
-            title="Time spent"
-          />
-        </main>
-
-        {/* ---------- COLUMN 3: aside / detail ----------
-            Hidden on the Findings tab — the event inspector (User message /
-            LINKED FILES / RUN JSON) does not inform a verdict, so the column is
-            removed and its width handed to the findings detail panel. */}
-        {activeTab !== "findings" && (
-        <aside className="aside" data-testid="aside">
-          {asideIsLauncherDup ? (
-            <div className="detail" data-testid="detail">
-              <div className="detail-placeholder" data-testid="detail-placeholder" data-aside-placeholder="step-inspect">
-                Select a step to inspect
-              </div>
-            </div>
-          ) : (
-          <div className="detail" data-testid="detail">
-            <div className="detail-head" data-testid="detail-head">
-              <span className={`event-icon ${selType}`} data-testid="event-icon" aria-hidden>
-                {TYPE_GLYPH[selType] ?? "•"}
-              </span>
-              <span className="dtitle" data-testid="dtitle">
-                {selType === "bash" ? "Bash (shell)" : EVENT_LABEL[selType]}
-              </span>
-              <span className="spacer" data-testid="spacer" />
-              {selected?.exitCode != null && (
-                <span className={`badge ${selStatusClass}`} data-testid="badge">{selStatusText}</span>
-              )}
-            </div>
-
-            <div className="detail-actions" data-testid="detail-actions">
-              <button
-                type="button"
-                className={`btn${selPinned ? " btn-primary" : ""}`} data-testid="btn"
-                onClick={togglePin}
-                disabled={!selected}
-              >
-                📌 {selPinned ? "Pinned" : "Pin"}
-              </button>
-              <button
-                type="button"
-                className="btn" data-testid="btn"
-                onClick={openNoteEditor}
-                disabled={!selected}
-              >
-                🗒 {selNote ? "Edit Note" : "Add Note"}
-              </button>
-              {selected && eventsWithDiff.has(selected.id) && (
-                <button
-                  type="button"
-                  className="btn" data-testid="btn"
-                  onClick={() => {
-                    setGitFocusEvent(selected.id);
-                    setGitFocusFileId(undefined);
-                    setGitFocusHunkId(undefined);
-                    setActiveTab("git");
-                  }}
-                  title="See the Git diff this edit produced (jump to the Git tab)"
-                >
-                  ⎇ Diff →
-                </button>
-              )}
-            </div>
-
-            {/* note editor (inline) */}
-            {noteDraft != null && (
-              <div style={{ padding: "0 16px 12px" }}>
-                <textarea
-                  value={noteDraft}
-                  onChange={(e) => setNoteDraft(e.target.value)}
-                  placeholder="Note for this event…"
-                  rows={3}
-                  autoFocus
-                  style={{
-                    width: "100%",
-                    fontFamily: "var(--sans)",
-                    fontSize: "12.5px",
-                    padding: "8px",
-                    border: "1px solid var(--border-strong)",
-                    borderRadius: "var(--radius-sm)",
-                    background: "var(--panel)",
-                    color: "var(--text)",
-                    resize: "vertical",
-                  }}
+              {activeTab === "transcript" && (
+                <TranscriptTab
+                  transcriptSearch={transcriptSearch}
+                  setTranscriptSearch={setTranscriptSearch}
+                  turnCount={turnCount}
+                  collapsedTurns={collapsedTurns}
+                  expandAllTurns={() => setCollapsedTurns(new Set())}
+                  collapseAllTurns={() => setCollapsedTurns(new Set(turnNumberByEventId.keys()))}
+                  typeFilter={typeFilter}
+                  toggleType={toggleType}
+                  typeCounts={typeCounts}
+                  filterMode={filterMode}
+                  setFilterMode={setFilterMode}
+                  visibleEvents={visibleEvents}
+                  childrenByParent={childrenByParent}
+                  shouldRenderTimelineEvent={shouldRenderTimelineEvent}
+                  turnHeaderIds={turnHeaderIds}
+                  turnNumberByEventId={turnNumberByEventId}
+                  turnRollups={turnRollups}
+                  selectedEventId={selectedEventId}
+                  flashEventId={flashEventId}
+                  pins={pins}
+                  notes={notes}
+                  expandedAgents={expandedAgents}
+                  matchesType={matchesType}
+                  eventTimeBars={eventTimeBars}
+                  commitLabel={commitLabel}
+                  selectTimelineEvent={selectTimelineEvent}
+                  setSelectedEventId={setSelected}
+                  toggleTurn={toggleTurn}
+                  toggleAgent={(eventId) => setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; })}
+                  openAgent={(id) => { setActiveTab("subagents"); openAgent(id); }}
+                  openTurnFile={(fileId) => { setGitFocusFileId(fileId); setGitFocusEvent(undefined); setGitFocusHunkId(undefined); setActiveTab("git"); }}
                 />
-                <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
-                  <button type="button" className="btn btn-sm btn-primary" data-testid="btn" onClick={saveNote}>
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm" data-testid="btn"
-                    onClick={() => setNoteDraft(null)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              )}
+              {activeTab === "tools" && <ToolsTab events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelected} />}
+              {activeTab === "skills" && <SkillsTab events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelected} />}
+              {activeTab === "subagents" && <SubagentsTab invocations={invocations} subAgentTab={subAgentTab} setSubAgentTab={setSubAgentTab} childrenByParent={childrenByParent} sessionById={sessionById} selectedEventId={selectedEventId} setSelectedEventId={setSelected} copied={copied} copy={copy} openAgent={openAgent} openSubSession={openSubSession} />}
+              {activeTab === "annotations" && <AnnotationsTab annotations={annotations} events={events} jumpToEvent={(id) => { setActiveTab("transcript"); selectTimelineEvent(id, true); }} />}
+              {activeTab === "findings" && <FindingsTab findings={findings} setFindings={setFindings} sessions={sessions} currentId={currentId} resolveEvidence={resolveEvidence} onJumpToSession={jumpToFindingSession} onJumpToTurn={jumpToFindingTurn} />}
+              {activeTab === "raw" && <RawTab selected={selected} events={events} copied={copied} copy={copy} />}
+              <TimeRibbon events={topEvents} selectedId={selectedEventId} onSelect={(eventId) => selectTimelineEvent(eventId, true)} title="Time spent" />
+            </main>
+            {activeTab !== "findings" && (
+              <SessionAside
+                asideIsLauncherDup={asideIsLauncherDup}
+                selected={selected}
+                selectedFiles={selectedFiles}
+                primary={primary}
+                pins={pins}
+                notes={notes}
+                noteDraft={noteDraft}
+                setNoteDraft={setNoteDraft}
+                copied={copied}
+                copy={copy}
+                eventsWithDiff={eventsWithDiff}
+                togglePin={togglePin}
+                openNoteEditor={openNoteEditor}
+                saveNote={saveNote}
+                openSelectedDiff={() => { if (selected) setGitFocusEvent(selected.id); setGitFocusFileId(undefined); setGitFocusHunkId(undefined); setActiveTab("git"); }}
+              />
             )}
-
-            {/* saved note display */}
-            {selNote && noteDraft == null && (
-              <div
-                className="kv" data-testid="kv"
-                style={{ borderTop: 0, paddingTop: 0, gridTemplateColumns: "1fr" }}
-              >
-                <dd style={{ background: "var(--accent-weak)", padding: "8px 10px", borderRadius: "var(--radius-sm)" }}>
-                  🗒 {selNote}
-                </dd>
-              </div>
-            )}
-
-            {/* what matters for a tool: how long, success, cost — as compact stats */}
-            <div className="stat-strip" data-testid="stat-strip">
-              {selected?.durationMs != null && (
-                <div className="stat" data-testid="stat">
-                  <span className="stat-k" data-testid="stat-k">Duration</span>
-                  <span className="stat-v" data-testid="stat-v">{fmtDur2(selected.durationMs)}</span>
-                </div>
-              )}
-              {selected?.exitCode != null && (
-                <div className="stat" data-testid="stat">
-                  <span className="stat-k" data-testid="stat-k">Exit</span>
-                  <span className={`stat-v ${selected.exitCode === 0 ? "ok" : "err"}`} data-testid="stat-v">
-                    {selected.exitCode === 0 ? "0 ✓" : `${selected.exitCode} ✗`}
-                  </span>
-                </div>
-              )}
-              {selected?.tokenUsage != null && (
-                <div className="stat" data-testid="stat">
-                  <span className="stat-k" data-testid="stat-k">Tokens</span>
-                  <span className="stat-v" data-testid="stat-v">{fmtInt(selected.tokenUsage)}</span>
-                </div>
-              )}
-              {selMeta.toolUses != null && (
-                <div className="stat" data-testid="stat">
-                  <span className="stat-k" data-testid="stat-k">Tool calls</span>
-                  <span className="stat-v" data-testid="stat-v">{selMeta.toolUses}</span>
-                </div>
-              )}
-            </div>
-            <div className="detail-sub" data-testid="detail-sub">
-              {EVENT_LABEL[selType]} · {selected?.actor ?? "—"} · {sessionDate} {selTime}
-              {selMeta.tool && selMeta.tool !== EVENT_LABEL[selType] ? ` · ${selMeta.tool}` : ""}
-            </div>
-            {selected?.filePath && <div className="detail-path mono" data-testid="detail-path">{selected.filePath}</div>}
-
-            {selected?.command && (
-              <div className="io-block" data-testid="io-block">
-                <div className="io-head" data-testid="io-head">
-                  <span>Command</span>
-                  <button
-                    type="button"
-                    className="io-copy" data-testid="io-copy"
-                    onClick={() => copy("cmd", selected.command ?? "")}
-                  >
-                    {copied === "cmd" ? "✓ copied" : "⧉ copy"}
-                  </button>
-                </div>
-                <pre className="code-block cmd" data-testid="code-block">{selected.command}</pre>
-              </div>
-            )}
-
-            {/* return value / side effects — the main content, gets the room */}
-            <div className="io-block io-output" data-testid="io-block">
-              <div className="io-head" data-testid="io-head">
-                <span>
-                  {selType === "bash" || selType === "test"
-                    ? "Output · stdout / stderr"
-                    : selType === "file_read"
-                      ? "File contents"
-                      : selType === "subagent"
-                        ? "Result / summary"
-                        : selType === "thinking"
-                          ? "Thinking · reasoning"
-                          : selType === "assistant_message" || selType === "user_message"
-                            ? "Message"
-                            : "Detail"}
-                </span>
-                {selected?.body && (
-                  <button
-                    type="button"
-                    className="io-copy" data-testid="io-copy"
-                    onClick={() => copy("out", selected.body ?? "")}
-                  >
-                    {copied === "out" ? "✓ copied" : "⧉ copy"}
-                  </button>
-                )}
-              </div>
-              <pre className="code-block output" data-testid="code-block" data-block-kind="output">
-                {selected?.body ? selected.body : <span className="muted" data-testid="muted">(no output captured)</span>}
-              </pre>
-            </div>
-
-            {/* Linked files */}
-            <div className="linked-files" data-testid="linked-files">
-              <div className="panel-title" data-testid="panel-title">
-                Linked Files <span className="count" data-testid="count">({selectedFiles.length})</span>
-              </div>
-              {selectedFiles.length === 0 ? (
-                <div className="empty" data-testid="empty">—</div>
-              ) : (
-                selectedFiles.map((f) => (
-                  <div key={f.id} className="linked-file" data-testid="linked-file">
-                    <span>{f.path}</span>
-                    <span className={`role ${f.role}`} data-testid="role">{f.role}</span>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Run JSON */}
-            <div className="linked-files" data-testid="linked-files" style={{ borderBottom: 0, paddingBottom: 0 }}>
-              <div
-                className="panel-title" data-testid="panel-title"
-                style={{ display: "flex", alignItems: "center", gap: "8px" }}
-              >
-                <span>Run JSON</span>
-                <button
-                  type="button"
-                  className="btn btn-sm" data-testid="btn"
-                  onClick={() => copy("runjson", JSON.stringify(runJson, null, 2))}
-                  disabled={!selected}
-                >
-                  {copied === "runjson" ? "Copied ✓" : "⧉ Copy"}
-                </button>
-              </div>
-            </div>
-            <pre className="run-json" data-testid="run-json">
-              <JsonView value={runJson} />
-            </pre>
-          </div>
-          )}
-        </aside>
-        )}
           </>
         )}
       </div>
