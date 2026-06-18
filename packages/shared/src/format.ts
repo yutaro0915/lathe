@@ -87,11 +87,12 @@ export function basename(p: string): string {
  * Split a stored timestamp into compact date and time labels.
  */
 export function parseStamp(s: string): { date: string; time: string } {
-  const [datePart, timePart = ""] = s.split(" ");
+  const [datePart, timePart = ""] = s.split(/[ T]/);
   const [, mo, da] = datePart.split("-");
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const moName = months[Number(mo) - 1] ?? mo;
-  const date = `${moName} ${Number(da)}`;
+  const dayNum = Number(da);
+  const date = Number.isNaN(dayNum) ? moName : `${moName} ${dayNum}`;
   const time = timePart.slice(0, 5);
   return { date, time };
 }

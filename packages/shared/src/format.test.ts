@@ -52,3 +52,12 @@ test("formats compact path, timestamp, and model labels", () => {
   assert.equal(basename("src/app/page.tsx"), "page.tsx");
   assert.deepEqual(parseStamp("2026-06-18 09:34:56"), { date: "Jun 18", time: "09:34" });
 });
+
+test("parses both ISO and space timestamp formats without emitting NaN", () => {
+  // ISO 8601 from GitHub PR/review timestamps (T-separated, trailing Z) — must not be "Jun NaN".
+  assert.deepEqual(parseStamp("2026-06-11T00:01:30Z"), { date: "Jun 11", time: "00:01" });
+  // Space-separated session timestamp — existing format must still parse.
+  assert.deepEqual(parseStamp("2026-06-12 02:16:26"), { date: "Jun 12", time: "02:16" });
+  // Date-only input still yields a valid day and an empty time.
+  assert.deepEqual(parseStamp("2026-06-11"), { date: "Jun 11", time: "" });
+});
