@@ -9,8 +9,42 @@
    No shadow; depth comes from hairline borders. Header heights are unified.
    ========================================================================== */
 
-/* ---- shell root ---------------------------------------------------------- */
+/* ---- shell root ----------------------------------------------------------
+   Layout v2 (design/layout-architecture.md): the shell OWNS the chrome regions.
+   A full-width TOP BAR (brand + project-scope indicator + command affordance)
+   sits above a horizontal BODY split (persistent left RAIL + WORK AREA). The
+   work area's header chrome is owned by the single Surface component below, so
+   no surface draws its own header band (the cause of the old header step). */
+.lds-shell{display:flex;flex-direction:column;height:100vh;min-height:0;background:var(--bg);overflow:hidden;}
+.lds-shell-body{flex:1 1 auto;display:flex;flex-direction:row;min-height:0;overflow:hidden;}
+/* legacy single-split root (kept for back-compat; v2 uses .lds-shell). */
 .lds-app{display:flex;flex-direction:row;height:100vh;min-height:0;background:var(--bg);overflow:hidden;}
+
+/* ---- top bar: shell-owned scope + identity (no app-feature actions) ------
+   Minimal by contract: brand (left), a reserved project-scope region, and a
+   command affordance (right). It carries scope + identity only — Run/Find/Reset
+   and other feature actions never live here (topbar-scope-only). */
+.lds-topbar{flex:0 0 auto;display:flex;align-items:center;gap:12px;height:var(--appbar-h);padding:0 14px;
+  background:var(--panel);border-bottom:1px solid var(--border);}
+.lds-topbar .lds-tb-brand{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px;
+  color:var(--text);letter-spacing:.01em;text-decoration:none;cursor:pointer;flex:0 0 auto;}
+.lds-topbar .lds-tb-brand:hover{text-decoration:none;}
+.lds-topbar .lds-tb-logo{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+  font-weight:800;letter-spacing:-.5px;border:1px solid var(--border-strong);border-radius:5px;font-size:12px;
+  color:var(--text);background:var(--panel-2);}
+/* reserved project-scope region. STEP 1 = a static, non-interactive indicator;
+   the interactive switcher + ?project= flow is a later step. */
+.lds-topbar .lds-tb-scope{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;
+  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);
+  font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap;flex:0 0 auto;cursor:default;}
+.lds-topbar .lds-tb-scope .lds-tb-scope-ic{display:inline-flex;color:var(--muted-2);}
+.lds-topbar .lds-tb-spacer{flex:1 1 auto;}
+.lds-topbar .lds-tb-cmd{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;
+  border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--panel);
+  color:var(--muted);font-size:12px;font-weight:550;cursor:pointer;flex:0 0 auto;white-space:nowrap;}
+.lds-topbar .lds-tb-cmd:hover{background:var(--panel-hover);color:var(--text-soft);}
+.lds-topbar .lds-tb-cmd .lds-kbd{font-family:var(--mono);font-size:10px;color:var(--muted-2);
+  border:1px solid var(--border);border-radius:3px;padding:0 4px;height:15px;display:inline-flex;align-items:center;}
 
 /* ---- left rail: persistent navigation ------------------------------------ */
 .lds-railnav{flex:0 0 var(--rail-w);width:var(--rail-w);display:flex;flex-direction:column;min-height:0;
@@ -55,6 +89,50 @@
 .lds-page-head .lds-ph-sub{font-size:12px;color:var(--muted);flex:0 0 auto;white-space:nowrap;}
 .lds-page-head .lds-spacer{flex:1 1 auto;}
 .lds-page-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;}
+
+/* ---- Surface: the SINGLE home for work-area header chrome ----------------
+   The Surface component (components/Surface.tsx) is the only place the new
+   header styling exists. It renders a uniform WorkareaHeader band (fixed
+   --appbar-h height, full work-area width, hairline bottom border) with title +
+   meta on the left and actions on the right, an optional tabs row, a scrolling
+   Body, and a collapsible RightPanel. Surfaces fill these slots; they never draw
+   a header band of their own (no .lds-page-head / .lds-session-bar / .pr-hero).
+   Because the header height + body geometry are fixed here, surfaces are
+   structurally unable to reintroduce the header step. */
+.lds-surface{flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
+/* WorkareaHeader band — shares --appbar-h with the rail brand + top bar so
+   their bottom hairlines line up into one unbroken line across the shell. */
+.lds-wh{flex:0 0 auto;display:flex;align-items:center;gap:14px;height:var(--appbar-h);padding:0 20px;
+  background:var(--panel);border-bottom:1px solid var(--border);}
+.lds-wh .lds-wh-titles{display:flex;align-items:baseline;gap:10px;min-width:0;flex:0 1 auto;}
+.lds-wh .lds-wh-title{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;flex:0 0 auto;}
+.lds-wh .lds-wh-meta{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.lds-wh .lds-wh-spacer{flex:1 1 auto;}
+.lds-wh .lds-wh-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto;}
+/* Surface row that hosts a sub-component (filters etc.) below the header. */
+.lds-surface-row{flex:0 0 auto;}
+/* tabs row (optional), directly under the WorkareaHeader. */
+.lds-wh-tabs{flex:0 0 auto;display:flex;align-items:center;gap:0;height:var(--tabs-h);padding:0 12px;
+  background:var(--panel);border-bottom:1px solid var(--border);}
+/* Body: the scroll region the surface fills. Width/height/padding are fixed by
+   the surface frame, not the surface content. */
+.lds-surface-body{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+.lds-surface-main{flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;display:flex;flex-direction:column;}
+/* the Body + RightPanel split (only when a right panel is supplied). */
+.lds-surface-split{flex:1 1 auto;min-height:0;display:flex;flex-direction:row;overflow:hidden;}
+.lds-surface-split .lds-surface-main{flex:1 1 auto;}
+/* ---- collapsible RightPanel (shell-owned inspector frame) ---------------- */
+.lds-rightpanel{flex:0 0 var(--aside-w);width:var(--aside-w);min-height:0;display:flex;flex-direction:column;
+  background:var(--panel);border-left:1px solid var(--border);overflow:hidden;}
+.lds-rightpanel .lds-rp-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;height:var(--tabs-h);
+  padding:0 12px;border-bottom:1px solid var(--border);}
+.lds-rightpanel .lds-rp-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lds-rightpanel .lds-rp-close{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+  border:1px solid transparent;border-radius:var(--radius-xs);background:transparent;color:var(--muted-2);
+  font-size:13px;line-height:1;cursor:pointer;flex:0 0 auto;}
+.lds-rightpanel .lds-rp-close:hover{background:var(--panel-hover);color:var(--text-soft);}
+.lds-rightpanel .lds-rp-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;}
 
 /* project scope select in the page head */
 .lds-project-select{display:flex;align-items:center;gap:7px;height:28px;padding:0 9px;

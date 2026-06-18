@@ -25,6 +25,7 @@ import { fmtCost, fmtTok, humanizeDuration, parseStamp, shortModel } from "@lath
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { EVENT_LABEL } from "@/lib/event-display";
 import CostAnomalyChip from "@/components/CostAnomalyChip";
+import Surface from "@/components/Surface";
 import { Icon } from "@/components/ds/icons";
 import {
   Badge,
@@ -153,61 +154,64 @@ export default function SessionsSurface({
 
   const openSession = (id: string) => router.push(`/?session=${encodeURIComponent(id)}`);
 
-  return (
-    <div className="lds-page" data-testid="lds-page" data-surface="sessions">
-      <div className="lds-page-head" data-testid="lds-page-head">
-        <span className="lds-ph-title" data-testid="lds-ph-title">Sessions</span>
-        <span className="lds-project-select" data-testid="lds-project-select">
-          <span aria-hidden style={{ display: "inline-flex" }}>
-            <Icon name="grid" size={13} />
-          </span>
-          <select
-            className="project-picker" data-testid="project-picker"
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-            title="Scope the session list to one project"
-          >
-            <option value="all">All projects · {sessions.length} sessions</option>
-            {projects.map((p) => (
-              <option key={p.project} value={p.project}>
-                {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
-              </option>
-            ))}
-          </select>
-          <span className="lds-caret" data-testid="lds-caret" aria-hidden>▾</span>
+  // Header actions for the WorkareaHeader (right slot). These are surface-feature
+  // controls (project picker / search / filters / sort) and live HERE, not in the
+  // shell TopBar. The TopBar's project-scope region is a separate (later) step;
+  // the per-surface project picker is deliberately kept here for now.
+  const actions = (
+    <>
+      <span className="lds-project-select" data-testid="lds-project-select">
+        <span aria-hidden style={{ display: "inline-flex" }}>
+          <Icon name="grid" size={13} />
         </span>
-        <span className="lds-ph-sub" data-testid="lds-ph-sub">{visible.length} in view</span>
-        <span className="lds-spacer" data-testid="lds-spacer" />
-        <div style={{ width: 240 }}>
-          <SearchInput
-            placeholder="Search sessions…"
-            kbd="⌘K"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <Button
-          variant={filtersOpen ? "default" : "ghost"}
-          size="sm"
-          icon={<Icon name={filtersOpen ? "chevronDown" : "chevronRight"} size={13} />}
-          onClick={() => setFiltersOpen((o) => !o)}
+        <select
+          className="project-picker" data-testid="project-picker"
+          value={projectFilter}
+          onChange={(e) => setProjectFilter(e.target.value)}
+          title="Scope the session list to one project"
         >
-          Filters
-        </Button>
-        <Select
-          value={sortKey}
-          options={[
-            { value: "recent", label: "Recent first" },
-            { value: "oldest", label: "Oldest first" },
-            { value: "tokens", label: "Most tokens" },
-            { value: "cost", label: "Costliest" },
-            { value: "errors", label: "Most errors" },
-          ]}
-          onChange={(e) => setSortKey(e.target.value as SortKey)}
-          title="Sort the session list"
+          <option value="all">All projects · {sessions.length} sessions</option>
+          {projects.map((p) => (
+            <option key={p.project} value={p.project}>
+              {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
+            </option>
+          ))}
+        </select>
+        <span className="lds-caret" data-testid="lds-caret" aria-hidden>▾</span>
+      </span>
+      <div style={{ width: 240 }}>
+        <SearchInput
+          placeholder="Search sessions…"
+          kbd="⌘K"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
         />
       </div>
+      <Button
+        variant={filtersOpen ? "default" : "ghost"}
+        size="sm"
+        icon={<Icon name={filtersOpen ? "chevronDown" : "chevronRight"} size={13} />}
+        onClick={() => setFiltersOpen((o) => !o)}
+      >
+        Filters
+      </Button>
+      <Select
+        value={sortKey}
+        options={[
+          { value: "recent", label: "Recent first" },
+          { value: "oldest", label: "Oldest first" },
+          { value: "tokens", label: "Most tokens" },
+          { value: "cost", label: "Costliest" },
+          { value: "errors", label: "Most errors" },
+        ]}
+        onChange={(e) => setSortKey(e.target.value as SortKey)}
+        title="Sort the session list"
+      />
+    </>
+  );
 
+  return (
+    <Surface surface="sessions" title="Sessions" meta={`${visible.length} in view`} actions={actions}>
       {filtersOpen ? (
         <div className="lds-sessions-filters" data-testid="lds-sessions-filters">
           <div className="lds-sf-row" data-testid="lds-sf-row">
@@ -325,6 +329,6 @@ export default function SessionsSurface({
         })}
         {visible.length === 0 ? <div className="lds-sg-empty" data-testid="lds-sg-empty">No sessions match.</div> : null}
       </div>
-    </div>
+    </Surface>
   );
 }
