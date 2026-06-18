@@ -5,13 +5,13 @@
   "checks": [
     {
       "id": "globals-css-shrinking",
-      "value": "旧スタイル系(globals.css)と DS v1 が二重に存在する状態を解消し、単一系にすること(I3)。守ると token/クラスの二重定義・値衝突が無くなり、UI 改修が一系統で済む。現状 385 行=backlog、目標 0。bespoke surface CSS は DS bundle へ relocate、共有 base/既存 lds-* primitive 等価物は採用で重複解消(relocate でなく)。",
+      "value": "旧スタイル系(globals.css)と DS v1 が二重に存在する状態を解消し、単一系にすること(I3)。守ると token/クラスの二重定義・値衝突が無くなり、UI 改修が一系統で済む。現状 363 行=backlog、目標 0。bespoke surface CSS は DS bundle へ relocate、共有 base/既存 lds-* primitive 等価物は採用で重複解消(relocate でなく)。",
       "verify": {
         "cmd": "wc -l < apps/web/app/globals.css 2>/dev/null || echo 0",
-        "expect": "le:385",
-        "means": "globals.css の行数 ≤385(現天井)。slice 着地ごとに auditor が天井を締め 0 へ。増やしたら RED"
+        "expect": "le:363",
+        "means": "globals.css の行数 ≤363(現天井)。slice 着地ごとに auditor が天井を締め 0 へ。増やしたら RED"
       }
     }
   ],
-  "origin": "r4 で :root 一本化・一部クラス移行。globals.css 完全撤去は backlog (2026-06-18)。ratchet 履歴: 1008→988 (slice1 TimeRibbon)→960 (slice2 PullRequestView)→930 (slice3 FileTree)→860 (slice4 Subagents)→815 (slice5 session-bar/chips)→744 (slice6 diff-pane/attr)→633 (slice7 overview/stats)→385 (slice8 findings), 2026-06-18"
+  "origin": "r4 で :root 一本化・一部クラス移行。globals.css 完全撤去は backlog (2026-06-18)。ratchet 履歴: 1008→988 (slice1 TimeRibbon)→960 (slice2 PullRequestView)→930 (slice3 FileTree)→860 (slice4 Subagents)→815 (slice5 session-bar/chips)→744 (slice6 diff-pane/attr)→633 (slice7 overview/stats)→385 (slice8 findings)→363 (slice9 layout 足場), 2026-06-18"
 }
