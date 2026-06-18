@@ -1,0 +1,17 @@
+{
+  "title": "指定経路(ACP)の失敗を旧経路へ silent fallback しない (N2)",
+  "scope": ["apps/web/scripts/analyst-engine"],
+  "pass_to_task": "LLM/agent を要する候補(llm-v1/hybrid)は ACP のみ。ACP が失敗したら旧経路/直接経路へ黙って fallback せず、明示的に失敗(RED)する。rules-v1 は LLM 不要なので対象外。",
+  "checks": [
+    {
+      "id": "acp-fail-closed",
+      "value": "指定経路(ACP)が壊れたら gate が RED になること(N2)。守ると『動かすために旧経路を生かして移行が骨抜き』を防ぐ。fallback で通ると反証可能性が死ぬ。",
+      "verify": {
+        "cmd": "LATHE_ANALYST_ACP_COMMAND=/bin/false DATABASE_URL=\"${DATABASE_URL:-postgres://lathe:lathe@localhost:55432/lathe}\" pnpm -F web exec tsx scripts/verify-finding-depth.ts >/dev/null 2>&1; [ $? -ne 0 ] && echo 0 || echo 1",
+        "expect": "eq:0",
+        "means": "ACP を /bin/false で殺すと verify-finding-depth が RED(=fail-closed)。0=正しく RED / 1=fallback して通った=NG"
+      }
+    }
+  ],
+  "origin": "engineering-norms N2 / tasks/25 R1 の骨抜き (2026-06-18 rubric 化)"
+}

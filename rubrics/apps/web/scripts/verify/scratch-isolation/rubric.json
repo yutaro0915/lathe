@@ -1,0 +1,17 @@
+{
+  "title": "検証は scratch 隔離・共有 DB を破壊しない (N6)",
+  "scope": ["apps/web/scripts"],
+  "pass_to_task": "verify/ingest/e2e/coverage は scratch schema/DB で実行し、共有 lathe DB に DROP/DELETE/TRUNCATE をしない。",
+  "checks": [
+    {
+      "id": "shared-findings-unchanged-after-verify",
+      "value": "検証が共有 DB を破壊しないこと(N6)。守ると検証実行で本番 findings/evidence が消える事故を防ぐ。grep でなく runtime invariant(前後の件数)で測る — scratch のクリーンアップ SQL を誤検出しないため。",
+      "verify": {
+        "cmd": "B=$(docker exec lathe-postgres-1 psql -U lathe -d lathe -tAc 'select count(*) from findings' 2>/dev/null); DATABASE_URL=\"${DATABASE_URL:-postgres://lathe:lathe@localhost:55432/lathe}\" pnpm -F @lathe/mcp verify >/dev/null 2>&1; A=$(docker exec lathe-postgres-1 psql -U lathe -d lathe -tAc 'select count(*) from findings' 2>/dev/null); [ \"$B\" = \"$A\" ] && echo 0 || echo 1",
+        "expect": "eq:0",
+        "means": "verify 実行の前後で共有 DB の findings 件数が不変(=scratch 隔離が効いている)。0=不変 / 1=変化した=NG"
+      }
+    }
+  ],
+  "origin": "engineering-norms N6 (2026-06-18 rubric 化)"
+}

@@ -1,0 +1,17 @@
+{
+  "title": "上位情報源を下位生成物で上書きしない (N3 provenance / missing-only)",
+  "scope": ["apps/web/scripts/analyst-engine", "apps/web/lib/write.ts"],
+  "pass_to_task": "agent/LLM が生成した richer な analysis を rule ベースの backfill/normalize で上書きしない。backfill は欠落のみ埋める(missing-only)。overwrite: true で source を潰さない。",
+  "checks": [
+    {
+      "id": "no-overwrite-backfill",
+      "value": "上位(agent 生成)の analysis を下位 backfill で上書きしないこと(N3)。守ると深掘り分析が rule ベースで潰れる事故(tasks/25 R2)を防ぐ。",
+      "verify": {
+        "cmd": "grep -rEc 'overwrite: ?true|backfill.*overwrite' apps/web/scripts/analyst-engine apps/web/lib/write.ts 2>/dev/null | awk -F: '{s+=$2} END{print s+0}'",
+        "expect": "eq:0",
+        "means": "backfill 文脈に overwrite:true が無い(missing-only が保たれている)"
+      }
+    }
+  ],
+  "origin": "engineering-norms N3 / tasks/25 R2 (2026-06-18 rubric 化)"
+}

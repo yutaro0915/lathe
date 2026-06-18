@@ -1,0 +1,17 @@
+{
+  "title": "外部入力(transcript)は型ガード・LooseRecord を界面に置かない (N7 / I7)",
+  "scope": ["apps/web/scripts/ingest"],
+  "pass_to_task": "外部入力(JSONL transcript / MCP 引数 / JSON-RPC)は型ガード/正規化する。Record<string,any> / LooseRecord を界面に増やさない。目標は 0(I7)。",
+  "checks": [
+    {
+      "id": "loose-record-ceiling",
+      "value": "外部入力の界面を Record<string,any> で覆わず型ガードすること(N7)。守ると provider 差分のパースで実行時クラッシュ・暗黙の any 伝播を防ぐ。現状 38=I7 backlog、目標 0。",
+      "verify": {
+        "cmd": "grep -rEc 'Record<string, ?any>|LooseRecord' apps/web/scripts/ingest 2>/dev/null | awk -F: '{s+=$2} END{print s+0}'",
+        "expect": "le:38",
+        "means": "ingest 境界の LooseRecord/Record<string,any> ≤38(現天井)。増やしたら RED、収束で天井を締めて 0 へ(I7)"
+      }
+    }
+  ],
+  "origin": "engineering-norms N7 / I7 backlog (2026-06-18 rubric 化、現数 38)"
+}
