@@ -3,7 +3,7 @@
 > **status: draft（レビュー用・未 commit）** ／ date: 2026-06-18
 > **正本の理想状態**: [architecture.md](architecture.md)（不変条件 I1–I7）。本書は **そこへ収束させる修正計画**。
 > **由来**: 多エージェント計画 workflow `wgjwjunci`（13 スライス並列計画 → 統合 → 敵対的検査）。critique verdict = **要修正（条件付き実行可能）**。本書は critique の must-fix を**取り込み済み**。
-> **規範**: [engineering-norms.md](engineering-norms.md)（N1–N8）/ [stacking-norms.md](stacking-norms.md)（1 PR=単一責務・<200 LOC・依存順）。
+> **規範**: `rubrics/`（N1–N8 を機械検査・agent-judge 化、merge は run.mjs のみ）/ `rubrics/meta/pr-split`（1 PR=単一責務・<200 LOC・依存順）。
 
 ## 0. 安全順序の核（spine）
 
@@ -65,6 +65,6 @@ rails(r0a→r0b, r0c∥) → r1 deadcode → r6 e2e 脱結合 → (r2→r3→r5)
 ## 5. 実行（Claude + Codex 連携）
 
 - **役割**: 計画/レビュー/統合=Opus。実装=Sonnet・Codex 5.5 high。UI=Opus。Tier A 監査=Codex 5.5 xhigh。各 slice の担当列に従う。
-- **Codex 実行**: 隔離 worktree + scratch DB で `/goal` loop（`-a never -s danger-full-access`）。goal 文に **engineering-norms N1–N8 + stacking-norms + 当該 slice の gate + N1 反証（壊して RED→戻して GREEN）必須**を明記。
+- **Codex 実行**: 隔離 worktree + scratch DB で `/goal` loop（`-a never -s danger-full-access`）。goal 文に **該当 rubric の pass_to_task + 当該 slice の gate + N1 反証（壊して RED→戻して GREEN）+ rubrics/ を変えない(N4)** を明記。`skills/lathe-loop` が運用正本。
 - **single-writer**: `lib/mcp.ts` の直列鎖（r2→r3→r5→r8）は同時編集しない。各 sub-PR は tsc+oxlint+depcruise+verify(scratch)+e2e を GREEN にしてから次へ。
 - **着手順**: §0 spine のとおり。各 slice 着手時に `tasks/<NN>-<slice>.md` を起こす。

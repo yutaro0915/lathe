@@ -1,0 +1,20 @@
+{
+  "title": "1 PR = 単一責務・小さく (stacking)",
+  "scope": ["apps/web", "packages", "rubrics"],
+  "pass_to_task": "1 PR/スライス = 単一責務。目安 <200 LOC・<10 files。無関係な変更を混ぜない。依存順に底→上で積む(Graphite)。",
+  "checks": [
+    {
+      "id": "single-responsibility-and-size",
+      "value": "1 PR が単一責務で小さいこと(stacking)。守るとレビュー・revert・並走が容易になり、大 branch ブロックや無関係変更の混入を防ぐ。サイズは測れるが『単一責務か』は agent-judge で測る。",
+      "verify": {
+        "judge": {
+          "prompt": "あなたは PR 分割ジャッジ。次の diff stat が (a) 単一責務か (b) 目安 <200 LOC・<10 ファイルに概ね収まるか を判定。複数の無関係な責務の混在、または大幅超過なら違反 1、適切なら 0。",
+          "input_cmd": "git diff --stat loop/26-ui-shell...HEAD 2>/dev/null | tail -40 || git show --stat HEAD 2>/dev/null | tail -40"
+        },
+        "expect": "le:0",
+        "means": "agent-judge が『単一責務でない/過大』と判定したら 1(違反)、適切なら 0"
+      }
+    }
+  ],
+  "origin": "stacking-norms を rubric 化 (2026-06-18)"
+}
