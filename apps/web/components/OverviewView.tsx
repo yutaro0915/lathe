@@ -127,17 +127,17 @@ export default function OverviewView({
     costAlerts.length === 0 && errorSessions.length === 0 && pendingSessions.length === 0;
 
   return (
-    <div className="overview-page">
+    <div className="overview-page" data-testid="overview-page">
       {/* Header — mirrors the session viewer's sessbar so the chrome stays
           consistent. The project scope lives here (an analysis condition, not a
           navigation control), alongside the scope totals. */}
-      <div className="sessbar">
-        <div className="sessbar-id">
-          <span className="sessbar-title">Overview</span>
-          <div className="project-select overview-scope" title="Scope every panel to one project">
+      <div className="sessbar" data-testid="sessbar">
+        <div className="sessbar-id" data-testid="sessbar-id">
+          <span className="sessbar-title" data-testid="sessbar-title">Overview</span>
+          <div className="project-select overview-scope" data-testid="project-select" title="Scope every panel to one project">
             <span aria-hidden>⊞</span>
             <select
-              className="project-picker"
+              className="project-picker" data-testid="project-picker"
               value={projectFilter}
               onChange={(e) => setProjectFilter(e.target.value)}
             >
@@ -149,26 +149,26 @@ export default function OverviewView({
               ))}
             </select>
           </div>
-          <span className="sessbar-meta">attention items, then the cross-session breakdown</span>
+          <span className="sessbar-meta" data-testid="sessbar-meta">attention items, then the cross-session breakdown</span>
         </div>
-        <div className="sessbar-stats">
-          <div className="kstat">
+        <div className="sessbar-stats" data-testid="sessbar-stats">
+          <div className="kstat" data-testid="kstat">
             <b>{fmtInt(scopeTotals.sessions)}</b>
             <span>sessions</span>
           </div>
-          <div className="kstat">
+          <div className="kstat" data-testid="kstat">
             <b>{scopeTotals.durationMs > 0 ? humanizeDuration(scopeTotals.durationMs) : "—"}</b>
             <span>duration</span>
           </div>
-          <div className="kstat">
+          <div className="kstat" data-testid="kstat">
             <b>{fmtCompact(scopeTotals.tokens)}</b>
             <span>tokens</span>
           </div>
-          <div className="kstat">
+          <div className="kstat" data-testid="kstat">
             <b>{scopeTotals.cost > 0 ? fmtCost(scopeTotals.cost) : "—"}</b>
             <span>cost</span>
           </div>
-          <div className="kstat" title="G9: cost > 5× runner median, min $50">
+          <div className="kstat" data-testid="kstat" title="G9: cost > 5× runner median, min $50">
             <b>{fmtInt(scopeTotals.anomalies)}</b>
             <span>cost outliers</span>
           </div>
@@ -176,45 +176,45 @@ export default function OverviewView({
       </div>
 
       {/* Full-width analysis canvas — no rail. */}
-      <div className="overview-canvas" data-overview-version="2">
+      <div className="overview-canvas" data-testid="overview-canvas" data-overview-version="2">
         {/* ======================= Attention (the lead panel) ======================= */}
-        <section className="attn-panel" data-panel="attention">
-          <div className="attn-head">
-            <span className="attn-title">NEEDS ATTENTION</span>
-            <span className="muted small">{scopeLabel}</span>
+        <section className="attn-panel" data-testid="attn-panel" data-panel="attention">
+          <div className="attn-head" data-testid="attn-head">
+            <span className="attn-title" data-testid="attn-title">NEEDS ATTENTION</span>
+            <span className="muted small" data-testid="muted">{scopeLabel}</span>
           </div>
 
           {attentionEmpty ? (
-            <div className="empty attn-empty">
+            <div className="empty attn-empty" data-testid="empty">
               No cost outliers, errors, or pending findings in this scope.
             </div>
           ) : (
-            <div className="attn-cols">
+            <div className="attn-cols" data-testid="attn-cols">
               {/* ① G9 cost outliers */}
-              <div className="attn-col" data-attn-group="cost">
+              <div className="attn-col" data-testid="attn-col" data-attn-group="cost">
                 <div
-                  className="attn-col-head"
+                  className="attn-col-head" data-testid="attn-col-head"
                   title="G9: cost > 5× runner median, min $50"
                 >
                   <span>COST OUTLIERS</span>
-                  <span className="attn-col-basis mono">&gt;5× runner median, min $50 (G9)</span>
-                  <span className="attn-count mono">{costAlerts.length}</span>
+                  <span className="attn-col-basis mono" data-testid="attn-col-basis">&gt;5× runner median, min $50 (G9)</span>
+                  <span className="attn-count mono" data-testid="attn-count">{costAlerts.length}</span>
                 </div>
                 {costAlerts.length === 0 ? (
-                  <div className="attn-none">none</div>
+                  <div className="attn-none" data-testid="attn-none">none</div>
                 ) : (
                   costAlerts.map(({ session: s, ratio }) => (
                     <Link
                       key={s.id}
                       href={sessionHref(s.id)}
-                      className="attn-row"
+                      className="attn-row" data-testid="attn-row"
                       data-session-id={s.id}
                     >
-                      <span className="attn-row-title" title={s.title}>{s.title}</span>
-                      <span className="attn-row-meta">
-                        <span className="mono">{fmtCost(s.costUsd)}</span>
+                      <span className="attn-row-title" data-testid="attn-row-title" title={s.title}>{s.title}</span>
+                      <span className="attn-row-meta" data-testid="attn-row-meta">
+                        <span className="mono" data-testid="mono">{fmtCost(s.costUsd)}</span>
                         {ratio != null && (
-                          <span className="badge neutral attn-ratio" title="cost ÷ baseline threshold">
+                          <span className="badge neutral attn-ratio" data-testid="attn-ratio" title="cost ÷ baseline threshold">
                             ×{ratio.toFixed(1)}
                           </span>
                         )}
@@ -225,28 +225,28 @@ export default function OverviewView({
               </div>
 
               {/* ② error-heavy sessions */}
-              <div className="attn-col" data-attn-group="errors">
+              <div className="attn-col" data-testid="attn-col" data-attn-group="errors">
                 <div
-                  className="attn-col-head"
+                  className="attn-col-head" data-testid="attn-col-head"
                   title="Sessions ranked by failed tool calls (descending)"
                 >
                   <span>MOST ERRORS</span>
-                  <span className="attn-col-basis mono">by failed tool calls</span>
-                  <span className="attn-count mono">{errorSessions.length}</span>
+                  <span className="attn-col-basis mono" data-testid="attn-col-basis">by failed tool calls</span>
+                  <span className="attn-count mono" data-testid="attn-count">{errorSessions.length}</span>
                 </div>
                 {errorSessions.length === 0 ? (
-                  <div className="attn-none">none</div>
+                  <div className="attn-none" data-testid="attn-none">none</div>
                 ) : (
                   errorSessions.map((s) => (
                     <Link
                       key={s.id}
                       href={sessionHref(s.id)}
-                      className="attn-row"
+                      className="attn-row" data-testid="attn-row"
                       data-session-id={s.id}
                     >
-                      <span className="attn-row-title" title={s.title}>{s.title}</span>
-                      <span className="attn-row-meta">
-                        <span className="badge err">{s.errorCount} err</span>
+                      <span className="attn-row-title" data-testid="attn-row-title" title={s.title}>{s.title}</span>
+                      <span className="attn-row-meta" data-testid="attn-row-meta">
+                        <span className="badge err" data-testid="badge">{s.errorCount} err</span>
                       </span>
                     </Link>
                   ))
@@ -254,33 +254,33 @@ export default function OverviewView({
               </div>
 
               {/* ③ pending findings */}
-              <div className="attn-col" data-attn-group="findings">
+              <div className="attn-col" data-testid="attn-col" data-attn-group="findings">
                 <div
-                  className="attn-col-head"
+                  className="attn-col-head" data-testid="attn-col-head"
                   title="Findings with no verdict yet"
                 >
                   <span>PENDING FINDINGS</span>
                   <Link
                     href="/findings"
-                    className="attn-count-link mono"
+                    className="attn-count-link mono" data-testid="attn-count-link"
                     title="View all undecided findings on the Findings axis"
                   >
                     {pendingTotal} →
                   </Link>
                 </div>
                 {pendingSessions.length === 0 ? (
-                  <div className="attn-none">none</div>
+                  <div className="attn-none" data-testid="attn-none">none</div>
                 ) : (
                   pendingSessions.map(({ session: s, pending }) => (
                     <Link
                       key={s.id}
                       href={findingsHrefForSession(s.id)}
-                      className="attn-row"
+                      className="attn-row" data-testid="attn-row"
                       data-session-id={s.id}
                     >
-                      <span className="attn-row-title" title={s.title}>{s.title}</span>
-                      <span className="attn-row-meta">
-                        <span className="badge neutral">{pending} pending</span>
+                      <span className="attn-row-title" data-testid="attn-row-title" title={s.title}>{s.title}</span>
+                      <span className="attn-row-meta" data-testid="attn-row-meta">
+                        <span className="badge neutral" data-testid="badge">{pending} pending</span>
                       </span>
                     </Link>
                   ))

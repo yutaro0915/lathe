@@ -41,12 +41,6 @@
       "rules": {
         "max-lines": ["warn", { "max": 1030, "skipBlankLines": true, "skipComments": true }]
       }
-    },
-    {
-      "files": ["apps/web/e2e/app.spec.ts"],
-      "rules": {
-        "max-lines": ["warn", { "max": 2869, "skipBlankLines": true, "skipComments": true }]
-      }
     }
   ]
 }

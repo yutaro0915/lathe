@@ -151,23 +151,23 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
       : "";
 
   return (
-    <div className="stats-embed">
-      <div className="stats-scroll">
-        <div className="chart-grid">
+    <div className="stats-embed" data-testid="stats-embed">
+      <div className="stats-scroll" data-testid="stats-scroll">
+        <div className="chart-grid" data-testid="chart-grid">
           {/* 1. per-turn cost (duration as bars, tokens as line) */}
-          <section className="chart-card chart-wide">
-            <div className="chart-h">
+          <section className="chart-card chart-wide" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">
               Where this session went{" "}
-              <span className="muted small">
+              <span className="muted small" data-testid="muted">
                 — {fmtInt(n)} turn{n === 1 ? "" : "s"} · session total {fmtCost(session.costUsd)} · {fmtCompact(session.tokenUsage)} tok
               </span>
             </div>
             {n === 0 ? (
-              <div className="empty">No user turns.</div>
+              <div className="empty" data-testid="empty">No user turns.</div>
             ) : (
               <>
-                <div className="chart-body">
-                  <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="none">
+                <div className="chart-body" data-testid="chart-body">
+                  <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" data-testid="chart-svg" preserveAspectRatio="none">
                     {[0.25, 0.5, 0.75].map((f) => (
                       <line
                         key={f}
@@ -200,7 +200,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                     )}
                   </svg>
                 </div>
-                <div className="chart-legend">
+                <div className="chart-legend" data-testid="chart-legend">
                   <span><i style={{ background: "var(--chart-bar)" }} />duration (bars)</span>
                   <span><i style={{ background: "var(--chart-line)" }} />tokens (line)</span>
                   <span style={{ flex: 1 }} />
@@ -211,142 +211,142 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
           </section>
 
           {/* 2. event composition (this session, top-level only) */}
-          <section className="chart-card">
-            <div className="chart-h">
-              Where the actions went <span className="muted small">— {fmtInt(evTotal)} steps</span>
+          <section className="chart-card" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">
+              Where the actions went <span className="muted small" data-testid="muted">— {fmtInt(evTotal)} steps</span>
             </div>
-            <div className="chart-body bars">
+            <div className="chart-body bars" data-testid="chart-body">
               {eventTypes.map((e) => (
-                <div className="hbar-row" key={e.type}>
-                  <span className="hbar-label">{EVENT_LABEL[e.type as EventType] ?? e.type}</span>
-                  <span className="hbar-track">
+                <div className="hbar-row" data-testid="hbar-row" key={e.type}>
+                  <span className="hbar-label" data-testid="hbar-label">{EVENT_LABEL[e.type as EventType] ?? e.type}</span>
+                  <span className="hbar-track" data-testid="hbar-track">
                     <span
-                      className="hbar-fill"
+                      className="hbar-fill" data-testid="hbar-fill"
                       style={{
                         width: `${(e.count / maxEv) * 100}%`,
                         background: EVENT_COLOR[e.type as EventType] ?? "var(--cat-uncertain)",
                       }}
                     />
                   </span>
-                  <span className="hbar-val">{fmtInt(e.count)}</span>
+                  <span className="hbar-val" data-testid="hbar-val">{fmtInt(e.count)}</span>
                 </div>
               ))}
-              {eventTypes.length === 0 && <div className="empty">No events.</div>}
+              {eventTypes.length === 0 && <div className="empty" data-testid="empty">No events.</div>}
             </div>
           </section>
 
           {/* 3. files touched */}
-          <section className="chart-card">
-            <div className="chart-h">
-              Files touched <span className="muted small">— top {files.length}</span>
+          <section className="chart-card" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">
+              Files touched <span className="muted small" data-testid="muted">— top {files.length}</span>
             </div>
-            <div className="chart-body bars">
+            <div className="chart-body bars" data-testid="chart-body">
               {files.map((f) => (
-                <div className="hbar-row" key={f.id} title={f.path}>
-                  <span className="hbar-label">{basename(f.path)}</span>
-                  <span className="hbar-track">
+                <div className="hbar-row" data-testid="hbar-row" key={f.id} title={f.path}>
+                  <span className="hbar-label" data-testid="hbar-label">{basename(f.path)}</span>
+                  <span className="hbar-track" data-testid="hbar-track">
                     <span
-                      className="hbar-fill"
+                      className="hbar-fill" data-testid="hbar-fill"
                       style={{
                         width: `${((f.additions + f.deletions) / maxFileChurn) * 100}%`,
                         background: "var(--chart-bar)",
                       }}
                     />
                   </span>
-                  <span className="hbar-val">
+                  <span className="hbar-val" data-testid="hbar-val">
                     <span style={{ color: "var(--add-text)" }}>+{f.additions}</span>{" "}
                     <span style={{ color: "var(--del-text)" }}>−{f.deletions}</span>
                   </span>
                 </div>
               ))}
-              {files.length === 0 && <div className="empty">No file changes.</div>}
+              {files.length === 0 && <div className="empty" data-testid="empty">No file changes.</div>}
             </div>
           </section>
 
           {/* 4. sub-agent runs */}
-          <section className="chart-card chart-wide">
-            <div className="chart-h">
+          <section className="chart-card chart-wide" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">
               Sub-agent runs{" "}
-              <span className="muted small">— {fmtInt(subagents.length)} run{subagents.length === 1 ? "" : "s"}</span>
+              <span className="muted small" data-testid="muted">— {fmtInt(subagents.length)} run{subagents.length === 1 ? "" : "s"}</span>
             </div>
-            <div className="chart-body bars">
+            <div className="chart-body bars" data-testid="chart-body">
               {subagents.map((s) => (
-                <div className="hbar-row" key={s.id} title={`${s.name} · ${s.toolUses ?? "?"} tools`}>
-                  <span className="hbar-label">
+                <div className="hbar-row" data-testid="hbar-row" key={s.id} title={`${s.name} · ${s.toolUses ?? "?"} tools`}>
+                  <span className="hbar-label" data-testid="hbar-label">
                     {s.name}
                     {s.model && (
-                      <span className="muted small mono" style={{ marginLeft: 6 }}>
+                      <span className="muted small mono" data-testid="muted" style={{ marginLeft: 6 }}>
                         {shortModel(s.model, "(unknown)")}
                       </span>
                     )}
                   </span>
-                  <span className="hbar-track">
+                  <span className="hbar-track" data-testid="hbar-track">
                     <span
-                      className="hbar-fill"
+                      className="hbar-fill" data-testid="hbar-fill"
                       style={{
                         width: `${((s.costUsd ?? 0) / maxSubCost) * 100}%`,
                         background: "var(--cat-subagent)",
                       }}
                     />
                   </span>
-                  <span className="hbar-val">
+                  <span className="hbar-val" data-testid="hbar-val">
                     {s.costUsd != null ? fmtCost(s.costUsd) : "—"}
-                    <span className="muted small" style={{ marginLeft: 6 }}>
+                    <span className="muted small" data-testid="muted" style={{ marginLeft: 6 }}>
                       {fmtDuration(s.durationMs)}
                     </span>
                   </span>
                 </div>
               ))}
-              {subagents.length === 0 && <div className="empty">No sub-agent runs in this session.</div>}
+              {subagents.length === 0 && <div className="empty" data-testid="empty">No sub-agent runs in this session.</div>}
             </div>
           </section>
 
           {/* 5. harness signals */}
-          <section className="chart-card">
-            <div className="chart-h">
-              Memory loaded <span className="muted small">— nested CLAUDE.md / AGENTS.md ({memory.length})</span>
+          <section className="chart-card" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">
+              Memory loaded <span className="muted small" data-testid="muted">— nested CLAUDE.md / AGENTS.md ({memory.length})</span>
             </div>
-            <div className="chart-body bars">
+            <div className="chart-body bars" data-testid="chart-body">
               {memory.map((m) => (
-                <div className="hbar-row" key={m.name}>
-                  <span className="hbar-label mono">{m.name}</span>
-                  <span className="hbar-track">
+                <div className="hbar-row" data-testid="hbar-row" key={m.name}>
+                  <span className="hbar-label mono" data-testid="hbar-label">{m.name}</span>
+                  <span className="hbar-track" data-testid="hbar-track">
                     <span
-                      className="hbar-fill"
+                      className="hbar-fill" data-testid="hbar-fill"
                       style={{
                         width: `${(m.count / Math.max(1, ...memory.map((x) => x.count))) * 100}%`,
                         background: "var(--cat-git)",
                       }}
                     />
                   </span>
-                  <span className="hbar-val">{fmtInt(m.count)}×</span>
+                  <span className="hbar-val" data-testid="hbar-val">{fmtInt(m.count)}×</span>
                 </div>
               ))}
-              {memory.length === 0 && <div className="empty">No nested memory loaded.</div>}
+              {memory.length === 0 && <div className="empty" data-testid="empty">No nested memory loaded.</div>}
             </div>
           </section>
 
-          <section className="chart-card">
-            <div className="chart-h">
-              Hooks fired <span className="muted small">— ({hooks.length})</span>
+          <section className="chart-card" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">
+              Hooks fired <span className="muted small" data-testid="muted">— ({hooks.length})</span>
             </div>
-            <div className="chart-body bars">
+            <div className="chart-body bars" data-testid="chart-body">
               {hooks.map((h) => (
-                <div className="hbar-row" key={h.name}>
-                  <span className="hbar-label mono">{h.name}</span>
-                  <span className="hbar-track">
+                <div className="hbar-row" data-testid="hbar-row" key={h.name}>
+                  <span className="hbar-label mono" data-testid="hbar-label">{h.name}</span>
+                  <span className="hbar-track" data-testid="hbar-track">
                     <span
-                      className="hbar-fill"
+                      className="hbar-fill" data-testid="hbar-fill"
                       style={{
                         width: `${(h.count / Math.max(1, ...hooks.map((x) => x.count))) * 100}%`,
                         background: "var(--cat-uncertain)",
                       }}
                     />
                   </span>
-                  <span className="hbar-val">{fmtInt(h.count)}×</span>
+                  <span className="hbar-val" data-testid="hbar-val">{fmtInt(h.count)}×</span>
                 </div>
               ))}
-              {hooks.length === 0 && <div className="empty">No hooks.</div>}
+              {hooks.length === 0 && <div className="empty" data-testid="empty">No hooks.</div>}
             </div>
           </section>
         </div>

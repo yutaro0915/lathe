@@ -170,24 +170,24 @@ function TurnEventRow({
     <Tag
       type={onClick ? "button" : undefined}
       role="listitem"
-      className={`finding-turn-event${isError ? " err" : ""}${event.isEvidence ? " evidence" : ""}`}
+      className={`finding-turn-event${isError ? " err" : ""}${event.isEvidence ? " evidence" : ""}`} data-testid="finding-turn-event"
       data-seq={event.seq}
       data-type={event.type}
       data-evidence={event.isEvidence ? "true" : undefined}
       onClick={onClick}
       title={onClick ? "Jump to this step in the transcript" : undefined}
     >
-      <span className="finding-turn-event-seq mono">{event.seq}</span>
-      <span className="finding-turn-event-type">{label}</span>
-      <span className="finding-turn-event-body">
+      <span className="finding-turn-event-seq mono" data-testid="finding-turn-event-seq">{event.seq}</span>
+      <span className="finding-turn-event-type" data-testid="finding-turn-event-type">{label}</span>
+      <span className="finding-turn-event-body" data-testid="finding-turn-event-body">
         {event.command ? (
-          <code className="finding-turn-event-cmd mono">{event.command}</code>
+          <code className="finding-turn-event-cmd mono" data-testid="finding-turn-event-cmd">{event.command}</code>
         ) : (
-          <span className="finding-turn-event-text">{event.text ?? event.title}</span>
+          <span className="finding-turn-event-text" data-testid="finding-turn-event-text">{event.text ?? event.title}</span>
         )}
       </span>
       {event.exitCode != null && (
-        <span className={`finding-turn-event-exit mono ${event.exitCode === 0 ? "ok" : "err"}`}>
+        <span className={`finding-turn-event-exit mono ${event.exitCode === 0 ? "ok" : "err"}`} data-testid="finding-turn-event-exit">
           exit {event.exitCode}
         </span>
       )}
@@ -444,14 +444,14 @@ export default function FindingsExplorer({
   }
 
   return (
-    <div className="timeline findings-tab findings-md" data-pending-count={pendingCount} data-findings-mode={mode}>
-      <div className="findings-tab-head">
-        <div className="findings-title">
-          <span className="findings-label">Findings</span>
-          <span className="count mono">{visibleFindings.length}</span>
-          <span className="finding-pending-count mono">{pendingCount} pending</span>
+    <div className="timeline findings-tab findings-md" data-testid="findings-tab" data-pending-count={pendingCount} data-findings-mode={mode}>
+      <div className="findings-tab-head" data-testid="findings-tab-head">
+        <div className="findings-title" data-testid="findings-title">
+          <span className="findings-label" data-testid="findings-label">Findings</span>
+          <span className="count mono" data-testid="count">{visibleFindings.length}</span>
+          <span className="finding-pending-count mono" data-testid="finding-pending-count">{pendingCount} pending</span>
         </div>
-        <span className="segmented findings-filter" title="Verdict filter">
+        <span className="segmented findings-filter" data-testid="findings-filter" title="Verdict filter">
           {(
             [
               ["pending", "Pending"],
@@ -470,10 +470,10 @@ export default function FindingsExplorer({
           ))}
         </span>
         {mode === "axis" && (
-          <label className="findings-session-select" title="Session filter">
-            <span className="finding-section-label">Session</span>
+          <label className="findings-session-select" data-testid="findings-session-select" title="Session filter">
+            <span className="finding-section-label" data-testid="finding-section-label">Session</span>
             <select
-              className="project-picker"
+              className="project-picker" data-testid="project-picker"
               value={sessionFilter}
               onChange={(event) => setSessionFilter(event.target.value)}
             >
@@ -489,30 +489,30 @@ export default function FindingsExplorer({
       </div>
       {recentVerdict && (
         <div
-          className={`finding-verdict-toast ${recentVerdict.verdict}`}
+          className={`finding-verdict-toast ${recentVerdict.verdict}`} data-testid="finding-verdict-toast"
           data-finding-id={recentVerdict.findingId}
           data-verdict-id={recentVerdict.verdictId}
         >
-          <span className="finding-status-dot" aria-hidden />
+          <span className="finding-status-dot" data-testid="finding-status-dot" aria-hidden />
           <span>
             {findingVerdictLabel(recentVerdict.verdict)} · {recentVerdict.title}
           </span>
-          <button type="button" className="btn btn-sm" onClick={undoVerdict}>
+          <button type="button" className="btn btn-sm" data-testid="btn" onClick={undoVerdict}>
             Undo
           </button>
         </div>
       )}
-      {error && <div className="finding-error">{error}</div>}
+      {error && <div className="finding-error" data-testid="finding-error">{error}</div>}
       {visibleFindings.length === 0 ? (
-        <div className="empty" style={{ padding: "16px" }}>
+        <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
           {mode === "session"
             ? "No findings are attached to this session."
             : "No findings match the current filters."}
         </div>
       ) : (
-        <div className="findings-md-grid">
+        <div className="findings-md-grid" data-testid="findings-md-grid">
           {/* ---- master: compact list ---- */}
-          <div className="findings-list" role="list">
+          <div className="findings-list" data-testid="findings-list" role="list">
             {visibleFindings.map((finding) => {
               const verdict = finding.verdict?.verdict ?? "pending";
               const isActive = selectedFinding?.id === finding.id;
@@ -521,7 +521,7 @@ export default function FindingsExplorer({
                   key={finding.id}
                   type="button"
                   role="listitem"
-                  className={`finding-row ${verdict}${isActive ? " active" : ""}`}
+                  className={`finding-row ${verdict}${isActive ? " active" : ""}`} data-testid="finding-row"
                   data-finding-id={finding.id}
                   data-kind={finding.kind}
                   data-analyst={finding.analyst}
@@ -530,22 +530,22 @@ export default function FindingsExplorer({
                   aria-pressed={isActive}
                   onClick={() => selectFinding(finding.id)}
                 >
-                  <div className="finding-mainline">
-                    <span className={`finding-kind-chip ${finding.kind}`}>
-                      <span className="finding-kind-dot" aria-hidden />
+                  <div className="finding-mainline" data-testid="finding-mainline">
+                    <span className={`finding-kind-chip ${finding.kind}`} data-testid="finding-kind-chip">
+                      <span className="finding-kind-dot" data-testid="finding-kind-dot" aria-hidden />
                       {FINDING_KIND_LABEL[finding.kind]}
                     </span>
-                    <div className="finding-title-body">
-                      <div className="finding-title-text">{finding.title}</div>
+                    <div className="finding-title-body" data-testid="finding-title-body">
+                      <div className="finding-title-text" data-testid="finding-title-text">{finding.title}</div>
                     </div>
-                    <span className={`finding-verdict-chip ${verdict}`}>
+                    <span className={`finding-verdict-chip ${verdict}`} data-testid="finding-verdict-chip">
                       {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
                     </span>
                   </div>
-                  <div className="finding-meta-line">
-                    <span className="mono">{finding.analyst}</span>
-                    <span className="mono">{findingConfidenceLabel(finding.confidence)}</span>
-                    <span className="mono">{finding.evidence.length} evidence</span>
+                  <div className="finding-meta-line" data-testid="finding-meta-line">
+                    <span className="mono" data-testid="mono">{finding.analyst}</span>
+                    <span className="mono" data-testid="mono">{findingConfidenceLabel(finding.confidence)}</span>
+                    <span className="mono" data-testid="mono">{finding.evidence.length} evidence</span>
                   </div>
                 </button>
               );
@@ -564,30 +564,30 @@ export default function FindingsExplorer({
                 : "—";
               return (
                 <div
-                  className={`finding-detail ${verdict}`}
+                  className={`finding-detail ${verdict}`} data-testid="finding-detail"
                   data-detail-finding-id={finding.id}
                   data-verdict={verdict}
                 >
-                  <div className="finding-detail-head">
-                    <span className={`finding-kind-chip ${finding.kind}`}>
-                      <span className="finding-kind-dot" aria-hidden />
+                  <div className="finding-detail-head" data-testid="finding-detail-head">
+                    <span className={`finding-kind-chip ${finding.kind}`} data-testid="finding-kind-chip">
+                      <span className="finding-kind-dot" data-testid="finding-kind-dot" aria-hidden />
                       {FINDING_KIND_LABEL[finding.kind]}
                     </span>
-                    <span className={`finding-verdict-chip ${verdict}`}>
+                    <span className={`finding-verdict-chip ${verdict}`} data-testid="finding-verdict-chip">
                       {verdict === "pending" ? "Pending" : findingVerdictLabel(verdict)}
                     </span>
                   </div>
-                  <h3 className="finding-detail-title">{finding.title}</h3>
-                  <div className="finding-detail-meta">
-                    <span className="mono">{finding.analyst}</span>
-                    <span className="mono">conf {findingConfidenceLabel(finding.confidence)}</span>
-                    <span className="mono">harness {harnessLabel}</span>
+                  <h3 className="finding-detail-title" data-testid="finding-detail-title">{finding.title}</h3>
+                  <div className="finding-detail-meta" data-testid="finding-detail-meta">
+                    <span className="mono" data-testid="mono">{finding.analyst}</span>
+                    <span className="mono" data-testid="mono">conf {findingConfidenceLabel(finding.confidence)}</span>
+                    <span className="mono" data-testid="mono">harness {harnessLabel}</span>
                   </div>
-                  {finding.body && <p className="finding-detail-body">{finding.body}</p>}
+                  {finding.body && <p className="finding-detail-body" data-testid="finding-detail-body">{finding.body}</p>}
 
-                  <div className="finding-detail-section">
-                    <div className="finding-section-label">Evidence · {finding.evidence.length}</div>
-                    <div className="finding-evidence-cards">
+                  <div className="finding-detail-section" data-testid="finding-detail-section">
+                    <div className="finding-section-label" data-testid="finding-section-label">Evidence · {finding.evidence.length}</div>
+                    <div className="finding-evidence-cards" data-testid="finding-evidence-cards">
                       {groupEvidence(finding.evidence).map((group) => {
                         const narrative = group.narrative;
                         // a group is "resolved" if any of its members resolves —
@@ -637,7 +637,7 @@ export default function FindingsExplorer({
                         return (
                           <div
                             key={group.key}
-                            className={`finding-evidence-card${anyResolved ? "" : " stale"}`}
+                            className={`finding-evidence-card${anyResolved ? "" : " stale"}`} data-testid="finding-evidence-card"
                             data-evidence-kind={group.members[0].subjectKind}
                             data-evidence-id={group.members[0].id}
                             data-group-key={group.key}
@@ -647,24 +647,24 @@ export default function FindingsExplorer({
                             {showSessionHeader && narrative && (
                               <button
                                 type="button"
-                                className="finding-evidence-session finding-evidence-session-jump"
+                                className="finding-evidence-session finding-evidence-session-jump" data-testid="finding-evidence-session"
                                 data-session-id={narrative.sessionId}
                                 title={`Open the full transcript for "${narrative.sessionTitle}" (same as VIEW SESSION)`}
                                 onClick={() => onJumpToSession?.(narrative.sessionId, finding.id)}
                               >
-                                <span className="finding-evidence-session-headline">
-                                  <span className="finding-evidence-microlabel">Session</span>
-                                  <span className="finding-evidence-session-arrow" aria-hidden>
+                                <span className="finding-evidence-session-headline" data-testid="finding-evidence-session-headline">
+                                  <span className="finding-evidence-microlabel" data-testid="finding-evidence-microlabel">Session</span>
+                                  <span className="finding-evidence-session-arrow" data-testid="finding-evidence-session-arrow" aria-hidden>
                                     →
                                   </span>
                                 </span>
                                 <span
-                                  className="finding-evidence-session-title"
+                                  className="finding-evidence-session-title" data-testid="finding-evidence-session-title"
                                   title={narrative.sessionTitle}
                                 >
                                   {narrative.sessionTitle}
                                 </span>
-                                <span className="finding-evidence-session-meta mono">
+                                <span className="finding-evidence-session-meta mono" data-testid="finding-evidence-session-meta">
                                   {RUNNER_LABEL[narrative.runner as keyof typeof RUNNER_LABEL] ??
                                     narrative.runner}
                                   {narrative.model ? ` · ${shortModel(narrative.model)}` : ""}
@@ -685,10 +685,10 @@ export default function FindingsExplorer({
                               repeats > 1 ||
                               canTurnJump ||
                               narrative?.sessionId) && (
-                              <div className="finding-evidence-grouphead">
+                              <div className="finding-evidence-grouphead" data-testid="finding-evidence-grouphead">
                                 {positionLabel && (
                                   <span
-                                    className="finding-evidence-position mono"
+                                    className="finding-evidence-position mono" data-testid="finding-evidence-position"
                                     title="Position of this turn within the run"
                                   >
                                     {positionLabel}
@@ -696,19 +696,19 @@ export default function FindingsExplorer({
                                 )}
                                 {repeats > 1 && (
                                   <span
-                                    className="finding-evidence-repeats mono"
+                                    className="finding-evidence-repeats mono" data-testid="finding-evidence-repeats"
                                     data-repeats={repeats}
                                     title={`This finding fired ${repeats} times in the same turn — the same instruction kept repeating`}
                                   >
                                     ×{repeats} repeats
                                   </span>
                                 )}
-                                <span className="finding-evidence-grouphead-spacer" />
-                                <div className="finding-evidence-actions">
+                                <span className="finding-evidence-grouphead-spacer" data-testid="finding-evidence-grouphead-spacer" />
+                                <div className="finding-evidence-actions" data-testid="finding-evidence-actions">
                                   {canTurnJump && (
                                     <button
                                       type="button"
-                                      className="finding-evidence-action finding-evidence-action-turn"
+                                      className="finding-evidence-action finding-evidence-action-turn" data-testid="finding-evidence-action-turn"
                                       data-turn={turnNumber ?? undefined}
                                       title="Open the transcript at this turn"
                                       onClick={() =>
@@ -727,7 +727,7 @@ export default function FindingsExplorer({
                                   {narrative?.sessionId && (
                                     <button
                                       type="button"
-                                      className="finding-evidence-action finding-evidence-action-session"
+                                      className="finding-evidence-action finding-evidence-action-session" data-testid="finding-evidence-action-session"
                                       data-session-id={narrative.sessionId}
                                       title="Open the full session transcript"
                                       onClick={() =>
@@ -742,7 +742,7 @@ export default function FindingsExplorer({
                                 {canTurnJump && (
                                   <button
                                     type="button"
-                                    className="finding-evidence-turn-toggle mono"
+                                    className="finding-evidence-turn-toggle mono" data-testid="finding-evidence-turn-toggle"
                                     data-turn={turnNumber ?? undefined}
                                     aria-expanded={turnExpanded}
                                     title="Show this turn's transcript inline, without leaving this screen"
@@ -759,19 +759,19 @@ export default function FindingsExplorer({
                             {/* USER ASKED — the trigger prompt, shown once for the
                                 whole group (it is identical across the steps). */}
                             {narrative?.trigger && (
-                              <div className="finding-evidence-trigger">
-                                <span className="finding-evidence-microlabel">User asked</span>
-                                <p className="finding-evidence-trigger-text">
+                              <div className="finding-evidence-trigger" data-testid="finding-evidence-trigger">
+                                <span className="finding-evidence-microlabel" data-testid="finding-evidence-microlabel">User asked</span>
+                                <p className="finding-evidence-trigger-text" data-testid="finding-evidence-trigger-text">
                                   {narrative.trigger.text}
                                 </p>
-                                <span className="finding-evidence-trigger-seq mono">
+                                <span className="finding-evidence-trigger-seq mono" data-testid="finding-evidence-trigger-seq">
                                   step {narrative.trigger.seq}
                                 </span>
                               </div>
                             )}
                             {/* one row per step (the seq is the session-wide step
                                 index; hover spells that out). */}
-                            <div className="finding-evidence-steps">
+                            <div className="finding-evidence-steps" data-testid="finding-evidence-steps">
                               {group.members.map((evidence, stepIndex) => {
                                 const target = resolveEvidence(evidence);
                                 const excerpt = evidence.excerpt;
@@ -783,48 +783,48 @@ export default function FindingsExplorer({
                                 return (
                                   <div
                                     key={evidence.id}
-                                    className={`finding-evidence-step${target.resolved ? "" : " stale"}`}
+                                    className={`finding-evidence-step${target.resolved ? "" : " stale"}`} data-testid="finding-evidence-step"
                                     data-evidence-kind={evidence.subjectKind}
                                     data-evidence-id={evidence.id}
                                     data-step-seq={stepSeq ?? undefined}
                                     data-resolved={target.resolved ? "true" : "false"}
                                   >
-                                    <div className="finding-evidence-stephead">
+                                    <div className="finding-evidence-stephead" data-testid="finding-evidence-stephead">
                                       <span
-                                        className="finding-evidence-stepno mono"
+                                        className="finding-evidence-stepno mono" data-testid="finding-evidence-stepno"
                                         title="Session-wide step number (the step's seq within the whole run)"
                                       >
                                         {stepLabel}
                                       </span>
-                                      <span className="finding-evidence-kind">
+                                      <span className="finding-evidence-kind" data-testid="finding-evidence-kind">
                                         {evidence.subjectKind}
                                       </span>
                                       {excerpt?.exitCode != null && (
                                         <span
                                           className={`finding-evidence-exit mono ${
                                             excerpt.exitCode === 0 ? "ok" : "err"
-                                          }`}
+                                          }`} data-testid="finding-evidence-exit"
                                         >
                                           exit {excerpt.exitCode}
                                         </span>
                                       )}
-                                      <span className="finding-evidence-stepspacer" />
+                                      <span className="finding-evidence-stepspacer" data-testid="finding-evidence-stepspacer" />
                                       {target.resolved ? (
                                         <button
                                           type="button"
-                                          className="finding-evidence finding-evidence-jump"
+                                          className="finding-evidence finding-evidence-jump" data-testid="finding-evidence"
                                           data-evidence-kind={evidence.subjectKind}
                                           data-evidence-id={evidence.id}
                                           data-resolved="true"
                                           title={`${target.title} — jump to the Transcript`}
                                           onClick={target.jump}
                                         >
-                                          <span className="mono">{target.label}</span>
+                                          <span className="mono" data-testid="mono">{target.label}</span>
                                           <span aria-hidden>→</span>
                                         </button>
                                       ) : (
                                         <span
-                                          className="finding-evidence stale"
+                                          className="finding-evidence stale" data-testid="finding-evidence"
                                           data-evidence-kind={evidence.subjectKind}
                                           data-evidence-id={evidence.id}
                                           data-resolved="false"
@@ -835,25 +835,25 @@ export default function FindingsExplorer({
                                       )}
                                     </div>
                                     {evidence.note && (
-                                      <div className="finding-evidence-note">{evidence.note}</div>
+                                      <div className="finding-evidence-note" data-testid="finding-evidence-note">{evidence.note}</div>
                                     )}
                                     {excerpt ? (
                                       <div
-                                        className="finding-excerpt"
+                                        className="finding-excerpt" data-testid="finding-excerpt"
                                         data-excerpt-seq={excerpt.seq}
                                       >
                                         {excerpt.command && (
-                                          <pre className="code-block cmd finding-excerpt-pre">
+                                          <pre className="code-block cmd finding-excerpt-pre" data-testid="finding-excerpt-pre">
                                             {excerpt.command}
                                           </pre>
                                         )}
                                         {excerpt.output ? (
-                                          <pre className="code-block output finding-excerpt-pre">
+                                          <pre className="code-block output finding-excerpt-pre" data-testid="finding-excerpt-pre">
                                             {excerpt.output}
                                           </pre>
                                         ) : (
                                           !excerpt.command && (
-                                            <div className="finding-excerpt-empty mono">
+                                            <div className="finding-excerpt-empty mono" data-testid="finding-excerpt-empty">
                                               {excerpt.title || "(no command / output captured)"}
                                             </div>
                                           )
@@ -861,7 +861,7 @@ export default function FindingsExplorer({
                                       </div>
                                     ) : (
                                       !target.resolved && (
-                                        <div className="finding-excerpt-empty mono">
+                                        <div className="finding-excerpt-empty mono" data-testid="finding-excerpt-empty">
                                           evidence not resolvable (no locator)
                                         </div>
                                       )
@@ -881,15 +881,15 @@ export default function FindingsExplorer({
                               if (!aftermath) return null;
                               return (
                                 <div
-                                  className="finding-evidence-after"
+                                  className="finding-evidence-after" data-testid="finding-evidence-after"
                                   data-after-seq={aftermath.seq}
                                 >
-                                  <span className="finding-evidence-microlabel">Afterward</span>
-                                  <div className="finding-evidence-after-meta mono">
+                                  <span className="finding-evidence-microlabel" data-testid="finding-evidence-microlabel">Afterward</span>
+                                  <div className="finding-evidence-after-meta mono" data-testid="finding-evidence-after-meta">
                                     <span>step {aftermath.seq}</span>
                                     <span>{aftermath.type}</span>
                                   </div>
-                                  <p className="finding-evidence-after-text">{aftermath.text}</p>
+                                  <p className="finding-evidence-after-text" data-testid="finding-evidence-after-text">{aftermath.text}</p>
                                 </div>
                               );
                             })()}
@@ -899,12 +899,12 @@ export default function FindingsExplorer({
                                 context without leaving the triage screen. */}
                             {turnExpanded && tkey && (
                               <div
-                                className="finding-turn-transcript"
+                                className="finding-turn-transcript" data-testid="finding-turn-transcript"
                                 data-turn={turnNumber ?? undefined}
                                 data-session-id={turnSessionId ?? undefined}
                               >
-                                <div className="finding-turn-transcript-head">
-                                  <span className="finding-evidence-microlabel">
+                                <div className="finding-turn-transcript-head" data-testid="finding-turn-transcript-head">
+                                  <span className="finding-evidence-microlabel" data-testid="finding-evidence-microlabel">
                                     Turn transcript
                                   </span>
                                   {/* No "open in session" here — VIEW TURN /
@@ -913,16 +913,16 @@ export default function FindingsExplorer({
                                       C: the duplicate link is removed). */}
                                 </div>
                                 {turnState?.loading && (
-                                  <div className="finding-turn-status mono">loading…</div>
+                                  <div className="finding-turn-status mono" data-testid="finding-turn-status">loading…</div>
                                 )}
                                 {turnState?.error && (
-                                  <div className="finding-turn-status err mono">
+                                  <div className="finding-turn-status err mono" data-testid="finding-turn-status">
                                     {turnState.error}
                                   </div>
                                 )}
                                 {turnState?.data && (
                                   <>
-                                    <div className="finding-turn-events" role="list">
+                                    <div className="finding-turn-events" data-testid="finding-turn-events" role="list">
                                       {turnState.data.events.map((ev) => (
                                         <TurnEventRow
                                           key={ev.id}
@@ -941,7 +941,7 @@ export default function FindingsExplorer({
                                       ))}
                                     </div>
                                     {turnState.data.truncated && (
-                                      <div className="finding-turn-status mono">
+                                      <div className="finding-turn-status mono" data-testid="finding-turn-status">
                                         showing {turnState.data.events.length} of{" "}
                                         {turnState.data.totalEvents} steps — use VIEW SESSION for the
                                         rest
@@ -960,26 +960,26 @@ export default function FindingsExplorer({
                   {/* verdict — sticky to the detail panel's bottom edge so
                       Accept/Reject is reachable without scrolling past long
                       evidence (requirement C); the evidence scrolls beneath it. */}
-                  <div className="finding-detail-section finding-verdict-section finding-verdict-sticky">
-                    <div className="finding-section-label">Verdict</div>
+                  <div className="finding-detail-section finding-verdict-section finding-verdict-sticky" data-testid="finding-detail-section">
+                    <div className="finding-section-label" data-testid="finding-section-label">Verdict</div>
                     {finding.verdict ? (
-                      <div className="finding-verdict-decided">
-                        <span className={`finding-verdict-chip ${verdict}`}>
+                      <div className="finding-verdict-decided" data-testid="finding-verdict-decided">
+                        <span className={`finding-verdict-chip ${verdict}`} data-testid="finding-verdict-chip">
                           {findingVerdictLabel(finding.verdict.verdict)}
                         </span>
-                        <span className="mono">
+                        <span className="mono" data-testid="mono">
                           {finding.verdict.decidedBy} · {finding.verdict.reason || "no reason"}
                         </span>
                         {finding.verdict.verdict === "accept" && (
-                          <div className="finding-boundary-note">
+                          <div className="finding-boundary-note" data-testid="finding-boundary-note">
                             Harness edits are manual (P2 boundary)
                           </div>
                         )}
                       </div>
                     ) : (
-                      <div className="finding-verdict-controls">
+                      <div className="finding-verdict-controls" data-testid="finding-verdict-controls">
                         <input
-                          className="finding-verdict-reason"
+                          className="finding-verdict-reason" data-testid="finding-verdict-reason"
                           value={reasonDrafts[finding.id] ?? ""}
                           onChange={(event) =>
                             setReasonDrafts((prev) => ({
@@ -998,7 +998,7 @@ export default function FindingsExplorer({
                         />
                         <button
                           type="button"
-                          className="finding-verdict-btn accept"
+                          className="finding-verdict-btn accept" data-testid="finding-verdict-btn"
                           disabled={!!busy[finding.id]}
                           onClick={() => void submitVerdict(finding, "accept")}
                         >
@@ -1006,7 +1006,7 @@ export default function FindingsExplorer({
                         </button>
                         <button
                           type="button"
-                          className="finding-verdict-btn reject"
+                          className="finding-verdict-btn reject" data-testid="finding-verdict-btn"
                           disabled={!!busy[finding.id]}
                           onClick={() => void submitVerdict(finding, "reject")}
                         >
@@ -1019,8 +1019,8 @@ export default function FindingsExplorer({
               );
             })()
           ) : (
-            <div className="finding-detail finding-detail-empty">
-              <div className="detail-placeholder">Select a finding to inspect its evidence</div>
+            <div className="finding-detail finding-detail-empty" data-testid="finding-detail">
+              <div className="detail-placeholder" data-testid="detail-placeholder">Select a finding to inspect its evidence</div>
             </div>
           )}
         </div>

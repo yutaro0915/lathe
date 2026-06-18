@@ -154,15 +154,15 @@ export default function SessionsSurface({
   const openSession = (id: string) => router.push(`/?session=${encodeURIComponent(id)}`);
 
   return (
-    <div className="lds-page" data-surface="sessions">
-      <div className="lds-page-head">
-        <span className="lds-ph-title">Sessions</span>
-        <span className="lds-project-select">
+    <div className="lds-page" data-testid="lds-page" data-surface="sessions">
+      <div className="lds-page-head" data-testid="lds-page-head">
+        <span className="lds-ph-title" data-testid="lds-ph-title">Sessions</span>
+        <span className="lds-project-select" data-testid="lds-project-select">
           <span aria-hidden style={{ display: "inline-flex" }}>
             <Icon name="grid" size={13} />
           </span>
           <select
-            className="project-picker"
+            className="project-picker" data-testid="project-picker"
             value={projectFilter}
             onChange={(e) => setProjectFilter(e.target.value)}
             title="Scope the session list to one project"
@@ -174,10 +174,10 @@ export default function SessionsSurface({
               </option>
             ))}
           </select>
-          <span className="lds-caret" aria-hidden>▾</span>
+          <span className="lds-caret" data-testid="lds-caret" aria-hidden>▾</span>
         </span>
-        <span className="lds-ph-sub">{visible.length} in view</span>
-        <span className="lds-spacer" />
+        <span className="lds-ph-sub" data-testid="lds-ph-sub">{visible.length} in view</span>
+        <span className="lds-spacer" data-testid="lds-spacer" />
         <div style={{ width: 240 }}>
           <SearchInput
             placeholder="Search sessions…"
@@ -209,23 +209,23 @@ export default function SessionsSurface({
       </div>
 
       {filtersOpen ? (
-        <div className="lds-sessions-filters">
-          <div className="lds-sf-row">
-            <span className="lds-flabel">Event types</span>
-            <div className="lds-chip-filters">
+        <div className="lds-sessions-filters" data-testid="lds-sessions-filters">
+          <div className="lds-sf-row" data-testid="lds-sf-row">
+            <span className="lds-flabel" data-testid="lds-flabel">Event types</span>
+            <div className="lds-chip-filters" data-testid="lds-chip-filters">
               {CHIP_TYPES.map((t) => (
-                <span key={t} className="lds-fchip">
-                  <span className="lds-fchip-d" style={{ background: TYPE_DOT[t] }} />
+                <span key={t} className="lds-fchip" data-testid="lds-fchip">
+                  <span className="lds-fchip-d" data-testid="lds-fchip-d" style={{ background: TYPE_DOT[t] }} />
                   {EVENT_LABEL[t]}
                 </span>
               ))}
-              <span className="lds-fchip err">
-                <span className="lds-fchip-d" style={{ background: "var(--c-error)" }} />
+              <span className="lds-fchip err" data-testid="lds-fchip">
+                <span className="lds-fchip-d" data-testid="lds-fchip-d" style={{ background: "var(--c-error)" }} />
                 {EVENT_LABEL.error}
               </span>
             </div>
           </div>
-          <div className="lds-sf-controls">
+          <div className="lds-sf-controls" data-testid="lds-sf-controls">
             <Segmented
               options={[
                 { value: "highlight", label: "Highlight" },
@@ -254,14 +254,14 @@ export default function SessionsSurface({
               label="show sub-sessions"
             />
             {(dateFrom || dateTo) && (
-              <span className="date-range-banner" data-from={dateFrom ?? ""} data-to={dateTo ?? ""}>
-                <span className="mono">
+              <span className="date-range-banner" data-testid="date-range-banner" data-from={dateFrom ?? ""} data-to={dateTo ?? ""}>
+                <span className="mono" data-testid="mono">
                   {dateFrom ?? "…"}
                   {dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ""}
                 </span>
                 <button
                   type="button"
-                  className="clear"
+                  className="clear" data-testid="clear"
                   onClick={() => {
                     setDateFrom(null);
                     setDateTo(null);
@@ -277,14 +277,14 @@ export default function SessionsSurface({
 
       {/* the surface root keeps the `session-list` hook; rows keep `session-item`
           + data-session-id so the cross-session data oracles target them. */}
-      <div className="lds-page-scroll lds-sessions-grid session-list">
-        <div className="lds-sg-head">
+      <div className="lds-page-scroll lds-sessions-grid session-list" data-testid="session-list">
+        <div className="lds-sg-head" data-testid="lds-sg-head">
           <span>Session</span>
           <span>Runner</span>
-          <span className="r">Tokens</span>
-          <span className="r">Turns</span>
-          <span className="r">Errors</span>
-          <span className="r">Cost</span>
+          <span className="r" data-testid="r">Tokens</span>
+          <span className="r" data-testid="r">Turns</span>
+          <span className="r" data-testid="r">Errors</span>
+          <span className="r" data-testid="r">Cost</span>
         </div>
         {visible.map((s) => {
           const st = parseStamp(s.startedAt);
@@ -293,37 +293,37 @@ export default function SessionsSurface({
               key={s.id}
               type="button"
               data-session-id={s.id}
-              className="lds-sg-row session-item"
+              className="lds-sg-row session-item" data-testid="session-item"
               onClick={() => openSession(s.id)}
             >
-              <span className="lds-sg-main">
-                <span className="lds-sg-title">{s.title}</span>
-                <span className="lds-sg-meta">
+              <span className="lds-sg-main" data-testid="lds-sg-main">
+                <span className="lds-sg-title" data-testid="lds-sg-title">{s.title}</span>
+                <span className="lds-sg-meta" data-testid="lds-sg-meta">
                   <span>
                     {st.date}, {st.time}
                   </span>
-                  <span className="lds-sep">·</span>
+                  <span className="lds-sep" data-testid="lds-sep">·</span>
                   <span>{humanizeDuration(s.durationMs)}</span>
-                  <span className="lds-sep">·</span>
+                  <span className="lds-sep" data-testid="lds-sep">·</span>
                   <span>{shortModel(s.model)}</span>
                 </span>
               </span>
-              <span className="lds-sg-flags">
-                <RunnerPill runner={s.runner} label={RUNNER_LABEL[s.runner]} className="runner-badge" />
+              <span className="lds-sg-flags" data-testid="lds-sg-flags">
+                <RunnerPill runner={s.runner} label={RUNNER_LABEL[s.runner]} className="runner-badge" data-testid="runner-badge" />
                 <CostAnomalyChip session={s} />
               </span>
-              <span className="lds-sg-num r">{fmtTok(s.tokenUsage)}</span>
-              <span className="lds-sg-num r">{s.turnCount}</span>
-              <span className="r">
-                {s.errorCount > 0 ? <Badge tone="err">{s.errorCount}</Badge> : <span className="lds-sg-zero">0</span>}
+              <span className="lds-sg-num r" data-testid="lds-sg-num">{fmtTok(s.tokenUsage)}</span>
+              <span className="lds-sg-num r" data-testid="lds-sg-num">{s.turnCount}</span>
+              <span className="r" data-testid="r">
+                {s.errorCount > 0 ? <Badge tone="err">{s.errorCount}</Badge> : <span className="lds-sg-zero" data-testid="lds-sg-zero">0</span>}
               </span>
-              <span className={`lds-sg-cost chip cost r${s.costUsd == null ? " muted" : ""}`}>
+              <span className={`lds-sg-cost chip cost r${s.costUsd == null ? " muted" : ""}`} data-testid="chip">
                 {fmtCost(s.costUsd)}
               </span>
             </button>
           );
         })}
-        {visible.length === 0 ? <div className="lds-sg-empty">No sessions match.</div> : null}
+        {visible.length === 0 ? <div className="lds-sg-empty" data-testid="lds-sg-empty">No sessions match.</div> : null}
       </div>
     </div>
   );

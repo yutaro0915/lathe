@@ -113,10 +113,10 @@ export default function TimeRibbon({
 
   if (!model) {
     return (
-      <div className="ribbon">
-        <div className="ribbon-head">
-          <span className="mtitle">{title}</span>
-          <span className="ribbon-total muted small">no timing data</span>
+      <div className="ribbon" data-testid="ribbon">
+        <div className="ribbon-head" data-testid="ribbon-head">
+          <span className="mtitle" data-testid="mtitle">{title}</span>
+          <span className="ribbon-total muted small" data-testid="ribbon-total">no timing data</span>
         </div>
       </div>
     );
@@ -153,34 +153,34 @@ export default function TimeRibbon({
   const selSeg = selectedId ? segs.find((s) => s.e.id === selectedId) : undefined;
 
   return (
-    <div className="ribbon">
-      <div className="ribbon-head">
-        <span className="mtitle">{title}</span>
-        <span className="ribbon-total mono">{fmtDurationSec(total)} total</span>
+    <div className="ribbon" data-testid="ribbon">
+      <div className="ribbon-head" data-testid="ribbon-head">
+        <span className="mtitle" data-testid="mtitle">{title}</span>
+        <span className="ribbon-total mono" data-testid="ribbon-total">{fmtDurationSec(total)} total</span>
         {/* live readout of whatever the cursor is over — the reliable "what time / what step is this" */}
         {hoverSeg ? (
-          <span className="ribbon-read mono" title={hoverSeg.e.title}>
+          <span className="ribbon-read mono" data-testid="ribbon-read" title={hoverSeg.e.title}>
             <b>{clock(start + hoverSeg.offset, true)}</b> · #{hoverSeg.e.seq}{" "}
             {hoverSeg.e.title.length > 44 ? hoverSeg.e.title.slice(0, 44) + "…" : hoverSeg.e.title}
-            {hoverSeg.dur > 0 && <span className="muted"> · {fmtDurationSec(hoverSeg.dur)}</span>}
+            {hoverSeg.dur > 0 && <span className="muted" data-testid="muted"> · {fmtDurationSec(hoverSeg.dur)}</span>}
           </span>
         ) : (
-          <span className="ribbon-read muted small">hover to read the time · click to jump</span>
+          <span className="ribbon-read muted small" data-testid="ribbon-read">hover to read the time · click to jump</span>
         )}
-        <span className="spacer" />
-        <span className="minimap-legend">
+        <span className="spacer" data-testid="spacer" />
+        <span className="minimap-legend" data-testid="minimap-legend">
           {LEGEND.map(([cls, label]) => (
-            <span key={cls} className="legend-item">
-              <span className={`legend-swatch ${cls}`} />
+            <span key={cls} className="legend-item" data-testid="legend-item">
+              <span className={`legend-swatch ${cls}`} data-testid="legend-swatch" />
               {label}
             </span>
           ))}
         </span>
-        <div className="minimap-zoom" role="group" aria-label="Zoom time ribbon">
+        <div className="minimap-zoom" data-testid="minimap-zoom" role="group" aria-label="Zoom time ribbon">
           <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, +(z - 0.5).toFixed(2)))}>
             −
           </button>
-          <span className="mono small" style={{ minWidth: 38, textAlign: "center" }}>
+          <span className="mono small" data-testid="mono" style={{ minWidth: 38, textAlign: "center" }}>
             {zoom.toFixed(1)}×
           </span>
           <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(16, +(z + 0.5).toFixed(2)))}>
@@ -192,9 +192,9 @@ export default function TimeRibbon({
         </div>
       </div>
 
-      <div className="ribbon-scroll">
+      <div className="ribbon-scroll" data-testid="ribbon-scroll">
         <div
-          className="ribbon-track"
+          className="ribbon-track" data-testid="ribbon-track"
           style={{ width: `${100 * zoom}%` }}
           onMouseMove={(e) => setHoverIdx(segIndexAt(e.clientX, e.currentTarget))}
           onMouseLeave={() => setHoverIdx(null)}
@@ -213,7 +213,7 @@ export default function TimeRibbon({
             return (
               <div
                 key={`${s.e.id}-${i}`}
-                className={`ribbon-seg ${kindOf(s.e.type)}${isSel ? " active" : ""}${isMax ? " peak" : ""}${isHov ? " hover" : ""}`}
+                className={`ribbon-seg ${kindOf(s.e.type)}${isSel ? " active" : ""}${isMax ? " peak" : ""}${isHov ? " hover" : ""}`} data-testid="ribbon-seg"
                 style={{ width: `max(2px, ${s.pct}%)` }}
               />
             );
@@ -221,7 +221,7 @@ export default function TimeRibbon({
           {/* playhead at the selected step */}
           {selSeg && (
             <div
-              className="ribbon-playhead"
+              className="ribbon-playhead" data-testid="ribbon-playhead"
               style={{ left: `${(selSeg.offset / total) * 100}%` }}
               aria-hidden
             />
@@ -229,14 +229,14 @@ export default function TimeRibbon({
         </div>
 
         {/* scroll-aware time axis: labels scale with zoom and scroll with the track */}
-        <div className="ribbon-axis" style={{ width: `${100 * zoom}%` }}>
+        <div className="ribbon-axis" data-testid="ribbon-axis" style={{ width: `${100 * zoom}%` }}>
           {ticks.map((t, i) => {
             const isLast = i === ticks.length - 1;
             const style: React.CSSProperties = isLast
               ? { right: 0 }
               : { left: `${t.f * 100}%`, transform: i === 0 ? undefined : "translateX(-50%)" };
             return (
-              <span key={i} className="tick mono" style={style}>
+              <span key={i} className="tick mono" data-testid="tick" style={style}>
                 {t.label}
               </span>
             );

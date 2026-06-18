@@ -106,9 +106,9 @@ export default function StatsView({
 
   if (scopeSessions.length === 0) {
     return (
-      <div className="stats-embed">
-        <div className="stats-scroll">
-          <div className="empty" style={{ padding: 24 }}>
+      <div className="stats-embed" data-testid="stats-embed">
+        <div className="stats-scroll" data-testid="stats-scroll">
+          <div className="empty" data-testid="empty" style={{ padding: 24 }}>
             No sessions in this scope. Pick a different project (top-left) or clear the filters.
           </div>
         </div>
@@ -197,14 +197,14 @@ export default function StatsView({
     .join(" ");
 
   return (
-    <div className="stats-embed">
-      <div className="stats-scroll">
-        <div className="chart-grid">
+    <div className="stats-embed" data-testid="stats-embed">
+      <div className="stats-scroll" data-testid="stats-scroll">
+        <div className="chart-grid" data-testid="chart-grid">
           {/* 1. cost & tokens over time */}
-          <section className="chart-card chart-wide">
-            <div className="chart-h">
+          <section className="chart-card chart-wide" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">
               Cost &amp; tokens over time{" "}
-              <span className="muted small">
+              <span className="muted small" data-testid="muted">
                 — {scopeLabel}, {fmtInt(chrono.length)} session
                 {chrono.length === 1 ? "" : "s"}
                 {bucketDays > 1
@@ -212,8 +212,8 @@ export default function StatsView({
                   : " in order"}
               </span>
             </div>
-            <div className="chart-body">
-              <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="none">
+            <div className="chart-body" data-testid="chart-body">
+              <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" data-testid="chart-svg" preserveAspectRatio="none">
                 {[0.25, 0.5, 0.75].map((f) => (
                   <line
                     key={f}
@@ -246,7 +246,7 @@ export default function StatsView({
                       <a
                         key={b.key}
                         href={periodHref(b.fromDay, b.toDay)}
-                        className="time-bar-link"
+                        className="time-bar-link" data-testid="time-bar-link"
                         data-from={b.fromDay}
                         data-to={b.toDay}
                       >
@@ -261,41 +261,41 @@ export default function StatsView({
                 )}
               </svg>
             </div>
-            <div className="chart-legend">
+            <div className="chart-legend" data-testid="chart-legend">
               <span><i style={{ background: "var(--chart-bar)" }} />cost (bars)</span>
               <span><i style={{ background: "var(--chart-line)" }} />tokens (line)</span>
-              <span className="spacer" style={{ flex: 1 }} />
+              <span className="spacer" data-testid="spacer" style={{ flex: 1 }} />
               <span>{parseDate(chrono[0].startedAt)} → {parseDate(chrono[chrono.length - 1].startedAt)} · peak {fmtCost(maxCost)} / {fmtCompact(maxTok)} tok</span>
             </div>
           </section>
 
           {/* 2. cost by model — each row drills into the Sessions axis filtered
               to that model (deep link to the sidebar MODEL filter). */}
-          <section className="chart-card">
-            <div className="chart-h">Cost by model</div>
-            <div className="chart-body bars">
+          <section className="chart-card" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">Cost by model</div>
+            <div className="chart-body bars" data-testid="chart-body">
               {models.map((m) => {
                 const inner = (
                   <>
-                    <span className="hbar-label mono" title={`${m.name} · ${m.sessions} ses · ${fmtCompact(m.tokens)} tok`}>
+                    <span className="hbar-label mono" data-testid="hbar-label" title={`${m.name} · ${m.sessions} ses · ${fmtCompact(m.tokens)} tok`}>
                       {shortModel(m.name)}
                     </span>
-                    <span className="hbar-track">
-                      <span className="hbar-fill" style={{ width: `${(m.cost / maxModelCost) * 100}%`, background: "var(--chart-bar)" }} />
+                    <span className="hbar-track" data-testid="hbar-track">
+                      <span className="hbar-fill" data-testid="hbar-fill" style={{ width: `${(m.cost / maxModelCost) * 100}%`, background: "var(--chart-bar)" }} />
                     </span>
-                    <span className="hbar-val">{m.costKnown ? fmtCost(m.cost) : "—"}</span>
+                    <span className="hbar-val" data-testid="hbar-val">{m.costKnown ? fmtCost(m.cost) : "—"}</span>
                   </>
                 );
                 // link only for real models; "(unknown)" has no model filter value.
                 if (modelHref && m.name !== "(unknown)") {
                   return (
-                    <Link key={m.name} href={modelHref(m.name)} className="hbar-row hbar-link" data-model={m.name}>
+                    <Link key={m.name} href={modelHref(m.name)} className="hbar-row hbar-link" data-testid="hbar-link" data-model={m.name}>
                       {inner}
                     </Link>
                   );
                 }
                 return (
-                  <div className="hbar-row" key={m.name}>
+                  <div className="hbar-row" data-testid="hbar-row" key={m.name}>
                     {inner}
                   </div>
                 );
@@ -304,21 +304,21 @@ export default function StatsView({
           </section>
 
           {/* 3. event composition */}
-          <section className="chart-card">
-            <div className="chart-h">
-              Where the actions went <span className="muted small">— {fmtInt(evTotal)} steps</span>
+          <section className="chart-card" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">
+              Where the actions went <span className="muted small" data-testid="muted">— {fmtInt(evTotal)} steps</span>
             </div>
-            <div className="chart-body bars">
+            <div className="chart-body bars" data-testid="chart-body">
               {events.map((e) => (
-                <div className="hbar-row" key={e.type}>
-                  <span className="hbar-label">{EVENT_LABEL[e.type as EventType] ?? e.type}</span>
-                  <span className="hbar-track">
-                    <span className="hbar-fill" style={{ width: `${(e.count / maxEv) * 100}%`, background: EVENT_COLOR[e.type as EventType] ?? "var(--cat-uncertain)" }} />
+                <div className="hbar-row" data-testid="hbar-row" key={e.type}>
+                  <span className="hbar-label" data-testid="hbar-label">{EVENT_LABEL[e.type as EventType] ?? e.type}</span>
+                  <span className="hbar-track" data-testid="hbar-track">
+                    <span className="hbar-fill" data-testid="hbar-fill" style={{ width: `${(e.count / maxEv) * 100}%`, background: EVENT_COLOR[e.type as EventType] ?? "var(--cat-uncertain)" }} />
                   </span>
-                  <span className="hbar-val">{fmtInt(e.count)}</span>
+                  <span className="hbar-val" data-testid="hbar-val">{fmtInt(e.count)}</span>
                 </div>
               ))}
-              {events.length === 0 && <div className="empty">No events in scope.</div>}
+              {events.length === 0 && <div className="empty" data-testid="empty">No events in scope.</div>}
             </div>
           </section>
 
@@ -326,48 +326,48 @@ export default function StatsView({
               (errors / pending findings / G9 cost flag) and links to that
               session's viewer. Color is rationed: only `err` is red; pending
               findings and the cost flag stay neutral (design language rule 1). */}
-          <section className="chart-card chart-wide">
-            <div className="chart-h">
-              Biggest sessions by cost <span className="muted small">— top {biggest.length}</span>
+          <section className="chart-card chart-wide" data-testid="chart-card">
+            <div className="chart-h" data-testid="chart-h">
+              Biggest sessions by cost <span className="muted small" data-testid="muted">— top {biggest.length}</span>
             </div>
-            <div className="chart-body bars">
+            <div className="chart-body bars" data-testid="chart-body">
               {biggest.map((s) => {
                 const pending = pendingFindings?.[s.id] ?? 0;
                 const status = (
-                  <span className="big-status">
-                    {s.errorCount > 0 && <span className="badge err">{s.errorCount} err</span>}
-                    {pending > 0 && <span className="badge neutral">{pending} pending</span>}
+                  <span className="big-status" data-testid="big-status">
+                    {s.errorCount > 0 && <span className="badge err" data-testid="badge">{s.errorCount} err</span>}
+                    {pending > 0 && <span className="badge neutral" data-testid="badge">{pending} pending</span>}
                     {s.costAnomaly && (
-                      <span className="badge neutral" title="G9 cost anomaly flag">▲ cost</span>
+                      <span className="badge neutral" data-testid="badge" title="G9 cost anomaly flag">▲ cost</span>
                     )}
                   </span>
                 );
                 const inner = (
                   <>
-                    <span className="hbar-label ttl big-ttl" title={s.title}>
+                    <span className="hbar-label ttl big-ttl" data-testid="hbar-label" title={s.title}>
                       {s.title}
                       {status}
                     </span>
-                    <span className="hbar-track">
-                      <span className="hbar-fill" style={{ width: `${((s.costUsd ?? 0) / maxBig) * 100}%`, background: "var(--chart-bar)" }} />
+                    <span className="hbar-track" data-testid="hbar-track">
+                      <span className="hbar-fill" data-testid="hbar-fill" style={{ width: `${((s.costUsd ?? 0) / maxBig) * 100}%`, background: "var(--chart-bar)" }} />
                     </span>
-                    <span className="hbar-val">{fmtCost(s.costUsd)}</span>
+                    <span className="hbar-val" data-testid="hbar-val">{fmtCost(s.costUsd)}</span>
                   </>
                 );
                 if (sessionHref) {
                   return (
-                    <Link key={s.id} href={sessionHref(s.id)} className="hbar-row hbar-link big-row" data-session-id={s.id}>
+                    <Link key={s.id} href={sessionHref(s.id)} className="hbar-row hbar-link big-row" data-testid="big-row" data-session-id={s.id}>
                       {inner}
                     </Link>
                   );
                 }
                 return (
-                  <div className="hbar-row big-row" key={s.id} data-session-id={s.id}>
+                  <div className="hbar-row big-row" data-testid="big-row" key={s.id} data-session-id={s.id}>
                     {inner}
                   </div>
                 );
               })}
-              {biggest.length === 0 && <div className="empty">No priceable sessions in scope.</div>}
+              {biggest.length === 0 && <div className="empty" data-testid="empty">No priceable sessions in scope.</div>}
             </div>
           </section>
         </div>

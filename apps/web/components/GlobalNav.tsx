@@ -22,19 +22,19 @@ const NAV: { href: string; label: string; match: (path: string) => boolean }[] =
 export default function GlobalNav() {
   const pathname = usePathname() ?? "/";
   return (
-    <header className="globalnav" data-active-path={pathname}>
-      <Link href="/" className="brand globalnav-brand" title="Lathe — session observability">
-        <span className="logo">L</span>
+    <header className="globalnav" data-testid="globalnav" data-active-path={pathname}>
+      <Link href="/" className="brand globalnav-brand" data-testid="brand" title="Lathe — session observability">
+        <span className="logo" data-testid="logo">L</span>
         <span>Lathe</span>
       </Link>
-      <nav className="globalnav-tabs" aria-label="Primary">
+      <nav className="globalnav-tabs" data-testid="globalnav-tabs" aria-label="Primary">
         {NAV.map((item) => {
           const active = item.match(pathname);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`globalnav-tab${active ? " active" : ""}`}
+              className={`globalnav-tab${active ? " active" : ""}`} data-testid="globalnav-tab"
               data-nav={item.label.toLowerCase()}
               aria-current={active ? "page" : undefined}
             >
@@ -43,8 +43,8 @@ export default function GlobalNav() {
           );
         })}
       </nav>
-      <div className="globalnav-actions">
-        <span className="badge pro">Phase 1</span>
+      <div className="globalnav-actions" data-testid="globalnav-actions">
+        <span className="badge pro" data-testid="badge">Phase 1</span>
       </div>
     </header>
   );
