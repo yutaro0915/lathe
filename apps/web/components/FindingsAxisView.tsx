@@ -102,23 +102,23 @@ export default function FindingsAxisView({
   }
 
   return (
-    <div className="findings-axis-page">
+    <div className="findings-axis-page" data-testid="findings-axis-page">
       {/* sessbar-like header so the chrome matches the Sessions / Overview axes */}
-      <div className="sessbar">
-        <div className="sessbar-id">
-          <span className="sessbar-title">Findings</span>
-          <span className="sessbar-meta">
+      <div className="sessbar" data-testid="sessbar">
+        <div className="sessbar-id" data-testid="sessbar-id">
+          <span className="sessbar-title" data-testid="sessbar-title">Findings</span>
+          <span className="sessbar-meta" data-testid="sessbar-meta">
             All findings across every session — the cross-session axis. Pick a session to scope.
           </span>
         </div>
       </div>
 
       <div
-        className="layout3 findings-axis-shell"
+        className="layout3 findings-axis-shell" data-testid="layout3"
         data-tab="findings"
         style={{ gridTemplateColumns: "minmax(0,1fr)" }}
       >
-        <main className="main findings-axis-main">
+        <main className="main findings-axis-main" data-testid="main">
           <FindingsExplorer
             findings={findings}
             setFindings={setFindings}

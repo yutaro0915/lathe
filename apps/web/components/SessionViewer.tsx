@@ -178,30 +178,30 @@ function JsonView({ value }: { value: Record<string, unknown> }) {
   const entries = Object.entries(value);
   const out: React.ReactNode[] = [];
   out.push(
-    <span key="open" className="json-punct">
+    <span key="open" className="json-punct" data-testid="json-punct">
       {"{\n"}
     </span>
   );
   entries.forEach(([k, v], i) => {
     const comma = i < entries.length - 1 ? "," : "";
     let valNode: React.ReactNode;
-    if (v === null) valNode = <span className="json-num">null</span>;
+    if (v === null) valNode = <span className="json-num" data-testid="json-num">null</span>;
     else if (typeof v === "number" || typeof v === "boolean")
-      valNode = <span className="json-num">{String(v)}</span>;
-    else valNode = <span className="json-str">{JSON.stringify(String(v))}</span>;
+      valNode = <span className="json-num" data-testid="json-num">{String(v)}</span>;
+    else valNode = <span className="json-str" data-testid="json-str">{JSON.stringify(String(v))}</span>;
     out.push(
       <span key={`r${i}`}>
         {"  "}
-        <span className="json-key">{JSON.stringify(k)}</span>
-        <span className="json-punct">: </span>
+        <span className="json-key" data-testid="json-key">{JSON.stringify(k)}</span>
+        <span className="json-punct" data-testid="json-punct">: </span>
         {valNode}
-        <span className="json-punct">{comma}</span>
+        <span className="json-punct" data-testid="json-punct">{comma}</span>
         {"\n"}
       </span>
     );
   });
   out.push(
-    <span key="close" className="json-punct">
+    <span key="close" className="json-punct" data-testid="json-punct">
       {"}"}
     </span>
   );
@@ -1154,29 +1154,29 @@ export default function SessionViewer({
   return (
     <>
       {/* ===================== Band 2 — metrics ===================== */}
-      <div className="sessbar">
-        <div className="sessbar-id">
-          <span className={`runner-dot ${primary.runner}`} aria-hidden />
-          <span className="sessbar-title" title={primary.title}>
+      <div className="sessbar" data-testid="sessbar">
+        <div className="sessbar-id" data-testid="sessbar-id">
+          <span className={`runner-dot ${primary.runner}`} data-testid="runner-dot" aria-hidden />
+          <span className="sessbar-title" data-testid="sessbar-title" title={primary.title}>
             {primary.title}
           </span>
           {primary.errorCount > 0 && (
             <span
-              className="badge err"
+              className="badge err" data-testid="badge"
               title={`${primary.errorCount} tool call(s) returned a non-zero exit (incl. sub-agents). Not a session-level verdict.`}
             >
               {primary.errorCount} error{primary.errorCount === 1 ? "" : "s"}
             </span>
           )}
-          <span className="sessbar-meta">
-            {primary.model ?? "—"} · <span className="mono">⎇ {branch}</span> · {commitLabel} ·{" "}
+          <span className="sessbar-meta" data-testid="sessbar-meta">
+            {primary.model ?? "—"} · <span className="mono" data-testid="mono">⎇ {branch}</span> · {commitLabel} ·{" "}
             {sessionDate} {parseStamp(primary.startedAt).time}
           </span>
           <CostAnomalyChip session={primary} />
           {currentSessionFindings.length > 0 && (
             <button
               type="button"
-              className="chip jump-chip findings-session-chip"
+              className="chip jump-chip findings-session-chip" data-testid="chip"
               data-finding-session-count={currentSessionFindings.length}
               data-finding-session-pending={currentSessionPendingFindings.length}
               title="Show findings attached to this session"
@@ -1184,15 +1184,15 @@ export default function SessionViewer({
             >
               {currentSessionFindings.length} finding{currentSessionFindings.length === 1 ? "" : "s"}
               {currentSessionPendingFindings.length > 0 && (
-                <span className="chip-sub mono">{currentSessionPendingFindings.length} pending</span>
+                <span className="chip-sub mono" data-testid="chip-sub">{currentSessionPendingFindings.length} pending</span>
               )}
             </button>
           )}
-          <span className="sessbar-jumps">
+          <span className="sessbar-jumps" data-testid="sessbar-jumps">
             {highestTurnJump && (
               <button
                 type="button"
-                className="chip jump-chip high-turn-chip"
+                className="chip jump-chip high-turn-chip" data-testid="chip"
                 data-jump-kind="highest-cost-turn"
                 data-turn={highestTurnJump.turn}
                 data-turn-score-basis={highestTurnJump.basis}
@@ -1209,7 +1209,7 @@ export default function SessionViewer({
             {firstErrorTurnJump && (
               <button
                 type="button"
-                className="chip jump-chip error-turn-chip"
+                className="chip jump-chip error-turn-chip" data-testid="chip"
                 data-jump-kind="error-turn"
                 data-turn={firstErrorTurnJump.turn}
                 title={`Jump to turn ${firstErrorTurnJump.turn} with ${firstErrorTurnJump.errors} error(s)`}
@@ -1220,12 +1220,12 @@ export default function SessionViewer({
             )}
           </span>
           {primaryPrs.length > 0 && (
-            <span className="pr-chip-row">
+            <span className="pr-chip-row" data-testid="pr-chip-row">
               {primaryPrs.slice(0, 3).map((pr) => (
                 <Link
                   key={pr.id}
                   href={`/pr?pr=${encodeURIComponent(pr.id)}`}
-                  className={`pr-chip ${prStateLabel(pr)}`}
+                  className={`pr-chip ${prStateLabel(pr)}`} data-testid="pr-chip"
                   title={pr.title}
                 >
                   #{pr.number} {prStateLabel(pr)}
@@ -1234,32 +1234,32 @@ export default function SessionViewer({
             </span>
           )}
         </div>
-        <div className="sessbar-stats">
-          <div className="kstat">
+        <div className="sessbar-stats" data-testid="sessbar-stats">
+          <div className="kstat" data-testid="kstat">
             <b>{humanizeDuration(primary.durationMs)}</b>
             <span>duration</span>
           </div>
-          <div className="kstat">
+          <div className="kstat" data-testid="kstat">
             <b>{fmtInt(primary.turnCount)}</b>
             <span>turns</span>
           </div>
-          <div className="kstat">
+          <div className="kstat" data-testid="kstat">
             <b>{fmtInt(primary.toolCount)}</b>
             <span>tools</span>
           </div>
-          <div className="kstat">
+          <div className="kstat" data-testid="kstat">
             <b>{fmtInt(primary.editCount)}</b>
             <span>edits</span>
           </div>
           <div
-            className="kstat"
+            className="kstat" data-testid="kstat"
             title={`${fmtInt(primary.tokenIn)} in · ${fmtInt(primary.tokenOut)} out`}
           >
             <b>{fmtCompact(primary.tokenUsage)}</b>
             <span>tokens</span>
           </div>
           <div
-            className="kstat"
+            className="kstat" data-testid="kstat"
             title="Estimated cost = real token usage × model pricing (input/output/cache-write/cache-read, per db/pricing.json). Sub-agent tokens not included; '—' when the model isn't priceable."
           >
             <b>{fmtCost(primary.costUsd)}</b>
@@ -1269,7 +1269,7 @@ export default function SessionViewer({
       </div>
 
       {/* ===================== Band 3 — tabs ===================== */}
-      <div className="tabs">
+      <div className="tabs" data-testid="tabs" role="tablist">
         {(
           [
             ["transcript", "Transcript"],
@@ -1286,7 +1286,10 @@ export default function SessionViewer({
           <button
             key={key}
             type="button"
-            className={`tab${activeTab === key ? " active" : ""}`}
+            role="tab"
+            aria-selected={activeTab === key}
+            data-tab={key}
+            className={`tab${activeTab === key ? " active" : ""}`} data-testid="tab"
             onClick={() => {
               setActiveTab(key);
               if (key === "git") {
@@ -1298,16 +1301,16 @@ export default function SessionViewer({
           >
             {label}
             {key === "annotations" && annotations.length > 0 && (
-              <span className="tab-count">{annotations.length}</span>
+              <span className="tab-count" data-testid="tab-count">{annotations.length}</span>
             )}
             {key === "findings" && pendingFindingsCount > 0 && (
-              <span className="tab-count">{pendingFindingsCount}</span>
+              <span className="tab-count" data-testid="tab-count">{pendingFindingsCount}</span>
             )}
           </button>
         ))}
-        <span className="tabs-spacer" />
-        <span className="tabs-tool">
-          <span className="sort-select">{visibleEvents.length} shown</span>
+        <span className="tabs-spacer" data-testid="tabs-spacer" />
+        <span className="tabs-tool" data-testid="tabs-tool">
+          <span className="sort-select" data-testid="sort-select">{visibleEvents.length} shown</span>
         </span>
       </div>
 
@@ -1319,7 +1322,7 @@ export default function SessionViewer({
           Findings is a self-contained master-detail screen, so its aside is
           dropped and the width handed to the findings detail. */}
       <div
-        className="layout3"
+        className="layout3" data-testid="layout3"
         data-tab={activeTab}
         style={{
           // The removed session-list sidebar was column 1. .main / .aside (and the
@@ -1362,23 +1365,23 @@ export default function SessionViewer({
         ) : (
           <>
         {/* ---------- COLUMN 2: main / timeline ---------- */}
-        <main className="main">
+        <main className="main" data-testid="main">
           {/* landing banner (requirement D): shows where this jump came from and
               which step/turn it landed on, directly under the header. Dismissible;
               persists until closed so "where am I / where did I come from" is
               answered at a glance. */}
           {landing && (landing.fromFinding != null || landing.seq != null) && (
-            <div className="jump-landing-banner" data-from-finding={landing.fromFinding ?? undefined}>
-              <span className="jump-landing-dot" aria-hidden>
+            <div className="jump-landing-banner" data-testid="jump-landing-banner" data-from-finding={landing.fromFinding ?? undefined}>
+              <span className="jump-landing-dot" data-testid="jump-landing-dot" aria-hidden>
                 ▸
               </span>
-              <span className="jump-landing-text mono">
+              <span className="jump-landing-text mono" data-testid="jump-landing-text">
                 {landing.seq != null ? `JUMPED TO STEP ${landing.seq}` : "JUMPED TO THIS SESSION"}
                 {landing.fromFinding != null ? ` — from finding #${landing.fromFinding}` : ""}
               </span>
               <button
                 type="button"
-                className="jump-landing-dismiss"
+                className="jump-landing-dismiss" data-testid="jump-landing-dismiss"
                 title="Dismiss"
                 aria-label="Dismiss landing banner"
                 onClick={() => setLanding(null)}
@@ -1393,12 +1396,12 @@ export default function SessionViewer({
               row. These moved here from the removed left sidebar so the timeline
               filters live with the timeline they act on. */}
           {activeTab === "transcript" && (
-            <div className="transcript-toolbar">
+            <div className="transcript-toolbar" data-testid="transcript-toolbar">
               <div
-                className="transcript-toolbar-row"
+                className="transcript-toolbar-row" data-testid="transcript-toolbar-row"
                 style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 12px 6px" }}
               >
-                <div className="search" style={{ flex: "1 1 auto" }}>
+                <div className="search" data-testid="search" style={{ flex: "1 1 auto" }}>
                   <span aria-hidden>⌕</span>
                   <input
                     placeholder="Filter timeline…"
@@ -1407,7 +1410,7 @@ export default function SessionViewer({
                   />
                 </div>
                 {turnCount > 1 && (
-                  <span className="segmented turn-filter" title="Show/hide every turn in this session">
+                  <span className="segmented turn-filter" data-testid="turn-filter" title="Show/hide every turn in this session">
                     <button
                       type="button"
                       className={collapsedTurns.size === 0 ? "active" : ""}
@@ -1425,9 +1428,9 @@ export default function SessionViewer({
                   </span>
                 )}
               </div>
-              <div className="filters transcript-filters">
-                <div className="filter-row">
-                  <span className="flabel">Event types</span>
+              <div className="filters transcript-filters" data-testid="transcript-filters">
+                <div className="filter-row" data-testid="filter-row">
+                  <span className="flabel" data-testid="flabel">Event types</span>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
                     {ALL_TYPES.map((t) => {
                       const on = typeFilter.has(t);
@@ -1435,13 +1438,13 @@ export default function SessionViewer({
                         <button
                           key={t}
                           type="button"
-                          className={`event-type-badge ${t}`}
+                          className={`event-type-badge ${t}`} data-testid="event-type-badge" data-event-kind={t}
                           title={`${EVENT_LABEL[t]} — click to ${on ? "hide" : "show"}`}
                           onClick={() => toggleType(t)}
                           style={{ cursor: "pointer", opacity: on ? 1 : 0.38 }}
                         >
                           {EVENT_LABEL[t]}
-                          <span className="mono" style={{ marginLeft: "auto", color: "var(--muted-2)" }}>
+                          <span className="mono" data-testid="mono" style={{ marginLeft: "auto", color: "var(--muted-2)" }}>
                             {typeCounts[t] ?? 0}
                           </span>
                         </button>
@@ -1449,7 +1452,7 @@ export default function SessionViewer({
                     })}
                   </div>
                   <span
-                    className="segmented filter-mode"
+                    className="segmented filter-mode" data-testid="filter-mode"
                     style={{ marginLeft: "auto" }}
                     title="Choose whether non-matching event types stay visible (dimmed) or are hidden"
                   >
@@ -1475,7 +1478,7 @@ export default function SessionViewer({
 
           {/* ===== TRANSCRIPT (timeline) ===== */}
           {activeTab === "transcript" && (
-            <div className="timeline">
+            <div className="timeline" data-testid="timeline">
               {(() => {
                 const renderRow = (
                   e: TranscriptEvent,
@@ -1504,11 +1507,11 @@ export default function SessionViewer({
                   const timebar = eventTimeBars.get(e.id) ?? { startPct: 0, widthPct: 0.35 };
                   let subNode: React.ReactNode = null;
                   if (isTurnHeader) {
-                    subNode = <div className="event-sub body turn-summary">{turnStats.summary}</div>;
-                  } else if (e.filePath) subNode = <div className="event-sub path">{e.filePath}</div>;
-                  else if (e.command) subNode = <div className="event-sub mono">{e.command}</div>;
+                    subNode = <div className="event-sub body turn-summary" data-testid="event-sub">{turnStats.summary}</div>;
+                  } else if (e.filePath) subNode = <div className="event-sub path" data-testid="event-sub">{e.filePath}</div>;
+                  else if (e.command) subNode = <div className="event-sub mono" data-testid="event-sub">{e.command}</div>;
                   else if (e.body)
-                    subNode = <div className="event-sub body">{e.body.split("\n")[0]}</div>;
+                    subNode = <div className="event-sub body" data-testid="event-sub">{e.body.split("\n")[0]}</div>;
                   const showBadge =
                     e.type === "subagent" ||
                     e.type === "skill" ||
@@ -1530,7 +1533,11 @@ export default function SessionViewer({
                       data-rollup-duration-ms={isTurnHeader ? rollupDurationMs : undefined}
                       data-turn-has-error={isTurnHeader && turnStats.errors > 0 ? "true" : undefined}
                       data-flash={flashEventId === e.id ? "true" : undefined}
-                      className={`event-row${depth > 0 ? " child-row" : ""}${!isTurnHeader ? " step-row" : ""}${isSel ? " selected" : ""}${flashEventId === e.id ? " flash-jump" : ""}${isTurnHeader ? " turn-header" : ""}${isTurnHeader && turnStats.errors > 0 ? " turn-has-error" : ""}${isDimmed ? " filter-dimmed" : ""}`}
+                      data-selected={isSel ? "true" : undefined}
+                      data-row-kind={isTurnHeader ? "turn-header" : "step"}
+                      data-child-row={depth > 0 ? "true" : undefined}
+                      data-dimmed={isDimmed ? "true" : undefined}
+                      className={`event-row${depth > 0 ? " child-row" : ""}${!isTurnHeader ? " step-row" : ""}${isSel ? " selected" : ""}${flashEventId === e.id ? " flash-jump" : ""}${isTurnHeader ? " turn-header" : ""}${isTurnHeader && turnStats.errors > 0 ? " turn-has-error" : ""}${isDimmed ? " filter-dimmed" : ""}`} data-testid="event-row"
                       onClick={() => {
                         if (isTurnHeader) {
                           setSelectedEventId(e.id);
@@ -1554,11 +1561,11 @@ export default function SessionViewer({
                       }}
                       style={{ cursor: "pointer" }}
                     >
-                      <span className="event-seq">
+                      <span className="event-seq" data-testid="event-seq">
                         {isTurnHeader ? (
                           <button
                             type="button"
-                            className="tw-expand"
+                            className="tw-expand" data-testid="tw-expand"
                             aria-label={turnStats.collapsed ? "Expand turn" : "Collapse turn"}
                             title={turnStats.collapsed ? "Expand this turn" : "Collapse this turn"}
                             onClick={(ev) => {
@@ -1571,7 +1578,7 @@ export default function SessionViewer({
                         ) : childCount > 0 ? (
                           <button
                             type="button"
-                            className="tw-expand"
+                            className="tw-expand" data-testid="tw-expand"
                             aria-label={expanded ? "Collapse sub-agent" : "Expand sub-agent"}
                             onClick={(ev) => {
                               ev.stopPropagation();
@@ -1591,60 +1598,60 @@ export default function SessionViewer({
                           e.seq
                         )}
                       </span>
-                      <span className="event-gutter">{e.ts}</span>
-                      <span className={`event-icon ${e.type}`} aria-hidden>
+                      <span className="event-gutter" data-testid="event-gutter">{e.ts}</span>
+                      <span className={`event-icon ${e.type}`} data-testid="event-icon" data-event-kind={e.type} aria-hidden>
                         {glyph}
                       </span>
-                      <div className="event-main">
-                        <div className="event-headline">
-                          <span className="event-title">{e.title}</span>
+                      <div className="event-main" data-testid="event-main">
+                        <div className="event-headline" data-testid="event-headline">
+                          <span className="event-title" data-testid="event-title">{e.title}</span>
                           {pinned && <span title="Pinned" aria-label="Pinned">📌</span>}
                           {notes[e.id] && <span title="Has note" aria-label="Has note">🗒</span>}
                           {showBadge && (
-                            <span className={`event-type-badge ${e.type}`}>{EVENT_LABEL[e.type]}</span>
+                            <span className={`event-type-badge ${e.type}`} data-testid="event-type-badge" data-event-kind={e.type}>{EVENT_LABEL[e.type]}</span>
                           )}
                           {depth === 0 && e.subagent && (
-                            <span className="event-type-badge subagent">{e.subagent}</span>
+                            <span className="event-type-badge subagent" data-testid="event-type-badge" data-event-kind="subagent">{e.subagent}</span>
                           )}
                         </div>
                         {subNode}
                       </div>
-                      <span className="event-meta">
+                      <span className="event-meta" data-testid="event-meta">
                         {isTurnHeader && (
-                          <span className="chip turn-chip" title={`Turn ${turnStats.turn} of ${turnCount}`}>
+                          <span className="chip turn-chip" data-testid="chip" data-chip-kind="turn" title={`Turn ${turnStats.turn} of ${turnCount}`}>
                             Turn {turnStats.turn}
                           </span>
                         )}
                         {isTurnHeader && (
                           <>
-                            <span className="chip rollup-chip" data-rollup-kind="steps">
+                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="steps">
                               {turnStats.steps} step{turnStats.steps === 1 ? "" : "s"}
                             </span>
-                            <span className="chip rollup-chip" data-rollup-kind="edits">
+                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="edits">
                               {turnStats.edits} edits
                             </span>
-                            <span className="chip rollup-chip" data-rollup-kind="bash">
+                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="bash">
                               {turnStats.bash} bash
                             </span>
                             <span
-                              className={`chip rollup-chip${turnStats.errors > 0 ? " err" : ""}`}
+                              className={`chip rollup-chip${turnStats.errors > 0 ? " err" : ""}`} data-testid="chip"
                               data-rollup-kind="errors"
                             >
                               {turnStats.errors} errors
                             </span>
-                            <span className="chip rollup-chip" data-rollup-kind="cost">
+                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="cost">
                               {fmtCost(turnStats.costUsd)}
                             </span>
-                            <span className="chip rollup-chip" data-rollup-kind="tokens">
+                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="tokens">
                               {fmtCompact(turnStats.tokens)} tok
                             </span>
-                            <span className="chip rollup-chip" data-rollup-kind="duration">
+                            <span className="chip rollup-chip" data-testid="chip" data-rollup-kind="duration">
                               {humanizeDuration(rollupDurationMs)}
                             </span>
                             {turnStats.files.length > 0 ? (
                               <button
                                 type="button"
-                                className="chip rollup-chip turn-files-chip"
+                                className="chip rollup-chip turn-files-chip" data-testid="chip"
                                 data-file-id={turnStats.files[0].id}
                                 title={turnStats.files.map((f) => f.path).join("\n")}
                                 onClick={(ev) => {
@@ -1655,19 +1662,19 @@ export default function SessionViewer({
                                 {turnStats.files.length} files
                               </button>
                             ) : (
-                              <span className="chip rollup-chip is-empty" data-rollup-kind="files">
+                              <span className="chip rollup-chip is-empty" data-testid="chip" data-rollup-kind="files">
                                 0 files
                               </span>
                             )}
                           </>
                         )}
                         {childCount > 0 && (
-                          <span className="chip">{childCount} steps</span>
+                          <span className="chip" data-testid="chip">{childCount} steps</span>
                         )}
                         {depth === 0 && e.type === "subagent" && (
                           <button
                             type="button"
-                            className="sa-jump"
+                            className="sa-jump" data-testid="sa-jump"
                             title="Open this run in the Subagents tab"
                             onClick={(ev) => {
                               ev.stopPropagation();
@@ -1678,22 +1685,22 @@ export default function SessionViewer({
                             ⌥ open →
                           </button>
                         )}
-                        {e.type === "commit" && <span className="chip hash">{commitLabel}</span>}
-                        {e.tokenUsage != null && <span className="tok">+{fmtInt(e.tokenUsage)} -0</span>}
-                        {e.durationMs != null && <span className="dur">{durLabel(e.durationMs)}</span>}
+                        {e.type === "commit" && <span className="chip hash" data-testid="chip">{commitLabel}</span>}
+                        {e.tokenUsage != null && <span className="tok" data-testid="tok">+{fmtInt(e.tokenUsage)} -0</span>}
+                        {e.durationMs != null && <span className="dur" data-testid="dur">{durLabel(e.durationMs)}</span>}
                         {e.exitCode != null &&
                           (e.exitCode === 0 ? (
-                            <span className="ok">✓</span>
+                            <span className="ok" data-testid="ok">✓</span>
                           ) : (
-                            <span className="err">✗</span>
+                            <span className="err" data-testid="err">✗</span>
                           ))}
                         {!isTurnHeader && (
                           <span
-                            className="step-timebar-track"
+                            className="step-timebar-track" data-testid="step-timebar-track"
                             title={`time ${timebar.startPct.toFixed(1)}% · duration ${e.durationMs ?? 0}ms`}
                           >
                             <span
-                              className="step-timebar"
+                              className="step-timebar" data-testid="step-timebar"
                               data-start-pct={timebar.startPct.toFixed(3)}
                               data-width-pct={timebar.widthPct.toFixed(3)}
                               data-duration-ms={e.durationMs ?? 0}
@@ -1726,7 +1733,7 @@ export default function SessionViewer({
                 return rows;
               })()}
               {visibleEvents.length === 0 && (
-                <div className="empty" style={{ padding: "16px" }}>
+                <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
                   No events match the current filters.
                 </div>
               )}
@@ -1735,7 +1742,7 @@ export default function SessionViewer({
 
           {/* ===== TOOLS ===== */}
           {activeTab === "tools" && (
-            <div className="timeline">
+            <div className="timeline" data-testid="timeline">
               {events
                 .filter((e) => TOOL_TYPES.includes(e.type))
                 .map((e) => {
@@ -1744,7 +1751,9 @@ export default function SessionViewer({
                     <div
                       key={e.id}
                       data-eid={e.id}
-                      className={`event-row${isSel ? " selected" : ""}`}
+                      data-selected={isSel ? "true" : undefined}
+                      data-event-kind={e.type}
+                      className={`event-row${isSel ? " selected" : ""}`} data-testid="event-row"
                       onClick={() => setSelectedEventId(e.id)}
                       role="button"
                       tabIndex={0}
@@ -1756,36 +1765,36 @@ export default function SessionViewer({
                       }}
                       style={{ cursor: "pointer" }}
                     >
-                      <span className="event-seq">{e.seq}</span>
-                      <span className="event-gutter">{e.ts}</span>
-                      <span className={`event-icon ${e.type}`} aria-hidden>
+                      <span className="event-seq" data-testid="event-seq">{e.seq}</span>
+                      <span className="event-gutter" data-testid="event-gutter">{e.ts}</span>
+                      <span className={`event-icon ${e.type}`} data-testid="event-icon" data-event-kind={e.type} aria-hidden>
                         {TYPE_GLYPH[e.type] ?? "•"}
                       </span>
-                      <div className="event-main">
-                        <div className="event-headline">
-                          <span className="event-title">{e.title}</span>
-                          <span className={`event-type-badge ${e.type}`}>{EVENT_LABEL[e.type]}</span>
+                      <div className="event-main" data-testid="event-main">
+                        <div className="event-headline" data-testid="event-headline">
+                          <span className="event-title" data-testid="event-title">{e.title}</span>
+                          <span className={`event-type-badge ${e.type}`} data-testid="event-type-badge" data-event-kind={e.type}>{EVENT_LABEL[e.type]}</span>
                         </div>
                         {(e.command || e.filePath) && (
-                          <div className={`event-sub ${e.filePath ? "path" : "mono"}`}>
+                          <div className={`event-sub ${e.filePath ? "path" : "mono"}`} data-testid="event-sub">
                             {e.command ?? e.filePath}
                           </div>
                         )}
                       </div>
-                      <span className="event-meta">
-                        {e.durationMs != null && <span className="dur">{durLabel(e.durationMs)}</span>}
+                      <span className="event-meta" data-testid="event-meta">
+                        {e.durationMs != null && <span className="dur" data-testid="dur">{durLabel(e.durationMs)}</span>}
                         {e.exitCode != null &&
                           (e.exitCode === 0 ? (
-                            <span className="ok">exit 0 ✓</span>
+                            <span className="ok" data-testid="ok">exit 0 ✓</span>
                           ) : (
-                            <span className="err">exit {e.exitCode} ✗</span>
+                            <span className="err" data-testid="err">exit {e.exitCode} ✗</span>
                           ))}
                       </span>
                     </div>
                   );
                 })}
               {events.filter((e) => TOOL_TYPES.includes(e.type)).length === 0 && (
-                <div className="empty" style={{ padding: "16px" }}>
+                <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
                   No tool events.
                 </div>
               )}
@@ -1794,7 +1803,7 @@ export default function SessionViewer({
 
           {/* ===== SKILLS ===== */}
           {activeTab === "skills" && (
-            <div className="timeline">
+            <div className="timeline" data-testid="timeline">
               {events
                 .filter((e) => e.type === "skill")
                 .map((e) => {
@@ -1803,7 +1812,9 @@ export default function SessionViewer({
                     <div
                       key={e.id}
                       data-eid={e.id}
-                      className={`event-row${isSel ? " selected" : ""}`}
+                      data-selected={isSel ? "true" : undefined}
+                      data-event-kind={e.type}
+                      className={`event-row${isSel ? " selected" : ""}`} data-testid="event-row"
                       onClick={() => setSelectedEventId(e.id)}
                       role="button"
                       tabIndex={0}
@@ -1815,26 +1826,26 @@ export default function SessionViewer({
                       }}
                       style={{ cursor: "pointer" }}
                     >
-                      <span className="event-seq">{e.seq}</span>
-                      <span className="event-gutter">{e.ts}</span>
-                      <span className="event-icon skill" aria-hidden>
+                      <span className="event-seq" data-testid="event-seq">{e.seq}</span>
+                      <span className="event-gutter" data-testid="event-gutter">{e.ts}</span>
+                      <span className="event-icon skill" data-testid="event-icon" data-event-kind="skill" aria-hidden>
                         {TYPE_GLYPH.skill}
                       </span>
-                      <div className="event-main">
-                        <div className="event-headline">
-                          <span className="event-title">{e.title}</span>
-                          <span className="event-type-badge skill">Skill</span>
+                      <div className="event-main" data-testid="event-main">
+                        <div className="event-headline" data-testid="event-headline">
+                          <span className="event-title" data-testid="event-title">{e.title}</span>
+                          <span className="event-type-badge skill" data-testid="event-type-badge">Skill</span>
                         </div>
-                        {e.body && <div className="event-sub body">{e.body.split("\n")[0]}</div>}
+                        {e.body && <div className="event-sub body" data-testid="event-sub">{e.body.split("\n")[0]}</div>}
                       </div>
-                      <span className="event-meta">
-                        {e.durationMs != null && <span className="dur">{durLabel(e.durationMs)}</span>}
+                      <span className="event-meta" data-testid="event-meta">
+                        {e.durationMs != null && <span className="dur" data-testid="dur">{durLabel(e.durationMs)}</span>}
                       </span>
                     </div>
                   );
                 })}
               {events.filter((e) => e.type === "skill").length === 0 && (
-                <div className="empty" style={{ padding: "16px" }}>
+                <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
                   No skill events.
                 </div>
               )}
@@ -1843,26 +1854,26 @@ export default function SessionViewer({
 
           {/* ===== SUBAGENTS (per-run tabs + overview spine) ===== */}
           {activeTab === "subagents" && (
-            <div className="sa-wrap">
+            <div className="sa-wrap" data-testid="sa-wrap">
               {invocations.length === 0 ? (
-                <div className="timeline">
-                  <div className="empty" style={{ padding: "16px" }}>
+                <div className="timeline" data-testid="timeline">
+                  <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
                     No sub-agent runs in this session.
                   </div>
                 </div>
               ) : (
                 <>
                   {/* sub-tab bar: Overview + one tab per distinct run */}
-                  <div className="sa-tabbar" role="tablist" aria-label="Sub-agent runs">
+                  <div className="sa-tabbar" data-testid="sa-tabbar" role="tablist" aria-label="Sub-agent runs">
                     <button
                       type="button"
                       role="tab"
                       aria-selected={subAgentTab === "overview"}
-                      className={`sa-tab${subAgentTab === "overview" ? " active" : ""}`}
+                      className={`sa-tab${subAgentTab === "overview" ? " active" : ""}`} data-testid="sa-tab"
                       onClick={() => setSubAgentTab("overview")}
                     >
                       ◇ Overview
-                      <span className="sa-tab-count">{invocations.length}</span>
+                      <span className="sa-tab-count" data-testid="sa-tab-count">{invocations.length}</span>
                     </button>
                     {invocations.map((inv, i) => {
                       const on = subAgentTab === inv.id;
@@ -1873,18 +1884,18 @@ export default function SessionViewer({
                           type="button"
                           role="tab"
                           aria-selected={on}
-                          className={`sa-tab${on ? " active" : ""}`}
+                          className={`sa-tab${on ? " active" : ""}`} data-testid="sa-tab"
                           onClick={() => openAgent(inv.id)}
                           title={`Agent ${i + 1} · ${label}`}
                         >
-                          <span className="sa-tab-idx">{i + 1}</span>
+                          <span className="sa-tab-idx" data-testid="sa-tab-idx">{i + 1}</span>
                           {label}
                         </button>
                       );
                     })}
                   </div>
 
-                  <div className="timeline">
+                  <div className="timeline" data-testid="timeline">
                     {subAgentTab === "overview" ? (
                       /* ---------- OVERVIEW: chronological spine of every run ---------- */
                       invocations.map((e, i) => {
@@ -1900,55 +1911,55 @@ export default function SessionViewer({
                           <button
                             key={e.id}
                             type="button"
-                            className="sa-card"
+                            className="sa-card" data-testid="sa-card"
                             onClick={() => (linkedChild ? openSubSession(linkedChild.id) : openAgent(e.id))}
                           >
-                            <span className="sa-card-idx">{i + 1}</span>
-                            <div className="sa-card-main">
-                              <div className="sa-card-top">
-                                <span className="event-type-badge subagent">⌥ {e.subagent ?? "sub-agent"}</span>
-                                {displayModel && <span className="sa-model" title="model the sub-agent ran on">{shortModel(displayModel)}</span>}
-                                <span className="sa-card-time">{e.ts}</span>
-                                {runFailed && <span className="badge failed">error</span>}
-                                {linkedChild && <span className="badge neutral">linked</span>}
+                            <span className="sa-card-idx" data-testid="sa-card-idx">{i + 1}</span>
+                            <div className="sa-card-main" data-testid="sa-card-main">
+                              <div className="sa-card-top" data-testid="sa-card-top">
+                                <span className="event-type-badge subagent" data-testid="event-type-badge">⌥ {e.subagent ?? "sub-agent"}</span>
+                                {displayModel && <span className="sa-model" data-testid="sa-model" title="model the sub-agent ran on">{shortModel(displayModel)}</span>}
+                                <span className="sa-card-time" data-testid="sa-card-time">{e.ts}</span>
+                                {runFailed && <span className="badge failed" data-testid="badge">error</span>}
+                                {linkedChild && <span className="badge neutral" data-testid="badge">linked</span>}
                                 {failedSteps > 0 && (
                                   <span
-                                    className="chip failed-steps-chip"
+                                    className="chip failed-steps-chip" data-testid="chip"
                                     title={`${failedSteps} child step(s) exited non-zero — distinct from the run's own result`}
                                   >
                                     {failedSteps} failed step{failedSteps === 1 ? "" : "s"}
                                   </span>
                                 )}
                               </div>
-                              <div className="sa-card-task">{invocationSummaryLine(e)}</div>
+                              <div className="sa-card-task" data-testid="sa-card-task">{invocationSummaryLine(e)}</div>
                               {kids.length > 0 && (
-                                <div className="sa-card-steps" aria-hidden>
+                                <div className="sa-card-steps" data-testid="sa-card-steps" aria-hidden>
                                   {kids.slice(0, 16).map((k) => (
                                     <span
                                       key={k.id}
-                                      className={`sa-glyph ${k.type}`}
+                                      className={`sa-glyph ${k.type}`} data-testid="sa-glyph"
                                       title={`${EVENT_LABEL[k.type]} · ${k.title}`}
                                     >
                                       {TYPE_GLYPH[k.type] ?? "•"}
                                     </span>
                                   ))}
-                                  {kids.length > 16 && <span className="sa-more">+{kids.length - 16}</span>}
+                                  {kids.length > 16 && <span className="sa-more" data-testid="sa-more">+{kids.length - 16}</span>}
                                 </div>
                               )}
                             </div>
-                            <span className="sa-card-meta">
+                            <span className="sa-card-meta" data-testid="sa-card-meta">
                               {unlinkedNoSteps ? (
-                                <span className="sa-capture-note">internal steps not captured</span>
+                                <span className="sa-capture-note" data-testid="sa-capture-note">internal steps not captured</span>
                               ) : (
                                 <>
-                                  <span className="chip">{displaySteps} steps</span>
-                                  <span className="chip">{displayTools} tools</span>
-                                  {displayDuration != null && <span className="dur">{durLabel(displayDuration)}</span>}
-                                  {displayTokens != null && <span className="tok">{fmtTok(displayTokens)} tok</span>}
-                                  {displayCost != null && <span className="sa-cost">{fmtCost(displayCost)}</span>}
+                                  <span className="chip" data-testid="chip">{displaySteps} steps</span>
+                                  <span className="chip" data-testid="chip">{displayTools} tools</span>
+                                  {displayDuration != null && <span className="dur" data-testid="dur">{durLabel(displayDuration)}</span>}
+                                  {displayTokens != null && <span className="tok" data-testid="tok">{fmtTok(displayTokens)} tok</span>}
+                                  {displayCost != null && <span className="sa-cost" data-testid="sa-cost">{fmtCost(displayCost)}</span>}
                                 </>
                               )}
-                              <span className="sa-go">{linkedChild ? "OPEN SUB-SESSION →" : "Open →"}</span>
+                              <span className="sa-go" data-testid="sa-go">{linkedChild ? "OPEN SUB-SESSION →" : "Open →"}</span>
                             </span>
                           </button>
                         );
@@ -1966,7 +1977,7 @@ export default function SessionViewer({
                         const tokensShown = linkedChild ? linkedChild.tokenUsage : (e.tokenUsage ?? tokens ?? null);
                         const displayCost = linkedChild ? linkedChild.costUsd : costUsd;
                         return (
-                          <div className="sa-detail">
+                          <div className="sa-detail" data-testid="sa-detail">
                             {/* run selection / back / position all live in the .sa-tabbar above —
                                 no second header row (it duplicated Overview, the active tab, and
                                 tab-click navigation). Model sits in the stats strip below. */}
@@ -1974,14 +1985,14 @@ export default function SessionViewer({
                                 comparable at a glance. A missing value renders as "—" (not
                                 recorded in the transcript), never by dropping the card — a
                                 vanished "Tool calls" reads as "this model can't use tools". */}
-                            <div className="sa-detail-stats">
-                              <div className="stat">
-                                <span className="stat-k">Steps</span>
-                                <span className="stat-v">
+                            <div className="sa-detail-stats" data-testid="sa-detail-stats">
+                              <div className="stat" data-testid="stat">
+                                <span className="stat-k" data-testid="stat-k">Steps</span>
+                                <span className="stat-v" data-testid="stat-v">
                                   {displaySteps}
                                   {failedSteps > 0 && (
                                     <span
-                                      className="stat-note failed-steps-note"
+                                      className="stat-note failed-steps-note" data-testid="stat-note"
                                       title={`${failedSteps} child step(s) exited non-zero — distinct from the run's own result`}
                                     >
                                       {failedSteps} failed
@@ -1989,35 +2000,35 @@ export default function SessionViewer({
                                   )}
                                 </span>
                               </div>
-                              <div className="stat">
-                                <span className="stat-k">Tool calls</span>
+                              <div className="stat" data-testid="stat">
+                                <span className="stat-k" data-testid="stat-k">Tool calls</span>
                                 {linkedChild || toolUses != null ? (
-                                  <span className="stat-v">{displayTools}</span>
+                                  <span className="stat-v" data-testid="stat-v">{displayTools}</span>
                                 ) : (
                                   <span
-                                    className="stat-v"
+                                    className="stat-v" data-testid="stat-v"
                                     title="not reported by the run; counted from observed tool steps in the transcript"
                                   >
                                     {displayTools}
                                   </span>
                                 )}
                               </div>
-                              <div className="stat">
-                                <span className="stat-k">Model</span>
-                                <span className="stat-v" style={{ fontSize: "12.5px" }} title={displayModel ?? "not recorded in the transcript"}>
+                              <div className="stat" data-testid="stat">
+                                <span className="stat-k" data-testid="stat-k">Model</span>
+                                <span className="stat-v" data-testid="stat-v" style={{ fontSize: "12.5px" }} title={displayModel ?? "not recorded in the transcript"}>
                                   {displayModel ? shortModel(displayModel) : "—"}
                                 </span>
                               </div>
-                              <div className="stat">
-                                <span className="stat-k">Duration</span>
-                                <span className="stat-v" title={displayDuration == null ? "not recorded in the transcript" : undefined}>
+                              <div className="stat" data-testid="stat">
+                                <span className="stat-k" data-testid="stat-k">Duration</span>
+                                <span className="stat-v" data-testid="stat-v" title={displayDuration == null ? "not recorded in the transcript" : undefined}>
                                   {displayDuration != null ? fmtDur2(displayDuration) : "—"}
                                 </span>
                               </div>
-                              <div className="stat">
-                                <span className="stat-k">Tokens</span>
+                              <div className="stat" data-testid="stat">
+                                <span className="stat-k" data-testid="stat-k">Tokens</span>
                                 <span
-                                  className="stat-v"
+                                  className="stat-v" data-testid="stat-v"
                                   title={
                                     e.tokenUsage != null
                                       ? undefined
@@ -2029,16 +2040,16 @@ export default function SessionViewer({
                                   {tokensShown != null ? fmtInt(tokensShown) : "—"}
                                 </span>
                               </div>
-                              <div className="stat">
-                                <span className="stat-k">Cost</span>
-                                <span className="stat-v" title={displayCost == null ? "model or token usage not recorded — cost is not invented" : undefined}>
+                              <div className="stat" data-testid="stat">
+                                <span className="stat-k" data-testid="stat-k">Cost</span>
+                                <span className="stat-v" data-testid="stat-v" title={displayCost == null ? "model or token usage not recorded — cost is not invented" : undefined}>
                                   {displayCost != null ? fmtCost(displayCost) : "—"}
                                 </span>
                               </div>
-                              <div className="stat">
-                                <span className="stat-k">Result</span>
+                              <div className="stat" data-testid="stat">
+                                <span className="stat-k" data-testid="stat-k">Result</span>
                                 <span
-                                  className={`stat-v ${runFailed ? "err" : "ok"}`}
+                                  className={`stat-v ${runFailed ? "err" : "ok"}`} data-testid="stat-v"
                                   title="The run's own verdict (the launcher's is_error / exit). Child-step failures are reported separately under Steps."
                                 >
                                   {runFailed ? "error" : "ok"}
@@ -2047,19 +2058,19 @@ export default function SessionViewer({
                             </div>
 
                             {e.body && (
-                              <div className="sa-detail-summary">
-                                <div className="io-head">
+                              <div className="sa-detail-summary" data-testid="sa-detail-summary">
+                                <div className="io-head" data-testid="io-head">
                                   <span>Result · summary</span>
                                   <button
                                     type="button"
-                                    className="io-copy"
+                                    className="io-copy" data-testid="io-copy"
                                     onClick={() => copy(`sa-${e.id}`, e.body ?? "")}
                                   >
                                     {copied === `sa-${e.id}` ? "✓ copied" : "⧉ copy"}
                                   </button>
                                 </div>
                                 <div
-                                  className="sa-summary-body"
+                                  className="sa-summary-body" data-testid="sa-summary-body"
                                   onClick={() => setSelectedEventId(e.id)}
                                   role="button"
                                   tabIndex={0}
@@ -2075,25 +2086,25 @@ export default function SessionViewer({
                               </div>
                             )}
 
-                            <div className="panel-title" style={{ padding: "10px 14px 0" }}>
-                              Execution <span className="count">({displaySteps} steps)</span>
+                            <div className="panel-title" data-testid="panel-title" style={{ padding: "10px 14px 0" }}>
+                              Execution <span className="count" data-testid="count">({displaySteps} steps)</span>
                             </div>
                             {linkedChild ? (
-                              <div className="sa-linked-session" style={{ margin: "8px 14px 14px" }}>
-                                <div className="sa-linked-title">{linkedChild.title}</div>
-                                <div className="muted small">
+                              <div className="sa-linked-session" data-testid="sa-linked-session" style={{ margin: "8px 14px 14px" }}>
+                                <div className="sa-linked-title" data-testid="sa-linked-title">{linkedChild.title}</div>
+                                <div className="muted small" data-testid="muted">
                                   Open the linked sub-session to inspect its captured transcript.
                                 </div>
                                 <button
                                   type="button"
-                                  className="btn btn-sm"
+                                  className="btn btn-sm" data-testid="btn"
                                   onClick={() => openSubSession(linkedChild.id)}
                                 >
                                   OPEN SUB-SESSION →
                                 </button>
                               </div>
                             ) : kids.length === 0 ? (
-                              <div className="empty" style={{ padding: "8px 16px 16px" }}>
+                              <div className="empty" data-testid="empty" style={{ padding: "8px 16px 16px" }}>
                                 internal steps not captured
                               </div>
                             ) : (
@@ -2102,7 +2113,10 @@ export default function SessionViewer({
                                 return (
                                   <div
                                     key={k.id}
-                                    className={`event-row child-row${isSel ? " selected" : ""}`}
+                                    data-selected={isSel ? "true" : undefined}
+                                    data-child-row="true"
+                                    data-event-kind={k.type}
+                                    className={`event-row child-row${isSel ? " selected" : ""}`} data-testid="event-row"
                                     onClick={() => setSelectedEventId(k.id)}
                                     role="button"
                                     tabIndex={0}
@@ -2114,35 +2128,35 @@ export default function SessionViewer({
                                     }}
                                     style={{ cursor: "pointer" }}
                                   >
-                                    <span className="event-seq">{k.seq}</span>
-                                    <span className="event-gutter">{k.ts}</span>
-                                    <span className={`event-icon ${k.type}`} aria-hidden>
+                                    <span className="event-seq" data-testid="event-seq">{k.seq}</span>
+                                    <span className="event-gutter" data-testid="event-gutter">{k.ts}</span>
+                                    <span className={`event-icon ${k.type}`} data-testid="event-icon" data-event-kind={k.type} aria-hidden>
                                       {TYPE_GLYPH[k.type] ?? "•"}
                                     </span>
-                                    <div className="event-main">
-                                      <div className="event-headline">
-                                        <span className="event-title">{k.title}</span>
-                                        <span className={`event-type-badge ${k.type}`}>
+                                    <div className="event-main" data-testid="event-main">
+                                      <div className="event-headline" data-testid="event-headline">
+                                        <span className="event-title" data-testid="event-title">{k.title}</span>
+                                        <span className={`event-type-badge ${k.type}`} data-testid="event-type-badge" data-event-kind={k.type}>
                                           {EVENT_LABEL[k.type]}
                                         </span>
                                       </div>
                                       {k.command ? (
-                                        <div className="event-sub mono">{k.command}</div>
+                                        <div className="event-sub mono" data-testid="event-sub">{k.command}</div>
                                       ) : k.filePath ? (
-                                        <div className="event-sub path">{k.filePath}</div>
+                                        <div className="event-sub path" data-testid="event-sub">{k.filePath}</div>
                                       ) : k.body ? (
-                                        <div className="event-sub body">{k.body.split("\n")[0]}</div>
+                                        <div className="event-sub body" data-testid="event-sub">{k.body.split("\n")[0]}</div>
                                       ) : null}
                                     </div>
-                                    <span className="event-meta">
+                                    <span className="event-meta" data-testid="event-meta">
                                       {k.durationMs != null && (
-                                        <span className="dur">{durLabel(k.durationMs)}</span>
+                                        <span className="dur" data-testid="dur">{durLabel(k.durationMs)}</span>
                                       )}
                                       {k.exitCode != null &&
                                         (k.exitCode === 0 ? (
-                                          <span className="ok">✓</span>
+                                          <span className="ok" data-testid="ok">✓</span>
                                         ) : (
-                                          <span className="err">✗</span>
+                                          <span className="err" data-testid="err">✗</span>
                                         ))}
                                     </span>
                                   </div>
@@ -2161,17 +2175,17 @@ export default function SessionViewer({
 
           {/* ===== ANNOTATIONS (session-wide notable moments) ===== */}
           {activeTab === "annotations" && (
-            <div className="timeline annotations-tab">
-              <div className="annotations-tab-head">
-                <span className="ann-tab-label">Annotations</span>
-                <span className="count mono">{annotations.length}</span>
+            <div className="timeline annotations-tab" data-testid="timeline" data-panel="annotations">
+              <div className="annotations-tab-head" data-testid="annotations-tab-head">
+                <span className="ann-tab-label" data-testid="ann-tab-label">Annotations</span>
+                <span className="count mono" data-testid="count">{annotations.length}</span>
               </div>
-              <div className="annotations-tab-sub">
+              <div className="annotations-tab-sub" data-testid="annotations-tab-sub">
                 Notable moments flagged along the run — errors, commits &amp; tests, in time order.
                 Click one to jump to that step in the Transcript.
               </div>
               {annotations.length === 0 ? (
-                <div className="empty" style={{ padding: "16px" }}>
+                <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
                   No flagged moments in this session.
                 </div>
               ) : (
@@ -2189,7 +2203,7 @@ export default function SessionViewer({
                     return (
                       <div
                         key={a.id}
-                        className="annotation annotation-tab-row"
+                        className="annotation annotation-tab-row" data-testid="annotation"
                         data-annotation-seq={a.atSeq}
                         onClick={jump}
                         role={target ? "button" : undefined}
@@ -2207,12 +2221,12 @@ export default function SessionViewer({
                         }
                         style={{ cursor: target ? "pointer" : "default" }}
                       >
-                        <span className="amain">
-                          <span className="ameta">
-                            <span className={`akind-tag ${a.kind as AnnotationKind}`}>{a.kind}</span>
-                            <span className="aseq">step {a.atSeq}</span>
+                        <span className="amain" data-testid="amain">
+                          <span className="ameta" data-testid="ameta">
+                            <span className={`akind-tag ${a.kind as AnnotationKind}`} data-testid="akind-tag">{a.kind}</span>
+                            <span className="aseq" data-testid="aseq">step {a.atSeq}</span>
                           </span>
-                          {a.note && <span className="atxt">{a.note}</span>}
+                          {a.note && <span className="atxt" data-testid="atxt">{a.note}</span>}
                         </span>
                       </div>
                     );
@@ -2247,15 +2261,15 @@ export default function SessionViewer({
 
           {/* ===== RAW JSON ===== */}
           {activeTab === "raw" && (
-            <div className="timeline" style={{ padding: "12px 14px" }}>
+            <div className="timeline" data-testid="timeline" style={{ padding: "12px 14px" }}>
               <div
-                className="panel-title"
+                className="panel-title" data-testid="panel-title"
                 style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}
               >
                 <span>{selected ? `Selected event ${selected.seq}` : "Events array"}</span>
                 <button
                   type="button"
-                  className="btn btn-sm"
+                  className="btn btn-sm" data-testid="btn"
                   onClick={() =>
                     copy("raw-main", JSON.stringify(selected ?? events, null, 2))
                   }
@@ -2263,7 +2277,7 @@ export default function SessionViewer({
                   {copied === "raw-main" ? "Copied ✓" : "⧉ Copy"}
                 </button>
               </div>
-              <pre className="run-json" style={{ whiteSpace: "pre-wrap" }}>
+              <pre className="run-json" data-testid="run-json" style={{ whiteSpace: "pre-wrap" }}>
                 {JSON.stringify(selected ?? events, null, 2)}
               </pre>
             </div>
@@ -2283,32 +2297,32 @@ export default function SessionViewer({
             LINKED FILES / RUN JSON) does not inform a verdict, so the column is
             removed and its width handed to the findings detail panel. */}
         {activeTab !== "findings" && (
-        <aside className="aside">
+        <aside className="aside" data-testid="aside">
           {asideIsLauncherDup ? (
-            <div className="detail">
-              <div className="detail-placeholder" data-aside-placeholder="step-inspect">
+            <div className="detail" data-testid="detail">
+              <div className="detail-placeholder" data-testid="detail-placeholder" data-aside-placeholder="step-inspect">
                 Select a step to inspect
               </div>
             </div>
           ) : (
-          <div className="detail">
-            <div className="detail-head">
-              <span className={`event-icon ${selType}`} aria-hidden>
+          <div className="detail" data-testid="detail">
+            <div className="detail-head" data-testid="detail-head">
+              <span className={`event-icon ${selType}`} data-testid="event-icon" aria-hidden>
                 {TYPE_GLYPH[selType] ?? "•"}
               </span>
-              <span className="dtitle">
+              <span className="dtitle" data-testid="dtitle">
                 {selType === "bash" ? "Bash (shell)" : EVENT_LABEL[selType]}
               </span>
-              <span className="spacer" />
+              <span className="spacer" data-testid="spacer" />
               {selected?.exitCode != null && (
-                <span className={`badge ${selStatusClass}`}>{selStatusText}</span>
+                <span className={`badge ${selStatusClass}`} data-testid="badge">{selStatusText}</span>
               )}
             </div>
 
-            <div className="detail-actions">
+            <div className="detail-actions" data-testid="detail-actions">
               <button
                 type="button"
-                className={`btn${selPinned ? " btn-primary" : ""}`}
+                className={`btn${selPinned ? " btn-primary" : ""}`} data-testid="btn"
                 onClick={togglePin}
                 disabled={!selected}
               >
@@ -2316,7 +2330,7 @@ export default function SessionViewer({
               </button>
               <button
                 type="button"
-                className="btn"
+                className="btn" data-testid="btn"
                 onClick={openNoteEditor}
                 disabled={!selected}
               >
@@ -2325,7 +2339,7 @@ export default function SessionViewer({
               {selected && eventsWithDiff.has(selected.id) && (
                 <button
                   type="button"
-                  className="btn"
+                  className="btn" data-testid="btn"
                   onClick={() => {
                     setGitFocusEvent(selected.id);
                     setGitFocusFileId(undefined);
@@ -2361,12 +2375,12 @@ export default function SessionViewer({
                   }}
                 />
                 <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
-                  <button type="button" className="btn btn-sm btn-primary" onClick={saveNote}>
+                  <button type="button" className="btn btn-sm btn-primary" data-testid="btn" onClick={saveNote}>
                     Save
                   </button>
                   <button
                     type="button"
-                    className="btn btn-sm"
+                    className="btn btn-sm" data-testid="btn"
                     onClick={() => setNoteDraft(null)}
                   >
                     Cancel
@@ -2378,7 +2392,7 @@ export default function SessionViewer({
             {/* saved note display */}
             {selNote && noteDraft == null && (
               <div
-                className="kv"
+                className="kv" data-testid="kv"
                 style={{ borderTop: 0, paddingTop: 0, gridTemplateColumns: "1fr" }}
               >
                 <dd style={{ background: "var(--accent-weak)", padding: "8px 10px", borderRadius: "var(--radius-sm)" }}>
@@ -2388,59 +2402,59 @@ export default function SessionViewer({
             )}
 
             {/* what matters for a tool: how long, success, cost — as compact stats */}
-            <div className="stat-strip">
+            <div className="stat-strip" data-testid="stat-strip">
               {selected?.durationMs != null && (
-                <div className="stat">
-                  <span className="stat-k">Duration</span>
-                  <span className="stat-v">{fmtDur2(selected.durationMs)}</span>
+                <div className="stat" data-testid="stat">
+                  <span className="stat-k" data-testid="stat-k">Duration</span>
+                  <span className="stat-v" data-testid="stat-v">{fmtDur2(selected.durationMs)}</span>
                 </div>
               )}
               {selected?.exitCode != null && (
-                <div className="stat">
-                  <span className="stat-k">Exit</span>
-                  <span className={`stat-v ${selected.exitCode === 0 ? "ok" : "err"}`}>
+                <div className="stat" data-testid="stat">
+                  <span className="stat-k" data-testid="stat-k">Exit</span>
+                  <span className={`stat-v ${selected.exitCode === 0 ? "ok" : "err"}`} data-testid="stat-v">
                     {selected.exitCode === 0 ? "0 ✓" : `${selected.exitCode} ✗`}
                   </span>
                 </div>
               )}
               {selected?.tokenUsage != null && (
-                <div className="stat">
-                  <span className="stat-k">Tokens</span>
-                  <span className="stat-v">{fmtInt(selected.tokenUsage)}</span>
+                <div className="stat" data-testid="stat">
+                  <span className="stat-k" data-testid="stat-k">Tokens</span>
+                  <span className="stat-v" data-testid="stat-v">{fmtInt(selected.tokenUsage)}</span>
                 </div>
               )}
               {selMeta.toolUses != null && (
-                <div className="stat">
-                  <span className="stat-k">Tool calls</span>
-                  <span className="stat-v">{selMeta.toolUses}</span>
+                <div className="stat" data-testid="stat">
+                  <span className="stat-k" data-testid="stat-k">Tool calls</span>
+                  <span className="stat-v" data-testid="stat-v">{selMeta.toolUses}</span>
                 </div>
               )}
             </div>
-            <div className="detail-sub">
+            <div className="detail-sub" data-testid="detail-sub">
               {EVENT_LABEL[selType]} · {selected?.actor ?? "—"} · {sessionDate} {selTime}
               {selMeta.tool && selMeta.tool !== EVENT_LABEL[selType] ? ` · ${selMeta.tool}` : ""}
             </div>
-            {selected?.filePath && <div className="detail-path mono">{selected.filePath}</div>}
+            {selected?.filePath && <div className="detail-path mono" data-testid="detail-path">{selected.filePath}</div>}
 
             {selected?.command && (
-              <div className="io-block">
-                <div className="io-head">
+              <div className="io-block" data-testid="io-block">
+                <div className="io-head" data-testid="io-head">
                   <span>Command</span>
                   <button
                     type="button"
-                    className="io-copy"
+                    className="io-copy" data-testid="io-copy"
                     onClick={() => copy("cmd", selected.command ?? "")}
                   >
                     {copied === "cmd" ? "✓ copied" : "⧉ copy"}
                   </button>
                 </div>
-                <pre className="code-block cmd">{selected.command}</pre>
+                <pre className="code-block cmd" data-testid="code-block">{selected.command}</pre>
               </div>
             )}
 
             {/* return value / side effects — the main content, gets the room */}
-            <div className="io-block io-output">
-              <div className="io-head">
+            <div className="io-block io-output" data-testid="io-block">
+              <div className="io-head" data-testid="io-head">
                 <span>
                   {selType === "bash" || selType === "test"
                     ? "Output · stdout / stderr"
@@ -2457,45 +2471,45 @@ export default function SessionViewer({
                 {selected?.body && (
                   <button
                     type="button"
-                    className="io-copy"
+                    className="io-copy" data-testid="io-copy"
                     onClick={() => copy("out", selected.body ?? "")}
                   >
                     {copied === "out" ? "✓ copied" : "⧉ copy"}
                   </button>
                 )}
               </div>
-              <pre className="code-block output">
-                {selected?.body ? selected.body : <span className="muted">(no output captured)</span>}
+              <pre className="code-block output" data-testid="code-block" data-block-kind="output">
+                {selected?.body ? selected.body : <span className="muted" data-testid="muted">(no output captured)</span>}
               </pre>
             </div>
 
             {/* Linked files */}
-            <div className="linked-files">
-              <div className="panel-title">
-                Linked Files <span className="count">({selectedFiles.length})</span>
+            <div className="linked-files" data-testid="linked-files">
+              <div className="panel-title" data-testid="panel-title">
+                Linked Files <span className="count" data-testid="count">({selectedFiles.length})</span>
               </div>
               {selectedFiles.length === 0 ? (
-                <div className="empty">—</div>
+                <div className="empty" data-testid="empty">—</div>
               ) : (
                 selectedFiles.map((f) => (
-                  <div key={f.id} className="linked-file">
+                  <div key={f.id} className="linked-file" data-testid="linked-file">
                     <span>{f.path}</span>
-                    <span className={`role ${f.role}`}>{f.role}</span>
+                    <span className={`role ${f.role}`} data-testid="role">{f.role}</span>
                   </div>
                 ))
               )}
             </div>
 
             {/* Run JSON */}
-            <div className="linked-files" style={{ borderBottom: 0, paddingBottom: 0 }}>
+            <div className="linked-files" data-testid="linked-files" style={{ borderBottom: 0, paddingBottom: 0 }}>
               <div
-                className="panel-title"
+                className="panel-title" data-testid="panel-title"
                 style={{ display: "flex", alignItems: "center", gap: "8px" }}
               >
                 <span>Run JSON</span>
                 <button
                   type="button"
-                  className="btn btn-sm"
+                  className="btn btn-sm" data-testid="btn"
                   onClick={() => copy("runjson", JSON.stringify(runJson, null, 2))}
                   disabled={!selected}
                 >
@@ -2503,7 +2517,7 @@ export default function SessionViewer({
                 </button>
               </div>
             </div>
-            <pre className="run-json">
+            <pre className="run-json" data-testid="run-json">
               <JsonView value={runJson} />
             </pre>
           </div>

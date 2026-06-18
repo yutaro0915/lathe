@@ -10,10 +10,10 @@
 
 export default function LoadingSessionViewer() {
   const bar = (w: string, h = 10) => (
-    <span className="sk-bar" style={{ width: w, height: h }} aria-hidden />
+    <span className="sk-bar" data-testid="sk-bar" style={{ width: w, height: h }} aria-hidden />
   );
   return (
-    <div className="sk" aria-busy="true" aria-label="Loading session">
+    <div className="sk" data-testid="sk" aria-busy="true" aria-label="Loading session">
       <style>{`
         .sk{--sk:var(--border-faint,#edeff3)}
         .sk-bar,.sk-block{background:var(--sk);border-radius:3px;display:inline-block;
@@ -48,15 +48,15 @@ export default function LoadingSessionViewer() {
       `}</style>
 
       {/* Band 2 — metrics (sessbar) */}
-      <div className="sk-sessbar">
-        <div className="sk-id">
-          <span className="sk-dot" />
+      <div className="sk-sessbar" data-testid="sk-sessbar">
+        <div className="sk-id" data-testid="sk-id">
+          <span className="sk-dot" data-testid="sk-dot" />
           {bar("220px", 12)}
           {bar("160px")}
         </div>
-        <div className="sk-kstats">
+        <div className="sk-kstats" data-testid="sk-kstats">
           {Array.from({ length: 6 }).map((_, i) => (
-            <span className="sk-kstat" key={i}>
+            <span className="sk-kstat" data-testid="sk-kstat" key={i}>
               {bar("34px", 13)}
               {bar("28px", 8)}
             </span>
@@ -65,39 +65,39 @@ export default function LoadingSessionViewer() {
       </div>
 
       {/* Band 3 — tabs */}
-      <div className="sk-tabs">
+      <div className="sk-tabs" data-testid="sk-tabs">
         {Array.from({ length: 9 }).map((_, i) => (
           <span key={i}>{bar(`${52 + (i % 3) * 12}px`)}</span>
         ))}
       </div>
 
       {/* Band 4 — 3-column layout */}
-      <div className="sk-layout">
-        <div className="sk-col left">
-          <div className="sk-label">sessions</div>
+      <div className="sk-layout" data-testid="sk-layout">
+        <div className="sk-col left" data-testid="sk-col">
+          <div className="sk-label" data-testid="sk-label">sessions</div>
           {Array.from({ length: 9 }).map((_, i) => (
-            <div className="sk-item" key={i}>
+            <div className="sk-item" data-testid="sk-item" key={i}>
               {bar("85%", 11)}
               {bar("55%", 9)}
               {bar("70%", 9)}
             </div>
           ))}
         </div>
-        <div className="sk-col">
-          <div className="sk-label">loading session</div>
+        <div className="sk-col" data-testid="sk-col">
+          <div className="sk-label" data-testid="sk-label">loading session</div>
           {Array.from({ length: 12 }).map((_, i) => (
-            <div className="sk-row" key={i}>
-              <span className="sk-dot" />
+            <div className="sk-row" data-testid="sk-row" key={i}>
+              <span className="sk-dot" data-testid="sk-dot" />
               {bar(`${40 + ((i * 37) % 50)}%`, 11)}
             </div>
           ))}
         </div>
-        <div className="sk-col right">
-          <div className="sk-label">inspector</div>
+        <div className="sk-col right" data-testid="sk-col">
+          <div className="sk-label" data-testid="sk-label">inspector</div>
           {bar("70%", 12)}
           <div style={{ height: 10 }} />
           {Array.from({ length: 6 }).map((_, i) => (
-            <div className="sk-row" key={i}>{bar(`${50 + ((i * 23) % 40)}%`, 10)}</div>
+            <div className="sk-row" data-testid="sk-row" key={i}>{bar(`${50 + ((i * 23) % 40)}%`, 10)}</div>
           ))}
         </div>
       </div>

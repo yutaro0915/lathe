@@ -573,37 +573,37 @@ export default function DiffViewer({
       {!embedded && (
         <>
       {/* metrics band */}
-      <div className="sessbar">
-        <div className="sessbar-id">
-          <span className={`runner-dot ${runnerClass}`} aria-hidden />
-          <span className="sessbar-title" title={s.title}>
+      <div className="sessbar" data-testid="sessbar">
+        <div className="sessbar-id" data-testid="sessbar-id">
+          <span className={`runner-dot ${runnerClass}`} data-testid="runner-dot" aria-hidden />
+          <span className="sessbar-title" data-testid="sessbar-title" title={s.title}>
             {s.title}
           </span>
           {s.errorCount > 0 && (
-            <span className="badge err" title={`${s.errorCount} failed tool call(s) in this session`}>
+            <span className="badge err" data-testid="badge" title={`${s.errorCount} failed tool call(s) in this session`}>
               {s.errorCount} error{s.errorCount === 1 ? "" : "s"}
             </span>
           )}
-          <span className="sessbar-meta">
-            Git diff · {runnerLabel} · <span className="mono">⎇ {branch}</span> · {commitText} ·{" "}
+          <span className="sessbar-meta" data-testid="sessbar-meta">
+            Git diff · {runnerLabel} · <span className="mono" data-testid="mono">⎇ {branch}</span> · {commitText} ·{" "}
             {s.startedAt.replace("T", " ").slice(0, 16)}
           </span>
         </div>
-        <div className="sessbar-stats">
-          <div className="kstat">
+        <div className="sessbar-stats" data-testid="sessbar-stats">
+          <div className="kstat" data-testid="kstat">
             <b>{fmtInt(files.length)}</b>
             <span>files</span>
           </div>
-          <div className="kstat">
+          <div className="kstat" data-testid="kstat">
             <b>{fmtDuration(s.durationMs)}</b>
             <span>duration</span>
           </div>
-          <div className="kstat">
+          <div className="kstat" data-testid="kstat">
             <b>{fmtInt(s.turnCount)}</b>
             <span>turns</span>
           </div>
           <div
-            className="kstat"
+            className="kstat" data-testid="kstat"
             title={`${fmtInt(s.tokenIn)} in · ${fmtInt(s.tokenOut)} out`}
           >
             <b>{fmtCompact(s.tokenIn + s.tokenOut)}</b>
@@ -614,7 +614,7 @@ export default function DiffViewer({
 
       {/* tab strip — active = Git. Session picker lives at the right so session
           switching stays reachable from this screen (the only navigation). */}
-      <div className="tabs">
+      <div className="tabs" data-testid="tabs" role="tablist">
         {(
           [
             ["transcript", "Transcript"],
@@ -624,13 +624,16 @@ export default function DiffViewer({
           <button
             key={key}
             type="button"
-            className="tab"
+            role="tab"
+            aria-selected={false}
+            data-tab={key}
+            className="tab" data-testid="tab"
             onClick={() => router.push(`/?session=${encodeURIComponent(currentId)}&tab=${key}`)}
           >
             {label}
           </button>
         ))}
-        <span className="tab active">Git</span>
+        <span className="tab active" data-testid="tab" role="tab" aria-selected={true} data-tab="git">Git</span>
         {(
           [
             ["skills", "Skills"],
@@ -641,16 +644,19 @@ export default function DiffViewer({
           <button
             key={key}
             type="button"
-            className="tab"
+            role="tab"
+            aria-selected={false}
+            data-tab={key}
+            className="tab" data-testid="tab"
             onClick={() => router.push(`/?session=${encodeURIComponent(currentId)}&tab=${key}`)}
           >
             {label}
           </button>
         ))}
-        <span className="tabs-spacer" />
-        <span className="tabs-tool">
+        <span className="tabs-spacer" data-testid="tabs-spacer" />
+        <span className="tabs-tool" data-testid="tabs-tool">
           <label style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-            <span className="muted small">Session</span>
+            <span className="muted small" data-testid="muted">Session</span>
             <select
               value={currentId}
               onChange={(e) => switchSession(e.target.value)}
@@ -681,22 +687,24 @@ export default function DiffViewer({
       {/* 3-col diff working area (the only part shown when embedded in a host shell) */}
       <div
         className={embedded ? "diff-embed" : "layout3 diffview"}
+        data-testid={embedded ? "diff-embed" : "layout3"}
         style={embedded ? undefined : { gridTemplateColumns: "280px minmax(0,1fr) 340px" }}
       >
         {/* COLUMN 1 — changed-files tree */}
-        <div className="sidebar">
-          <div className="filetree-head">
-            <div className="title">Changed Files</div>
-            <div className="sub">{files.length} files changed</div>
+        <div className="sidebar" data-testid="sidebar">
+          <div className="filetree-head" data-testid="filetree-head">
+            <div className="title" data-testid="title">Changed Files</div>
+            <div className="sub" data-testid="sub">{files.length} files changed</div>
           </div>
-          <div className="filetree">
+          <div className="filetree" data-testid="filetree">
             {visibleTree.map((row, i) => {
               if (row.kind === "folder") {
                 const collapsed = collapsedFolders.has(row.path);
                 return (
                   <div
                     key={`folder-${row.path}-${i}`}
-                    className={`file-row is-folder ${indentClass(row.depth)}`}
+                    data-row-kind="folder"
+                    className={`file-row is-folder ${indentClass(row.depth)}`} data-testid="file-row"
                     role="button"
                     tabIndex={0}
                     onClick={() => toggleFolder(row.path)}
@@ -707,16 +715,16 @@ export default function DiffViewer({
                       }
                     }}
                   >
-                    <span className="twisty">{collapsed ? "▸" : "▾"}</span>
-                    <span className="ficon folder" aria-hidden>
+                    <span className="twisty" data-testid="twisty">{collapsed ? "▸" : "▾"}</span>
+                    <span className="ficon folder" data-testid="ficon" data-ficon-kind="folder" aria-hidden>
                       <FolderIcon />
                     </span>
-                    <span className="fname" title={row.path}>
+                    <span className="fname" data-testid="fname" title={row.path}>
                       {row.name}
                     </span>
-                    <span className="counts">
-                      <span className="add">+{row.additions}</span>
-                      <span className="del">-{row.deletions}</span>
+                    <span className="counts" data-testid="counts">
+                      <span className="add" data-testid="add">+{row.additions}</span>
+                      <span className="del" data-testid="del">-{row.deletions}</span>
                     </span>
                   </div>
                 );
@@ -727,9 +735,11 @@ export default function DiffViewer({
                 <div
                   key={f.id}
                   data-file-id={f.id}
+                  data-row-kind="file"
+                  data-active={isActive ? "true" : undefined}
                   className={`file-row is-file ${indentClass(row.depth)}${
                     isActive ? " active" : ""
-                  }`}
+                  }`} data-testid="file-row"
                   role="button"
                   tabIndex={0}
                   onClick={() => selectFile(f.id)}
@@ -740,22 +750,22 @@ export default function DiffViewer({
                     }
                   }}
                 >
-                  <span className="twisty" />
-                  <span className={`status-chip ${f.status}`} title={f.status} aria-hidden>
+                  <span className="twisty" data-testid="twisty" />
+                  <span className={`status-chip ${f.status}`} data-testid="status-chip" data-status={f.status} title={f.status} aria-hidden>
                     {statusGlyph(f.status)}
                   </span>
-                  <span className="fname" title={f.path}>
+                  <span className="fname" data-testid="fname" title={f.path}>
                     {basename(f.path)}
                   </span>
-                  <span className="counts">
-                    <span className="add">+{f.additions}</span>
-                    <span className="del">-{f.deletions}</span>
+                  <span className="counts" data-testid="counts">
+                    <span className="add" data-testid="add">+{f.additions}</span>
+                    <span className="del" data-testid="del">-{f.deletions}</span>
                   </span>
                 </div>
               );
             })}
             {files.length === 0 && (
-              <div className="empty" style={{ padding: 12 }}>
+              <div className="empty" data-testid="empty" style={{ padding: 12 }}>
                 No changed files in this session.
               </div>
             )}
@@ -763,23 +773,25 @@ export default function DiffViewer({
         </div>
 
         {/* COLUMN 2 — diff for the active file */}
-        <div className="main">
-          <div className="diff-wrap">
-            <div className="diff-toolbar">
-              <span className="fpath">{active ? active.path : "—"}</span>
-              <span className="fstats">
-                <span className="add">{active ? active.additions : 0} additions</span>
+        <div className="main" data-testid="main">
+          <div className="diff-wrap" data-testid="diff-wrap">
+            <div className="diff-toolbar" data-testid="diff-toolbar">
+              <span className="fpath" data-testid="fpath">{active ? active.path : "—"}</span>
+              <span className="fstats" data-testid="fstats">
+                <span className="add" data-testid="add">{active ? active.additions : 0} additions</span>
                 {" / "}
-                <span className="del">{active ? active.deletions : 0} deletions</span>
+                <span className="del" data-testid="del">{active ? active.deletions : 0} deletions</span>
               </span>
-              <span className="spacer" />
+              <span className="spacer" data-testid="spacer" />
               {selected && hunks.length > 1 && (
                 <span
-                  className="segmented step-filter"
+                  className="segmented step-filter" data-testid="step-filter"
                   title="Focus the selected step's change, or show the whole file"
                 >
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={!showAllHunks}
                     className={!showAllHunks ? "active" : ""}
                     onClick={() => setShowAllHunks(false)}
                   >
@@ -787,6 +799,8 @@ export default function DiffViewer({
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={showAllHunks}
                     className={showAllHunks ? "active" : ""}
                     onClick={() => setShowAllHunks(true)}
                   >
@@ -794,9 +808,11 @@ export default function DiffViewer({
                   </button>
                 </span>
               )}
-              <span className="segmented">
+              <span className="segmented" data-testid="segmented" role="tablist">
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={viewMode === "unified"}
                   className={viewMode === "unified" ? "active" : ""}
                   onClick={() => setViewMode("unified")}
                 >
@@ -804,6 +820,8 @@ export default function DiffViewer({
                 </button>
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={viewMode === "split"}
                   className={viewMode === "split" ? "active" : ""}
                   onClick={() => setViewMode("split")}
                 >
@@ -813,13 +831,13 @@ export default function DiffViewer({
             </div>
 
             {touchedSteps.length > 0 && (
-              <div className="file-touched-steps">
-                <span className="muted small">Touched steps</span>
+              <div className="file-touched-steps" data-testid="file-touched-steps">
+                <span className="muted small" data-testid="muted">Touched steps</span>
                 {touchedSteps.map((le) => (
                   <button
                     key={le.event.id}
                     type="button"
-                    className="file-touched-step"
+                    className="file-touched-step" data-testid="file-touched-step"
                     onClick={() => {
                       setSelectedLinkedEventId(le.event.id);
                       setShowRawJson(false);
@@ -833,10 +851,10 @@ export default function DiffViewer({
               </div>
             )}
 
-            <div className="hunk-nav">
+            <div className="hunk-nav" data-testid="hunk-nav">
               <button
                 type="button"
-                className="nav-btn"
+                className="nav-btn" data-testid="nav-btn"
                 aria-label="prev hunk"
                 onClick={() => gotoHunk(hunkIndex - 1)}
                 disabled={hunks.length === 0 || hunkIndex === 0}
@@ -845,14 +863,14 @@ export default function DiffViewer({
               </button>
               <button
                 type="button"
-                className="nav-btn"
+                className="nav-btn" data-testid="nav-btn"
                 aria-label="next hunk"
                 onClick={() => gotoHunk(hunkIndex + 1)}
                 disabled={hunks.length === 0 || hunkIndex >= hunks.length - 1}
               >
                 ›
               </button>
-              <span className="pos">
+              <span className="pos" data-testid="pos">
                 {hunks.length === 0 ? 0 : hunkIndex + 1} of {hunks.length}
               </span>
               <span style={{ flex: "1 1 auto" }} />
@@ -861,7 +879,7 @@ export default function DiffViewer({
               </span>
             </div>
 
-            <div className="diff">
+            <div className="diff" data-testid="diff">
               {renderedHunks.map((h, hi) => {
                 const attr = hunkAttr.get(h.id);
                 const conf: Confidence = attr ? attr.confidence : "unattributed";
@@ -892,9 +910,10 @@ export default function DiffViewer({
                   return (
                     <div
                       key={h.id}
-                      className="diff-hunk collapsed"
+                      className="diff-hunk collapsed" data-testid="diff-hunk"
                       data-hunk-id={h.id}
                       data-hunk-seq={h.seq}
+                      data-hunk-state="collapsed"
                       role="button"
                       tabIndex={0}
                       onClick={() => hunkEventId && setSelectedLinkedEventId(hunkEventId)}
@@ -906,8 +925,8 @@ export default function DiffViewer({
                       }}
                       title="Change from another step — click to focus it (or use All changes)"
                     >
-                      <span className="htext">{h.header}</span>
-                      <span className="collapsed-note">
+                      <span className="htext" data-testid="htext">{h.header}</span>
+                      <span className="collapsed-note" data-testid="collapsed-note">
                         +{adds} −{dels} · another step&apos;s change — click to view
                       </span>
                     </div>
@@ -916,10 +935,11 @@ export default function DiffViewer({
 
                 return (
                   <div
-                    className={`diff-hunk${isCurrent ? " active" : ""}`}
+                    className={`diff-hunk${isCurrent ? " active" : ""}`} data-testid="diff-hunk"
                     key={h.id}
                     data-hunk-id={h.id}
                     data-hunk-seq={h.seq}
+                    data-hunk-state={isCurrent ? "active" : "expanded"}
                     ref={(el) => {
                       hunkRefs.current[hi] = el;
                     }}
@@ -929,10 +949,10 @@ export default function DiffViewer({
                         : undefined
                     }
                   >
-                    <div className="diff-header">
-                      <span className="htext">{h.header}</span>
-                      <span className="le-right">
-                        <span className={`confidence ${conf}`}>
+                    <div className="diff-header" data-testid="diff-header">
+                      <span className="htext" data-testid="htext">{h.header}</span>
+                      <span className="le-right" data-testid="le-right">
+                        <span className={`confidence ${conf}`} data-testid="confidence">
                           {methodLabel(method)}
                         </span>
                         <span style={{ color: "var(--muted-2)" }}>⋯</span>
@@ -958,16 +978,16 @@ export default function DiffViewer({
                             <div
                               className={`diff-line${cls ? " " + cls : ""}${
                                 linked ? " linked" : ""
-                              }`}
+                              }`} data-testid="diff-line"
                               key={`${h.id}-${li}`}
                             >
-                              <span className="lno">{oldCell}</span>
-                              <span className="lno diff-gutter">
+                              <span className="lno" data-testid="lno">{oldCell}</span>
+                              <span className="lno diff-gutter" data-testid="lno">
                                 {newCell}
-                                {showNode && <span className="diff-attr-node" />}
+                                {showNode && <span className="diff-attr-node" data-testid="diff-attr-node" />}
                               </span>
-                              <span className="marker">{marker}</span>
-                              <span className="ltext">{text}</span>
+                              <span className="marker" data-testid="marker">{marker}</span>
+                              <span className="ltext" data-testid="ltext">{text}</span>
                             </div>
                           );
                         });
@@ -1023,19 +1043,19 @@ export default function DiffViewer({
                                   <div
                                     className={`diff-line${
                                       L.cls ? " " + L.cls : ""
-                                    }`}
+                                    }`} data-testid="diff-line"
                                     key={`L-${h.id}-${ri}`}
                                     style={{
                                       gridTemplateColumns: "44px 16px 1fr",
                                     }}
                                   >
-                                    <span className="lno">
+                                    <span className="lno" data-testid="lno">
                                       {L.no != null ? L.no : ""}
                                     </span>
-                                    <span className="marker">
+                                    <span className="marker" data-testid="marker">
                                       {L.cls === "del" ? "-" : " "}
                                     </span>
-                                    <span className="ltext">{L.text}</span>
+                                    <span className="ltext" data-testid="ltext">{L.text}</span>
                                   </div>
                                 );
                               })}
@@ -1048,22 +1068,22 @@ export default function DiffViewer({
                                   <div
                                     className={`diff-line${
                                       R.cls ? " " + R.cls : ""
-                                    }${linked ? " linked" : ""}`}
+                                    }${linked ? " linked" : ""}`} data-testid="diff-line"
                                     key={`R-${h.id}-${ri}`}
                                     style={{
                                       gridTemplateColumns: "44px 16px 1fr",
                                     }}
                                   >
-                                    <span className="lno diff-gutter">
+                                    <span className="lno diff-gutter" data-testid="lno">
                                       {R.no != null ? R.no : ""}
                                       {showNode && (
-                                        <span className="diff-attr-node" />
+                                        <span className="diff-attr-node" data-testid="diff-attr-node" />
                                       )}
                                     </span>
-                                    <span className="marker">
+                                    <span className="marker" data-testid="marker">
                                       {R.cls === "add" ? "+" : " "}
                                     </span>
-                                    <span className="ltext">{R.text}</span>
+                                    <span className="ltext" data-testid="ltext">{R.text}</span>
                                   </div>
                                 );
                               })}
@@ -1073,10 +1093,10 @@ export default function DiffViewer({
                       })()
                     )}
                     {moreLines > 0 && (
-                      <div className="diff-more-lines">
+                      <div className="diff-more-lines" data-testid="diff-more-lines">
                         <button
                           type="button"
-                          className="btn btn-sm btn-ghost"
+                          className="btn btn-sm btn-ghost" data-testid="btn"
                           onClick={() => expandHunk(h.id)}
                         >
                           Show {fmtInt(moreLines)} more line
@@ -1088,15 +1108,15 @@ export default function DiffViewer({
                 );
               })}
               {moreHunks > 0 && (
-                <div className="diff-more">
-                  <span className="muted small">
+                <div className="diff-more" data-testid="diff-more">
+                  <span className="muted small" data-testid="muted">
                     Showing {fmtInt(renderedHunks.length)} of {fmtInt(hunks.length)}{" "}
                     hunks
                   </span>
                   <span style={{ flex: "1 1 auto" }} />
                   <button
                     type="button"
-                    className="btn btn-sm"
+                    className="btn btn-sm" data-testid="btn"
                     onClick={() =>
                       setHunkWindow((w) => Math.min(hunks.length, w + HUNK_PAGE))
                     }
@@ -1105,7 +1125,7 @@ export default function DiffViewer({
                   </button>
                   <button
                     type="button"
-                    className="btn btn-sm btn-ghost"
+                    className="btn btn-sm btn-ghost" data-testid="btn"
                     onClick={() => setHunkWindow(hunks.length)}
                   >
                     Show all ({fmtInt(hunks.length)})
@@ -1113,7 +1133,7 @@ export default function DiffViewer({
                 </div>
               )}
               {hunks.length === 0 && (
-                <div className="empty" style={{ padding: 16 }}>
+                <div className="empty" data-testid="empty" style={{ padding: 16 }}>
                   No hunks.
                 </div>
               )}
@@ -1122,10 +1142,10 @@ export default function DiffViewer({
         </div>
 
         {/* COLUMN 3 — attribution aside */}
-        <div className="aside">
+        <div className="aside" data-testid="aside">
           {showBanner && (
-            <div className="attr-banner">
-              <span className="bi">⚠</span>
+            <div className="attr-banner" data-testid="attr-banner">
+              <span className="bi" data-testid="bi">⚠</span>
               <span>
                 Some changes were made after shell commands; attribution is
                 probabilistic.
@@ -1133,11 +1153,11 @@ export default function DiffViewer({
             </div>
           )}
 
-          <div className="linked-events">
-            <div className="panel-title">
-              Linked Events <span className="count">({linkedEvents.length})</span>
+          <div className="linked-events" data-testid="linked-events">
+            <div className="panel-title" data-testid="panel-title">
+              Linked Events <span className="count" data-testid="count">({linkedEvents.length})</span>
               {hunks.length > 0 && (
-                <span className="muted small"> · {coveredCount}/{hunks.length} hunks linked</span>
+                <span className="muted small" data-testid="muted"> · {coveredCount}/{hunks.length} hunks linked</span>
               )}
             </div>
             {linkedEvents.map((le, i) => {
@@ -1146,7 +1166,7 @@ export default function DiffViewer({
               return (
                 <div
                   key={`${le.event.id}-${le.hunkId}-${i}`}
-                  className={`linked-event${isActive ? " active" : ""}`}
+                  className={`linked-event${isActive ? " active" : ""}`} data-testid="linked-event"
                   role="button"
                   tabIndex={0}
                   onClick={() => {
@@ -1161,22 +1181,22 @@ export default function DiffViewer({
                     }
                   }}
                 >
-                  <span className="le-idx">{i + 1}</span>
-                  <div className="le-body">
-                    <div className="le-turn">
+                  <span className="le-idx" data-testid="le-idx">{i + 1}</span>
+                  <div className="le-body" data-testid="le-body">
+                    <div className="le-turn" data-testid="le-turn">
                       <b>Turn {le.event.seq}:</b> {le.event.title}
                     </div>
-                    <div className="le-meta">
-                      <span className={`confidence ${le.confidence}`}>
+                    <div className="le-meta" data-testid="le-meta">
+                      <span className={`confidence ${le.confidence}`} data-testid="confidence">
                         {methodLabel(le.method)}
                       </span>
-                      <span className="le-conf">{confidenceLabel(le.confidence)}</span>
+                      <span className="le-conf" data-testid="le-conf">{confidenceLabel(le.confidence)}</span>
                     </div>
                   </div>
                   {onJumpToEvent && (
                     <button
                       type="button"
-                      className="le-jump"
+                      className="le-jump" data-testid="le-jump"
                       title="Jump to the transcript step that produced this hunk"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1190,7 +1210,7 @@ export default function DiffViewer({
               );
             })}
             {linkedEvents.length === 0 && (
-              <div className="empty">No linked events.</div>
+              <div className="empty" data-testid="empty">No linked events.</div>
             )}
           </div>
 
@@ -1198,40 +1218,40 @@ export default function DiffViewer({
           {selected && selectedEvent && (
             <>
               <div
-                className="panel-title"
+                className="panel-title" data-testid="panel-title"
                 style={{ padding: "0 14px", margin: "4px 0 0" }}
               >
                 Event Details
               </div>
-              <dl className="kv">
+              <dl className="kv" data-testid="kv">
                 <dt>Time</dt>
-                <dd className="v mono">{selectedEvent.ts}</dd>
+                <dd className="v mono" data-testid="v">{selectedEvent.ts}</dd>
                 <dt>Tool</dt>
-                <dd className="v mono">{toolName(selectedEvent, selected.method)}</dd>
+                <dd className="v mono" data-testid="v">{toolName(selectedEvent, selected.method)}</dd>
                 <dt>Path</dt>
-                <dd className="v mono">
+                <dd className="v mono" data-testid="v">
                   {selectedEvent.filePath ?? active?.path ?? "—"}
                 </dd>
                 <dt>Exit code</dt>
-                <dd className="v mono">
+                <dd className="v mono" data-testid="v">
                   {selectedEvent.exitCode != null ? selectedEvent.exitCode : "0"}
                 </dd>
                 <dt>Latency</dt>
-                <dd className="v mono">{fmtLatency(selectedEvent.durationMs)}</dd>
+                <dd className="v mono" data-testid="v">{fmtLatency(selectedEvent.durationMs)}</dd>
               </dl>
               <div
-                className="diff-toolbar"
+                className="diff-toolbar" data-testid="diff-toolbar"
                 style={{ borderBottom: "none", paddingTop: 4 }}
               >
-                <span className="fstats">
-                  <span className="add">+{active ? active.additions : 0}</span>
+                <span className="fstats" data-testid="fstats">
+                  <span className="add" data-testid="add">+{active ? active.additions : 0}</span>
                   {" / "}
-                  <span className="del">-{active ? active.deletions : 0}</span>
+                  <span className="del" data-testid="del">-{active ? active.deletions : 0}</span>
                 </span>
-                <span className="spacer" />
+                <span className="spacer" data-testid="spacer" />
                 <button
                   type="button"
-                  className="btn btn-sm"
+                  className="btn btn-sm" data-testid="btn"
                   onClick={() => setShowRawJson((v) => !v)}
                 >
                   {"{}"} Raw JSON
@@ -1239,7 +1259,7 @@ export default function DiffViewer({
               </div>
               {showRawJson && (
                 <pre
-                  className="run-json"
+                  className="run-json" data-testid="run-json"
                   style={{ margin: "0 14px 10px", whiteSpace: "pre-wrap" }}
                 >
                   {rawJson}
@@ -1250,15 +1270,15 @@ export default function DiffViewer({
 
           {/* attribution notes (annotations) */}
           {annotations.length > 0 && (
-            <div className="annotations">
-              <div className="ahead">
+            <div className="annotations" data-testid="annotations">
+              <div className="ahead" data-testid="ahead">
                 Attribution notes{" "}
-                <span className="count">({annotations.length})</span>
+                <span className="count" data-testid="count">({annotations.length})</span>
               </div>
               {annotations.map((a) => (
-                <div className="annotation" key={a.id}>
-                  <span className={`akind ${a.kind}`} />
-                  <span className="nowrap">{a.note ?? a.kind}</span>
+                <div className="annotation" data-testid="annotation" key={a.id}>
+                  <span className={`akind ${a.kind}`} data-testid="akind" />
+                  <span className="nowrap" data-testid="nowrap">{a.note ?? a.kind}</span>
                 </div>
               ))}
             </div>

@@ -6,7 +6,7 @@ export default function CostAnomalyChip({ session }: { session: Session }) {
   const median = fmtCost(session.costAnomalyGroupMedianUsd);
   return (
     <span
-      className="chip anomaly-chip"
+      className="chip anomaly-chip" data-testid="chip"
       data-anomaly="cost"
       data-threshold-usd={session.costAnomalyThresholdUsd.toFixed(6)}
       title={`Cost ${fmtCost(session.costUsd)} exceeds baseline ${fmtCost(session.costAnomalyThresholdUsd)} · runner n=${session.costAnomalyGroupSize} · median ${median}`}

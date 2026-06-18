@@ -33,7 +33,7 @@ export function Button({
     .join(" ");
   return (
     <button type={type} className={cls} {...rest}>
-      {icon ? <span className="lds-btn__icon" aria-hidden="true">{icon}</span> : null}
+      {icon ? <span className="lds-btn__icon" data-testid="lds-btn__icon" aria-hidden="true">{icon}</span> : null}
       {children}
     </button>
   );
@@ -62,7 +62,7 @@ export function Badge({ tone = "default", dot = false, dotColor, className = "",
     .join(" ");
   return (
     <span className={cls} {...rest}>
-      {dot ? <span className="lds-badge__dot" style={dotColor ? { background: dotColor } : undefined} /> : null}
+      {dot ? <span className="lds-badge__dot" data-testid="lds-badge__dot" style={dotColor ? { background: dotColor } : undefined} /> : null}
       {children}
     </span>
   );
@@ -139,9 +139,9 @@ export function SearchInput({ placeholder = "Search…", kbd, icon, className = 
   const glyph = icon === undefined ? <SearchGlyph /> : icon;
   return (
     <label className={`lds-search ${className}`.trim()}>
-      {glyph ? <span className="lds-search__icon" aria-hidden="true">{glyph}</span> : null}
+      {glyph ? <span className="lds-search__icon" data-testid="lds-search__icon" aria-hidden="true">{glyph}</span> : null}
       <input type="search" placeholder={placeholder} {...rest} />
-      {kbd ? <span className="lds-kbd">{kbd}</span> : null}
+      {kbd ? <span className="lds-kbd" data-testid="lds-kbd">{kbd}</span> : null}
     </label>
   );
 }
@@ -166,7 +166,7 @@ export function Select({ value, onChange, options = [], className = "", ...rest 
           </option>
         ))}
       </select>
-      <span className="lds-caret" aria-hidden="true">▾</span>
+      <span className="lds-caret" data-testid="lds-caret" aria-hidden="true">▾</span>
     </span>
   );
 }
@@ -196,11 +196,11 @@ export interface MetricStatProps extends React.HTMLAttributes<HTMLDivElement> {
 export function MetricStat({ value, label, sub, layout = "stack", className = "", ...rest }: MetricStatProps) {
   return (
     <div className={`lds-metric ${layout === "inline" ? "lds-metric--inline" : ""} ${className}`.trim()} {...rest}>
-      <span className="lds-metric__value">
+      <span className="lds-metric__value" data-testid="lds-metric__value">
         {value}
         {sub ? <span style={{ color: "var(--muted-2)", fontWeight: 400 }}>{sub}</span> : null}
       </span>
-      <span className="lds-metric__label">{label}</span>
+      <span className="lds-metric__label" data-testid="lds-metric__label">{label}</span>
     </div>
   );
 }
@@ -218,11 +218,11 @@ export function MiniBar({ label, value, pct, color, labelWidth, className = "", 
   const style = labelWidth ? ({ "--label-w": labelWidth } as React.CSSProperties) : undefined;
   return (
     <div className={`lds-minibar ${className}`.trim()} style={style} {...rest}>
-      <span className="lds-minibar__label">{label}</span>
-      <span className="lds-minibar__track">
-        <span className="lds-minibar__fill" style={{ width: `${width}%`, background: color || undefined }} />
+      <span className="lds-minibar__label" data-testid="lds-minibar__label">{label}</span>
+      <span className="lds-minibar__track" data-testid="lds-minibar__track">
+        <span className="lds-minibar__fill" data-testid="lds-minibar__fill" style={{ width: `${width}%`, background: color || undefined }} />
       </span>
-      <span className="lds-minibar__value">{value}</span>
+      <span className="lds-minibar__value" data-testid="lds-minibar__value">{value}</span>
     </div>
   );
 }
@@ -256,7 +256,7 @@ export function RunnerPill({ runner, label, className = "", ...rest }: RunnerPil
   const color = RUNNER_COLORS[key] || "var(--cat-uncertain)";
   return (
     <span className={`lds-runner ${className}`.trim()} {...rest}>
-      <span className="lds-runner__dot" style={{ background: color }} />
+      <span className="lds-runner__dot" data-testid="lds-runner__dot" style={{ background: color }} />
       {label ?? runner}
     </span>
   );
@@ -274,12 +274,12 @@ export function Panel({ title, count, sub, action, children, className = "", bod
   return (
     <section className={`lds-panel ${className}`.trim()} {...rest}>
       {(title || action) && (
-        <header className="lds-panel__head">
+        <header className="lds-panel__head" data-testid="lds-panel__head">
           {title ? (
-            <span className="lds-panel__title">
+            <span className="lds-panel__title" data-testid="lds-panel__title">
               {title}
-              {count != null ? <span className="lds-panel__count">{` ${count}`}</span> : null}
-              {sub ? <span className="lds-panel__sub">{` — ${sub}`}</span> : null}
+              {count != null ? <span className="lds-panel__count" data-testid="lds-panel__count">{` ${count}`}</span> : null}
+              {sub ? <span className="lds-panel__sub" data-testid="lds-panel__sub">{` — ${sub}`}</span> : null}
             </span>
           ) : null}
           {action ? <span style={{ marginLeft: "auto" }}>{action}</span> : null}
@@ -311,11 +311,11 @@ export function TabBar({ tabs = [], value, onChange, className = "", ...rest }: 
           type="button"
           role="tab"
           aria-selected={t.value === value}
-          className={`lds-tab ${t.value === value ? "is-active" : ""}`}
+          className={`lds-tab ${t.value === value ? "is-active" : ""}`} data-testid="lds-tab"
           onClick={() => onChange && onChange(t.value)}
         >
           {t.label}
-          {t.count != null ? <span className="lds-tab__count">{t.count}</span> : null}
+          {t.count != null ? <span className="lds-tab__count" data-testid="lds-tab__count">{t.count}</span> : null}
         </button>
       ))}
     </div>
