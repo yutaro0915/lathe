@@ -31,7 +31,7 @@ export default function LoadingSessionViewer() {
         .sk-kstat{display:flex;flex-direction:column;gap:5px;align-items:flex-end}
         .sk-tabs{display:flex;gap:10px;padding:8px 16px;border-bottom:1px solid var(--border,#e4e7ec)}
         .sk-layout{display:grid;
-          grid-template-columns:var(--sidebar-w,272px) minmax(0,1fr) var(--aside-w,336px);
+          grid-template-columns:var(--sidebar-w,264px) minmax(0,1fr) var(--aside-w,336px);
           height:calc(100vh - 220px)}
         .sk-col{padding:12px;overflow:hidden}
         .sk-col.left{border-right:1px solid var(--border,#e4e7ec)}
@@ -43,7 +43,7 @@ export default function LoadingSessionViewer() {
         .sk-label{font:600 10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
           letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2,#98a1ae);
           padding:2px 0 10px}
-        @media (max-width:1100px){.sk-layout{grid-template-columns:var(--sidebar-w,272px) minmax(0,1fr)}
+        @media (max-width:1100px){.sk-layout{grid-template-columns:var(--sidebar-w,264px) minmax(0,1fr)}
           .sk-col.right{display:none}}
       `}</style>
 
