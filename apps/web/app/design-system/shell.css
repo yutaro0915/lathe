@@ -122,12 +122,34 @@
 .lds-wh .lds-wh-title{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;flex:0 0 auto;}
 .lds-wh .lds-wh-meta{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
 .lds-wh .lds-wh-spacer{flex:1 1 auto;}
-.lds-wh .lds-wh-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto;}
+.lds-wh .lds-wh-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto;min-width:0;}
+/* Narrow widths: the dense header actions (kstats / jump / PR chips), the long
+   title cluster, AND the many session tabs would otherwise spill past the band's
+   right edge. Let the band clip and each over-wide cell scroll horizontally /
+   ellipsize in its own box so the chrome degrades gracefully instead of pushing
+   the header wide. (overflow-x:auto cells are intentional scroll panes, exempt
+   from the no-overflow gate.) */
+@media (max-width:860px){
+  .lds-wh{overflow:hidden;}
+  /* shrink-and-scroll the actions cell (don't let it GROW, which would steal
+     space from the title); the title cluster keeps its natural width. */
+  .lds-wh .lds-wh-actions{overflow-x:auto;overflow-y:hidden;flex:0 1 auto;}
+  /* the session title cluster (runner dot + ellipsizing title + tabular meta)
+     can still exceed the band on a long session title; let it scroll in its own
+     box rather than spill the band. The inner .lds-sv-title keeps its ellipsis +
+     title tooltip, so the full name stays reachable. */
+  .lds-wh[data-testid="sessbar"] .lds-wh-titles{overflow-x:auto;overflow-y:hidden;}
+}
 /* Surface row that hosts a sub-component (filters etc.) below the header. */
 .lds-surface-row{flex:0 0 auto;}
 /* tabs row (optional), directly under the WorkareaHeader. */
 .lds-wh-tabs{flex:0 0 auto;display:flex;align-items:center;gap:0;height:var(--tabs-h);padding:0 12px;
   background:var(--panel);border-bottom:1px solid var(--border);}
+/* Narrow widths: the session tab strip (up to 9 tabs) scrolls horizontally
+   instead of overflowing the band. */
+@media (max-width:860px){
+  .lds-wh-tabs{overflow-x:auto;overflow-y:hidden;}
+}
 /* Body: the scroll region the surface fills. Width/height/padding are fixed by
    the surface frame, not the surface content. */
 .lds-surface-body{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
@@ -205,6 +227,15 @@
 .lds-sv-tx-list .timeline{flex:1 1 auto;min-height:0;overflow-y:auto;}
 .lds-sv-tx-detail{flex:1 1 auto;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:var(--panel);}
 .lds-sv-tx-detail .lds-sv-detail-wide{flex:1 1 auto;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;display:block;}
+/* Narrow widths: a fixed 320px list beside the detail squeezes the detail below
+   the list (breaking the wide-detail rule). Stack them into one column — list on
+   top (bounded height), detail filling the rest full-width — mirroring the
+   detail-wide-grid stack at the same breakpoint. */
+@media (max-width:860px){
+  .lds-sv-tx-md{flex-direction:column;}
+  .lds-sv-tx-list{flex:0 0 auto;max-width:none;min-width:0;max-height:40%;border-right:0;border-bottom:1px solid var(--border);}
+  .lds-sv-tx-detail{flex:1 1 auto;}
+}
 
 /* Overview header scope label. Project SCOPE moved to the shell TopBar selector
    (?project=); this is a read-only label of the active scope in the Overview

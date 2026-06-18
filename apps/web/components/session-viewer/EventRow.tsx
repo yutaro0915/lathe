@@ -148,7 +148,11 @@ export function EventRow({
               Turn {turnStats.turn}
             </span>
           )}
-          <span className="event-title" data-testid="event-title">{e.title}</span>
+          {/* Compact-list step/turn title: deliberately ellipsizes (the list pane
+              is intentionally narrow; the full title lives in the wide detail).
+              data-ellipsis-ok tells the layout-integrity gate this truncation is
+              intended, so it flags only UNINTENDED truncation elsewhere. */}
+          <span className="event-title" data-testid="event-title" data-ellipsis-ok>{e.title}</span>
           {pinned && <span title="Pinned" aria-label="Pinned">📌</span>}
           {notes[e.id] && <span title="Has note" aria-label="Has note">🗒</span>}
           {showBadge && (

@@ -211,6 +211,13 @@
    primitive duplicates this layout; migrated out of globals.css verbatim
    (DS v1 shrinks globals, grows here). ---- */
 .pr-shell{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:320px minmax(0,1fr);background:var(--bg);overflow:hidden;}
+/* Narrow widths: stack the PR list above the detail (one column) so the detail
+   pane keeps full width instead of being squeezed to a sliver by the fixed
+   320px list — same stacking pattern as the transcript / detail-wide grids. */
+@media (max-width:860px){
+  .pr-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,40%) minmax(0,1fr);}
+  .pr-sidebar{border-right:0;border-bottom:1px solid var(--border);}
+}
 .pr-sidebar{display:flex;flex-direction:column;min-height:0;background:var(--sidebar-bg);border-right:1px solid var(--border);}
 .pr-list{flex:1 1 auto;min-height:0;overflow-y:auto;padding:8px;}
 .pr-list-item{display:flex;flex-direction:column;gap:6px;padding:10px 11px;border:1px solid transparent;border-radius:var(--radius);color:var(--text);text-decoration:none;}
@@ -625,6 +632,12 @@ button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--b
 .findings-list .finding-row:first-child{border-top:0;}
 .finding-detail{min-width:0;padding:14px 16px;display:flex;flex-direction:column;gap:14px;
   overflow-y:auto;overflow-x:hidden;position:relative;}
+/* Narrow widths: stack the findings list above the detail (one column) so the
+   detail keeps full width — same stacking pattern as the PR / transcript grids. */
+@media (max-width:860px){
+  .findings-md-grid{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,40%) minmax(0,1fr);}
+  .findings-list{border-right:0;border-bottom:1px solid var(--border);}
+}
 .finding-detail-empty{align-items:center;justify-content:center;color:var(--muted-2);}
 .finding-detail-empty .detail-placeholder{font-size:12px;}
 .finding-detail-head{display:flex;align-items:center;gap:8px;}

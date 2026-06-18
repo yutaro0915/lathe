@@ -310,7 +310,7 @@ export default function StatsView({
             </div>
             <div className="chart-body bars" data-testid="chart-body">
               {events.map((e) => (
-                <div className="hbar-row" data-testid="hbar-row" key={e.type}>
+                <div className="hbar-row" data-testid="hbar-row" key={e.type} title={EVENT_LABEL[e.type as EventType] ?? e.type}>
                   <span className="hbar-label" data-testid="hbar-label">{EVENT_LABEL[e.type as EventType] ?? e.type}</span>
                   <span className="hbar-track" data-testid="hbar-track">
                     <span className="hbar-fill" data-testid="hbar-fill" style={{ width: `${(e.count / maxEv) * 100}%`, background: EVENT_COLOR[e.type as EventType] ?? "var(--cat-uncertain)" }} />

@@ -85,7 +85,9 @@ export function DiffPane({
           </div>
         )}
         <HunkNav hunks={hunks} hunkIndex={hunkIndex} onGotoHunk={onGotoHunk} />
-        <div className="diff" data-testid="diff">
+        {/* Diff body intentionally scrolls horizontally (long unwrapped code
+            lines); data-scroll exempts it from the no-overflow gate. */}
+        <div className="diff" data-testid="diff" data-scroll>
           {renderedHunks.map((hunk, index) => (
             <HunkView
               key={hunk.id}

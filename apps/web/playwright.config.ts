@@ -19,8 +19,19 @@ export default defineConfig({
   },
   projects: [
     {
+      // Wide width (~desktop). Runs the WHOLE suite, including the layout gate.
       name: "chromium",
       use: { ...devices["Desktop Chrome"], viewport: { width: 1500, height: 1000 } },
+    },
+    // Second width for the render-integrity gate ONLY (e2e/layout-integrity.spec.ts):
+    // narrow surfaces hit breakpoint-specific 段差 / overflow the wide render
+    // hides, so the layout gate runs at BOTH widths. The rest of the suite is not
+    // written for 700px, so this project is scoped to the layout spec alone (it
+    // reads the project's viewport so a violation reports the width it fired at).
+    {
+      name: "chromium-narrow",
+      testMatch: /layout-integrity\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"], viewport: { width: 700, height: 1000 } },
     },
   ],
   webServer: {

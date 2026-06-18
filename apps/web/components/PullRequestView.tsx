@@ -131,7 +131,7 @@ export default function PullRequestView({
                 {bundle.linkedSessions.map(({ session, linkMethod }) => (
                   <Link key={`${session.id}:${linkMethod}`} href={`/?session=${encodeURIComponent(session.id)}`} className="linked-session" data-testid="linked-session">
                     <span className={`runner-dot ${session.runner}`} data-testid="runner-dot" />
-                    <span className="linked-session-title" data-testid="linked-session-title">{session.title}</span>
+                    <span className="linked-session-title" data-testid="linked-session-title" title={session.title}>{session.title}</span>
                     <span className="muted" data-testid="muted">{RUNNER_LABEL[session.runner]}</span>
                     <span className="chip" data-testid="chip">{linkMethod}</span>
                     <span className="muted" data-testid="muted">{parseStamp(session.startedAt).date}</span>

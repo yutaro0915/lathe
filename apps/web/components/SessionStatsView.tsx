@@ -217,7 +217,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
             </div>
             <div className="chart-body bars" data-testid="chart-body">
               {eventTypes.map((e) => (
-                <div className="hbar-row" data-testid="hbar-row" key={e.type}>
+                <div className="hbar-row" data-testid="hbar-row" key={e.type} title={EVENT_LABEL[e.type as EventType] ?? e.type}>
                   <span className="hbar-label" data-testid="hbar-label">{EVENT_LABEL[e.type as EventType] ?? e.type}</span>
                   <span className="hbar-track" data-testid="hbar-track">
                     <span
@@ -308,7 +308,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
             </div>
             <div className="chart-body bars" data-testid="chart-body">
               {memory.map((m) => (
-                <div className="hbar-row" data-testid="hbar-row" key={m.name}>
+                <div className="hbar-row" data-testid="hbar-row" key={m.name} title={m.name}>
                   <span className="hbar-label mono" data-testid="hbar-label">{m.name}</span>
                   <span className="hbar-track" data-testid="hbar-track">
                     <span
@@ -332,7 +332,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
             </div>
             <div className="chart-body bars" data-testid="chart-body">
               {hooks.map((h) => (
-                <div className="hbar-row" data-testid="hbar-row" key={h.name}>
+                <div className="hbar-row" data-testid="hbar-row" key={h.name} title={h.name}>
                   <span className="hbar-label mono" data-testid="hbar-label">{h.name}</span>
                   <span className="hbar-track" data-testid="hbar-track">
                     <span

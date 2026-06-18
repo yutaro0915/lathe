@@ -159,13 +159,13 @@ export default function TimeRibbon({
         <span className="ribbon-total mono" data-testid="ribbon-total">{fmtDurationSec(total)} total</span>
         {/* live readout of whatever the cursor is over — the reliable "what time / what step is this" */}
         {hoverSeg ? (
-          <span className="ribbon-read mono" data-testid="ribbon-read" title={hoverSeg.e.title}>
+          <span className="ribbon-read mono" data-testid="ribbon-read" title={hoverSeg.e.title} data-ellipsis-ok>
             <b>{clock(start + hoverSeg.offset, true)}</b> · #{hoverSeg.e.seq}{" "}
             {hoverSeg.e.title.length > 44 ? hoverSeg.e.title.slice(0, 44) + "…" : hoverSeg.e.title}
             {hoverSeg.dur > 0 && <span className="muted" data-testid="muted"> · {fmtDurationSec(hoverSeg.dur)}</span>}
           </span>
         ) : (
-          <span className="ribbon-read muted small" data-testid="ribbon-read">hover to read the time · click to jump</span>
+          <span className="ribbon-read muted small" data-testid="ribbon-read" data-ellipsis-ok>hover to read the time · click to jump</span>
         )}
         <span className="spacer" data-testid="spacer" />
         <span className="minimap-legend" data-testid="minimap-legend">

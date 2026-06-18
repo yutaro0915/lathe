@@ -81,13 +81,17 @@ export default function Surface({ title, meta, actions, tabs, rightPanel, childr
   return (
     <section className="lds-surface" data-testid="lds-surface" data-surface={surface}>
       <header className="lds-wh" data-testid={headerTestId ?? "lds-wh"}>
-        <span className="lds-wh-titles" data-testid="lds-wh-titles">
+        <span className="lds-wh-titles" data-testid="lds-wh-titles" data-wah-cell="titles">
           <span className="lds-wh-title" data-testid="lds-wh-title">{title}</span>
-          {meta != null ? <span className="lds-wh-meta" data-testid="lds-wh-meta">{meta}</span> : null}
+          {/* meta is secondary header text designed to ellipsize (it has
+              text-overflow:ellipsis and yields width to the title + actions);
+              data-ellipsis-ok marks that truncation as intended so the gate
+              flags only an UNINTENDED cut of the primary title. */}
+          {meta != null ? <span className="lds-wh-meta" data-testid="lds-wh-meta" data-ellipsis-ok>{meta}</span> : null}
         </span>
         <span className="lds-wh-spacer" data-testid="lds-wh-spacer" />
         {actions != null ? (
-          <span className="lds-wh-actions" data-testid="lds-wh-actions">{actions}</span>
+          <span className="lds-wh-actions" data-testid="lds-wh-actions" data-wah-cell="actions">{actions}</span>
         ) : null}
       </header>
       {tabs != null ? <div className="lds-wh-tabs" data-testid="lds-wh-tabs">{tabs}</div> : null}

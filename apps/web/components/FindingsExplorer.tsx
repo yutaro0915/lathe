@@ -656,13 +656,18 @@ export default function FindingsExplorer({
                                         className="finding-excerpt" data-testid="finding-excerpt"
                                         data-excerpt-seq={excerpt.seq}
                                       >
+                                        {/* Evidence excerpts scroll horizontally on a long
+                                            no-wrap command (the worst-case 140-char rg
+                                            one-liner): data-scroll exempts them from the
+                                            no-overflow gate — they absorb the width in their
+                                            own box, never widening the grid/page. */}
                                         {excerpt.command && (
-                                          <pre className="code-block cmd finding-excerpt-pre" data-testid="finding-excerpt-pre">
+                                          <pre className="code-block cmd finding-excerpt-pre" data-testid="finding-excerpt-pre" data-scroll>
                                             {excerpt.command}
                                           </pre>
                                         )}
                                         {excerpt.output ? (
-                                          <pre className="code-block output finding-excerpt-pre" data-testid="finding-excerpt-pre">
+                                          <pre className="code-block output finding-excerpt-pre" data-testid="finding-excerpt-pre" data-scroll>
                                             {excerpt.output}
                                           </pre>
                                         ) : (

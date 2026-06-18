@@ -39,7 +39,8 @@ export function SimpleEventRow({ event, selected, child = false, label, onSelect
       </span>
       <div className="event-main" data-testid="event-main">
         <div className="event-headline" data-testid="event-headline">
-          <span className="event-title" data-testid="event-title">{event.title}</span>
+          {/* compact-list title intentionally ellipsizes — see EventRow.tsx. */}
+          <span className="event-title" data-testid="event-title" data-ellipsis-ok>{event.title}</span>
           <span className={`event-type-badge ${event.type}`} data-testid="event-type-badge" data-event-kind={event.type}>
             {label ?? EVENT_LABEL[event.type]}
           </span>
