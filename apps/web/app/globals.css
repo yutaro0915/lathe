@@ -52,28 +52,6 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .lds-session-tab.active{color:var(--text);font-weight:650;border-bottom-color:var(--accent);}
 .lds-session-tabs-spacer{flex:1 1 auto;} .lds-session-tabs-tool{display:inline-flex;align-items:center;padding-right:4px;}
 
-/* ---- 3-col working area ----------------------------------------------------
-   NOTE: .lds-layout-sidebar / .lds-layout-main / .lds-layout-aside are SHARED across two grids — the host lds-layout3
-   (session-list | timeline | detail) AND the embedded .diff-embed
-   (file-tree | diff | attribution). So these grid-column rules MUST stay 1/2/3.
-   The removed session-list sidebar is handled by collapsing lds-layout3's first
-   column to 0 (inline, in SessionViewer) — NOT by renumbering these shared cells
-   (renumbering them silently broke the embedded diff grid).
-   minmax(0,…) + min-width:0 on every column: wide content (long diff lines,
-   mono paths, pre blocks) must scroll INSIDE its pane, never widen the page. */
-.lds-layout3{flex:1 1 auto;display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr) var(--aside-w);min-height:0;min-width:0;background:var(--bg);}
-.lds-layout3 > *{min-width:0;}
-.lds-layout3.lds-layout3--diffview{grid-template-columns:var(--sidebar-w) minmax(0,1fr) var(--aside-w);}
-.lds-layout-sidebar{grid-column:1;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--sidebar-bg);border-right:1px solid var(--border);overflow:hidden;}
-.lds-layout-main{grid-column:2;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);overflow:hidden;}
-.lds-layout-aside{grid-column:3;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;}
-/* DiffViewer embedded in the host's "Git" tab: a self-contained
-   [file-tree | diff | attribution] grid that spans the host's main+aside
-   columns (2–3); the host's collapsed first column stays out of the way. */
-.diff-embed{grid-column:2 / 4;min-height:0;min-width:0;display:grid;
-  grid-template-columns:232px minmax(0,1fr) 312px;background:var(--bg);overflow:hidden;}
-.diff-embed > *{min-width:0;}
-
 /* generic panel + helpers */
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:none;}
 .panel-pad{padding:12px;}

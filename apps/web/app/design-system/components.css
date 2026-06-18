@@ -101,6 +101,31 @@
 .lds-panel__sub{color:var(--muted-2);font-family:var(--mono);font-size:var(--fs-xs);font-weight:400;text-transform:none;letter-spacing:0;}
 .lds-panel__body{padding:0 14px 12px;}
 
+/* ---- 3-col working area ----------------------------------------------------
+   Load-bearing layout scaffold, shared by the SessionViewer host grid AND the
+   embedded DiffViewer grid. Migrated out of globals.css verbatim (DS v1 shrinks
+   globals, grows here) — grid-template-columns values are unchanged.
+   NOTE: .lds-layout-sidebar / .lds-layout-main / .lds-layout-aside are SHARED across two grids — the host lds-layout3
+   (session-list | timeline | detail) AND the embedded .diff-embed
+   (file-tree | diff | attribution). So these grid-column rules MUST stay 1/2/3.
+   The removed session-list sidebar is handled by collapsing lds-layout3's first
+   column to 0 (inline, in SessionViewer) — NOT by renumbering these shared cells
+   (renumbering them silently broke the embedded diff grid).
+   minmax(0,…) + min-width:0 on every column: wide content (long diff lines,
+   mono paths, pre blocks) must scroll INSIDE its pane, never widen the page. */
+.lds-layout3{flex:1 1 auto;display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr) var(--aside-w);min-height:0;min-width:0;background:var(--bg);}
+.lds-layout3 > *{min-width:0;}
+.lds-layout3.lds-layout3--diffview{grid-template-columns:var(--sidebar-w) minmax(0,1fr) var(--aside-w);}
+.lds-layout-sidebar{grid-column:1;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--sidebar-bg);border-right:1px solid var(--border);overflow:hidden;}
+.lds-layout-main{grid-column:2;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);overflow:hidden;}
+.lds-layout-aside{grid-column:3;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;}
+/* DiffViewer embedded in the host's "Git" tab: a self-contained
+   [file-tree | diff | attribution] grid that spans the host's main+aside
+   columns (2–3); the host's collapsed first column stays out of the way. */
+.diff-embed{grid-column:2 / 4;min-height:0;min-width:0;display:grid;
+  grid-template-columns:232px minmax(0,1fr) 312px;background:var(--bg);overflow:hidden;}
+.diff-embed > *{min-width:0;}
+
 /* ---- Tab bar ------------------------------------------------------------- */
 .lds-tabs{display:flex;align-items:stretch;gap:0;height:var(--tabs-h);border-bottom:1px solid var(--border);background:var(--panel);}
 .lds-tab{display:inline-flex;align-items:center;height:100%;padding:0 11px;border:0;background:transparent;
