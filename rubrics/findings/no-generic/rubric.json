@@ -1,0 +1,20 @@
+{
+  "title": "finding は generic でなく固有の機序まで踏み込む (N5・agent-judge)",
+  "scope": ["apps/web/scripts/analyst-engine", "packages/domain"],
+  "pass_to_task": "finding/analysis は finding 固有の機序(cause/intent/impact・env vs product)まで書く。fixture 流用・テンプレ文言を使わない。",
+  "checks": [
+    {
+      "id": "no-generic-findings",
+      "value": "finding が generic(原因・機序・影響が具体でなく、どの障害にも当てはまるテンプレ的記述)でなく固有の機序まで踏み込むこと(N5)。守ると分析が使い回しテンプレでなく実害に効く。grep では測れないので agent をジャッジに使う。",
+      "verify": {
+        "judge": {
+          "prompt": "あなたは finding 品質ジャッジ。各 finding(body と analysis)が generic(原因・機序・影響が具体でなく、どの障害にも当てはまるテンプレ的記述)かを判定し、generic な数を数えろ。具体的な機序・固有名・数値・env vs product の区別があるものは generic ではない。",
+          "input_cmd": "docker exec lathe-postgres-1 psql -U lathe -d lathe -tAc \"select id || ': ' || left(coalesce(body,''),400) || ' || ' || left(coalesce(analysis::text,''),400) from findings order by created_at desc limit 25\" 2>/dev/null || echo '(findings 取得不可)'"
+        },
+        "expect": "eq:0",
+        "means": "agent-judge が generic と判定した finding 数 = 0（直近 25 件）"
+      }
+    }
+  ],
+  "origin": "N5(engineering-norms)を agent-judge で機械化。audit-protocol の人間レビューを廃し rubric に統合 (2026-06-18)"
+}
