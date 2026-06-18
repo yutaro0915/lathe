@@ -1,0 +1,106 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "loop/**"]
+  pull_request:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: tsc
+        run: pnpm -F web exec tsc --noEmit
+      - name: lint (dependency-cruiser + oxlint)
+        run: pnpm lint
+      - name: rubric gates (changed vs main)
+        run: |
+          git fetch origin main --depth=1 || true
+          CHANGED=$(git diff --name-only origin/main...HEAD | tr '\n' ' ')
+          if [ -n "$CHANGED" ]; then node rubrics/run.mjs --changed $CHANGED; fi
+
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lathe
+          POSTGRES_PASSWORD: lathe
+          POSTGRES_DB: lathe
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U lathe"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://lathe:lathe@localhost:55432/lathe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: apply schema
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          psql "$DATABASE_URL" -f apps/web/db/schema.sql
+      - name: verify (MCP + finding-depth)
+        run: |
+          pnpm -F @lathe/mcp verify
+          pnpm -F web exec tsx scripts/verify-finding-depth.ts
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lathe
+          POSTGRES_PASSWORD: lathe
+          POSTGRES_DB: lathe
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U lathe"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://lathe:lathe@localhost:55432/lathe
+      E2E_PORT: 3211
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: apply schema
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          psql "$DATABASE_URL" -f apps/web/db/schema.sql
+      - name: playwright browsers
+        run: pnpm -F web exec playwright install --with-deps chromium
+      - name: e2e
+        run: pnpm -F web e2e
