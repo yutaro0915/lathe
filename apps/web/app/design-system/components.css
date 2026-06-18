@@ -822,8 +822,12 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .event-meta .ok{color:var(--green);min-width:12px;text-align:center;} .event-meta .err{color:var(--red);min-width:12px;text-align:center;font-weight:700;}
 .event-row.filter-dimmed{opacity:.42;}
 .event-row.filter-dimmed:hover{opacity:.72;}
-.step-timebar-track{position:relative;display:inline-block;width:74px;height:8px;border-radius:999px;background:var(--bg-sunken);border:1px solid var(--border);overflow:hidden;vertical-align:middle;}
-.step-timebar{position:absolute;top:1px;bottom:1px;min-width:2px;border-radius:999px;background:var(--accent);}
+/* step latency bar: a thin, unobtrusive inline signal under the title. It is
+   e2e-tested (data-duration-ms / data-width-pct, proportional widths), so it
+   stays — kept short so it never crowds the navigation title. */
+.step-timebar-track{position:relative;display:block;width:96px;height:3px;margin-top:3px;border-radius:999px;background:var(--bg-sunken);overflow:hidden;}
+.step-timebar{position:absolute;top:0;bottom:0;min-width:2px;border-radius:999px;background:var(--border-strong);}
+.event-row:hover .step-timebar,.event-row.selected .step-timebar{background:var(--accent);}
 /* type badge: neutral outline + category dot; error keeps red */
 .event-type-badge{display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 6px;border-radius:3px;
   font-size:9px;font-weight:650;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;
@@ -848,18 +852,23 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 /* ---- expandable sub-agent steps in the transcript ---- */
 .tw-expand{border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:10px;line-height:1;padding:3px 4px;border-radius:3px;}
 .tw-expand:hover{background:var(--panel-hover);color:var(--accent);}
-/* turn header: a user_message that starts a turn — a quiet divider band.
-   The chip carries "Turn N · N steps"; rollup chips are neutral, error privileged. */
+/* turn header: a user_message that starts a turn — a quiet divider band. The
+   leading turn-chip carries "Turn N"; the rollup is ONE tidy dot-separated line
+   under the title (.turn-rollup-line), not a wrapping grid of bordered chips, so
+   it stays compact in the narrow nav list. The dense per-event detail lives in
+   the wide detail pane on the right. */
 .event-row.turn-header{background:var(--bg-sunken);border-top:1px solid var(--border);box-shadow:inset 2px 0 0 var(--accent);}
 .event-row.turn-header.turn-has-error{background:var(--red-bg);box-shadow:inset 2px 0 0 var(--red);}
 .event-row.turn-header .event-title{font-weight:650;color:var(--text);}
-.event-row.turn-header .event-meta{justify-content:flex-end;flex-wrap:wrap;row-gap:4px;white-space:normal;}
-.event-row.turn-header .turn-summary{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.chip.turn-chip{background:var(--panel);color:var(--text-soft);border:1px solid var(--border-strong);font-weight:650;}
-.chip.rollup-chip{background:var(--panel);border:1px solid var(--border);color:var(--text-soft);font-family:var(--mono);font-variant-numeric:tabular-nums;}
-.chip.rollup-chip.err{background:var(--red-chip);border-color:var(--red-bg);color:var(--red-text);}
-.chip.rollup-chip.is-empty{color:var(--muted-2);}
-.turn-files-chip{font:inherit;font-family:var(--mono);cursor:pointer;}
+.chip.turn-chip{flex:0 0 auto;background:var(--panel);color:var(--text-soft);border:1px solid var(--border-strong);font-weight:650;}
+.turn-rollup-line{display:flex;align-items:center;flex-wrap:wrap;gap:0 6px;row-gap:2px;margin-top:1px;
+  font-family:var(--mono);font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.turn-rollup-line .trl-seg{white-space:nowrap;}
+.turn-rollup-line .trl-seg.err{color:var(--red-text);font-weight:650;}
+.turn-rollup-line .trl-seg.is-empty{color:var(--muted-2);}
+.turn-rollup-line .trl-sep{color:var(--muted-2);}
+.turn-files-chip{font:inherit;font-family:var(--mono);font-size:10.5px;padding:0 6px;background:var(--panel);
+  border:1px solid var(--border);color:var(--text-soft);cursor:pointer;}
 .turn-files-chip:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);}
 .event-row.child-row{background:var(--panel-2);box-shadow:inset 2px 0 0 var(--border-strong);}
 .event-row.child-row .event-gutter{padding-left:14px;}

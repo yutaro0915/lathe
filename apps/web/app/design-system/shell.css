@@ -195,12 +195,12 @@
    master-detail laid out in the BODY (design row #6 / annotation #6): a
    scannable event list on the LEFT and a WIDE, dominant detail on the RIGHT.
    The detail is meaningfully wider than the list (the I/O, md preview and code
-   get real width). Fixed minmax tracks: the list takes ~35vw bounded so the
-   detail keeps the lion share; both tracks min-width:0 so each scrolls in its
-   own box and the row never widens the page. The TimeRibbon sits below this row
-   (full width) inside .lds-sv-main. */
+   get real width). The list takes 40% (bounded 320-600px) so a step title stays
+   readable while the detail keeps the lion share at 60%; both tracks min-width:0
+   so each scrolls in its own box and the row never widens the page. The
+   TimeRibbon sits below this row (full width) inside .lds-sv-main. */
 .lds-sv-tx-md{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:row;overflow:hidden;}
-.lds-sv-tx-list{flex:0 0 35%;max-width:520px;min-width:300px;min-height:0;display:flex;flex-direction:column;
+.lds-sv-tx-list{flex:0 0 40%;max-width:600px;min-width:320px;min-height:0;display:flex;flex-direction:column;
   border-right:1px solid var(--border);overflow:hidden;}
 .lds-sv-tx-list .timeline{flex:1 1 auto;min-height:0;overflow-y:auto;}
 .lds-sv-tx-detail{flex:1 1 auto;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:var(--panel);}
