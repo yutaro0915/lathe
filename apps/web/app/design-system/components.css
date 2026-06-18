@@ -154,11 +154,15 @@
 .attn-empty{padding:14px 2px;}
 .attn-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;}
 .attn-col{min-width:0;display:flex;flex-direction:column;gap:3px;}
-/* All three column heads share one fixed min-height (label row + basis row),
-   so their bottom hairlines sit at the same Y even though PENDING FINDINGS has
-   no basis line. Rows are packed from the top (align-content/-items:flex-start)
-   so the labels align across columns. */
-.attn-col-head{display:flex;align-items:flex-start;align-content:flex-start;justify-content:space-between;flex-wrap:wrap;gap:2px 8px;min-height:calc(var(--sp-8) + var(--sp-9));font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:0 2px 5px;border-bottom:1px solid var(--border-faint);margin-bottom:3px;}
+/* All three column heads share ONE fixed height (label row + the basis row's
+   reserved space), so their bottom hairlines sit at the same Y even though
+   PENDING FINDINGS has no basis line. A min-height is not enough on its own — a
+   head that DOES carry a basis line grows past the floor, leaving the basis-less
+   head shorter; so the height is fixed (not just floored) to the tallest head's
+   natural size (label row + wrapped basis row). Rows pack from the top
+   (align-content/-items:flex-start) so the labels align across columns; overflow
+   is hidden so a one-off long basis can never push the hairline out of line. */
+.attn-col-head{display:flex;align-items:flex-start;align-content:flex-start;justify-content:space-between;flex-wrap:wrap;gap:2px 8px;height:calc(var(--sp-10) + var(--sp-8));box-sizing:border-box;overflow:hidden;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:0 2px 5px;border-bottom:1px solid var(--border-faint);margin-bottom:3px;}
 .attn-count{color:var(--muted-2);}
 .attn-col-basis{flex:1 0 100%;order:3;font-size:9px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted-2);font-variant-numeric:tabular-nums;}
 .attn-count-link{color:var(--accent);text-decoration:none;font-weight:700;}
@@ -498,7 +502,9 @@
 .big-status{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;}
 .big-status .badge{height:16px;font-size:9.5px;padding:0 5px;}
 
-/* sidebar project selector (project-select now wraps a real <select>) */
+/* Findings-axis session filter select (the TopBar project scope is a custom
+   dropdown in shell.css now; this styles the remaining native select used by the
+   Findings axis session filter, which reuses the project-picker class/testid). */
 .project-picker{flex:1 1 auto;min-width:0;background:transparent;border:none;color:var(--text);font:inherit;font-size:12px;font-weight:650;cursor:pointer;padding:2px 0;}
 .project-picker:focus{outline:none;}
 /* Stats tab — dependency-free charts (inline SVG + CSS bars).

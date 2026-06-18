@@ -35,19 +35,38 @@
 .lds-topbar .lds-tb-ph{margin-left:2px;}
 /* project-scope selector: a BORDERLESS breadcrumb segment (slash + name +
    chevron), like Langfuse's identity breadcrumb. No box/border/outline — plain
-   text + chevron, subtle on hover/focus. A transparent native select overlays
-   the segment so the look is preserved while keeping native option semantics. */
+   text + chevron, subtle on hover/focus. The control is a CUSTOM dropdown (a
+   trigger button + a styled menu), not a native select, so the popup matches the
+   DS instead of the Mac-default UI. When a session is open the breadcrumb appends
+   a third, read-only segment with the session title. */
 .lds-topbar .lds-tb-scope{position:relative;display:inline-flex;align-items:center;gap:6px;height:26px;
-  padding:0 6px;border-radius:var(--radius-sm);color:var(--text-soft);font-size:12.5px;font-weight:600;
-  white-space:nowrap;flex:0 0 auto;cursor:pointer;}
-.lds-topbar .lds-tb-scope:hover,.lds-topbar .lds-tb-scope:focus-within{background:var(--panel-hover);color:var(--text);}
-.lds-topbar .lds-tb-scope .lds-tb-scope-sep{color:var(--muted-2);font-weight:400;}
-.lds-topbar .lds-tb-scope .lds-tb-scope-name{color:inherit;}
-.lds-topbar .lds-tb-scope .lds-tb-scope-ic{display:inline-flex;color:var(--muted-2);}
-/* the real control overlays the segment, invisible but clickable, so the segment
-   stays a borderless breadcrumb while a native select drives ?project=. */
-.lds-topbar .lds-tb-scope .lds-tb-scope-sel{position:absolute;inset:0;width:100%;height:100%;
-  opacity:0;border:0;margin:0;padding:0;cursor:pointer;font:inherit;}
+  color:var(--text-soft);font-size:12.5px;font-weight:600;white-space:nowrap;flex:0 1 auto;min-width:0;}
+.lds-topbar .lds-tb-scope .lds-tb-scope-sep{color:var(--muted-2);font-weight:400;flex:0 0 auto;}
+/* trigger: a borderless breadcrumb button (name + chevron). No box/border;
+   subtle panel-hover on hover/open/focus, accent ring on keyboard focus only. */
+.lds-topbar .lds-tb-scope-trigger{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 6px;
+  border:0;border-radius:var(--radius-sm);background:transparent;color:inherit;font:inherit;font-weight:600;
+  cursor:pointer;white-space:nowrap;flex:0 0 auto;}
+.lds-topbar .lds-tb-scope-trigger:hover,.lds-topbar .lds-tb-scope-trigger[aria-expanded="true"]{background:var(--panel-hover);color:var(--text);}
+.lds-topbar .lds-tb-scope-trigger:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
+.lds-topbar .lds-tb-scope-name{color:inherit;}
+.lds-topbar .lds-tb-scope-ic{display:inline-flex;color:var(--muted-2);}
+/* the custom menu: a floating panel below the trigger, DS-styled (panel bg,
+   hairline border, soft shadow). Options are quiet rows with a panel-hover
+   highlight; the active (keyboard / hover) row and the current scope are marked. */
+.lds-topbar .lds-tb-scope-menu{position:absolute;top:calc(100% + 4px);left:0;z-index:40;margin:0;padding:4px;
+  list-style:none;min-width:220px;max-width:340px;max-height:60vh;overflow-y:auto;background:var(--panel);
+  border:1px solid var(--border-strong);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);}
+.lds-topbar .lds-tb-scope-opt{display:block;width:100%;height:auto;padding:5px 9px;border:0;border-radius:var(--radius-xs);
+  background:transparent;color:var(--text-soft);font-family:var(--sans);font-size:12px;font-weight:500;
+  text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;}
+.lds-topbar .lds-tb-scope-opt:hover,.lds-topbar .lds-tb-scope-opt.is-active{background:var(--panel-hover);color:var(--text);}
+.lds-topbar .lds-tb-scope-opt.is-current{font-weight:650;color:var(--text);}
+.lds-topbar .lds-tb-scope-opt:focus-visible{outline:2px solid var(--accent-ring);outline-offset:-2px;}
+/* session segment: read-only breadcrumb text (no control), ellipsized so a long
+   title yields room rather than widening the bar. */
+.lds-topbar .lds-tb-scope-session{color:var(--text-soft);font-weight:600;min-width:0;flex:0 1 auto;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
 /* ---- left rail: persistent navigation ------------------------------------
    Brand now lives ONLY in the shell TopBar (brand consolidation); the rail

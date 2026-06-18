@@ -1,4 +1,5 @@
 import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findMultiFileDiffSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
+import { pickProject, projectOptionValues } from "./topbar";
 
 registerFixtureHooks();
 
@@ -54,14 +55,11 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
 
   test("the project selector scopes the cross-session charts", async ({ page }) => {
     await page.goto("/overview");
-    const picker = page.locator(`[data-testid="project-picker"]`);
-    const values = await picker
-      .locator("option")
-      .evaluateAll((opts) =>
-        (opts as HTMLOptionElement[]).map((o) => o.value).filter((v) => v !== "all")
-      );
+    // The TopBar project scope is a custom dropdown now (not a native <select>):
+    // read its option values, then drive it by clicking the trigger + the option.
+    const values = await projectOptionValues(page);
     expect(values.length).toBeGreaterThan(0);
-    await picker.selectOption(values[0]);
+    await pickProject(page, values[0]);
     await expect(page.locator(`[data-testid="sessbar-meta"]`)).not.toContainText("All projects");
     await expect(page.locator(`[data-testid="chart-card"]`).first()).toBeVisible();
   });
@@ -83,7 +81,7 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     page,
   }) => {
     await page.goto("/overview");
-    await page.locator(`[data-testid="project-picker"]`).selectOption("(no edits)");
+    await pickProject(page, "(no edits)");
     // the cost-alert fixture row is a link straight to that session's viewer.
     const row = page.locator(`[data-attn-group="cost"] [data-testid="attn-row"][data-session-id="${COST_FIXTURE_IDS[1]}"]`
     );

@@ -1,4 +1,5 @@
 import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findMultiFileDiffSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
+import { pickProject } from "./topbar";
 
 registerFixtureHooks();
 
@@ -159,7 +160,7 @@ test.describe("Cost anomaly detection", () => {
 
   test("overview surfaces the G9 cost flag in the cost-outliers list", async ({ page }) => {
     await page.goto("/overview");
-    await page.locator(`[data-testid="project-picker"]`).selectOption("(no edits)");
+    await pickProject(page, "(no edits)");
     // Overview v2 has no session rail; the anomalous session is a row in the
     // attention panel's cost-alerts column, carrying a ▲ cost flag, and links
     // straight to that session's viewer.

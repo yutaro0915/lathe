@@ -23,6 +23,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     cost: p.cost,
     costKnown: p.costKnown,
   }));
+  // The TopBar breadcrumb appends the CURRENT session (when on /?session=<id>) as
+  // a read-only segment, so the user can tell which session they are viewing from
+  // the top. It needs the id->title map of the sessions the shell already loaded
+  // (no extra query); the selector resolves ?session= against it client-side.
+  const sessionTitles = sessions.map((s) => ({ id: s.id, title: s.title }));
 
   return (
     <html lang="ja">
@@ -46,7 +51,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <span>Lathe</span>
               <Badge tone="neutral" className="lds-tb-ph" data-testid="topbar-ph">Phase 1</Badge>
             </Link>
-            <TopBarProjectSelect projects={projects} totalSessions={sessions.length} />
+            <TopBarProjectSelect
+              projects={projects}
+              totalSessions={sessions.length}
+              sessionTitles={sessionTitles}
+            />
           </header>
           <div className="lds-shell-body" data-testid="lds-shell-body">
             <RailNav />
