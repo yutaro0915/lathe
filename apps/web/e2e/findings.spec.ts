@@ -155,24 +155,29 @@ test.describe("Findings tab and verdict oracle", () => {
   test("the Findings tab drops the right event inspector and hands it the full width", async ({
     page,
   }) => {
-    // On Transcript the right inspector (RUN JSON / LINKED FILES) is present — it
-    // now lives in the shell-owned Surface RightPanel (Layout v2, slice 3), so
-    // the work-area body splits into a main column + the inspector.
+    // On Transcript the event detail is now a WIDE master-detail in the body
+    // (annotation #6 / design row #6): a scannable event list on the LEFT and a
+    // dominant detail on the RIGHT — NOT the old narrow RightPanel. The detail
+    // (`aside`) is meaningfully WIDER than the list, so Input/Output + md preview
+    // + code get real width.
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=transcript`);
-    await expect(page.locator(`[data-testid="lds-surface-split"] [data-testid="aside"]`)).toBeVisible();
-    const mainTranscript = await page
-      .locator(`[data-testid="lds-surface-main"]`)
+    await expect(page.locator(`[data-testid="lds-sv-tx-detail"] [data-testid="aside"]`)).toBeVisible();
+    const listWidth = await page
+      .locator(`[data-testid="lds-sv-tx-list"]`)
       .evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    const detailWidth = await page
+      .locator(`[data-testid="lds-sv-tx-detail"]`)
+      .evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    // the wide detail dominates the list (the important info is not cramped).
+    expect(detailWidth).toBeGreaterThan(listWidth);
     const surfaceBody = await page
       .locator(`[data-testid="lds-surface-body"]`)
       .evaluate((el) => Math.round(el.getBoundingClientRect().width));
-    // with the inspector present, the main column is meaningfully narrower than
-    // the full body (the RightPanel takes its share).
-    expect(mainTranscript).toBeLessThan(surfaceBody * 0.9);
+    // the transcript body is not split into a narrow RightPanel inspector.
+    await expect(page.locator(`[data-testid="lds-surface-split"]`)).toHaveCount(0);
 
-    // …on Findings the inspector aside is removed entirely and the body no longer
-    // splits, so the whole work-area width goes to the findings master-detail
-    // (the inspector informs no verdict).
+    // …on Findings the inspector aside is removed entirely and the whole
+    // work-area width goes to the findings master-detail (informs no verdict).
     await page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Findings" }).click();
     await expect(page.locator(`[data-testid="main"]`)).toHaveAttribute("data-tab", "findings");
     await expect(page.locator(`[data-testid="aside"]`)).toHaveCount(0);

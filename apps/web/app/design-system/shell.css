@@ -190,6 +190,22 @@
    are owned by .lds-rightpanel; this just lays the detail out as a block). */
 .lds-sv-aside{display:block;}
 
+/* ---- transcript master-detail (wide detail in the body) ------------------
+   The Transcript replaces the old timeline + narrow Inspector with a
+   master-detail laid out in the BODY (design row #6 / annotation #6): a
+   scannable event list on the LEFT and a WIDE, dominant detail on the RIGHT.
+   The detail is meaningfully wider than the list (the I/O, md preview and code
+   get real width). Fixed minmax tracks: the list takes ~35vw bounded so the
+   detail keeps the lion share; both tracks min-width:0 so each scrolls in its
+   own box and the row never widens the page. The TimeRibbon sits below this row
+   (full width) inside .lds-sv-main. */
+.lds-sv-tx-md{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:row;overflow:hidden;}
+.lds-sv-tx-list{flex:0 0 35%;max-width:520px;min-width:300px;min-height:0;display:flex;flex-direction:column;
+  border-right:1px solid var(--border);overflow:hidden;}
+.lds-sv-tx-list .timeline{flex:1 1 auto;min-height:0;overflow-y:auto;}
+.lds-sv-tx-detail{flex:1 1 auto;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:var(--panel);}
+.lds-sv-tx-detail .lds-sv-detail-wide{flex:1 1 auto;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;display:block;}
+
 /* Overview header scope label. Project SCOPE moved to the shell TopBar selector
    (?project=); this is a read-only label of the active scope in the Overview
    header (no control here). */
