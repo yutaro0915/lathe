@@ -6,7 +6,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { listFindings, listSessions } from "@/lib/db";
+import { listFindings, listSessions } from "@/lib/read";
 import FindingsAxisView from "@/components/FindingsAxisView";
 
 export default async function Page({

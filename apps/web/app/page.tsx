@@ -20,7 +20,7 @@ import {
   listSessions,
   getProjectStats,
   listFindings,
-} from "@/lib/db";
+} from "@/lib/read";
 import SessionViewer from "@/components/SessionViewer";
 import SessionsSurface from "@/components/SessionsSurface";
 

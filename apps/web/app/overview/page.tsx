@@ -14,7 +14,7 @@ import {
   listSessions,
   getSessionEventCounts,
   getPendingFindingsBySession,
-} from "@/lib/db";
+} from "@/lib/read";
 import OverviewView from "@/components/OverviewView";
 
 export default async function Page() {

@@ -170,6 +170,15 @@ interface FindingEvidenceRow {
   note: string | null;
 }
 
+interface FindingVerdictRow {
+  id: number;
+  finding_id: number;
+  verdict: string;
+  reason: string | null;
+  decided_at: string;
+  decided_by: string;
+}
+
 interface PullRequestRow {
   id: string;
   project_id: string;
@@ -354,6 +363,17 @@ function toFindingEvidence(r: FindingEvidenceRow): FindingEvidence {
     subjectId: r.subject_id,
     note: r.note,
     excerpt: null,
+  };
+}
+
+function toFindingVerdict(row: FindingVerdictRow): FindingVerdict {
+  return {
+    id: row.id,
+    findingId: row.finding_id,
+    verdict: row.verdict as FindingVerdictValue,
+    reason: row.reason,
+    decidedAt: row.decided_at,
+    decidedBy: row.decided_by,
   };
 }
 
@@ -1088,6 +1108,48 @@ export async function listFindings(): Promise<Finding[]> {
   }
 
   return rows.map((row) => toFinding(row, evidenceByFinding.get(row.id) ?? []));
+}
+
+// ---- finding writes --------------------------------------------------------
+
+export async function insertFindingVerdict(
+  findingId: number,
+  verdict: FindingVerdictValue,
+  reason: string | null,
+): Promise<FindingVerdict | undefined> {
+  const row = await queryOne<FindingVerdictRow>(
+    `INSERT INTO finding_verdicts (finding_id, verdict, reason)
+     VALUES ($1, $2, $3)
+     RETURNING id, finding_id, verdict, reason, decided_at, decided_by`,
+    [findingId, verdict, reason],
+  );
+  return row ? toFindingVerdict(row) : undefined;
+}
+
+export async function deleteFindingVerdict(findingId: number, verdictId: number): Promise<boolean> {
+  const row = await queryOne<{ id: number }>(
+    `DELETE FROM finding_verdicts
+      WHERE finding_id = $1
+        AND id = $2
+      RETURNING id`,
+    [findingId, verdictId],
+  );
+  return Boolean(row);
+}
+
+export async function updateFindingAnalysisIfMissing(
+  findingId: number,
+  analysis: Record<string, unknown>,
+): Promise<boolean> {
+  const row = await queryOne<{ id: number }>(
+    `UPDATE findings
+        SET analysis = $2::jsonb
+      WHERE id = $1
+        AND analysis IS NULL
+      RETURNING id`,
+    [findingId, analysis],
+  );
+  return Boolean(row);
 }
 
 // ---- git diff queries ------------------------------------------------------

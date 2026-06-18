@@ -14,7 +14,7 @@ import {
   getPrimarySession,
   listSessions,
   getChangedFiles,
-} from "@/lib/db";
+} from "@/lib/read";
 
 export default async function Page({
   searchParams,

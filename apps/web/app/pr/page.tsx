@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { getPullRequestBundle, listPullRequests } from "@/lib/db";
+import { getPullRequestBundle, listPullRequests } from "@/lib/read";
 import PullRequestView from "@/components/PullRequestView";
 
 export default async function Page({

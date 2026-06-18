@@ -14,6 +14,7 @@ import {
   type SubmitFindingInput,
 } from '../lib/mcp';
 import { getPool, queryOne, queryRows } from '../lib/postgres';
+import { backfillFindingAnalysisIfMissing } from '../lib/write';
 import type { IngestNotifyPayload } from './ingest/notify';
 
 export type AnalystCandidate = 'rules-v1' | 'llm-v1' | 'hybrid-v1';
@@ -1294,7 +1295,7 @@ export async function backfillFindingAnalysis(findingIds: number[]): Promise<{ c
   let updated = 0;
   let skipped = 0;
   for (const row of rows) {
-    if (parseStoredAnalysis(row.analysis)) {
+    if (row.analysis != null) {
       skipped++;
       continue;
     }
@@ -1332,8 +1333,11 @@ export async function backfillFindingAnalysis(findingIds: number[]): Promise<{ c
       skipped++;
       continue;
     }
-    await getPool().query('UPDATE findings SET analysis = $2::jsonb WHERE id = $1', [row.id, analysisJsonPayload(analysis)]);
-    updated++;
+    if (await backfillFindingAnalysisIfMissing(row.id, analysisJsonPayload(analysis))) {
+      updated++;
+    } else {
+      skipped++;
+    }
   }
   return { considered: rows.length, updated, skipped };
 }

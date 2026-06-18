@@ -1,29 +1,8 @@
 import { NextResponse } from 'next/server';
-import { queryOne } from '@/lib/postgres';
-import type { FindingVerdict, FindingVerdictValue } from '@/lib/types';
+import { recordFindingVerdict, undoFindingVerdict } from '@/lib/write';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-interface VerdictRow {
-  id: number;
-  finding_id: number;
-  verdict: string;
-  reason: string | null;
-  decided_at: string;
-  decided_by: string;
-}
-
-function toVerdict(row: VerdictRow): FindingVerdict {
-  return {
-    id: row.id,
-    findingId: row.finding_id,
-    verdict: row.verdict as FindingVerdictValue,
-    reason: row.reason,
-    decidedAt: row.decided_at,
-    decidedBy: row.decided_by,
-  };
-}
 
 function parseFindingId(raw: string): number | null {
   const id = Number(raw);
@@ -53,16 +32,11 @@ export async function POST(
   }
   const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
 
-  const row = await queryOne<VerdictRow>(
-    `INSERT INTO finding_verdicts (finding_id, verdict, reason)
-     VALUES ($1, $2, $3)
-     RETURNING id, finding_id, verdict, reason, decided_at, decided_by`,
-    [findingId, verdict, reason],
-  );
-  if (!row) {
+  const findingVerdict = await recordFindingVerdict({ findingId, verdict, reason });
+  if (!findingVerdict) {
     return NextResponse.json({ ok: false, error: 'verdict insert failed' }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, verdict: toVerdict(row) });
+  return NextResponse.json({ ok: true, verdict: findingVerdict });
 }
 
 export async function DELETE(
@@ -76,14 +50,8 @@ export async function DELETE(
     return NextResponse.json({ ok: false, error: 'invalid verdict undo target' }, { status: 400 });
   }
 
-  const row = await queryOne<{ id: number }>(
-    `DELETE FROM finding_verdicts
-      WHERE finding_id = $1
-        AND id = $2
-      RETURNING id`,
-    [findingId, verdictId],
-  );
-  if (!row) {
+  const deleted = await undoFindingVerdict({ findingId, verdictId });
+  if (!deleted) {
     return NextResponse.json({ ok: false, error: 'verdict not found' }, { status: 404 });
   }
   return NextResponse.json({ ok: true });

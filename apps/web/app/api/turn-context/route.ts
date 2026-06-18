@@ -9,7 +9,7 @@
 // inline rows can highlight them. The response is the TurnContext shape.
 
 import { NextResponse } from 'next/server';
-import { getTurnContext } from '@/lib/db';
+import { getTurnContext } from '@/lib/read';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
