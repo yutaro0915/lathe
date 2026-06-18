@@ -185,3 +185,36 @@
 .review-row{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);}
 .review-author{font-weight:650;}
 .review-body{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-soft);}
+
+/* ---- file tree (screen B) -------------------------------------------------
+   Bespoke changed-files tree pane for the DiffViewer (FileTree). No DS
+   primitive duplicates this; migrated out of globals.css verbatim (DS v1
+   shrinks globals, grows here). status-chip is owned here (FileTree-only). ---- */
+.filetree{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 6px 12px;}
+.filetree-head{padding:10px 8px 6px;}
+.filetree-head .title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;}
+.filetree-head .sub{font-size:11px;color:var(--muted-2);margin-top:1px;font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.file-row{display:flex;align-items:center;gap:6px;height:24px;padding:0 7px;border:1px solid transparent;border-radius:var(--radius-xs);cursor:pointer;font-size:11.5px;color:var(--text-soft);}
+.file-row:hover{background:var(--panel-hover);}
+.file-row.active{background:var(--accent-weak);border-color:var(--accent-ring);}
+.file-row.is-folder{font-weight:600;color:var(--text);}
+.file-row .twisty{width:11px;color:var(--muted-2);flex:0 0 auto;text-align:center;font-size:9px;}
+.file-row .ficon{width:14px;color:var(--muted);flex:0 0 auto;}
+.file-row .ficon.folder{display:inline-flex;align-items:center;justify-content:center;color:var(--muted-2);}
+.file-row .fname{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:11px;}
+/* folders: sans, semibold, neutral, trailing slash — clearly NOT a file */
+.file-row.is-folder .fname{font-family:var(--sans);font-weight:650;color:var(--text-soft);font-size:11.5px;}
+.file-row.is-folder .fname::after{content:"/";opacity:.4;}
+.file-row.is-file .fname{font-weight:450;color:var(--text);}
+/* files: a quiet outline status letter (A/M/D/R); deletions privilege red */
+.file-row .status-chip{width:15px;height:15px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  border-radius:3px;font-family:var(--mono);font-size:9px;font-weight:700;line-height:1;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);}
+.status-chip.added{color:var(--green-text);border-color:var(--green-chip);} .status-chip.modified{color:var(--amber-text);border-color:var(--amber-chip);}
+.status-chip.deleted{color:var(--red-text);border-color:var(--red-chip);} .status-chip.renamed{color:var(--accent);border-color:var(--accent-weak);}
+.file-row .counts{display:inline-flex;gap:7px;font-family:var(--mono);font-size:10.5px;flex:0 0 auto;font-variant-numeric:tabular-nums;}
+.file-row .counts .add,.file-row .counts .del{min-width:34px;text-align:right;} /* aligned ± columns */
+.file-row.is-folder .counts{color:var(--muted-2);}
+.file-row .add{color:var(--add-text);} .file-row .del{color:var(--del-text);}
+.indent-1{padding-left:18px;} .indent-2{padding-left:30px;} .indent-3{padding-left:42px;}
+.indent-4{padding-left:54px;} .indent-5{padding-left:66px;}
