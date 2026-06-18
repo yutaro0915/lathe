@@ -19,12 +19,6 @@
       }
     },
     {
-      "files": ["apps/web/scripts/analyst-engine.ts"],
-      "rules": {
-        "max-lines": ["warn", { "max": 1768, "skipBlankLines": true, "skipComments": true }]
-      }
-    },
-    {
       "files": ["apps/web/lib/db.ts"],
       "rules": {
         "max-lines": ["warn", { "max": 1612, "skipBlankLines": true, "skipComments": true }]
