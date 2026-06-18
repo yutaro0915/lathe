@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Surface from "@/components/Surface";
 import TimeRibbon from "@/components/TimeRibbon";
 import { findingTouchesSession } from "@/components/FindingsExplorer";
 import type { EventType, Finding, Session, SessionBundle, TranscriptEvent } from "@/lib/types";
 import { clampPct, hmsToMs, ALL_TYPES, type FilterMode, type Tab } from "@/components/session-viewer/types";
 import { useTurnRollups } from "@/components/session-viewer/useTurnRollups";
 import { useEvidenceResolver } from "@/components/session-viewer/useEvidenceResolver";
-import { MetricsBar } from "@/components/session-viewer/MetricsBar";
+import { MetricsBarTitle, MetricsBarMeta, MetricsBarActions } from "@/components/session-viewer/MetricsBar";
 import { SessionTabs } from "@/components/session-viewer/SessionTabs";
 import { GitTab } from "@/components/session-viewer/GitTab";
 import { StatsTab } from "@/components/session-viewer/StatsTab";
@@ -368,104 +369,130 @@ export default function SessionViewer({
     setGitFocusHunkId(undefined);
   };
 
+  // git / stats / findings fill the whole work area (no inspector pane); every
+  // other tab gets the right-side inspector as the Surface RightPanel.
+  const isFullWidthTab = activeTab === "git" || activeTab === "stats" || activeTab === "findings";
+
+  // The metrics feed the one shell-owned WorkareaHeader through the Surface
+  // contract: the title cluster (runner dot + session title) is the Surface
+  // `title`, the model/branch/commits/date is the `meta`, and the jump/PR chips
+  // + kstats are the `actions` (right). The Surface header carries the `sessbar`
+  // testid via `headerTestId`, so no self-drawn band — the standard header lays
+  // it out (title flex-left, actions right, full width).
+  const headerTitle = <MetricsBarTitle primary={primary} />;
+  const headerMeta = <MetricsBarMeta primary={primary} branch={branch} commitLabel={commitLabel} />;
+  const headerActions = (
+    <MetricsBarActions
+      primary={primary}
+      primaryPrs={primaryPrs}
+      currentSessionFindingsCount={currentSessionFindings.length}
+      currentSessionPendingFindingsCount={currentSessionPendingFindings.length}
+      highestTurnJump={highestTurnJump}
+      firstErrorTurnJump={firstErrorTurnJump}
+      openCurrentSessionFindings={() => setActiveTab("findings")}
+      jumpToTurn={jumpToTurn}
+    />
+  );
+  const tabs = (
+    <SessionTabs activeTab={activeTab} setActiveTab={setActiveTab} annotationsCount={annotations.length} pendingFindingsCount={currentSessionPendingFindings.length} visibleCount={visibleEvents.length} clearGitFocus={clearGitFocus} />
+  );
+
+  // The inspector content (the selected execution step). It moves into the
+  // Surface RightPanel; SessionAside still owns the `aside` testid + detail
+  // markup, the shell frame owns the collapse (×).
+  const inspector = (
+    <SessionAside
+      asideIsLauncherDup={asideIsLauncherDup}
+      selected={selected}
+      selectedFiles={selectedFiles}
+      primary={primary}
+      pins={pins}
+      notes={notes}
+      noteDraft={noteDraft}
+      setNoteDraft={setNoteDraft}
+      copied={copied}
+      copy={copy}
+      eventsWithDiff={eventsWithDiff}
+      togglePin={togglePin}
+      openNoteEditor={openNoteEditor}
+      saveNote={saveNote}
+      openSelectedDiff={() => { if (selected) setGitFocusEvent(selected.id); setGitFocusFileId(undefined); setGitFocusHunkId(undefined); setActiveTab("git"); }}
+    />
+  );
+
+  const body = isFullWidthTab ? (
+    <div className="lds-sv-fill" data-testid="main" data-tab={activeTab}>
+      {activeTab === "git" && <GitTab sessions={sessions} bundle={bundle} currentId={currentId} focusEventId={gitFocusEvent} focusFileId={gitFocusFileId} focusHunkId={gitFocusHunkId} onJumpToEvent={(eid) => { setActiveTab("transcript"); selectTimelineEvent(eid, true); clearGitFocus(); }} />}
+      {activeTab === "stats" && <StatsTab bundle={bundle} />}
+      {activeTab === "findings" && <FindingsTab findings={findings} setFindings={setFindings} sessions={sessions} currentId={currentId} resolveEvidence={resolveEvidence} onJumpToSession={jumpToFindingSession} onJumpToTurn={jumpToFindingTurn} />}
+    </div>
+  ) : (
+    <div className="lds-sv-main" data-testid="main" data-tab={activeTab}>
+      {landing && (landing.fromFinding != null || landing.seq != null) && (
+        <div className="jump-landing-banner" data-testid="jump-landing-banner" data-from-finding={landing.fromFinding ?? undefined}>
+          <span className="jump-landing-dot" data-testid="jump-landing-dot" aria-hidden>▸</span>
+          <span className="jump-landing-text mono" data-testid="jump-landing-text">
+            {landing.seq != null ? `JUMPED TO STEP ${landing.seq}` : "JUMPED TO THIS SESSION"}
+            {landing.fromFinding != null ? ` — from finding #${landing.fromFinding}` : ""}
+          </span>
+          <button type="button" className="jump-landing-dismiss" data-testid="jump-landing-dismiss" title="Dismiss" aria-label="Dismiss landing banner" onClick={() => setLanding(null)}>✕</button>
+        </div>
+      )}
+      {activeTab === "transcript" && (
+        <TranscriptTab
+          transcriptSearch={transcriptSearch}
+          setTranscriptSearch={setTranscriptSearch}
+          turnCount={turnCount}
+          collapsedTurns={collapsedTurns}
+          expandAllTurns={() => setCollapsedTurns(new Set())}
+          collapseAllTurns={() => setCollapsedTurns(new Set(turnNumberByEventId.keys()))}
+          typeFilter={typeFilter}
+          toggleType={toggleType}
+          typeCounts={typeCounts}
+          filterMode={filterMode}
+          setFilterMode={setFilterMode}
+          visibleEvents={visibleEvents}
+          childrenByParent={childrenByParent}
+          shouldRenderTimelineEvent={shouldRenderTimelineEvent}
+          turnHeaderIds={turnHeaderIds}
+          turnNumberByEventId={turnNumberByEventId}
+          turnRollups={turnRollups}
+          selectedEventId={selectedEventId}
+          flashEventId={flashEventId}
+          pins={pins}
+          notes={notes}
+          expandedAgents={expandedAgents}
+          matchesType={matchesType}
+          eventTimeBars={eventTimeBars}
+          commitLabel={commitLabel}
+          selectTimelineEvent={selectTimelineEvent}
+          setSelectedEventId={setSelected}
+          toggleTurn={toggleTurn}
+          toggleAgent={(eventId) => setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; })}
+          openAgent={(id) => { setActiveTab("subagents"); openAgent(id); }}
+          openTurnFile={(fileId) => { setGitFocusFileId(fileId); setGitFocusEvent(undefined); setGitFocusHunkId(undefined); setActiveTab("git"); }}
+        />
+      )}
+      {activeTab === "tools" && <ToolsTab events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelected} />}
+      {activeTab === "skills" && <SkillsTab events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelected} />}
+      {activeTab === "subagents" && <SubagentsTab invocations={invocations} subAgentTab={subAgentTab} setSubAgentTab={setSubAgentTab} childrenByParent={childrenByParent} sessionById={sessionById} selectedEventId={selectedEventId} setSelectedEventId={setSelected} copied={copied} copy={copy} openAgent={openAgent} openSubSession={openSubSession} />}
+      {activeTab === "annotations" && <AnnotationsTab annotations={annotations} events={events} jumpToEvent={(id) => { setActiveTab("transcript"); selectTimelineEvent(id, true); }} />}
+      {activeTab === "raw" && <RawTab selected={selected} events={events} copied={copied} copy={copy} />}
+      <TimeRibbon events={topEvents} selectedId={selectedEventId} onSelect={(eventId) => selectTimelineEvent(eventId, true)} title="Time spent" />
+    </div>
+  );
+
   return (
-    <>
-      <MetricsBar
-        primary={primary}
-        primaryPrs={primaryPrs}
-        branch={branch}
-        commitLabel={commitLabel}
-        currentSessionFindingsCount={currentSessionFindings.length}
-        currentSessionPendingFindingsCount={currentSessionPendingFindings.length}
-        highestTurnJump={highestTurnJump}
-        firstErrorTurnJump={firstErrorTurnJump}
-        openCurrentSessionFindings={() => setActiveTab("findings")}
-        jumpToTurn={jumpToTurn}
-      />
-      <SessionTabs activeTab={activeTab} setActiveTab={setActiveTab} annotationsCount={annotations.length} pendingFindingsCount={currentSessionPendingFindings.length} visibleCount={visibleEvents.length} clearGitFocus={clearGitFocus} />
-      <div className="lds-layout3" data-testid="layout3" data-tab={activeTab} style={{ gridTemplateColumns: activeTab === "findings" ? "0 minmax(0,1fr) 0" : "0 minmax(0,1fr) var(--aside-w)" }}>
-        {activeTab === "git" ? (
-          <GitTab sessions={sessions} bundle={bundle} currentId={currentId} focusEventId={gitFocusEvent} focusFileId={gitFocusFileId} focusHunkId={gitFocusHunkId} onJumpToEvent={(eid) => { setActiveTab("transcript"); selectTimelineEvent(eid, true); clearGitFocus(); }} />
-        ) : activeTab === "stats" ? (
-          <StatsTab bundle={bundle} />
-        ) : (
-          <>
-            <main className="lds-layout-main" data-testid="main">
-              {landing && (landing.fromFinding != null || landing.seq != null) && (
-                <div className="jump-landing-banner" data-testid="jump-landing-banner" data-from-finding={landing.fromFinding ?? undefined}>
-                  <span className="jump-landing-dot" data-testid="jump-landing-dot" aria-hidden>▸</span>
-                  <span className="jump-landing-text mono" data-testid="jump-landing-text">
-                    {landing.seq != null ? `JUMPED TO STEP ${landing.seq}` : "JUMPED TO THIS SESSION"}
-                    {landing.fromFinding != null ? ` — from finding #${landing.fromFinding}` : ""}
-                  </span>
-                  <button type="button" className="jump-landing-dismiss" data-testid="jump-landing-dismiss" title="Dismiss" aria-label="Dismiss landing banner" onClick={() => setLanding(null)}>✕</button>
-                </div>
-              )}
-              {activeTab === "transcript" && (
-                <TranscriptTab
-                  transcriptSearch={transcriptSearch}
-                  setTranscriptSearch={setTranscriptSearch}
-                  turnCount={turnCount}
-                  collapsedTurns={collapsedTurns}
-                  expandAllTurns={() => setCollapsedTurns(new Set())}
-                  collapseAllTurns={() => setCollapsedTurns(new Set(turnNumberByEventId.keys()))}
-                  typeFilter={typeFilter}
-                  toggleType={toggleType}
-                  typeCounts={typeCounts}
-                  filterMode={filterMode}
-                  setFilterMode={setFilterMode}
-                  visibleEvents={visibleEvents}
-                  childrenByParent={childrenByParent}
-                  shouldRenderTimelineEvent={shouldRenderTimelineEvent}
-                  turnHeaderIds={turnHeaderIds}
-                  turnNumberByEventId={turnNumberByEventId}
-                  turnRollups={turnRollups}
-                  selectedEventId={selectedEventId}
-                  flashEventId={flashEventId}
-                  pins={pins}
-                  notes={notes}
-                  expandedAgents={expandedAgents}
-                  matchesType={matchesType}
-                  eventTimeBars={eventTimeBars}
-                  commitLabel={commitLabel}
-                  selectTimelineEvent={selectTimelineEvent}
-                  setSelectedEventId={setSelected}
-                  toggleTurn={toggleTurn}
-                  toggleAgent={(eventId) => setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; })}
-                  openAgent={(id) => { setActiveTab("subagents"); openAgent(id); }}
-                  openTurnFile={(fileId) => { setGitFocusFileId(fileId); setGitFocusEvent(undefined); setGitFocusHunkId(undefined); setActiveTab("git"); }}
-                />
-              )}
-              {activeTab === "tools" && <ToolsTab events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelected} />}
-              {activeTab === "skills" && <SkillsTab events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelected} />}
-              {activeTab === "subagents" && <SubagentsTab invocations={invocations} subAgentTab={subAgentTab} setSubAgentTab={setSubAgentTab} childrenByParent={childrenByParent} sessionById={sessionById} selectedEventId={selectedEventId} setSelectedEventId={setSelected} copied={copied} copy={copy} openAgent={openAgent} openSubSession={openSubSession} />}
-              {activeTab === "annotations" && <AnnotationsTab annotations={annotations} events={events} jumpToEvent={(id) => { setActiveTab("transcript"); selectTimelineEvent(id, true); }} />}
-              {activeTab === "findings" && <FindingsTab findings={findings} setFindings={setFindings} sessions={sessions} currentId={currentId} resolveEvidence={resolveEvidence} onJumpToSession={jumpToFindingSession} onJumpToTurn={jumpToFindingTurn} />}
-              {activeTab === "raw" && <RawTab selected={selected} events={events} copied={copied} copy={copy} />}
-              <TimeRibbon events={topEvents} selectedId={selectedEventId} onSelect={(eventId) => selectTimelineEvent(eventId, true)} title="Time spent" />
-            </main>
-            {activeTab !== "findings" && (
-              <SessionAside
-                asideIsLauncherDup={asideIsLauncherDup}
-                selected={selected}
-                selectedFiles={selectedFiles}
-                primary={primary}
-                pins={pins}
-                notes={notes}
-                noteDraft={noteDraft}
-                setNoteDraft={setNoteDraft}
-                copied={copied}
-                copy={copy}
-                eventsWithDiff={eventsWithDiff}
-                togglePin={togglePin}
-                openNoteEditor={openNoteEditor}
-                saveNote={saveNote}
-                openSelectedDiff={() => { if (selected) setGitFocusEvent(selected.id); setGitFocusFileId(undefined); setGitFocusHunkId(undefined); setActiveTab("git"); }}
-              />
-            )}
-          </>
-        )}
-      </div>
-    </>
+    <Surface
+      surface="session"
+      headerTestId="sessbar"
+      title={headerTitle}
+      meta={headerMeta}
+      actions={headerActions}
+      tabs={tabs}
+      rightPanel={isFullWidthTab ? undefined : { title: "Inspector", children: inspector }}
+    >
+      {body}
+    </Surface>
   );
 }

@@ -43,9 +43,13 @@ export interface SurfaceProps {
   children: React.ReactNode;
   // marks the surface root for targeting / debugging.
   surface?: string;
+  // optional testid for the WorkareaHeader band itself, so a surface whose e2e
+  // contract targets the whole header (e.g. SessionViewer's `sessbar`) can hang
+  // it on the one band rather than re-drawing its own.
+  headerTestId?: string;
 }
 
-export default function Surface({ title, meta, actions, tabs, rightPanel, children, surface }: SurfaceProps) {
+export default function Surface({ title, meta, actions, tabs, rightPanel, children, surface, headerTestId }: SurfaceProps) {
   const [panelOpen, setPanelOpen] = React.useState(rightPanel?.defaultOpen ?? true);
 
   const body = rightPanel ? (
@@ -76,7 +80,7 @@ export default function Surface({ title, meta, actions, tabs, rightPanel, childr
 
   return (
     <section className="lds-surface" data-testid="lds-surface" data-surface={surface}>
-      <header className="lds-wh" data-testid="lds-wh">
+      <header className="lds-wh" data-testid={headerTestId ?? "lds-wh"}>
         <span className="lds-wh-titles" data-testid="lds-wh-titles">
           <span className="lds-wh-title" data-testid="lds-wh-title">{title}</span>
           {meta != null ? <span className="lds-wh-meta" data-testid="lds-wh-meta">{meta}</span> : null}

@@ -155,26 +155,32 @@ test.describe("Findings tab and verdict oracle", () => {
   test("the Findings tab drops the right event inspector and hands it the full width", async ({
     page,
   }) => {
-    // On Transcript the right inspector (RUN JSON / LINKED FILES) is present…
+    // On Transcript the right inspector (RUN JSON / LINKED FILES) is present — it
+    // now lives in the shell-owned Surface RightPanel (Layout v2, slice 3), so
+    // the work-area body splits into a main column + the inspector.
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=transcript`);
-    await expect(page.locator(`[data-testid="layout3"] > [data-testid="aside"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="lds-surface-split"] [data-testid="aside"]`)).toBeVisible();
+    const mainTranscript = await page
+      .locator(`[data-testid="lds-surface-main"]`)
+      .evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    const surfaceBody = await page
+      .locator(`[data-testid="lds-surface-body"]`)
+      .evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    // with the inspector present, the main column is meaningfully narrower than
+    // the full body (the RightPanel takes its share).
+    expect(mainTranscript).toBeLessThan(surfaceBody * 0.9);
 
-    // …on Findings the inspector aside is removed entirely, and with the
-    // session-list sidebar gone the work area's flanking grid tracks both collapse
-    // to 0, so the whole width goes to the findings master-detail (the inspector
-    // informs no verdict). The grid keeps 3 (shared) tracks; the middle one is the
-    // full width and the two flanks are 0.
+    // …on Findings the inspector aside is removed entirely and the body no longer
+    // splits, so the whole work-area width goes to the findings master-detail
+    // (the inspector informs no verdict).
     await page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Findings" }).click();
-    await expect(page.locator(`[data-testid="layout3"]`)).toHaveAttribute("data-tab", "findings");
-    await expect(page.locator(`[data-testid="layout3"] > [data-testid="aside"]`)).toHaveCount(0);
-    const tracks = await page
-      .locator(`[data-testid="layout3"]`)
-      .evaluate((el) => getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).map((t) => Math.round(parseFloat(t))));
-    expect(tracks.length).toBe(3);
-    expect(tracks[0]).toBe(0); // collapsed session-list column
-    expect(tracks[2]).toBe(0); // collapsed detail aside column
-    const host = await page.locator(`[data-testid="layout3"]`).evaluate((el) => Math.round(el.getBoundingClientRect().width));
-    expect(tracks[1]).toBeGreaterThan(host * 0.9); // middle track ≈ full width
+    await expect(page.locator(`[data-testid="main"]`)).toHaveAttribute("data-tab", "findings");
+    await expect(page.locator(`[data-testid="aside"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="lds-surface-split"]`)).toHaveCount(0);
+    const mainFindings = await page
+      .locator(`[data-testid="main"]`)
+      .evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    expect(mainFindings).toBeGreaterThan(surfaceBody * 0.9); // full work-area width
   });
 
   test("session tab evidence: NO SESSION header, but turn position + USER ASKED + AFTERWARD", async ({

@@ -129,6 +129,48 @@
 .lds-rightpanel .lds-rp-close:hover{background:var(--panel-hover);color:var(--text-soft);}
 .lds-rightpanel .lds-rp-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;}
 
+/* ---- SessionViewer (slice 3): metrics in the Surface header + tabs + main --
+   The SessionViewer renders through the Surface. It feeds the standard
+   WorkareaHeader via the Surface contract: title cluster (.lds-sv-id) is the
+   `title`, model/branch/commits/date (.lds-sv-meta) is the `meta`, jump/PR chips
+   + kstats are the `actions`. The Surface header carries the `sessbar` testid.
+   No self-drawn band, so the metrics-vs-tabs header step is gone. */
+/* The session title cluster sits in .lds-wh-titles > .lds-wh-title. Let the
+   title shrink + ellipsize so a long name yields room to the right actions. */
+.lds-wh[data-testid="sessbar"] .lds-wh-titles{flex:0 1 auto;min-width:0;}
+.lds-wh[data-testid="sessbar"] .lds-wh-title{min-width:0;}
+.lds-sv-id{display:flex;align-items:center;gap:8px;min-width:0;}
+.lds-sv-id .runner-dot{flex:0 0 auto;}
+.lds-sv-title{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;}
+.lds-sv-meta{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.lds-sv-jumps{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
+.lds-sv-stats{display:flex;align-items:center;gap:20px;flex:0 0 auto;}
+
+/* tabs strip in the Surface tabs slot. The Surface .lds-wh-tabs frame owns the
+   band height + hairline; these style the buttons (matching the old strip). */
+.lds-sv-tabs{display:flex;align-items:stretch;gap:0;width:100%;min-width:0;}
+.lds-sv-tab{display:inline-flex;align-items:center;height:var(--tabs-h);padding:0 11px;margin-bottom:-1px;border:0;background:transparent;
+  border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--sans);}
+.lds-sv-tab:hover{color:var(--text-soft);}
+.lds-sv-tab.active{color:var(--text);font-weight:650;border-bottom-color:var(--accent);}
+.lds-sv-tabs-spacer{flex:1 1 auto;} .lds-sv-tabs-tool{display:inline-flex;align-items:center;padding-right:4px;}
+.lds-sv-tab .lds-sv-tab-count{margin-left:6px;font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;
+  color:var(--muted-2);background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;padding:0 5px;line-height:15px;}
+.lds-sv-tab.active .lds-sv-tab-count{color:var(--text-soft);}
+
+/* transcript-family main column: a non-scrolling flex column so the inner
+   .timeline scrolls and the .ribbon pins to the bottom (mirrors the role the
+   old .lds-layout-main grid cell played). */
+.lds-sv-main{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column;background:var(--panel);overflow:hidden;}
+/* full-width tabs (Git / Stats / Findings): a flex-filling column so the
+   embedded grids (.diff-embed / .stats-embed) and the findings master-detail
+   get a real height to fill (they used to inherit it from the host grid row). */
+.lds-sv-fill{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column;background:var(--bg);overflow:hidden;}
+.lds-sv-fill > *{flex:1 1 auto;min-height:0;min-width:0;}
+/* inspector content inside the Surface RightPanel body (the frame/scroll/close
+   are owned by .lds-rightpanel; this just lays the detail out as a block). */
+.lds-sv-aside{display:block;}
+
 /* Overview header scope label. Project SCOPE moved to the shell TopBar selector
    (?project=); this is a read-only label of the active scope in the Overview
    header (no control here). */

@@ -66,7 +66,7 @@ export function SessionAside({
     : {};
 
   return (
-    <aside className="lds-layout-aside" data-testid="aside">
+    <div className="lds-sv-aside" data-testid="aside">
       {asideIsLauncherDup ? (
         <div className="detail" data-testid="detail">
           <div className="detail-placeholder" data-testid="detail-placeholder" data-aside-placeholder="step-inspect">
@@ -195,7 +195,7 @@ export function SessionAside({
           </pre>
         </div>
       )}
-    </aside>
+    </div>
   );
 }
 
