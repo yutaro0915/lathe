@@ -15,7 +15,9 @@
 /* ---- left rail: persistent navigation ------------------------------------ */
 .lds-railnav{flex:0 0 var(--rail-w);width:var(--rail-w);display:flex;flex-direction:column;min-height:0;
   background:var(--sidebar-bg);border-right:1px solid var(--border);overflow:hidden;}
-.lds-rail-brand{display:flex;align-items:center;gap:9px;height:54px;flex:0 0 auto;padding:0 14px;
+/* Brand sits in the same header band as every work-area header (--appbar-h), so
+   the rail's bottom hairline continues the work-area header's into one line. */
+.lds-rail-brand{display:flex;align-items:center;gap:9px;height:var(--appbar-h);flex:0 0 auto;padding:0 14px;
   border-bottom:1px solid var(--border);font-weight:700;font-size:13.5px;color:var(--text);letter-spacing:.01em;
   text-decoration:none;cursor:pointer;}
 .lds-rail-brand:hover{text-decoration:none;}
@@ -44,7 +46,10 @@
 
 /* ---- a generic page surface (page-head + scroll body) -------------------- */
 .lds-page{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
-.lds-page-head{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:14px 20px;background:var(--panel);
+/* Shares the --appbar-h header band with the rail brand so their bottom
+   hairlines line up into one line (vertical padding drops to 0; align-items
+   centres the controls in the fixed band). */
+.lds-page-head{flex:0 0 auto;display:flex;align-items:center;gap:14px;height:var(--appbar-h);padding:0 20px;background:var(--panel);
   border-bottom:1px solid var(--border);}
 .lds-page-head .lds-ph-title{font-size:14px;font-weight:700;color:var(--text);flex:0 0 auto;}
 .lds-page-head .lds-ph-sub{font-size:12px;color:var(--muted);flex:0 0 auto;white-space:nowrap;}

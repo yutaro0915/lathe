@@ -19,7 +19,6 @@ import {
   getPrimarySession,
   listSessions,
   getProjectStats,
-  getSessionPrSummary,
   listFindings,
 } from "@/lib/db";
 import SessionViewer from "@/components/SessionViewer";
@@ -36,18 +35,18 @@ export default async function Page({
   const sp = await searchParams;
   const req = typeof sp.session === "string" ? sp.session : undefined;
 
-  // "Workspace mode" = any param that scopes/targets a single session. Bare "/"
-  // (no such param) is the LIST surface. Overview drill-downs (model/from/to/
-  // errors) and finding jumps (seq/fromFinding) and ?tab all open the workspace.
+  // "Workspace mode" = a param that targets a SINGLE session (session id, a tab,
+  // a step seq, or a finding jump). Bare "/" — and the list-scoping params
+  // (model / from / to / errors) that an Overview drill-down carries — render the
+  // full-width LIST surface. The list, and the cross-session navigation it gives,
+  // now lives only here on "/" (the per-session viewer's session-list sidebar was
+  // removed), so a period/model drill-down lands on the list rather than inside a
+  // single session's workspace where there is no list to scope.
   const hasState =
     !!req ||
     typeof sp.tab === "string" ||
     typeof sp.seq === "string" ||
-    typeof sp.fromFinding === "string" ||
-    typeof sp.model === "string" ||
-    typeof sp.from === "string" ||
-    typeof sp.to === "string" ||
-    typeof sp.errors === "string";
+    typeof sp.fromFinding === "string";
 
   // The project scope select + the session->project map are needed by BOTH the
   // list surface and the viewer's sidebar, so compute them once up front.
@@ -62,15 +61,33 @@ export default async function Page({
   for (const p of projectStats) for (const r of p.sessionRefs) sessionProject[r.id] = p.project;
 
   // ---- LIST surface (bare "/") --------------------------------------------
+  // Overview drill-downs land here carrying list-scoping params (model / from /
+  // to / errors); pass them so the surface opens pre-filtered, the same way the
+  // (removed) viewer sidebar used to seed its filters from these params.
   if (!hasState) {
+    const initialModel = typeof sp.model === "string" && sp.model.trim() ? sp.model : undefined;
+    const initialFrom = typeof sp.from === "string" && sp.from.trim() ? sp.from : undefined;
+    const initialTo = typeof sp.to === "string" && sp.to.trim() ? sp.to : undefined;
+    const initialErrors = sp.errors === "yes" ? "yes" : sp.errors === "no" ? "no" : undefined;
     return (
-      <SessionsSurface sessions={sessions} projects={projects} sessionProject={sessionProject} />
+      <SessionsSurface
+        sessions={sessions}
+        projects={projects}
+        sessionProject={sessionProject}
+        initialModel={initialModel}
+        initialFrom={initialFrom}
+        initialTo={initialTo}
+        initialErrors={initialErrors}
+      />
     );
   }
 
   // ---- WORKSPACE (per-session viewer) -------------------------------------
-  const [sessionPrs, findings, requestedBundle] = await Promise.all([
-    getSessionPrSummary(),
+  // The per-session viewer no longer renders a session-list sidebar, so it no
+  // longer needs the cross-session PR summary or the Overview drill-down filter
+  // seeds (model / from / to / errors); those query params are still accepted on
+  // the URL but only affect the Sessions surface's list now.
+  const [findings, requestedBundle] = await Promise.all([
     listFindings(),
     req ? getSessionBundle(req) : Promise.resolve(undefined),
   ]);
@@ -85,26 +102,15 @@ export default async function Page({
   const fromFindingRaw = typeof sp.fromFinding === "string" ? Number(sp.fromFinding) : NaN;
   const initialFromFinding =
     Number.isInteger(fromFindingRaw) && fromFindingRaw > 0 ? fromFindingRaw : undefined;
-  const initialModel = typeof sp.model === "string" && sp.model.trim() ? sp.model : undefined;
-  const initialFrom = typeof sp.from === "string" && sp.from.trim() ? sp.from : undefined;
-  const initialTo = typeof sp.to === "string" && sp.to.trim() ? sp.to : undefined;
-  const initialErrors = sp.errors === "yes" ? "yes" : sp.errors === "no" ? "no" : undefined;
   return (
     <SessionViewer
       sessions={sessions}
       bundle={bundle}
       currentId={id}
-      projects={projects}
-      sessionProject={sessionProject}
-      sessionPrs={sessionPrs}
       findings={findings}
       initialTab={initialTab}
       initialSeq={initialSeq}
       initialFromFinding={initialFromFinding}
-      initialModel={initialModel}
-      initialFrom={initialFrom}
-      initialTo={initialTo}
-      initialErrors={initialErrors}
     />
   );
 }

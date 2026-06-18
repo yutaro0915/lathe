@@ -77,20 +77,36 @@ export default function SessionsSurface({
   sessions,
   projects,
   sessionProject,
+  initialModel,
+  initialFrom,
+  initialTo,
+  initialErrors,
 }: {
   sessions: Session[];
   projects: ProjectScope[];
   sessionProject: Record<string, string>;
+  // Overview drill-down deep links (all optional): seed the list MODEL / ERRORS /
+  // date-range filters so an Overview click lands on a pre-scoped list.
+  initialModel?: string;
+  initialFrom?: string; // YYYY-MM-DD inclusive
+  initialTo?: string; // YYYY-MM-DD inclusive
+  initialErrors?: "yes" | "no";
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  // open the filter panel up front when a drill-down pre-seeded a filter, so the
+  // active scope is visible rather than silently applied.
+  const seeded = !!(initialModel || initialFrom || initialTo || initialErrors);
+  const [filtersOpen, setFiltersOpen] = useState(seeded);
   const [projectFilter, setProjectFilter] = useState("all");
-  const [modelFilter, setModelFilter] = useState("all");
-  const [errorsFilter, setErrorsFilter] = useState("any");
+  const [modelFilter, setModelFilter] = useState(initialModel ?? "all");
+  const [errorsFilter, setErrorsFilter] = useState(initialErrors ?? "any");
   const [filterMode, setFilterMode] = useState("hide");
   const [showSubSessions, setShowSubSessions] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("recent");
+  // date-range (YYYY-MM-DD inclusive) from an Overview "cost over time" drill-down.
+  const [dateFrom, setDateFrom] = useState<string | null>(initialFrom ?? null);
+  const [dateTo, setDateTo] = useState<string | null>(initialTo ?? null);
 
   const models = useMemo(() => {
     const set = new Set<string>();
@@ -106,6 +122,14 @@ export default function SessionsSurface({
       if (modelFilter !== "all" && s.model !== modelFilter) return false;
       if (errorsFilter === "yes" && s.errorCount === 0) return false;
       if (errorsFilter === "no" && s.errorCount > 0) return false;
+      // date-range (Overview "cost over time" drill-down); startedAt begins with
+      // YYYY-MM-DD, inclusive on both ends.
+      if (dateFrom || dateTo) {
+        const day = (s.startedAt ?? "").slice(0, 10);
+        if (!day) return false;
+        if (dateFrom && day < dateFrom) return false;
+        if (dateTo && day > dateTo) return false;
+      }
       if (q && !(s.title?.toLowerCase().includes(q) || (s.model ?? "").toLowerCase().includes(q))) return false;
       return true;
     });
@@ -125,7 +149,7 @@ export default function SessionsSurface({
       }
     });
     return rows;
-  }, [sessions, search, showSubSessions, projectFilter, modelFilter, errorsFilter, sortKey, sessionProject]);
+  }, [sessions, search, showSubSessions, projectFilter, modelFilter, errorsFilter, sortKey, sessionProject, dateFrom, dateTo]);
 
   const openSession = (id: string) => router.push(`/?session=${encodeURIComponent(id)}`);
 
@@ -229,6 +253,24 @@ export default function SessionsSurface({
               onChange={(e) => setShowSubSessions(e.target.checked)}
               label="show sub-sessions"
             />
+            {(dateFrom || dateTo) && (
+              <span className="date-range-banner" data-from={dateFrom ?? ""} data-to={dateTo ?? ""}>
+                <span className="mono">
+                  {dateFrom ?? "…"}
+                  {dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ""}
+                </span>
+                <button
+                  type="button"
+                  className="clear"
+                  onClick={() => {
+                    setDateFrom(null);
+                    setDateTo(null);
+                  }}
+                >
+                  Clear
+                </button>
+              </span>
+            )}
           </div>
         </div>
       ) : null}

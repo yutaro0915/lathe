@@ -186,8 +186,12 @@
   --shadow-md:  0 2px 6px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.03);
   --shadow-pop: 0 8px 24px rgba(16,24,40,.10);
 
-  /* ---- chrome band heights (fixed app shell) ---- */
-  --appbar-h:  46px;
+  /* ---- chrome band heights (fixed app shell) ----
+     --appbar-h is the ONE header band height shared by the rail brand and every
+     work-area header (session sessbar / Sessions page-head / Overview head), so
+     their bottom hairlines line up into a single unbroken line across the rail
+     and the work area. */
+  --appbar-h:  48px;
   --metrics-h: 46px;
   --tabs-h:    38px;
   --minimap-h: 150px;

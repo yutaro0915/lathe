@@ -32,7 +32,6 @@ import {
   parseStamp,
   shortModel,
 } from "@lathe/shared";
-import { RUNNER_LABEL } from "@/lib/runner-display";
 import type {
   Session,
   SessionBundle,
@@ -102,7 +101,6 @@ const ALL_TYPES: EventType[] = [
 const TOOL_TYPES: EventType[] = ["bash", "file_read", "file_edit", "file_write", "test", "commit"];
 
 type Tab = "transcript" | "tools" | "git" | "skills" | "subagents" | "annotations" | "findings" | "raw" | "stats";
-type SortKey = "recent" | "oldest" | "tokens";
 type FilterMode = "highlight" | "hide";
 
 type TurnFile = { id: string; path: string };
@@ -216,39 +214,24 @@ export default function SessionViewer({
   sessions,
   bundle,
   currentId,
-  projects,
-  sessionProject,
-  sessionPrs,
   findings: initialFindings,
   initialTab = "transcript",
   initialSeq,
   initialFromFinding,
-  initialModel,
-  initialFrom,
-  initialTo,
-  initialErrors,
 }: {
   sessions: Session[];
   bundle: SessionBundle;
   currentId: string;
-  // (project, sessions, cost) tuples just for the sidebar's project picker —
-  // scoping the session LIST. Cross-session ANALYTICS live on /overview, not
-  // inside the SessionViewer (which is per-session).
-  projects: { project: string; sessions: number; cost: number; costKnown: boolean }[];
-  sessionProject: Record<string, string>;
-  sessionPrs: Record<string, PullRequestSummary[]>;
   findings: Finding[];
   initialTab?: Tab;
   initialSeq?: number;
   // Originating finding id when a finding's evidence jumped here (requirement D):
   // drives the dismissible "JUMPED TO STEP N — from finding #M" landing banner.
   initialFromFinding?: number;
-  // Overview drill-down deep links (all optional): seed the session-list MODEL /
-  // date-range / ERRORS filters so an Overview click lands here pre-scoped.
-  initialModel?: string;
-  initialFrom?: string; // YYYY-MM-DD inclusive
-  initialTo?: string; // YYYY-MM-DD inclusive
-  initialErrors?: "yes" | "no";
+  // NOTE: the Overview drill-down deep links (model / from / to / errors) and the
+  // project/sessionPrs props seeded the removed session-list sidebar. They are no
+  // longer consumed here; the page still parses them but the per-session viewer
+  // ignores them now that the cross-session list lives on the Sessions surface.
 }) {
   const router = useRouter();
 
@@ -258,21 +241,6 @@ export default function SessionViewer({
   const typeCounts = bundle.typeCounts;
   const annotations = bundle.annotations;
   const [findings, setFindings] = useState<Finding[]>(initialFindings);
-
-  // ---- session-list controls (sidebar) -----------------------------------
-  // model / errors / date-range can be seeded by an Overview drill-down deep
-  // link (initial* props); they are plain local state thereafter.
-  const [sessionSearch, setSessionSearch] = useState("");
-  const [modelFilter, setModelFilter] = useState(initialModel ?? "all");
-  const [errorsFilter, setErrorsFilter] = useState(initialErrors ?? "any");
-  const [projectFilter, setProjectFilter] = useState("all");
-  const [sortKey, setSortKey] = useState<SortKey>("recent");
-  const [showSubSessions, setShowSubSessions] = useState(false);
-  // date-range filter (YYYY-MM-DD inclusive). Only the Overview "cost over time"
-  // drill-down sets this today; there is no sidebar control for it yet, so when
-  // active it shows as a small clearable banner above the list.
-  const [dateFrom, setDateFrom] = useState<string | null>(initialFrom ?? null);
-  const [dateTo, setDateTo] = useState<string | null>(initialTo ?? null);
 
   // ---- timeline / tab / selection state -----------------------------------
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
@@ -401,66 +369,9 @@ export default function SessionViewer({
     };
   }, []);
 
-  // ---- derived: filtered + sorted session list ----------------------------
-  const models = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of sessions) if (s.model) set.add(s.model);
-    return Array.from(set);
-  }, [sessions]);
-
-  const visibleSessions = useMemo(() => {
-    const q = sessionSearch.trim().toLowerCase();
-    let list = sessions.filter((s) => {
-      if (!showSubSessions && s.parentSessionId) return false;
-      if (q && !s.title.toLowerCase().includes(q)) return false;
-      if (modelFilter !== "all" && s.model !== modelFilter) return false;
-      if (errorsFilter === "yes" && s.errorCount === 0) return false;
-      if (errorsFilter === "no" && s.errorCount > 0) return false;
-      if (projectFilter !== "all" && (sessionProject[s.id] ?? "(no edits)") !== projectFilter)
-        return false;
-      // date-range (Overview "cost over time" drill-down). startedAt begins with
-      // YYYY-MM-DD; the range is inclusive on both ends.
-      if (dateFrom || dateTo) {
-        const day = (s.startedAt ?? "").slice(0, 10);
-        if (!day) return false;
-        if (dateFrom && day < dateFrom) return false;
-        if (dateTo && day > dateTo) return false;
-      }
-      return true;
-    });
-    // requirement C: the session you are currently viewing must ALWAYS be
-    // identifiable in the rail — even when the active filters/search would have
-    // hidden it (e.g. you deep-linked in from the Findings axis with a stale
-    // filter). Force-include it so "which one am I viewing" is never lost; the
-    // scroll effect below then brings it into view.
-    if (!list.some((s) => s.id === currentId)) {
-      const current = sessions.find((s) => s.id === currentId);
-      if (current) list = [current, ...list];
-    }
-    list = [...list];
-    if (sortKey === "recent") list.sort((a, b) => a.seq - b.seq);
-    else if (sortKey === "oldest") list.sort((a, b) => b.seq - a.seq);
-    else if (sortKey === "tokens") list.sort((a, b) => b.tokenUsage - a.tokenUsage);
-    return list;
-  }, [sessions, sessionSearch, showSubSessions, modelFilter, errorsFilter, projectFilter, sortKey, sessionProject, currentId, dateFrom, dateTo]);
-
-  // requirement C: keep the left Sessions rail in sync with the session being
-  // viewed. On any session change — including a fresh deep-link open from the
-  // Findings axis — scroll the active rail item into view so "this session, and
-  // what is around it" is always visible. The item carries `.active` already
-  // (s.id === currentId); here we only ensure it is on screen. Depends on
-  // visibleSessions too, so it re-fires once a force-included current session
-  // (see the force-include above) is actually in the DOM.
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const sel =
-      typeof CSS !== "undefined" && CSS.escape
-        ? `.session-list .session-item[data-session-id="${CSS.escape(currentId)}"]`
-        : null;
-    if (!sel) return;
-    const el = document.querySelector(sel);
-    if (el) el.scrollIntoView({ block: "nearest" });
-  }, [currentId, visibleSessions]);
+  // The session-list sidebar (and its filtered/sorted list, model list, and
+  // scroll-into-view sync) was removed: cross-session navigation now lives in
+  // the persistent left nav rail, and the Sessions surface ("/") owns the list.
 
   // ---- derived: filtered timeline events ----------------------------------
   // sub-agent child steps grouped under their launching event id
@@ -1178,31 +1089,6 @@ export default function SessionViewer({
     setActiveTab("git");
   }
 
-  function sessionHref(id: string) {
-    return `/?session=${encodeURIComponent(id)}&tab=${activeTab}`;
-  }
-
-  function switchSession(id: string) {
-    if (id === currentId) return;
-    // preserve the current tab so switching sessions from the sidebar keeps you
-    // where you are (e.g. stay on the Git tab while comparing sessions).
-    router.push(sessionHref(id));
-  }
-
-  // Warm the target session's route on hover/focus (issue #8). The viewer is a
-  // force-dynamic page, so the click still pays for the server render — but
-  // pre-issuing it on intent means the work is usually already in flight (and
-  // often done) by the time the user actually clicks, shrinking the felt wait.
-  // No-op for the session already open. Prefetch failures are non-fatal.
-  function prefetchSession(id: string) {
-    if (id === currentId) return;
-    try {
-      router.prefetch(sessionHref(id));
-    } catch {
-      /* prefetch is best-effort */
-    }
-  }
-
   // Open one sub-agent run's detail tab and surface its summary on the right.
   function openAgent(launcherId: string) {
     setSubAgentTab(launcherId);
@@ -1213,6 +1099,8 @@ export default function SessionViewer({
     router.push(`/?session=${encodeURIComponent(id)}&tab=transcript`);
   }
 
+  // Toggle one event type in the transcript's type filter (lives in the
+  // transcript toolbar now that the left sidebar is gone).
   function toggleType(t: EventType) {
     setTypeFilter((prev) => {
       const next = new Set(prev);
@@ -1220,16 +1108,6 @@ export default function SessionViewer({
       else next.add(t);
       return next;
     });
-  }
-
-  function clearFilters() {
-    setTypeFilter(new Set(ALL_TYPES));
-    setFilterMode("hide");
-    setSessionSearch("");
-    setTranscriptSearch("");
-    setShowSubSessions(false);
-    setDateFrom(null);
-    setDateTo(null);
   }
 
   function togglePin() {
@@ -1265,10 +1143,6 @@ export default function SessionViewer({
   function prStateLabel(pr: PullRequestSummary): string {
     if (pr.mergedAt || pr.state === "merged") return "merged";
     return pr.state;
-  }
-
-  function openPr(prId: string) {
-    router.push(`/pr?pr=${encodeURIComponent(prId)}`);
   }
 
   // The sessbar chip opens the (already session-scoped) Findings tab in-page —
@@ -1437,274 +1311,30 @@ export default function SessionViewer({
         </span>
       </div>
 
-      {/* ===================== Band 4 — 3-col layout ===================== */}
-      {/* Findings is a self-contained master-detail screen: the run/event
-          inspector on the right has no bearing on accept/reject, so we drop the
-          aside column entirely and give its width to the findings detail. */}
+      {/* ===================== Band 4 — work area ===================== */}
+      {/* The session-list sidebar was removed: cross-session navigation lives in
+          the persistent left nav rail (RailNav), so a second session list here
+          was redundant. The work area is now just the main timeline + the
+          event-detail aside; switch sessions from the Sessions surface ("/").
+          Findings is a self-contained master-detail screen, so its aside is
+          dropped and the width handed to the findings detail. */}
       <div
         className="layout3"
         data-tab={activeTab}
         style={{
+          // The removed session-list sidebar was column 1. .main / .aside (and the
+          // embedded diff/stats grids) still target the SHARED grid cells 2 and 3,
+          // so we keep three columns and COLLAPSE column 1 to 0 rather than
+          // renumber those shared cells. Findings also drops the aside → its
+          // column 3 collapses too, handing the full width to the master-detail.
           gridTemplateColumns:
             activeTab === "findings"
-              ? "var(--sidebar-w) minmax(0,1fr)"
-              : "var(--sidebar-w) minmax(0,1fr) var(--aside-w)",
+              ? "0 minmax(0,1fr) 0"
+              : "0 minmax(0,1fr) var(--aside-w)",
         }}
       >
-        {/* ---------- COLUMN 1: sidebar ---------- */}
-        <aside className="sidebar">
-          <Link href="/overview" className="overview-link" title="Project-/all-projects-level analytics">
-            <span>Overview</span>
-            <span className="muted small" style={{ marginLeft: "auto" }}>cross-session →</span>
-          </Link>
-          <div className="project-select">
-            <span aria-hidden>⊞</span>
-            <select
-              className="project-picker"
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-              title="Scope the session list to one project"
-            >
-              <option value="all">All projects · {sessions.length} sessions</option>
-              {projects.map((p) => (
-                <option key={p.project} value={p.project}>
-                  {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="search">
-            <span aria-hidden>⌕</span>
-            <input
-              placeholder="Search sessions…"
-              value={sessionSearch}
-              onChange={(e) => setSessionSearch(e.target.value)}
-            />
-            <span className="kbd">⌘K</span>
-          </div>
-
-          <div className="filters">
-            <div className="filters-head">
-              <span className="title">Filters</span>
-              <button type="button" className="clear" onClick={clearFilters}>
-                Clear
-              </button>
-            </div>
-
-            <div className="filter-row">
-              <span className="flabel">Event types</span>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                {ALL_TYPES.map((t) => {
-                  const on = typeFilter.has(t);
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      className={`event-type-badge ${t}`}
-                      title={`${EVENT_LABEL[t]} — click to ${on ? "hide" : "show"}`}
-                      onClick={() => toggleType(t)}
-                      style={{
-                        cursor: "pointer",
-                        opacity: on ? 1 : 0.38,
-                      }}
-                    >
-                      {EVENT_LABEL[t]}
-                      <span className="mono" style={{ marginLeft: "auto", color: "var(--muted-2)" }}>
-                        {typeCounts[t] ?? 0}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="filter-row">
-              <span className="flabel">Type filter mode</span>
-              <span className="segmented filter-mode" title="Choose whether non-matching event types stay visible or are hidden">
-                <button
-                  type="button"
-                  className={filterMode === "highlight" ? "active" : ""}
-                  onClick={() => setFilterMode("highlight")}
-                >
-                  Highlight
-                </button>
-                <button
-                  type="button"
-                  className={filterMode === "hide" ? "active" : ""}
-                  onClick={() => setFilterMode("hide")}
-                >
-                  Hide
-                </button>
-              </span>
-            </div>
-
-            <div className="filter-row">
-              <span className="flabel">Model</span>
-              <select value={modelFilter} onChange={(e) => setModelFilter(e.target.value)}>
-                <option value="all">All models</option>
-                {models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="filter-row">
-              <span className="flabel">Errors</span>
-              <select value={errorsFilter} onChange={(e) => setErrorsFilter(e.target.value)}>
-                <option value="any">Any</option>
-                <option value="yes">With errors</option>
-                <option value="no">Clean (0 errors)</option>
-              </select>
-            </div>
-
-            <div className="filter-row">
-              <label className="sub-session-toggle">
-                <input
-                  type="checkbox"
-                  checked={showSubSessions}
-                  onChange={(e) => setShowSubSessions(e.target.checked)}
-                />
-                <span>show sub-sessions</span>
-              </label>
-            </div>
-
-            {(dateFrom || dateTo) && (
-              <div className="filter-row">
-                <span className="flabel">Period</span>
-                <span className="date-range-banner" data-from={dateFrom ?? ""} data-to={dateTo ?? ""}>
-                  <span className="mono">
-                    {dateFrom ?? "…"}
-                    {dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ""}
-                  </span>
-                  <button
-                    type="button"
-                    className="clear"
-                    onClick={() => {
-                      setDateFrom(null);
-                      setDateTo(null);
-                    }}
-                  >
-                    Clear
-                  </button>
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="session-head">
-            <span>
-              <span className="title">Sessions</span>
-              <span className="count">{visibleSessions.length}</span>
-            </span>
-            <select
-              className="sort-select"
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-            >
-              <option value="recent">Recent first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="tokens">Most tokens</option>
-            </select>
-          </div>
-
-          <div className="sidebar-scroll">
-            <div className="session-list">
-              {visibleSessions.map((s) => {
-                const st = parseStamp(s.startedAt);
-                const active = s.id === currentId;
-                const prs = sessionPrs[s.id] ?? [];
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    data-session-id={s.id}
-                    className={`session-item${active ? " active" : ""}`}
-                    onClick={() => switchSession(s.id)}
-                    onMouseEnter={() => prefetchSession(s.id)}
-                    onFocus={() => prefetchSession(s.id)}
-                    style={{ textAlign: "left", width: "100%", font: "inherit" }}
-                  >
-                    <div className="si-top">
-                      <span className="si-title">{s.title}</span>
-                      <span className="si-flags">
-                        {s.parentSessionId && (
-                          <span
-                            className="badge neutral sub-session-badge"
-                            title={`Spawned by ${s.parentSessionId}`}
-                          >
-                            SUB
-                          </span>
-                        )}
-                        <CostAnomalyChip session={s} />
-                        {s.errorCount > 0 && (
-                          <span className="badge err" title={`${s.errorCount} failed tool call(s)`}>
-                            {s.errorCount} err
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="si-meta">
-                      <span>
-                        {st.date}, {st.time}
-                      </span>
-                      <span className="dot">·</span>
-                      <span>{humanizeDuration(s.durationMs)}</span>
-                      <span className="dot">·</span>
-                      <span>{s.model ?? "—"}</span>
-                    </div>
-                    <div className="si-stats">
-                      <span className="runner-badge">
-                        <span className={`runner-dot ${s.runner}`} />
-                        {RUNNER_LABEL[s.runner]}
-                      </span>
-                      <span className="chip token">{fmtTok(s.tokenUsage)} tok</span>
-                      <span className="chip cost">{fmtCost(s.costUsd)}</span>
-                      {prs.slice(0, 1).map((pr) => (
-                        <span
-                          key={pr.id}
-                          className={`pr-chip mini ${prStateLabel(pr)}`}
-                          title={pr.title}
-                          role="link"
-                          tabIndex={0}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openPr(pr.id);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              openPr(pr.id);
-                            }
-                          }}
-                        >
-                          #{pr.number} {prStateLabel(pr)}
-                        </span>
-                      ))}
-                    </div>
-                  </button>
-                );
-              })}
-              {visibleSessions.length === 0 && (
-                <div className="empty" style={{ padding: "12px" }}>
-                  No sessions match.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="user-footer">
-            <span className="avatar">YO</span>
-            <span className="uname">Yutaro Ono</span>
-            <span className="badge pro">Pro</span>
-            <span className="gear" aria-label="Settings">
-              ⚙
-            </span>
-          </div>
-        </aside>
+        {/* COLUMN 1 (the session-list sidebar) was removed — its grid track is
+            collapsed to 0 above; the work area opens directly with the timeline. */}
 
         {/* The "Git" tab is an in-page tab like every other one: the session
             list above stays put, and only the centre+right swap to the diff.
@@ -1757,38 +1387,89 @@ export default function SessionViewer({
               </button>
             </div>
           )}
-          {/* transcript search lives above the timeline (only for transcript tab) */}
+          {/* Transcript controls live above the timeline (transcript tab only):
+              a filter box + turn expand/collapse on the top row, and the
+              event-type filter (which type-dims/-hides timeline rows) on a second
+              row. These moved here from the removed left sidebar so the timeline
+              filters live with the timeline they act on. */}
           {activeTab === "transcript" && (
-            <div
-              className="transcript-toolbar"
-              style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 12px 6px" }}
-            >
-              <div className="search" style={{ flex: "1 1 auto" }}>
-                <span aria-hidden>⌕</span>
-                <input
-                  placeholder="Filter timeline…"
-                  value={transcriptSearch}
-                  onChange={(e) => setTranscriptSearch(e.target.value)}
-                />
+            <div className="transcript-toolbar">
+              <div
+                className="transcript-toolbar-row"
+                style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 12px 6px" }}
+              >
+                <div className="search" style={{ flex: "1 1 auto" }}>
+                  <span aria-hidden>⌕</span>
+                  <input
+                    placeholder="Filter timeline…"
+                    value={transcriptSearch}
+                    onChange={(e) => setTranscriptSearch(e.target.value)}
+                  />
+                </div>
+                {turnCount > 1 && (
+                  <span className="segmented turn-filter" title="Show/hide every turn in this session">
+                    <button
+                      type="button"
+                      className={collapsedTurns.size === 0 ? "active" : ""}
+                      onClick={expandAllTurns}
+                    >
+                      Expand turns
+                    </button>
+                    <button
+                      type="button"
+                      className={collapsedTurns.size === turnCount ? "active" : ""}
+                      onClick={collapseAllTurns}
+                    >
+                      Collapse turns
+                    </button>
+                  </span>
+                )}
               </div>
-              {turnCount > 1 && (
-                <span className="segmented turn-filter" title="Show/hide every turn in this session">
-                  <button
-                    type="button"
-                    className={collapsedTurns.size === 0 ? "active" : ""}
-                    onClick={expandAllTurns}
+              <div className="filters transcript-filters">
+                <div className="filter-row">
+                  <span className="flabel">Event types</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                    {ALL_TYPES.map((t) => {
+                      const on = typeFilter.has(t);
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          className={`event-type-badge ${t}`}
+                          title={`${EVENT_LABEL[t]} — click to ${on ? "hide" : "show"}`}
+                          onClick={() => toggleType(t)}
+                          style={{ cursor: "pointer", opacity: on ? 1 : 0.38 }}
+                        >
+                          {EVENT_LABEL[t]}
+                          <span className="mono" style={{ marginLeft: "auto", color: "var(--muted-2)" }}>
+                            {typeCounts[t] ?? 0}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <span
+                    className="segmented filter-mode"
+                    style={{ marginLeft: "auto" }}
+                    title="Choose whether non-matching event types stay visible (dimmed) or are hidden"
                   >
-                    Expand turns
-                  </button>
-                  <button
-                    type="button"
-                    className={collapsedTurns.size === turnCount ? "active" : ""}
-                    onClick={collapseAllTurns}
-                  >
-                    Collapse turns
-                  </button>
-                </span>
-              )}
+                    <button
+                      type="button"
+                      className={filterMode === "highlight" ? "active" : ""}
+                      onClick={() => setFilterMode("highlight")}
+                    >
+                      Highlight
+                    </button>
+                    <button
+                      type="button"
+                      className={filterMode === "hide" ? "active" : ""}
+                      onClick={() => setFilterMode("hide")}
+                    >
+                      Hide
+                    </button>
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 

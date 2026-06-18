@@ -49,7 +49,7 @@
   --k-commit:var(--cat-tool); --k-uncertain:var(--cat-uncertain);
   --r-claude:#c0795e; --r-codex:#2a3242; --r-cursor:#5b7fb0;
   --radius:6px; --radius-sm:5px; --radius-xs:4px;
-  --appbar-h:46px; --metrics-h:46px; --tabs-h:38px; --minimap-h:150px;
+  --appbar-h:48px; --metrics-h:46px; --tabs-h:38px; --minimap-h:150px;
   --sidebar-w:272px; --aside-w:336px;
   --mono:ui-monospace,"SF Mono","JetBrains Mono","Menlo","Cascadia Code","Roboto Mono",monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic","Noto Sans CJK JP","Segoe UI",Roboto,sans-serif;
@@ -121,6 +121,12 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .tabs-spacer{flex:1 1 auto;} .tabs-tool{display:inline-flex;align-items:center;padding-right:4px;}
 
 /* ---- 3-col working area ----------------------------------------------------
+   NOTE: .sidebar / .main / .aside are SHARED across two grids — the host layout3
+   (session-list | timeline | detail) AND the embedded .diff-embed
+   (file-tree | diff | attribution). So these grid-column rules MUST stay 1/2/3.
+   The removed session-list sidebar is handled by collapsing layout3's first
+   column to 0 (inline, in SessionViewer) — NOT by renumbering these shared cells
+   (renumbering them silently broke the embedded diff grid).
    minmax(0,…) + min-width:0 on every column: wide content (long diff lines,
    mono paths, pre blocks) must scroll INSIDE its pane, never widen the page. */
 .layout3{flex:1 1 auto;display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr) var(--aside-w);min-height:0;min-width:0;background:var(--bg);}
@@ -131,7 +137,7 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .aside{grid-column:3;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;}
 /* DiffViewer embedded in the host's "Git" tab: a self-contained
    [file-tree | diff | attribution] grid that spans the host's main+aside
-   columns (2–3), so the host's session-list sidebar (column 1) stays put. */
+   columns (2–3); the host's collapsed first column stays out of the way. */
 .diff-embed{grid-column:2 / 4;min-height:0;min-width:0;display:grid;
   grid-template-columns:232px minmax(0,1fr) 312px;background:var(--bg);overflow:hidden;}
 .diff-embed > *{min-width:0;}
@@ -819,6 +825,12 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 
 /* transcript search toolbar (above the timeline scroller — stays put) */
 .transcript-toolbar{flex:0 0 auto;background:var(--panel);border-bottom:1px solid var(--border-faint);}
+/* event-type filter, relocated from the removed left sidebar into the transcript
+   toolbar. Override the sidebar's vertical .filters layout to a single dense
+   horizontal row: label · type chips (wrap) · highlight/hide mode (pushed right). */
+.transcript-filters{padding:0 12px 8px;}
+.transcript-filters .filter-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:0;}
+.transcript-filters .filter-row .flabel{display:inline-block;margin-bottom:0;flex:0 0 auto;}
 
 /* ---- redesigned event-detail panel: compact stats, prominent output ---- */
 .stat-strip{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 6px;}
@@ -835,8 +847,11 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .code-block.cmd{margin:0;max-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
 .code-block.output{margin:0;max-height:54vh;min-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
 
-/* ---- refined session header (denser, named, mono numerics) ---- */
-.sessbar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:8px 18px;background:var(--panel);border-bottom:1px solid var(--border);min-height:48px;}
+/* ---- refined session header (denser, named, mono numerics) ----
+   Height is the shared header band (--appbar-h) so the sessbar's bottom hairline
+   lines up with the rail brand's into one unbroken line (vertical padding drops
+   to 0; align-items centres the content in the fixed band). */
+.sessbar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 18px;background:var(--panel);border-bottom:1px solid var(--border);height:var(--appbar-h);}
 .sessbar-id{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
 .sessbar-id .runner-dot{flex:0 0 auto;}
 .sessbar-title{font-size:13.5px;font-weight:650;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46ch;flex:0 1 auto;}
@@ -919,7 +934,8 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
    category palette is allowed (muted fills, hairline gridlines, mono axes).
    ========================================================================== */
 .stats-page{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;background:var(--bg);}
-/* embedded in the SessionViewer "Stats" tab — occupy the main+aside columns */
+/* embedded in the SessionViewer "Stats" tab — occupy the host's main+aside
+   columns (2–3); the host's collapsed first column stays out of the way. */
 .stats-embed{grid-column:2 / 4;min-height:0;min-width:0;display:flex;flex-direction:column;background:var(--bg);}
 /* sidebar Overview link — entry to project-/all-projects-level analytics */
 .overview-link{display:flex;align-items:center;gap:8px;margin:10px 10px 0;padding:6px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);color:var(--text);font-size:12px;font-weight:650;text-decoration:none;}
@@ -939,7 +955,11 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .attn-empty{padding:14px 2px;}
 .attn-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;}
 .attn-col{min-width:0;display:flex;flex-direction:column;gap:3px;}
-.attn-col-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:2px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:0 2px 5px;border-bottom:1px solid var(--border-faint);margin-bottom:3px;}
+/* All three column heads share one fixed min-height (label row + basis row),
+   so their bottom hairlines sit at the same Y even though PENDING FINDINGS has
+   no basis line. Rows are packed from the top (align-content/-items:flex-start)
+   so the labels align across columns. */
+.attn-col-head{display:flex;align-items:flex-start;align-content:flex-start;justify-content:space-between;flex-wrap:wrap;gap:2px 8px;min-height:calc(var(--sp-8) + var(--sp-9));font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:0 2px 5px;border-bottom:1px solid var(--border-faint);margin-bottom:3px;}
 .attn-count{color:var(--muted-2);}
 .attn-col-basis{flex:1 0 100%;order:3;font-size:9px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted-2);font-variant-numeric:tabular-nums;}
 .attn-count-link{color:var(--accent);text-decoration:none;font-weight:700;}

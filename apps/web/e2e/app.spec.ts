@@ -1080,7 +1080,10 @@ test.describe("Sessions surface + viewer (/)", () => {
   test("event-type filter reduces the timeline", async ({ page }) => {
     await gotoViewer(page);
     const before = await page.locator(".event-row").count();
-    await page.locator(".filters .event-type-badge").first().click();
+    // the event-type filter moved from the (removed) left sidebar into the
+    // transcript toolbar; in the default "hide" mode, turning a type off drops
+    // its rows from the timeline.
+    await page.locator(".transcript-filters .event-type-badge").first().click();
     await expect
       .poll(async () => page.locator(".event-row").count())
       .toBeLessThan(before);
@@ -1116,8 +1119,10 @@ test.describe("Sessions surface + viewer (/)", () => {
     await expect(page.locator(".session-list .session-item").first()).toBeVisible();
     await page.locator(".session-item").first().click();
     await expect(page).toHaveURL(/\?session=/);
-    // the viewer keeps its own sidebar list, with the open session marked active.
-    await expect(page.locator(".session-item.active")).toHaveCount(1);
+    // the viewer no longer carries its own session-list sidebar (navigation lives
+    // in the left rail); a row click lands in the named per-session workspace.
+    await expect(page.locator(".sessbar .sessbar-title")).toBeVisible();
+    await expect(page.locator(".event-row").first()).toBeVisible();
   });
 
   test("Pin persists to localStorage", async ({ page }) => {
@@ -1311,21 +1316,18 @@ test.describe("Diff viewer (/diff)", () => {
     }
   });
 
-  test("the session list stays on the Git tab (can switch sessions)", async ({ page }) => {
+  test("the Git tab embeds the diff in the per-session workspace", async ({ page }) => {
     await page.goto("/diff"); // redirects to /?session=…&tab=git
-    // the diff is embedded; the host session list is still in the sidebar
+    // the diff is embedded in the workspace (the session-list sidebar was removed;
+    // session switching now lives on the Sessions surface "/").
+    await expect(page).toHaveURL(/session=.*tab=git/);
     await expect(page.locator(".diff-embed")).toBeVisible();
-    const items = page.locator(".session-list .session-item");
-    await expect(items.first()).toBeVisible();
-    if ((await items.count()) > 1) {
-      await items.nth(1).click();
-      await expect(page).toHaveURL(/session=/);
-    }
+    await expect(page.locator(".tabs .tab.active")).toHaveText(/Git/);
   });
 });
 
 test.describe("Cross-screen navigation & time ribbon", () => {
-  test("Git is an in-page tab: diff shows, session list stays, no navigation", async ({
+  test("Git is an in-page tab: diff shows in place, no navigation", async ({
     page,
   }) => {
     await gotoViewer(page);
@@ -1333,10 +1335,9 @@ test.describe("Cross-screen navigation & time ribbon", () => {
     // does NOT navigate away to /diff…
     await expect(page).not.toHaveURL(/\/diff/);
     await expect(page.locator(".tabs .tab.active")).toHaveText(/Git/);
-    // …the diff working area is embedded in place…
+    // …the diff working area is embedded in place (no separate /diff page, and no
+    // session-list sidebar — navigation lives in the left rail / Sessions surface).
     await expect(page.locator(".diff-embed")).toBeVisible();
-    // …and the session list sidebar is still there to switch sessions.
-    await expect(page.locator(".session-list .session-item").first()).toBeVisible();
   });
 
   test("from the Git tab, other tabs switch in-page (no /diff page)", async ({ page }) => {
@@ -1459,17 +1460,21 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
     await expect(unlinked).toContainText("internal steps not captured");
   });
 
-  test("sub-sessions are hidden from the rail until the toggle is enabled", async ({
+  test("sub-sessions are hidden from the list until the toggle is enabled", async ({
     page,
   }) => {
-    await page.goto(`/?session=${SUBAGENT_FIXTURE.parentId}`);
+    // The session list (and its "show sub-sessions" toggle) lives on the Sessions
+    // surface ("/") now that the per-session viewer's sidebar was removed.
+    await page.goto("/");
+    await expect(page.locator(".session-list .session-item").first()).toBeVisible();
     const childItem = page.locator(
       `.session-list [data-session-id="${SUBAGENT_FIXTURE.childId}"]`
     );
     await expect(childItem).toHaveCount(0);
+    // open the collapsible filters, then enable the sub-sessions toggle.
+    await page.getByRole("button", { name: "Filters" }).click();
     await page.getByLabel("show sub-sessions").check();
     await expect(childItem).toBeVisible();
-    await expect(childItem.locator(".sub-session-badge")).toHaveText("SUB");
   });
 
   test("overview lists one card per distinct run, not one flat list per name", async ({
@@ -1839,22 +1844,29 @@ test.describe("Findings tab and verdict oracle", () => {
     await expect(page.locator(`.diff-hunk.active[data-hunk-id="${FINDING_FIXTURE.hunkId}"]`)).toBeVisible();
   });
 
-  test("the Findings tab drops the right event inspector and uses a 2-col layout", async ({
+  test("the Findings tab drops the right event inspector and hands it the full width", async ({
     page,
   }) => {
     // On Transcript the right inspector (RUN JSON / LINKED FILES) is present…
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=transcript`);
     await expect(page.locator(".layout3 > aside.aside")).toBeVisible();
 
-    // …on Findings it is removed entirely and the grid is 2-column, so the whole
-    // width goes to the findings master-detail (the inspector informs no verdict).
+    // …on Findings the inspector aside is removed entirely, and with the
+    // session-list sidebar gone the work area's flanking grid tracks both collapse
+    // to 0, so the whole width goes to the findings master-detail (the inspector
+    // informs no verdict). The grid keeps 3 (shared) tracks; the middle one is the
+    // full width and the two flanks are 0.
     await page.locator(".tabs .tab", { hasText: "Findings" }).click();
     await expect(page.locator(".layout3")).toHaveAttribute("data-tab", "findings");
     await expect(page.locator(".layout3 > aside.aside")).toHaveCount(0);
-    const cols = await page
+    const tracks = await page
       .locator(".layout3")
-      .evaluate((el) => getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).length);
-    expect(cols).toBe(2);
+      .evaluate((el) => getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).map((t) => Math.round(parseFloat(t))));
+    expect(tracks.length).toBe(3);
+    expect(tracks[0]).toBe(0); // collapsed session-list column
+    expect(tracks[2]).toBe(0); // collapsed detail aside column
+    const host = await page.locator(".layout3").evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    expect(tracks[1]).toBeGreaterThan(host * 0.9); // middle track ≈ full width
   });
 
   test("session tab evidence: NO SESSION header, but turn position + USER ASKED + AFTERWARD", async ({
@@ -2353,43 +2365,41 @@ test.describe("Global nav & IA axes", () => {
     await expect(page.locator(`.finding-row[data-finding-id="${oracle.findingId}"]`)).toBeVisible();
   });
 
-  test("the left Sessions rail stays in sync with the session being viewed", async ({
+  test("deep-linking a session opens that session's workspace under the Sessions axis", async ({
     page,
   }) => {
     const oracle = await findScopingOracle();
 
-    // deep-link straight into one session (as the Findings axis jump does). The
-    // rail's active item must be THIS session — selected and present in the list.
+    // The per-session viewer no longer carries a session-list sidebar (cross-
+    // session navigation lives in the left nav rail). Deep-linking a session (as
+    // the Findings-axis jump does) must open THAT session's workspace, with the
+    // global rail showing the Sessions axis active.
     await page.goto(`/?session=${encodeURIComponent(oracle.ownerSession)}&tab=transcript`);
-    const railActive = page.locator(".session-list .session-item.active");
-    await expect(railActive).toHaveCount(1);
-    await expect(railActive).toHaveAttribute("data-session-id", oracle.ownerSession);
-    await expect(railActive).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`session=${oracle.ownerSession}`));
+    await expect(page.locator(".sessbar .sessbar-title")).toBeVisible();
+    await expect(page.locator(".globalnav-tab.active")).toHaveAttribute("data-nav", "sessions");
+    const ownerTitle = await page.locator(".sessbar-title").textContent();
 
-    // switching to another session moves the active marker with it — the rail
-    // never shows a stale or empty selection.
+    // switching to another session swaps the workspace to that session — no stale
+    // header is left behind.
     await page.goto(`/?session=${encodeURIComponent(oracle.otherSession)}&tab=transcript`);
-    const railActive2 = page.locator(".session-list .session-item.active");
-    await expect(railActive2).toHaveCount(1);
-    await expect(railActive2).toHaveAttribute("data-session-id", oracle.otherSession);
-    await expect(railActive2).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`session=${oracle.otherSession}`));
+    await expect(page.locator(".sessbar .sessbar-title")).toBeVisible();
+    await expect(page.locator(".sessbar-title")).not.toHaveText(ownerTitle ?? "");
+    await expect(page.locator(".globalnav-tab.active")).toHaveAttribute("data-nav", "sessions");
   });
 
-  test("a current session hidden by a rail filter is force-included so it stays identifiable", async ({
+  test("the deep-linked session is always identifiable in its workspace header", async ({
     page,
   }) => {
     const oracle = await findScopingOracle();
     await page.goto(`/?session=${encodeURIComponent(oracle.ownerSession)}&tab=transcript`);
 
-    // type a search that cannot match the current session's title, so the filter
-    // would normally drop it from the list.
-    await page.getByPlaceholder(/Search sessions/i).fill("zzz-no-such-session-title-zzz");
-
-    // the current session is still present AND marked active (requirement C):
-    // "which one am I viewing" must never be lost to a filter.
-    const railActive = page.locator(".session-list .session-item.active");
-    await expect(railActive).toHaveCount(1);
-    await expect(railActive).toHaveAttribute("data-session-id", oracle.ownerSession);
+    // "which one am I viewing" must never be lost: with the session-list sidebar
+    // gone, the sessbar header is the single source of truth and always names the
+    // open session (requirement C, restated for the rail-nav IA).
+    await expect(page.locator(".sessbar .sessbar-title")).toBeVisible();
+    await expect(page.locator(".event-row").first()).toBeVisible();
   });
 });
 
@@ -2411,13 +2421,17 @@ test.describe("Stats tab (in-session)", () => {
     expect(await page.locator(".hbar-row").count()).toBeGreaterThan(0);
   });
 
-  test("the in-session Stats sidebar exposes an Overview link to cross-session analytics", async ({
+  test("from the in-session Stats tab, the rail reaches cross-session Overview analytics", async ({
     page,
   }) => {
+    // The in-session Stats tab covers ONE session; cross-session analytics live at
+    // /overview. The Overview link used to sit in the removed session-list sidebar;
+    // the persistent left nav rail now owns that entry point.
     await page.goto("/?tab=stats");
-    const link = page.locator(".overview-link");
-    await expect(link).toBeVisible();
-    await link.click();
+    await expect(page.locator(".stats-embed")).toBeVisible();
+    const overviewNav = page.locator('.globalnav-tab[data-nav="overview"]');
+    await expect(overviewNav).toBeVisible();
+    await overviewNav.click();
     await expect(page).toHaveURL(/\/overview/);
   });
 });
@@ -2514,8 +2528,11 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     // landed on the Sessions axis with the MODEL filter applied (the Model
     // <select> is the one whose options include "All models").
     await expect(page.locator(".globalnav-tab.active")).toHaveAttribute("data-nav", "sessions");
+    // the list (and its Model filter) lives on the Sessions surface now; the
+    // drill-down seeds that filter. The Model <select> is the one whose options
+    // include "All models" (in the surface's auto-opened filter panel).
     const modelSelect = page
-      .locator(".filter-row select")
+      .locator(".lds-sessions-filters select")
       .filter({ has: page.locator('option[value="all"]', { hasText: "All models" }) });
     await expect(modelSelect).toHaveValue(model!);
   });
@@ -2530,9 +2547,12 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     const to = await bar.getAttribute("data-to");
     expect(from).toBeTruthy();
     await bar.click();
+    // The drill-down carries the period in the URL and lands on the Sessions axis.
+    // The list (and its scoping) lives on the full-width Sessions surface "/" now
+    // that the per-session viewer's sidebar was removed; the active period shows as
+    // a clearable banner in that surface's (auto-opened) filter panel.
     await expect(page).toHaveURL(new RegExp(`from=${from}`));
     await expect(page.locator(".globalnav-tab.active")).toHaveAttribute("data-nav", "sessions");
-    // the active period shows as a clearable banner in the session-list sidebar.
     const banner = page.locator(".date-range-banner");
     await expect(banner).toBeVisible();
     await expect(banner).toHaveAttribute("data-from", from!);
@@ -2546,12 +2566,12 @@ test.describe("Harness signals", () => {
   }) => {
     await page.goto("/?session=da2ac032-a905-4267-8e5f-851456926a79");
     await expandAllTurns(page);
-    // event-type filter exposes Memory + Hook
+    // event-type filter (now in the transcript toolbar) exposes Memory + Hook
     await expect(
-      page.locator(".filters .event-type-badge", { hasText: "Memory" })
+      page.locator(".transcript-filters .event-type-badge", { hasText: "Memory" })
     ).toBeVisible();
     await expect(
-      page.locator(".filters .event-type-badge", { hasText: "Hook" })
+      page.locator(".transcript-filters .event-type-badge", { hasText: "Hook" })
     ).toBeVisible();
     // and at least one memory event renders in the timeline with its own icon
     await expect(page.locator(".timeline .event-icon.memory").first()).toBeVisible();
@@ -2728,8 +2748,9 @@ test.describe("Turn-first explorer", () => {
   test("event type filters can highlight or hide non-matching steps", async ({ page }) => {
     await page.goto(`/?session=${SID}`);
     await expandAllTurns(page);
+    // filters moved from the left sidebar into the transcript toolbar.
     await page.locator(".filter-mode button", { hasText: "Highlight" }).click();
-    await page.locator(".filters .event-type-badge.bash").click();
+    await page.locator(".transcript-filters .event-type-badge.bash").click();
     await expect
       .poll(async () => page.locator(".timeline .event-row.step-row.filter-dimmed").count())
       .toBeGreaterThan(0);
