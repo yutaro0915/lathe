@@ -43,6 +43,7 @@ export default function RailNav() {
               href={item.href}
               className={`lds-rail-nav-item globalnav-tab${active ? " active" : ""}`} data-testid="globalnav-tab"
               data-nav={item.nav}
+              data-state={active ? "active" : "inactive"}
               aria-current={active ? "page" : undefined}
             >
               <span className="lds-rail-ic" data-testid="lds-rail-ic">

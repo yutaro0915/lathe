@@ -51,6 +51,8 @@ export default function PullRequestView({
             <Link
               key={pr.id}
               href={`/pr?pr=${encodeURIComponent(pr.id)}`}
+              aria-current={selected?.id === pr.id ? "true" : undefined}
+              data-active={selected?.id === pr.id ? "true" : undefined}
               className={`pr-list-item${selected?.id === pr.id ? " active" : ""}`} data-testid="pr-list-item"
             >
               <div className="pr-list-top" data-testid="pr-list-top">

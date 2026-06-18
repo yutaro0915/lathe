@@ -128,9 +128,9 @@ export const SUBAGENT_FIXTURE = {
 // open the workspace from the list — preserving each workspace test's oracle
 // (it still drives the viewer), only the entry URL changed from "/" to a row.
 export async function firstSessionId(page: Page): Promise<string> {
-  await expect(page.locator(`[data-testid="session-list"] [class~="session-item"]`).first()).toBeVisible();
+  await expect(page.locator(`[data-testid="session-list"] [data-testid="session-item"]`).first()).toBeVisible();
   const id = await page
-    .locator(`[data-testid="session-list"] [class~="session-item"]`)
+    .locator(`[data-testid="session-list"] [data-testid="session-item"]`)
     .first()
     .getAttribute("data-session-id");
   if (!id) throw new Error("no session row found on the Sessions surface");
@@ -941,15 +941,15 @@ export async function expectTurnJump(
   expectedBasis?: "cost" | "duration"
 ) {
   await page.goto(`/?session=${sessionId}`);
-  const jump = page.locator(`[data-testid="sessbar"] [class~="jump-chip"]`, { hasText: buttonText });
+  const jump = page.locator(`[data-testid="sessbar"] [data-testid="chip"][data-jump-kind]`, { hasText: buttonText });
   await expect(jump).toBeVisible();
   await expect(jump).toHaveAttribute("data-turn", String(targetTurn.turn));
   if (expectedBasis) await expect(jump).toHaveAttribute("data-turn-score-basis", expectedBasis);
   await jump.click();
-  const header = page.locator(`[data-testid="timeline"] [class~="event-row"][class~="turn-header"][data-turn="${targetTurn.turn}"]`);
-  await expect(header).toHaveClass(/selected/);
+  const header = page.locator(`[data-testid="timeline"] [data-testid="event-row"][data-row-kind="turn-header"][data-turn="${targetTurn.turn}"]`);
+  await expect(header).toHaveAttribute("data-selected", "true");
   await expect(
-    page.locator(`[data-testid="timeline"] [class~="event-row"][class~="step-row"][data-turn="${targetTurn.turn}"]`).first()
+    page.locator(`[data-testid="timeline"] [data-testid="event-row"][data-row-kind="step"][data-turn="${targetTurn.turn}"]`).first()
   ).toBeVisible();
 }
 

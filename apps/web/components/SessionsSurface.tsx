@@ -317,7 +317,7 @@ export default function SessionsSurface({
               <span className="r" data-testid="r">
                 {s.errorCount > 0 ? <Badge tone="err">{s.errorCount}</Badge> : <span className="lds-sg-zero" data-testid="lds-sg-zero">0</span>}
               </span>
-              <span className={`lds-sg-cost chip cost r${s.costUsd == null ? " muted" : ""}`} data-testid="chip">
+              <span className={`lds-sg-cost chip cost r${s.costUsd == null ? " muted" : ""}`} data-testid="chip" data-cell="cost">
                 {fmtCost(s.costUsd)}
               </span>
             </button>

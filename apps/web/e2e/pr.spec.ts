@@ -7,7 +7,7 @@ test.describe("PR linkage", () => {
     await seedPrFixture();
     await page.goto(`/pr?pr=${encodeURIComponent(PR_FIXTURE.prId)}`);
 
-    await expect(page.locator(`[data-testid="pr-list-item"][class~="active"]`)).toContainText("G1 fixture PR");
+    await expect(page.locator(`[data-testid="pr-list-item"][data-active="true"]`)).toContainText("G1 fixture PR");
     await expect(page.locator(`[data-testid="pr-hero"]`)).toContainText("#1");
     await expect(page.locator(`[data-testid="linked-session"]`, { hasText: "Fixture session linked by SHA" })).toBeVisible();
     await expect(page.locator(`[data-testid="linked-session"]`, { hasText: "Fixture session linked by branch fallback" })).toBeVisible();
@@ -15,6 +15,6 @@ test.describe("PR linkage", () => {
     await page.locator(`[data-testid="linked-session"]`, { hasText: "Fixture session linked by SHA" }).click();
     await expect(page).toHaveURL(new RegExp(`session=${PR_FIXTURE.shaSession}`));
     await expect(page.locator(`[data-testid="sessbar-title"]`)).toContainText("Fixture session linked by SHA");
-    await expect(page.locator(`[data-testid="sessbar"] [class~="pr-chip"]`, { hasText: "#1 open" })).toBeVisible();
+    await expect(page.locator(`[data-testid="sessbar"] [data-testid="pr-chip"]`, { hasText: "#1 open" })).toBeVisible();
   });
 });

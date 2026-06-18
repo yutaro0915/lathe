@@ -71,8 +71,8 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
   }) => {
     await page.goto("/overview");
     // the old rail (sidebar + "Sessions in scope" session-list + back-link) is gone.
-    await expect(page.locator(`[data-testid="overview-page"] [class~="sidebar"]`)).toHaveCount(0);
-    await expect(page.locator(`[data-testid="overview-page"] [class~="session-list"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="overview-page"] [data-testid="session-rail"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="overview-page"] [data-testid="session-list"]`)).toHaveCount(0);
     await expect(page.locator(`[data-testid="overview-back"]`)).toHaveCount(0);
     // it IS the full-width analysis canvas with the attention panel.
     await expect(page.locator(`[data-testid="overview-canvas"]`)).toBeVisible();
@@ -85,7 +85,7 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     await page.goto("/overview");
     await page.locator(`[data-testid="project-picker"]`).selectOption("(no edits)");
     // the cost-alert fixture row is a link straight to that session's viewer.
-    const row = page.locator(`[data-attn-group="cost"] [class~="attn-row"][data-session-id="${COST_FIXTURE_IDS[1]}"]`
+    const row = page.locator(`[data-attn-group="cost"] [data-testid="attn-row"][data-session-id="${COST_FIXTURE_IDS[1]}"]`
     );
     await expect(row).toBeVisible();
     await row.click();
@@ -93,7 +93,7 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
       new RegExp(`\\?session=${COST_FIXTURE_IDS[1]}`)
     );
     // the global bar now reads "Sessions" (axis moved via a real link, back works).
-    await expect(page.locator(`[data-testid="globalnav-tab"][class~="active"]`)).toHaveAttribute("data-nav", "sessions");
+    await expect(page.locator(`[data-testid="globalnav-tab"][data-state="active"]`)).toHaveAttribute("data-nav", "sessions");
   });
 
   test("biggest-sessions rows carry a status chip set and link to the session viewer", async ({
@@ -108,7 +108,7 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     await expect(firstRow).toHaveAttribute("href", /\?session=/);
     await expect(firstRow.locator(`[data-testid="big-status"]`)).toHaveCount(1);
     // at least one biggest row in the corpus carries an err / pending / cost flag.
-    await expect(biggest.locator(`[data-testid="big-status"] [class~="badge"]`).first()).toBeVisible();
+    await expect(biggest.locator(`[data-testid="big-status"] [data-testid="badge"]`).first()).toBeVisible();
   });
 
   test("a model row drills into the Sessions axis filtered to that model", async ({
@@ -125,7 +125,7 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     await expect(page).toHaveURL(/[?&]model=/);
     // landed on the Sessions axis with the MODEL filter applied (the Model
     // <select> is the one whose options include "All models").
-    await expect(page.locator(`[data-testid="globalnav-tab"][class~="active"]`)).toHaveAttribute("data-nav", "sessions");
+    await expect(page.locator(`[data-testid="globalnav-tab"][data-state="active"]`)).toHaveAttribute("data-nav", "sessions");
     // the list (and its Model filter) lives on the Sessions surface now; the
     // drill-down seeds that filter. The Model <select> is the one whose options
     // include "All models" (in the surface's auto-opened filter panel).
@@ -150,7 +150,7 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     // that the per-session viewer's sidebar was removed; the active period shows as
     // a clearable banner in that surface's (auto-opened) filter panel.
     await expect(page).toHaveURL(new RegExp(`from=${from}`));
-    await expect(page.locator(`[data-testid="globalnav-tab"][class~="active"]`)).toHaveAttribute("data-nav", "sessions");
+    await expect(page.locator(`[data-testid="globalnav-tab"][data-state="active"]`)).toHaveAttribute("data-nav", "sessions");
     const banner = page.locator(`[data-testid="date-range-banner"]`);
     await expect(banner).toBeVisible();
     await expect(banner).toHaveAttribute("data-from", from!);

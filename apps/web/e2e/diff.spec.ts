@@ -13,12 +13,12 @@ test.describe("Diff viewer (/diff)", () => {
     const sessionId = await findMultiFileDiffSession();
     await page.goto(`/diff?session=${encodeURIComponent(sessionId)}`);
     const before = await page.locator(`[data-testid="fpath"]`).innerText();
-    const files = page.locator(`[data-testid="file-row"]:not([class~="is-folder"])`);
+    const files = page.locator(`[data-testid="file-row"][data-row-kind="file"]`);
     const count = await files.count();
     for (let i = 0; i < count; i++) {
       const f = files.nth(i);
-      const cls = (await f.getAttribute("class")) || "";
-      if (!cls.includes("active")) {
+      const isActive = (await f.getAttribute("data-active")) === "true";
+      if (!isActive) {
         await f.click();
         break;
       }
@@ -30,16 +30,16 @@ test.describe("Diff viewer (/diff)", () => {
     await page.goto("/diff");
     const diff = page.locator(`[data-testid="diff"]`);
     const before = await diff.innerHTML();
-    // scope to the view-mode toggle (a separate .segmented.step-filter may exist)
-    const viewToggle = page.locator(`[data-testid="diff-toolbar"] [class~="segmented"]:not([class~="step-filter"])`);
+    // scope to the view-mode toggle (a separate step-filter segmented may exist)
+    const viewToggle = page.locator(`[data-testid="diff-toolbar"] [data-testid="segmented"]`);
     await viewToggle.locator("button", { hasText: "Split" }).click();
-    await expect(viewToggle.locator(`button.active`)).toHaveText(/Split/);
+    await expect(viewToggle.locator(`[role="tab"][aria-selected="true"]`)).toHaveText(/Split/);
     await expect.poll(async () => diff.innerHTML()).not.toBe(before);
   });
 
   test("folder twisty collapses its children", async ({ page }) => {
     await page.goto("/diff");
-    const folders = page.locator(`[data-testid="file-row"][class~="is-folder"]`);
+    const folders = page.locator(`[data-testid="file-row"][data-row-kind="folder"]`);
     if ((await folders.count()) > 0) {
       const before = await page.locator(`[data-testid="file-row"]`).count();
       await folders.first().click();
@@ -76,7 +76,7 @@ test.describe("Diff viewer (/diff)", () => {
     // session switching now lives on the Sessions surface "/").
     await expect(page).toHaveURL(/session=.*tab=git/);
     await expect(page.locator(`[data-testid="diff-embed"]`)).toBeVisible();
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Git/);
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Git/);
   });
 });
 
@@ -88,14 +88,14 @@ test.describe("Changed-files tree (compact folders)", () => {
     page,
   }) => {
     await page.goto(`/diff?session=${SID}`);
-    await expect(page.locator(`[data-testid="filetree-head"] [class~="sub"]`)).toHaveText(/5 files changed/);
+    await expect(page.locator(`[data-testid="filetree-head"] [data-testid="sub"]`)).toHaveText(/5 files changed/);
     // exactly the 5 real files appear as file rows...
-    await expect(page.locator(`[data-testid="file-row"][class~="is-file"]`)).toHaveCount(5);
+    await expect(page.locator(`[data-testid="file-row"][data-row-kind="file"]`)).toHaveCount(5);
     // ...and the whole tree stays compact (no per-directory-level explosion)
     expect(await page.locator(`[data-testid="file-row"]`).count()).toBeLessThanOrEqual(10);
     // a deep chain is merged into ONE folder row whose name carries the "/"-joined path
     const merged = page
-      .locator(`[data-testid="file-row"][class~="is-folder"] [class~="fname"]`)
+      .locator(`[data-testid="file-row"][data-row-kind="folder"] [data-testid="fname"]`)
       .filter({ hasText: "/" });
     expect(await merged.count()).toBeGreaterThan(0);
   });
@@ -105,9 +105,9 @@ test.describe("Changed-files tree (compact folders)", () => {
   }) => {
     await page.goto(`/diff?session=${SID}`);
     // files carry a colored A/M/D status chip; folders carry a folder icon, no chip
-    await expect(page.locator(`[data-testid="file-row"][class~="is-file"] [class~="status-chip"]`).first()).toBeVisible();
-    expect(await page.locator(`[data-testid="file-row"][class~="is-folder"] [class~="ficon"][class~="folder"] svg`).count()).toBeGreaterThan(0);
-    expect(await page.locator(`[data-testid="file-row"][class~="is-folder"] [class~="status-chip"]`).count()).toBe(0);
+    await expect(page.locator(`[data-testid="file-row"][data-row-kind="file"] [data-testid="status-chip"]`).first()).toBeVisible();
+    expect(await page.locator(`[data-testid="file-row"][data-row-kind="folder"] [data-testid="ficon"][data-ficon-kind="folder"] svg`).count()).toBeGreaterThan(0);
+    expect(await page.locator(`[data-testid="file-row"][data-row-kind="folder"] [data-testid="status-chip"]`).count()).toBe(0);
   });
 });
 
@@ -133,18 +133,18 @@ test.describe("Transcript ⇄ Git cross-links", () => {
       row.click();
     });
     // its detail panel offers a jump to the Git diff this edit produced
-    const diffBtn = page.locator(`[data-testid="detail-actions"] [class~="btn"]`, { hasText: /Diff/ });
+    const diffBtn = page.locator(`[data-testid="detail-actions"] [data-testid="btn"]`, { hasText: /Diff/ });
     await expect(diffBtn).toBeVisible();
     await diffBtn.click();
     // now on the Git tab, diff embedded, with a linked-event back-link
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Git/);
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Git/);
     await expect(page.locator(`[data-testid="diff-embed"]`)).toBeVisible();
     const back = page.locator(`[data-testid="le-jump"]`).first();
     await expect(back).toBeVisible();
     // the back-link returns to the transcript with an event selected
     await back.click();
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Transcript/);
-    await expect(page.locator(`[data-testid="event-row"][class~="selected"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
+    await expect(page.locator(`[data-testid="event-row"][data-selected="true"]`)).toHaveCount(1);
   });
 });
 
@@ -157,14 +157,14 @@ test.describe("Git diff: step focus", () => {
   }) => {
     await page.goto(`/?session=${SID}&tab=git`);
     // by default the selected step's hunk is expanded; other turns collapse
-    await expect(page.locator(`[data-testid="diff-hunk"][class~="collapsed"]`).first()).toBeVisible();
-    expect(await page.locator(`[data-testid="diff-hunk"][class~="collapsed"]`).count()).toBeGreaterThan(0);
+    await expect(page.locator(`[data-testid="diff-hunk"][data-hunk-state="collapsed"]`).first()).toBeVisible();
+    expect(await page.locator(`[data-testid="diff-hunk"][data-hunk-state="collapsed"]`).count()).toBeGreaterThan(0);
     await expect(page.locator(`[data-testid="step-filter"]`)).toBeVisible();
     // "All changes" expands every hunk
     await page.locator(`[data-testid="step-filter"] button`, { hasText: "All changes" }).click();
-    await expect.poll(async () => page.locator(`[data-testid="diff-hunk"][class~="collapsed"]`).count()).toBe(0);
+    await expect.poll(async () => page.locator(`[data-testid="diff-hunk"][data-hunk-state="collapsed"]`).count()).toBe(0);
     // "This step" collapses other turns again
     await page.locator(`[data-testid="step-filter"] button`, { hasText: "This step" }).click();
-    await expect.poll(async () => page.locator(`[data-testid="diff-hunk"][class~="collapsed"]`).count()).toBeGreaterThan(0);
+    await expect.poll(async () => page.locator(`[data-testid="diff-hunk"][data-hunk-state="collapsed"]`).count()).toBeGreaterThan(0);
   });
 });

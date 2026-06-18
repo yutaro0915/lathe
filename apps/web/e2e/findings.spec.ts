@@ -12,7 +12,7 @@ test.describe("Findings tab and verdict oracle", () => {
     const sessionPending = await pendingFindingsForSession(FINDING_FIXTURE.sessionId);
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
 
-    const tab = page.locator(`[data-testid="tabs"] [class~="tab"]`, { hasText: "Findings" });
+    const tab = page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Findings" });
     await expect(tab).toBeVisible();
     await expect(tab).toHaveClass(/active/);
     await expect(tab.locator(`[data-testid="tab-count"]`)).toHaveText(String(sessionPending));
@@ -42,8 +42,8 @@ test.describe("Findings tab and verdict oracle", () => {
 
     const detail = page.locator(`[data-testid="finding-detail"][data-detail-finding-id]`);
     await expect(detail).toContainText(title);
-    await expect(detail.locator(`[data-testid="finding-verdict-btn"][class~="accept"]`)).toBeVisible();
-    await expect(detail.locator(`[data-testid="finding-verdict-btn"][class~="reject"]`)).toBeVisible();
+    await expect(detail.locator(`[data-testid="finding-verdict-btn"][data-verdict="accept"]`)).toBeVisible();
+    await expect(detail.locator(`[data-testid="finding-verdict-btn"][data-verdict="reject"]`)).toBeVisible();
   });
 
   test("Accept with a short reason inserts a verdict and Undo removes it", async ({
@@ -55,12 +55,12 @@ test.describe("Findings tab and verdict oracle", () => {
     await page.locator(`[data-testid="finding-row"]`, { hasText: title }).click();
     const detail = page.locator(`[data-testid="finding-detail"][data-detail-finding-id]`);
     await detail.locator(`[data-testid="finding-verdict-reason"]`).fill("valid fixture");
-    await detail.locator(`[data-testid="finding-verdict-btn"][class~="accept"]`).click();
+    await detail.locator(`[data-testid="finding-verdict-btn"][data-verdict="accept"]`).click();
 
-    await expect(page.locator(`[data-testid="finding-verdict-toast"][class~="accept"]`)).toContainText("Accepted");
+    await expect(page.locator(`[data-testid="finding-verdict-toast"][data-verdict="accept"]`)).toContainText("Accepted");
     await expect.poll(async () => verdictCountForFinding(title)).toBe(1);
 
-    await page.locator(`[data-testid="finding-verdict-toast"] [class~="btn"]`, { hasText: "Undo" }).click();
+    await page.locator(`[data-testid="finding-verdict-toast"] [data-testid="btn"]`, { hasText: "Undo" }).click();
     await expect.poll(async () => verdictCountForFinding(title)).toBe(0);
     await expect(page.locator(`[data-testid="finding-row"]`, { hasText: title })).toHaveAttribute("data-verdict", "pending");
   });
@@ -124,9 +124,9 @@ test.describe("Findings tab and verdict oracle", () => {
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
     await page.locator(`[data-testid="finding-row"]`, { hasText: FINDING_FIXTURE.titles.turnSeq }).click();
     const detail = page.locator(`[data-testid="finding-detail"][data-detail-finding-id]`);
-    await detail.locator('[data-testid="finding-evidence-card"][data-evidence-kind="turn"] [class~="finding-evidence-jump"]').click();
+    await detail.locator('[data-testid="finding-evidence-card"][data-evidence-kind="turn"] [data-testid="finding-evidence"][data-resolved="true"]').click();
 
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Transcript/);
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
     const target = page.locator(`[data-testid="event-row"][data-eid="${FINDING_FIXTURE.eventId}"]`);
     await expect(target).toHaveClass(/selected/);
     await expect(target).toHaveAttribute("data-flash", "true");
@@ -139,17 +139,17 @@ test.describe("Findings tab and verdict oracle", () => {
     await page.locator(`[data-testid="finding-row"]`, { hasText: FINDING_FIXTURE.titles.jump }).click();
     const detail = page.locator(`[data-testid="finding-detail"][data-detail-finding-id]`);
 
-    await detail.locator('[data-testid="finding-evidence-card"][data-evidence-kind="event"] [class~="finding-evidence-jump"]').click();
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Transcript/);
-    await expect(page.locator(`[data-testid="event-row"][class~="selected"][data-eid="${FINDING_FIXTURE.eventId}"]`)).toBeVisible();
+    await detail.locator('[data-testid="finding-evidence-card"][data-evidence-kind="event"] [data-testid="finding-evidence"][data-resolved="true"]').click();
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
+    await expect(page.locator(`[data-testid="event-row"][data-selected="true"][data-eid="${FINDING_FIXTURE.eventId}"]`)).toBeVisible();
 
-    await page.locator(`[data-testid="tabs"] [class~="tab"]`, { hasText: "Findings" }).click();
+    await page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Findings" }).click();
     // the detail panel keeps the same finding selected, so the hunk evidence
     // card is still present — its jump opens the Git tab on that hunk.
-    await detail.locator('[data-testid="finding-evidence-card"][data-evidence-kind="hunk"] [class~="finding-evidence-jump"]').click();
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Git/);
-    await expect(page.locator(`[data-testid="file-row"][class~="active"][data-file-id="${FINDING_FIXTURE.fileId}"]`)).toBeVisible();
-    await expect(page.locator(`[data-testid="diff-hunk"][class~="active"][data-hunk-id="${FINDING_FIXTURE.hunkId}"]`)).toBeVisible();
+    await detail.locator('[data-testid="finding-evidence-card"][data-evidence-kind="hunk"] [data-testid="finding-evidence"][data-resolved="true"]').click();
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Git/);
+    await expect(page.locator(`[data-testid="file-row"][data-active="true"][data-file-id="${FINDING_FIXTURE.fileId}"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="diff-hunk"][data-hunk-state="active"][data-hunk-id="${FINDING_FIXTURE.hunkId}"]`)).toBeVisible();
   });
 
   test("the Findings tab drops the right event inspector and hands it the full width", async ({
@@ -164,7 +164,7 @@ test.describe("Findings tab and verdict oracle", () => {
     // to 0, so the whole width goes to the findings master-detail (the inspector
     // informs no verdict). The grid keeps 3 (shared) tracks; the middle one is the
     // full width and the two flanks are 0.
-    await page.locator(`[data-testid="tabs"] [class~="tab"]`, { hasText: "Findings" }).click();
+    await page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Findings" }).click();
     await expect(page.locator(`[data-testid="layout3"]`)).toHaveAttribute("data-tab", "findings");
     await expect(page.locator(`[data-testid="layout3"] > aside.aside`)).toHaveCount(0);
     const tracks = await page
@@ -196,7 +196,7 @@ test.describe("Findings tab and verdict oracle", () => {
 
     // …but the turn POSITION that used to ride on the session meta line moves to
     // the group header, so "where in the run" is still legible.
-    await expect(card.locator(`[data-testid="finding-evidence-grouphead"] [class~="finding-evidence-position"]`)).toContainText(
+    await expect(card.locator(`[data-testid="finding-evidence-grouphead"] [data-testid="finding-evidence-position"]`)).toContainText(
       "turn 1/1"
     );
 
@@ -280,13 +280,13 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     const card = page
       .locator(`[data-testid="finding-detail"][data-detail-finding-id]`)
       .locator('[data-testid="finding-evidence-card"][data-evidence-kind="turn"]');
-    const sessionJump = card.locator(`button[class~="finding-evidence-session-jump"]`);
+    const sessionJump = card.locator(`[data-testid="finding-evidence-session"]`);
     await expect(sessionJump).toHaveAttribute("data-session-id", FINDING_FIXTURE.sessionId);
     await sessionJump.click();
     // lands on the owning session's viewer, on the Transcript tab
     await expect(page).toHaveURL(new RegExp(`session=${FINDING_FIXTURE.sessionId}`));
     await expect(page).toHaveURL(/tab=transcript/);
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Transcript/);
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
   });
 
   // ② the TURN header row jumps to the transcript positioned at that turn
@@ -298,13 +298,13 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     const card = page
       .locator(`[data-testid="finding-detail"][data-detail-finding-id]`)
       .locator('[data-testid="finding-evidence-card"][data-evidence-kind="turn"]');
-    const turnJump = card.locator(`button[class~="finding-evidence-action-turn"]`);
+    const turnJump = card.locator(`[data-testid="finding-evidence-action-turn"]`);
     await expect(turnJump).toHaveAttribute("data-turn", "1");
     await expect(turnJump).toHaveText(/VIEW TURN/);
     await turnJump.click();
     // same session → in-page: transcript tab active and the turn-head step (seq 1,
     // the USER ASKED prompt) is selected + flashed.
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Transcript/);
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
     const head = page.locator(`[data-testid="event-row"][data-eid="${FINDING_FIXTURE.sessionId}-event-1"]`);
     await expect(head).toHaveClass(/selected/);
   });
@@ -317,7 +317,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     // the grouped finding folds two same-turn steps into one card; the fixture
     // session's turn 1 has 4 top-level events (seqs 1/2/3/4).
     await page.locator(`[data-testid="finding-row"]`, { hasText: FINDING_FIXTURE.titles.grouped }).click();
-    const card = page.locator(`[data-testid="finding-detail"][data-detail-finding-id] [class~="finding-evidence-card"]`).first();
+    const card = page.locator(`[data-testid="finding-detail"][data-detail-finding-id] [data-testid="finding-evidence-card"]`).first();
 
     const toggle = card.locator(`[data-testid="finding-evidence-turn-toggle"]`);
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -342,8 +342,8 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
 
     // clicking an inline row deep-links to that exact step in the transcript
     await evRow.click();
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Transcript/);
-    await expect(page.locator(`[data-testid="event-row"][class~="selected"][data-eid="${FINDING_FIXTURE.eventId}"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
+    await expect(page.locator(`[data-testid="event-row"][data-selected="true"][data-eid="${FINDING_FIXTURE.eventId}"]`)).toBeVisible();
   });
 
   // ③ the verdict bar is visible without scrolling even with long evidence
@@ -354,7 +354,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     // pick a PENDING finding so the Accept/Reject controls render…
     await page.locator(`[data-testid="finding-row"]`, { hasText: FINDING_FIXTURE.titles.grouped }).click();
     const detail = page.locator(`[data-testid="finding-detail"][data-detail-finding-id]`);
-    const accept = detail.locator(`[data-testid="finding-verdict-btn"][class~="accept"]`);
+    const accept = detail.locator(`[data-testid="finding-verdict-btn"][data-verdict="accept"]`);
     await expect(accept).toBeVisible();
 
     // …expand the inline transcript to grow the evidence well past one screen,

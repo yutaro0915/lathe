@@ -492,6 +492,7 @@ export default function FindingsExplorer({
           className={`finding-verdict-toast ${recentVerdict.verdict}`} data-testid="finding-verdict-toast"
           data-finding-id={recentVerdict.findingId}
           data-verdict-id={recentVerdict.verdictId}
+          data-verdict={recentVerdict.verdict}
         >
           <span className="finding-status-dot" data-testid="finding-status-dot" aria-hidden />
           <span>
@@ -999,6 +1000,7 @@ export default function FindingsExplorer({
                         <button
                           type="button"
                           className="finding-verdict-btn accept" data-testid="finding-verdict-btn"
+                          data-verdict="accept"
                           disabled={!!busy[finding.id]}
                           onClick={() => void submitVerdict(finding, "accept")}
                         >
@@ -1007,6 +1009,7 @@ export default function FindingsExplorer({
                         <button
                           type="button"
                           className="finding-verdict-btn reject" data-testid="finding-verdict-btn"
+                          data-verdict="reject"
                           disabled={!!busy[finding.id]}
                           onClick={() => void submitVerdict(finding, "reject")}
                         >

@@ -36,6 +36,7 @@ export default function GlobalNav() {
               href={item.href}
               className={`globalnav-tab${active ? " active" : ""}`} data-testid="globalnav-tab"
               data-nav={item.label.toLowerCase()}
+              data-state={active ? "active" : "inactive"}
               aria-current={active ? "page" : undefined}
             >
               {item.label}

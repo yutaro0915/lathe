@@ -10,23 +10,23 @@ test.describe("Sessions surface + viewer (/)", () => {
   test("the list surface shows sessions; opening a row reveals the named viewer", async ({ page }) => {
     // bare "/" is the full-width Sessions LIST surface (left = nav only).
     await page.goto("/");
-    await expect(page.locator(`[data-testid="session-list"] [class~="session-item"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="session-list"] [data-testid="session-item"]`).first()).toBeVisible();
     // opening a row drills into the per-session WORKSPACE: named header + timeline.
     await gotoViewer(page);
-    await expect(page.locator(`[data-testid="sessbar"] [class~="sessbar-title"]`)).toBeVisible();
-    await expect(page.locator(`[data-testid="sessbar"] [class~="sessbar-stats"]`)).toContainText("tokens");
+    await expect(page.locator(`[data-testid="sessbar"] [data-testid="sessbar-title"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="sessbar"] [data-testid="sessbar-stats"]`)).toContainText("tokens");
     expect(await page.locator(`[data-testid="event-row"]`).count()).toBeGreaterThan(0);
   });
 
   test("tabs switch the centre content", async ({ page }) => {
     await gotoViewer(page);
-    const tabs = page.locator(`[data-testid="tabs"] [class~="tab"]`);
+    const tabs = page.locator(`[data-testid="tabs"] [data-testid="tab"]`);
     await tabs.filter({ hasText: "Raw JSON" }).click();
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Raw JSON/);
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Raw JSON/);
     await tabs.filter({ hasText: "Subagents" }).click();
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Subagents/);
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Subagents/);
     await tabs.filter({ hasText: "Transcript" }).click();
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Transcript/);
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
     await expect(page.locator(`[data-testid="event-row"]`).first()).toBeVisible();
   });
 
@@ -36,7 +36,7 @@ test.describe("Sessions surface + viewer (/)", () => {
     // the event-type filter moved from the (removed) left sidebar into the
     // transcript toolbar; in the default "hide" mode, turning a type off drops
     // its rows from the timeline.
-    await page.locator(`[data-testid="transcript-filters"] [class~="event-type-badge"]`).first().click();
+    await page.locator(`[data-testid="transcript-filters"] [data-testid="event-type-badge"]`).first().click();
     await expect
       .poll(async () => page.locator(`[data-testid="event-row"]`).count())
       .toBeLessThan(before);
@@ -49,13 +49,13 @@ test.describe("Sessions surface + viewer (/)", () => {
     const n = await rows.count();
     expect(n).toBeGreaterThan(0);
     await rows.first().click();
-    await expect(page.locator(`[data-testid="event-row"][class~="selected"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-testid="event-row"][data-selected="true"]`)).toHaveCount(1);
   });
 
   test("the surface search filters the list and clears", async ({ page }) => {
     // the search box lives on the list surface itself (no session open yet).
     await page.goto("/");
-    await expect(page.locator(`[data-testid="session-list"] [class~="session-item"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="session-list"] [data-testid="session-item"]`).first()).toBeVisible();
     const before = await page.locator(`[data-testid="session-item"]`).count();
     expect(before).toBeGreaterThan(0);
     const box = page.getByPlaceholder(/Search sessions/i);
@@ -69,12 +69,12 @@ test.describe("Sessions surface + viewer (/)", () => {
 
   test("clicking a list row navigates with ?session= into the viewer", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator(`[data-testid="session-list"] [class~="session-item"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="session-list"] [data-testid="session-item"]`).first()).toBeVisible();
     await page.locator(`[data-testid="session-item"]`).first().click();
     await expect(page).toHaveURL(/\?session=/);
     // the viewer no longer carries its own session-list sidebar (navigation lives
     // in the left rail); a row click lands in the named per-session workspace.
-    await expect(page.locator(`[data-testid="sessbar"] [class~="sessbar-title"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="sessbar"] [data-testid="sessbar-title"]`)).toBeVisible();
     await expect(page.locator(`[data-testid="event-row"]`).first()).toBeVisible();
   });
 
@@ -89,13 +89,13 @@ test.describe("Sessions surface + viewer (/)", () => {
   test("cost is derived from token usage and shown ($)", async ({ page }) => {
     // the list surface shows priceable (Opus) sessions with a real dollar amount.
     await page.goto("/");
-    await expect(page.locator(`[data-testid="session-list"] [class~="session-item"]`).first()).toBeVisible();
-    const dollarCosts = page.locator(`[data-testid="session-item"] [class~="chip"][class~="cost"]`, { hasText: "$" });
+    await expect(page.locator(`[data-testid="session-list"] [data-testid="session-item"]`).first()).toBeVisible();
+    const dollarCosts = page.locator(`[data-testid="session-item"] [data-testid="chip"][data-cell="cost"]`, { hasText: "$" });
     expect(await dollarCosts.count()).toBeGreaterThan(0);
     // and the viewer header carries the matching Cost stat.
     await gotoViewer(page);
     await expect(
-      page.locator(`[data-testid="sessbar-stats"] [class~="kstat"]`, { hasText: "cost" })
+      page.locator(`[data-testid="sessbar-stats"] [data-testid="kstat"]`, { hasText: "cost" })
     ).toBeVisible();
   });
 });
@@ -112,7 +112,7 @@ test.describe("Cost anomaly detection", () => {
 
     await page.goto("/");
     const actual = (
-      await page.locator(`[data-testid="session-list"] [class~="session-item"]`).evaluateAll((items) =>
+      await page.locator(`[data-testid="session-list"] [data-testid="session-item"]`).evaluateAll((items) =>
         items
           .filter((item) => item.querySelector(".anomaly-chip"))
           .map((item) => item.getAttribute("data-session-id"))
@@ -147,13 +147,13 @@ test.describe("Cost anomaly detection", () => {
       await expect(page.locator(`[data-testid="session-item"][data-session-id="${id}"]`)).toHaveCount(1);
     }
     await expect(
-      page.locator(`[data-testid="session-item"][data-session-id="${COST_FIXTURE_IDS[1]}"] [class~="anomaly-chip"]`)
+      page.locator(`[data-testid="session-item"][data-session-id="${COST_FIXTURE_IDS[1]}"] [data-anomaly="cost"]`)
     ).toHaveText("▲ cost");
     await expect(
-      page.locator(`[data-testid="session-item"][data-session-id="${COST_FIXTURE_IDS[0]}"] [class~="anomaly-chip"]`)
+      page.locator(`[data-testid="session-item"][data-session-id="${COST_FIXTURE_IDS[0]}"] [data-anomaly="cost"]`)
     ).toHaveCount(0);
     await expect(
-      page.locator(`[data-testid="session-item"][data-session-id="${COST_FIXTURE_IDS[2]}"] [class~="anomaly-chip"]`)
+      page.locator(`[data-testid="session-item"][data-session-id="${COST_FIXTURE_IDS[2]}"] [data-anomaly="cost"]`)
     ).toHaveCount(0);
   });
 
@@ -163,7 +163,7 @@ test.describe("Cost anomaly detection", () => {
     // Overview v2 has no session rail; the anomalous session is a row in the
     // attention panel's cost-alerts column, carrying a ▲ cost flag, and links
     // straight to that session's viewer.
-    const row = page.locator(`[data-attn-group="cost"] [class~="attn-row"][data-session-id="${COST_FIXTURE_IDS[1]}"]`
+    const row = page.locator(`[data-attn-group="cost"] [data-testid="attn-row"][data-session-id="${COST_FIXTURE_IDS[1]}"]`
     );
     await expect(row).toBeVisible();
     // the row shows the session cost and an overrun ratio (cost ÷ baseline). Being
@@ -233,7 +233,7 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
     // The session list (and its "show sub-sessions" toggle) lives on the Sessions
     // surface ("/") now that the per-session viewer's sidebar was removed.
     await page.goto("/");
-    await expect(page.locator(`[data-testid="session-list"] [class~="session-item"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="session-list"] [data-testid="session-item"]`).first()).toBeVisible();
     const childItem = page.locator(`[data-testid="session-list"] [data-session-id="${SUBAGENT_FIXTURE.childId}"]`
     );
     await expect(childItem).toHaveCount(0);
@@ -263,23 +263,23 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
     await page.goto(`/?session=${SID}&tab=subagents`);
     await page.locator(`[data-testid="sa-card"]`).first().click();
     // the tabbar reflects the opened run + per-run execution rows appear
-    await expect(page.locator(`[data-testid="sa-tabbar"] [class~="sa-tab"][class~="active"] [class~="sa-tab-idx"]`)).toHaveText("1");
+    await expect(page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"][aria-selected="true"] [data-testid="sa-tab-idx"]`)).toHaveText("1");
     await expect
-      .poll(async () => page.locator(`[data-testid="sa-detail"] [class~="event-row"][class~="child-row"]`).count())
+      .poll(async () => page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).count())
       .toBeGreaterThan(0);
     // selecting an internal step drives the right detail panel
-    await page.locator(`[data-testid="sa-detail"] [class~="event-row"][class~="child-row"]`).first().click();
-    await expect(page.locator(`[data-testid="sa-detail"] [class~="event-row"][class~="child-row"][class~="selected"]`)).toHaveCount(1);
-    await expect(page.locator(`[data-testid="detail"] [class~="detail-head"] [class~="dtitle"]`)).toBeVisible();
+    await page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).first().click();
+    await expect(page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"][data-selected="true"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-testid="detail"] [data-testid="detail-head"] [data-testid="dtitle"]`)).toBeVisible();
   });
 
   test("tabbar steps between runs", async ({ page }) => {
     await page.goto(`/?session=${SID}&tab=subagents`);
     await page.locator(`[data-testid="sa-card"]`).first().click();
-    await expect(page.locator(`[data-testid="sa-tabbar"] [class~="sa-tab"][class~="active"] [class~="sa-tab-idx"]`)).toHaveText("1");
-    await page.locator(`[data-testid="sa-tabbar"] [class~="sa-tab"]`, { has: page.locator(`[data-testid="sa-tab-idx"]`, { hasText: "2" }) }).click();
-    await expect(page.locator(`[data-testid="sa-tabbar"] [class~="sa-tab"][class~="active"] [class~="sa-tab-idx"]`)).toHaveText("2");
-    await expect.poll(async () => page.locator(`[data-testid="sa-detail"] [class~="event-row"][class~="child-row"]`).count()).toBeGreaterThan(0);
+    await expect(page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"][aria-selected="true"] [data-testid="sa-tab-idx"]`)).toHaveText("1");
+    await page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"]`, { has: page.locator(`[data-testid="sa-tab-idx"]`, { hasText: "2" }) }).click();
+    await expect(page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"][aria-selected="true"] [data-testid="sa-tab-idx"]`)).toHaveText("2");
+    await expect.poll(async () => page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).count()).toBeGreaterThan(0);
   });
 
   test("a launcher row in the transcript jumps to its run detail", async ({ page }) => {
@@ -288,23 +288,23 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
     const jump = page.locator(`[data-testid="sa-jump"]`).first();
     if ((await jump.count()) > 0) {
       await jump.click();
-      await expect(page.locator(`[data-testid="tabs"] [class~="tab"][class~="active"]`)).toHaveText(/Subagents/);
-      await expect(page.locator(`[data-testid="sa-tabbar"] [class~="sa-tab"][class~="active"] [class~="sa-tab-idx"]`)).toBeVisible();
+      await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Subagents/);
+      await expect(page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"][aria-selected="true"] [data-testid="sa-tab-idx"]`)).toBeVisible();
     }
   });
 
   test("each run shows which model ran and its cost", async ({ page }) => {
     await page.goto(`/?session=${SID}&tab=subagents`);
     // overview cards carry a model chip + a $ cost
-    await expect(page.locator(`[data-testid="sa-card"] [class~="sa-model"]`).first()).toBeVisible();
-    await expect(page.locator(`[data-testid="sa-card"] [class~="sa-cost"]`).first()).toContainText("$");
+    await expect(page.locator(`[data-testid="sa-card"] [data-testid="sa-model"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="sa-card"] [data-testid="sa-cost"]`).first()).toContainText("$");
     // the detail view exposes Model + Cost stats
     await page.locator(`[data-testid="sa-tab"]`, { hasText: "general-purpose" }).first().click();
     await expect(
-      page.locator(`[data-testid="sa-detail-stats"] [class~="stat"]`, { hasText: "Model" })
+      page.locator(`[data-testid="sa-detail-stats"] [data-testid="stat"]`, { hasText: "Model" })
     ).toBeVisible();
     await expect(
-      page.locator(`[data-testid="sa-detail-stats"] [class~="stat"]`, { hasText: "Cost" })
+      page.locator(`[data-testid="sa-detail-stats"] [data-testid="stat"]`, { hasText: "Cost" })
     ).toBeVisible();
   });
 
@@ -320,16 +320,16 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
     await expect(
       page.locator('[data-testid="aside"] [data-aside-placeholder="step-inspect"]')
     ).toBeVisible();
-    await expect(page.locator(`[data-testid="aside"] [class~="detail-head"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="aside"] [data-testid="detail-head"]`)).toHaveCount(0);
     // picking a step swaps the aside to that step's detail (placeholder gone)
     await expect
-      .poll(async () => page.locator(`[data-testid="sa-detail"] [class~="event-row"][class~="child-row"]`).count())
+      .poll(async () => page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).count())
       .toBeGreaterThan(0);
-    await page.locator(`[data-testid="sa-detail"] [class~="event-row"][class~="child-row"]`).first().click();
+    await page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).first().click();
     await expect(
       page.locator('[data-testid="aside"] [data-aside-placeholder="step-inspect"]')
     ).toHaveCount(0);
-    await expect(page.locator(`[data-testid="aside"] [class~="detail-head"] [class~="dtitle"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="aside"] [data-testid="detail-head"] [data-testid="dtitle"]`)).toBeVisible();
   });
 
   test("Result = the run's own verdict; child-step failures are a separate count", async ({
@@ -337,11 +337,11 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
   }) => {
     await page.goto(`/?session=${SID}&tab=subagents`);
     await page.locator(`[data-testid="sa-card"]`).first().click();
-    const result = page.locator(`[data-testid="sa-detail-stats"] [class~="stat"]`, { hasText: "Result" }).locator(`[data-testid="stat-v"]`);
+    const result = page.locator(`[data-testid="sa-detail-stats"] [data-testid="stat"]`, { hasText: "Result" }).locator(`[data-testid="stat-v"]`);
     await expect(result).toHaveText(/^(ok|error)$/);
     // if any child step failed, that fact is surfaced under Steps (NOT folded
     // into Result) — so "ok" + "N failed" can coexist without contradiction.
-    const note = page.locator(`[data-testid="sa-detail-stats"] [class~="failed-steps-note"]`);
+    const note = page.locator(`[data-testid="sa-detail-stats"] [data-testid="stat-note"]`);
     if ((await note.count()) > 0) {
       await expect(note.first()).toContainText(/failed/);
     }
@@ -372,7 +372,7 @@ test.describe("Global nav & IA axes", () => {
     ];
     for (const [route, nav] of cases) {
       await page.goto(route);
-      const active = page.locator(`[data-testid="globalnav-tab"][class~="active"]`);
+      const active = page.locator(`[data-testid="globalnav-tab"][data-state="active"]`);
       await expect(active).toHaveCount(1);
       await expect(active).toHaveAttribute("data-nav", nav);
     }
@@ -381,7 +381,7 @@ test.describe("Global nav & IA axes", () => {
   test("no Chat entry point survives in the session viewer (chat removed)", async ({ page }) => {
     await gotoViewer(page);
     // neither the old tab nor the sessbar Discuss chip exist anymore.
-    await expect(page.locator(`[data-testid="tabs"] [class~="tab"]`, { hasText: "Chat" })).toHaveCount(0);
+    await expect(page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Chat" })).toHaveCount(0);
     await expect(page.locator(`[data-testid="chat-session-chip"]`)).toHaveCount(0);
   });
 
@@ -390,7 +390,7 @@ test.describe("Global nav & IA axes", () => {
   }) => {
     const oracle = await getFindingOracle();
     await page.goto("/findings");
-    await expect(page.locator(`[data-testid="globalnav-tab"][class~="active"]`)).toHaveAttribute("data-nav", "findings");
+    await expect(page.locator(`[data-testid="globalnav-tab"][data-state="active"]`)).toHaveAttribute("data-nav", "findings");
 
     // the same master-detail component as the tab, in axis mode
     await expect(page.locator('[data-testid="findings-tab"][data-findings-mode="axis"]')).toBeVisible();
@@ -400,13 +400,13 @@ test.describe("Global nav & IA axes", () => {
     const detail = page.locator(`[data-testid="finding-detail"][data-detail-finding-id]`);
     await expect(detail).toBeVisible();
     await detail.locator(`[data-testid="finding-verdict-reason"]`).fill("axis verified");
-    await detail.locator(`[data-testid="finding-verdict-btn"][class~="accept"]`).click();
-    await expect(page.locator(`[data-testid="finding-verdict-toast"][class~="accept"]`)).toContainText("Accepted");
+    await detail.locator(`[data-testid="finding-verdict-btn"][data-verdict="accept"]`).click();
+    await expect(page.locator(`[data-testid="finding-verdict-toast"][data-verdict="accept"]`)).toContainText("Accepted");
     await expect.poll(async () => verdictCountForFinding(FINDING_FIXTURE.titles.jump)).toBe(1);
 
     // restore the fixture to pending so the shared seed is not contaminated for
     // later tests (findings are seeded once in beforeAll).
-    await page.locator(`[data-testid="finding-verdict-toast"] [class~="btn"]`, { hasText: "Undo" }).click();
+    await page.locator(`[data-testid="finding-verdict-toast"] [data-testid="btn"]`, { hasText: "Undo" }).click();
     await expect.poll(async () => verdictCountForFinding(FINDING_FIXTURE.titles.jump)).toBe(0);
   });
 
@@ -450,17 +450,17 @@ test.describe("Global nav & IA axes", () => {
     // global rail showing the Sessions axis active.
     await page.goto(`/?session=${encodeURIComponent(oracle.ownerSession)}&tab=transcript`);
     await expect(page).toHaveURL(new RegExp(`session=${oracle.ownerSession}`));
-    await expect(page.locator(`[data-testid="sessbar"] [class~="sessbar-title"]`)).toBeVisible();
-    await expect(page.locator(`[data-testid="globalnav-tab"][class~="active"]`)).toHaveAttribute("data-nav", "sessions");
+    await expect(page.locator(`[data-testid="sessbar"] [data-testid="sessbar-title"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="globalnav-tab"][data-state="active"]`)).toHaveAttribute("data-nav", "sessions");
     const ownerTitle = await page.locator(`[data-testid="sessbar-title"]`).textContent();
 
     // switching to another session swaps the workspace to that session — no stale
     // header is left behind.
     await page.goto(`/?session=${encodeURIComponent(oracle.otherSession)}&tab=transcript`);
     await expect(page).toHaveURL(new RegExp(`session=${oracle.otherSession}`));
-    await expect(page.locator(`[data-testid="sessbar"] [class~="sessbar-title"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="sessbar"] [data-testid="sessbar-title"]`)).toBeVisible();
     await expect(page.locator(`[data-testid="sessbar-title"]`)).not.toHaveText(ownerTitle ?? "");
-    await expect(page.locator(`[data-testid="globalnav-tab"][class~="active"]`)).toHaveAttribute("data-nav", "sessions");
+    await expect(page.locator(`[data-testid="globalnav-tab"][data-state="active"]`)).toHaveAttribute("data-nav", "sessions");
   });
 
   test("the deep-linked session is always identifiable in its workspace header", async ({
@@ -472,7 +472,7 @@ test.describe("Global nav & IA axes", () => {
     // "which one am I viewing" must never be lost: with the session-list sidebar
     // gone, the sessbar header is the single source of truth and always names the
     // open session (requirement C, restated for the rail-nav IA).
-    await expect(page.locator(`[data-testid="sessbar"] [class~="sessbar-title"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="sessbar"] [data-testid="sessbar-title"]`)).toBeVisible();
     await expect(page.locator(`[data-testid="event-row"]`).first()).toBeVisible();
   });
 });
@@ -485,13 +485,13 @@ test.describe("Harness signals", () => {
     await expandAllTurns(page);
     // event-type filter (now in the transcript toolbar) exposes Memory + Hook
     await expect(
-      page.locator(`[data-testid="transcript-filters"] [class~="event-type-badge"]`, { hasText: "Memory" })
+      page.locator(`[data-testid="transcript-filters"] [data-testid="event-type-badge"]`, { hasText: "Memory" })
     ).toBeVisible();
     await expect(
-      page.locator(`[data-testid="transcript-filters"] [class~="event-type-badge"]`, { hasText: "Hook" })
+      page.locator(`[data-testid="transcript-filters"] [data-testid="event-type-badge"]`, { hasText: "Hook" })
     ).toBeVisible();
     // and at least one memory event renders in the timeline with its own icon
-    await expect(page.locator(`[data-testid="timeline"] [class~="event-icon"][class~="memory"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="timeline"] [data-testid="event-icon"][data-event-kind="memory"]`).first()).toBeVisible();
   });
 
   test("the overview charts break down where the actions went across sessions", async ({
@@ -503,7 +503,7 @@ test.describe("Harness signals", () => {
     await expect(
       page.locator(`[data-testid="chart-card"]`, { hasText: "Where the actions went" })
     ).toBeVisible();
-    await expect(page.locator(`[data-testid="chart-card"] [class~="hbar-row"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="chart-card"] [data-testid="hbar-row"]`).first()).toBeVisible();
   });
 });
 
@@ -513,7 +513,7 @@ test.describe("Codex support", () => {
   }) => {
     await page.goto("/");
     await expect(
-      page.locator(`[data-testid="session-list"] [class~="runner-badge"]`, { hasText: "Codex" }).first()
+      page.locator(`[data-testid="session-list"] [data-testid="runner-badge"]`, { hasText: "Codex" }).first()
     ).toBeVisible();
   });
 
@@ -532,7 +532,7 @@ test.describe("Codex support", () => {
     // Codex has no skill tool, so this is detected from the shell read — it must
     // still show up as a first-class skill (it was previously lost as a file_read).
     await page.goto("/?session=019e9d30-e0a9-7752-b11c-70aa8644e17f&tab=skills");
-    await expect(page.locator(`[data-testid="timeline"] [class~="event-icon"][class~="skill"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="timeline"] [data-testid="event-icon"][data-event-kind="skill"]`).first()).toBeVisible();
     await expect(page.locator(`[data-testid="timeline"]`)).toContainText(/openai-docs/);
   });
 });

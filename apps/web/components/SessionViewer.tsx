@@ -1269,7 +1269,7 @@ export default function SessionViewer({
       </div>
 
       {/* ===================== Band 3 — tabs ===================== */}
-      <div className="tabs" data-testid="tabs">
+      <div className="tabs" data-testid="tabs" role="tablist">
         {(
           [
             ["transcript", "Transcript"],
@@ -1286,6 +1286,9 @@ export default function SessionViewer({
           <button
             key={key}
             type="button"
+            role="tab"
+            aria-selected={activeTab === key}
+            data-tab={key}
             className={`tab${activeTab === key ? " active" : ""}`} data-testid="tab"
             onClick={() => {
               setActiveTab(key);
@@ -1435,7 +1438,7 @@ export default function SessionViewer({
                         <button
                           key={t}
                           type="button"
-                          className={`event-type-badge ${t}`} data-testid="event-type-badge"
+                          className={`event-type-badge ${t}`} data-testid="event-type-badge" data-event-kind={t}
                           title={`${EVENT_LABEL[t]} — click to ${on ? "hide" : "show"}`}
                           onClick={() => toggleType(t)}
                           style={{ cursor: "pointer", opacity: on ? 1 : 0.38 }}
@@ -1530,6 +1533,10 @@ export default function SessionViewer({
                       data-rollup-duration-ms={isTurnHeader ? rollupDurationMs : undefined}
                       data-turn-has-error={isTurnHeader && turnStats.errors > 0 ? "true" : undefined}
                       data-flash={flashEventId === e.id ? "true" : undefined}
+                      data-selected={isSel ? "true" : undefined}
+                      data-row-kind={isTurnHeader ? "turn-header" : "step"}
+                      data-child-row={depth > 0 ? "true" : undefined}
+                      data-dimmed={isDimmed ? "true" : undefined}
                       className={`event-row${depth > 0 ? " child-row" : ""}${!isTurnHeader ? " step-row" : ""}${isSel ? " selected" : ""}${flashEventId === e.id ? " flash-jump" : ""}${isTurnHeader ? " turn-header" : ""}${isTurnHeader && turnStats.errors > 0 ? " turn-has-error" : ""}${isDimmed ? " filter-dimmed" : ""}`} data-testid="event-row"
                       onClick={() => {
                         if (isTurnHeader) {
@@ -1592,7 +1599,7 @@ export default function SessionViewer({
                         )}
                       </span>
                       <span className="event-gutter" data-testid="event-gutter">{e.ts}</span>
-                      <span className={`event-icon ${e.type}`} data-testid="event-icon" aria-hidden>
+                      <span className={`event-icon ${e.type}`} data-testid="event-icon" data-event-kind={e.type} aria-hidden>
                         {glyph}
                       </span>
                       <div className="event-main" data-testid="event-main">
@@ -1601,17 +1608,17 @@ export default function SessionViewer({
                           {pinned && <span title="Pinned" aria-label="Pinned">📌</span>}
                           {notes[e.id] && <span title="Has note" aria-label="Has note">🗒</span>}
                           {showBadge && (
-                            <span className={`event-type-badge ${e.type}`} data-testid="event-type-badge">{EVENT_LABEL[e.type]}</span>
+                            <span className={`event-type-badge ${e.type}`} data-testid="event-type-badge" data-event-kind={e.type}>{EVENT_LABEL[e.type]}</span>
                           )}
                           {depth === 0 && e.subagent && (
-                            <span className="event-type-badge subagent" data-testid="event-type-badge">{e.subagent}</span>
+                            <span className="event-type-badge subagent" data-testid="event-type-badge" data-event-kind="subagent">{e.subagent}</span>
                           )}
                         </div>
                         {subNode}
                       </div>
                       <span className="event-meta" data-testid="event-meta">
                         {isTurnHeader && (
-                          <span className="chip turn-chip" data-testid="chip" title={`Turn ${turnStats.turn} of ${turnCount}`}>
+                          <span className="chip turn-chip" data-testid="chip" data-chip-kind="turn" title={`Turn ${turnStats.turn} of ${turnCount}`}>
                             Turn {turnStats.turn}
                           </span>
                         )}
@@ -1744,6 +1751,8 @@ export default function SessionViewer({
                     <div
                       key={e.id}
                       data-eid={e.id}
+                      data-selected={isSel ? "true" : undefined}
+                      data-event-kind={e.type}
                       className={`event-row${isSel ? " selected" : ""}`} data-testid="event-row"
                       onClick={() => setSelectedEventId(e.id)}
                       role="button"
@@ -1758,13 +1767,13 @@ export default function SessionViewer({
                     >
                       <span className="event-seq" data-testid="event-seq">{e.seq}</span>
                       <span className="event-gutter" data-testid="event-gutter">{e.ts}</span>
-                      <span className={`event-icon ${e.type}`} data-testid="event-icon" aria-hidden>
+                      <span className={`event-icon ${e.type}`} data-testid="event-icon" data-event-kind={e.type} aria-hidden>
                         {TYPE_GLYPH[e.type] ?? "•"}
                       </span>
                       <div className="event-main" data-testid="event-main">
                         <div className="event-headline" data-testid="event-headline">
                           <span className="event-title" data-testid="event-title">{e.title}</span>
-                          <span className={`event-type-badge ${e.type}`} data-testid="event-type-badge">{EVENT_LABEL[e.type]}</span>
+                          <span className={`event-type-badge ${e.type}`} data-testid="event-type-badge" data-event-kind={e.type}>{EVENT_LABEL[e.type]}</span>
                         </div>
                         {(e.command || e.filePath) && (
                           <div className={`event-sub ${e.filePath ? "path" : "mono"}`} data-testid="event-sub">
@@ -1803,6 +1812,8 @@ export default function SessionViewer({
                     <div
                       key={e.id}
                       data-eid={e.id}
+                      data-selected={isSel ? "true" : undefined}
+                      data-event-kind={e.type}
                       className={`event-row${isSel ? " selected" : ""}`} data-testid="event-row"
                       onClick={() => setSelectedEventId(e.id)}
                       role="button"
@@ -1817,7 +1828,7 @@ export default function SessionViewer({
                     >
                       <span className="event-seq" data-testid="event-seq">{e.seq}</span>
                       <span className="event-gutter" data-testid="event-gutter">{e.ts}</span>
-                      <span className="event-icon skill" data-testid="event-icon" aria-hidden>
+                      <span className="event-icon skill" data-testid="event-icon" data-event-kind="skill" aria-hidden>
                         {TYPE_GLYPH.skill}
                       </span>
                       <div className="event-main" data-testid="event-main">
@@ -2102,6 +2113,9 @@ export default function SessionViewer({
                                 return (
                                   <div
                                     key={k.id}
+                                    data-selected={isSel ? "true" : undefined}
+                                    data-child-row="true"
+                                    data-event-kind={k.type}
                                     className={`event-row child-row${isSel ? " selected" : ""}`} data-testid="event-row"
                                     onClick={() => setSelectedEventId(k.id)}
                                     role="button"
@@ -2116,13 +2130,13 @@ export default function SessionViewer({
                                   >
                                     <span className="event-seq" data-testid="event-seq">{k.seq}</span>
                                     <span className="event-gutter" data-testid="event-gutter">{k.ts}</span>
-                                    <span className={`event-icon ${k.type}`} data-testid="event-icon" aria-hidden>
+                                    <span className={`event-icon ${k.type}`} data-testid="event-icon" data-event-kind={k.type} aria-hidden>
                                       {TYPE_GLYPH[k.type] ?? "•"}
                                     </span>
                                     <div className="event-main" data-testid="event-main">
                                       <div className="event-headline" data-testid="event-headline">
                                         <span className="event-title" data-testid="event-title">{k.title}</span>
-                                        <span className={`event-type-badge ${k.type}`} data-testid="event-type-badge">
+                                        <span className={`event-type-badge ${k.type}`} data-testid="event-type-badge" data-event-kind={k.type}>
                                           {EVENT_LABEL[k.type]}
                                         </span>
                                       </div>
@@ -2161,7 +2175,7 @@ export default function SessionViewer({
 
           {/* ===== ANNOTATIONS (session-wide notable moments) ===== */}
           {activeTab === "annotations" && (
-            <div className="timeline annotations-tab" data-testid="timeline">
+            <div className="timeline annotations-tab" data-testid="timeline" data-panel="annotations">
               <div className="annotations-tab-head" data-testid="annotations-tab-head">
                 <span className="ann-tab-label" data-testid="ann-tab-label">Annotations</span>
                 <span className="count mono" data-testid="count">{annotations.length}</span>
@@ -2464,7 +2478,7 @@ export default function SessionViewer({
                   </button>
                 )}
               </div>
-              <pre className="code-block output" data-testid="code-block">
+              <pre className="code-block output" data-testid="code-block" data-block-kind="output">
                 {selected?.body ? selected.body : <span className="muted" data-testid="muted">(no output captured)</span>}
               </pre>
             </div>

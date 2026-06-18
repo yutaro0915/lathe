@@ -614,7 +614,7 @@ export default function DiffViewer({
 
       {/* tab strip — active = Git. Session picker lives at the right so session
           switching stays reachable from this screen (the only navigation). */}
-      <div className="tabs" data-testid="tabs">
+      <div className="tabs" data-testid="tabs" role="tablist">
         {(
           [
             ["transcript", "Transcript"],
@@ -624,13 +624,16 @@ export default function DiffViewer({
           <button
             key={key}
             type="button"
+            role="tab"
+            aria-selected={false}
+            data-tab={key}
             className="tab" data-testid="tab"
             onClick={() => router.push(`/?session=${encodeURIComponent(currentId)}&tab=${key}`)}
           >
             {label}
           </button>
         ))}
-        <span className="tab active" data-testid="tab">Git</span>
+        <span className="tab active" data-testid="tab" role="tab" aria-selected={true} data-tab="git">Git</span>
         {(
           [
             ["skills", "Skills"],
@@ -641,6 +644,9 @@ export default function DiffViewer({
           <button
             key={key}
             type="button"
+            role="tab"
+            aria-selected={false}
+            data-tab={key}
             className="tab" data-testid="tab"
             onClick={() => router.push(`/?session=${encodeURIComponent(currentId)}&tab=${key}`)}
           >
@@ -697,6 +703,7 @@ export default function DiffViewer({
                 return (
                   <div
                     key={`folder-${row.path}-${i}`}
+                    data-row-kind="folder"
                     className={`file-row is-folder ${indentClass(row.depth)}`} data-testid="file-row"
                     role="button"
                     tabIndex={0}
@@ -709,7 +716,7 @@ export default function DiffViewer({
                     }}
                   >
                     <span className="twisty" data-testid="twisty">{collapsed ? "▸" : "▾"}</span>
-                    <span className="ficon folder" data-testid="ficon" aria-hidden>
+                    <span className="ficon folder" data-testid="ficon" data-ficon-kind="folder" aria-hidden>
                       <FolderIcon />
                     </span>
                     <span className="fname" data-testid="fname" title={row.path}>
@@ -728,6 +735,8 @@ export default function DiffViewer({
                 <div
                   key={f.id}
                   data-file-id={f.id}
+                  data-row-kind="file"
+                  data-active={isActive ? "true" : undefined}
                   className={`file-row is-file ${indentClass(row.depth)}${
                     isActive ? " active" : ""
                   }`} data-testid="file-row"
@@ -742,7 +751,7 @@ export default function DiffViewer({
                   }}
                 >
                   <span className="twisty" data-testid="twisty" />
-                  <span className={`status-chip ${f.status}`} data-testid="status-chip" title={f.status} aria-hidden>
+                  <span className={`status-chip ${f.status}`} data-testid="status-chip" data-status={f.status} title={f.status} aria-hidden>
                     {statusGlyph(f.status)}
                   </span>
                   <span className="fname" data-testid="fname" title={f.path}>
@@ -781,6 +790,8 @@ export default function DiffViewer({
                 >
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={!showAllHunks}
                     className={!showAllHunks ? "active" : ""}
                     onClick={() => setShowAllHunks(false)}
                   >
@@ -788,6 +799,8 @@ export default function DiffViewer({
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={showAllHunks}
                     className={showAllHunks ? "active" : ""}
                     onClick={() => setShowAllHunks(true)}
                   >
@@ -795,9 +808,11 @@ export default function DiffViewer({
                   </button>
                 </span>
               )}
-              <span className="segmented" data-testid="segmented">
+              <span className="segmented" data-testid="segmented" role="tablist">
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={viewMode === "unified"}
                   className={viewMode === "unified" ? "active" : ""}
                   onClick={() => setViewMode("unified")}
                 >
@@ -805,6 +820,8 @@ export default function DiffViewer({
                 </button>
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={viewMode === "split"}
                   className={viewMode === "split" ? "active" : ""}
                   onClick={() => setViewMode("split")}
                 >
@@ -896,6 +913,7 @@ export default function DiffViewer({
                       className="diff-hunk collapsed" data-testid="diff-hunk"
                       data-hunk-id={h.id}
                       data-hunk-seq={h.seq}
+                      data-hunk-state="collapsed"
                       role="button"
                       tabIndex={0}
                       onClick={() => hunkEventId && setSelectedLinkedEventId(hunkEventId)}
@@ -921,6 +939,7 @@ export default function DiffViewer({
                     key={h.id}
                     data-hunk-id={h.id}
                     data-hunk-seq={h.seq}
+                    data-hunk-state={isCurrent ? "active" : "expanded"}
                     ref={(el) => {
                       hunkRefs.current[hi] = el;
                     }}
