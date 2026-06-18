@@ -383,14 +383,14 @@ export default function SessionViewer({
         jumpToTurn={jumpToTurn}
       />
       <SessionTabs activeTab={activeTab} setActiveTab={setActiveTab} annotationsCount={annotations.length} pendingFindingsCount={currentSessionPendingFindings.length} visibleCount={visibleEvents.length} clearGitFocus={clearGitFocus} />
-      <div className="layout3" data-testid="layout3" data-tab={activeTab} style={{ gridTemplateColumns: activeTab === "findings" ? "0 minmax(0,1fr) 0" : "0 minmax(0,1fr) var(--aside-w)" }}>
+      <div className="lds-layout3" data-testid="layout3" data-tab={activeTab} style={{ gridTemplateColumns: activeTab === "findings" ? "0 minmax(0,1fr) 0" : "0 minmax(0,1fr) var(--aside-w)" }}>
         {activeTab === "git" ? (
           <GitTab sessions={sessions} bundle={bundle} currentId={currentId} focusEventId={gitFocusEvent} focusFileId={gitFocusFileId} focusHunkId={gitFocusHunkId} onJumpToEvent={(eid) => { setActiveTab("transcript"); selectTimelineEvent(eid, true); clearGitFocus(); }} />
         ) : activeTab === "stats" ? (
           <StatsTab bundle={bundle} />
         ) : (
           <>
-            <main className="main" data-testid="main">
+            <main className="lds-layout-main" data-testid="main">
               {landing && (landing.fromFinding != null || landing.seq != null) && (
                 <div className="jump-landing-banner" data-testid="jump-landing-banner" data-from-finding={landing.fromFinding ?? undefined}>
                   <span className="jump-landing-dot" data-testid="jump-landing-dot" aria-hidden>▸</span>

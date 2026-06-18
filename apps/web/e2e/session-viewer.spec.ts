@@ -224,7 +224,6 @@ test.describe("Turn-first explorer", () => {
     await page.goto(`/?session=${SID}`);
     const row = page.locator(`[data-testid="timeline"] [data-testid="event-row"][data-row-kind="turn-header"][data-turn="${errorTurn!.turn}"]`);
     await expect(row).toHaveAttribute("data-turn-has-error", "true");
-    await expect(row).toHaveClass(/turn-has-error/);
   });
 
   test("turn row click expands and collapses; sub-agent nesting still expands", async ({ page }) => {

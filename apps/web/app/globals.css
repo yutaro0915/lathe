@@ -10,50 +10,6 @@
    No CSS modules, no Tailwind. RSC-friendly (no JS needed).
    ========================================================================== */
 
-/* ---- design tokens --------------------------------------------------------*/
-:root {
-  --bg:#f7f8fa; --bg-sunken:#f0f2f5; --panel:#ffffff; --panel-2:#fafbfc;
-  --panel-hover:#f3f5f8; --sidebar-bg:#f7f8fa;
-  --border:#e4e7ec; --border-strong:#d2d7de; --border-faint:#edeff3;
-  --shadow-sm:0 1px 2px rgba(16,24,40,.04);
-  --shadow-md:0 2px 6px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.03);
-  --shadow-pop:0 8px 24px rgba(16,24,40,.10);
-  --text:#1c2430; --text-soft:#3c4656; --muted:#646e7e; --muted-2:#98a1ae;
-  --accent:#3b6fd4; --accent-strong:#2e5fc2; --accent-weak:#edf2fb; --accent-ring:rgba(59,111,212,.30);
-  --green:#3d8f63; --green-text:#2c7a50; --green-bg:#ecf5f0; --green-chip:#d9ece2;
-  --add-bg:#eef7f1; --add-bg-strong:#dcefe3; --add-text:#2c7a50; --add-marker:#55a87c;
-  --red:#d64545; --red-text:#b42318; --red-bg:#fdeceb; --red-chip:#f7d8d5;
-  --del-bg:#fdf0ef; --del-bg-strong:#f6dcd9; --del-text:#b8453a; --del-marker:#d97063;
-  --amber:#b08530; --amber-text:#94691f; --amber-bg:#f9f3e6; --amber-chip:#efe2c4;
-  --gray-chip:#eef0f3; --gray-chip-tx:#646e7e;
-  /* muted category palette — 6 hues + error red. Reserved for the TimeRibbon,
-     the minimap and the charts. Rows / badges only get a small dot of these. */
-  --cat-message:#7d92b8;   /* slate blue   — messages / thinking            */
-  --cat-tool:#7aa389;      /* sage green   — bash / test / write / commit   */
-  --cat-file:#c2a36b;      /* sand         — file edits / skills / commands */
-  --cat-subagent:#9c8fc4;  /* dusty violet — sub-agents / assistant         */
-  --cat-git:#6fa3b8;       /* steel teal   — git / read / memory            */
-  --cat-uncertain:#aab2bd; /* gray         — todo / unattributed / hooks    */
-  --cat-error:#d64545;     /* red          — privileged                     */
-  --chart-bar:#7d92b8; --chart-line:#7aa389;
-  /* per-event-type dot colors (rows show a dot, never a colored block) */
-  --c-user:var(--cat-message); --c-assistant:var(--cat-subagent);
-  --c-read:var(--cat-git); --c-edit:var(--cat-file); --c-write:var(--cat-tool);
-  --c-bash:var(--cat-tool); --c-subagent:var(--cat-subagent); --c-skill:var(--cat-file);
-  --c-commit:var(--cat-git); --c-test:var(--cat-git); --c-error:var(--cat-error);
-  --c-todo:var(--cat-uncertain); --c-memory:var(--cat-git); --c-hook:var(--cat-uncertain);
-  /* minimap / ribbon kind buckets */
-  --k-message:var(--cat-message); --k-tool:var(--cat-tool); --k-file:var(--cat-file);
-  --k-skill:var(--cat-file); --k-subagent:var(--cat-subagent); --k-git:var(--cat-git);
-  --k-error:var(--cat-error); --k-edit:var(--cat-subagent); --k-command:var(--cat-file);
-  --k-commit:var(--cat-tool); --k-uncertain:var(--cat-uncertain);
-  --r-claude:#c0795e; --r-codex:#2a3242; --r-cursor:#5b7fb0;
-  --radius:6px; --radius-sm:5px; --radius-xs:4px;
-  --appbar-h:48px; --metrics-h:46px; --tabs-h:38px; --minimap-h:150px;
-  --sidebar-w:272px; --aside-w:336px;
-  --mono:ui-monospace,"SF Mono","JetBrains Mono","Menlo","Cascadia Code","Roboto Mono",monospace;
-  --sans:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic","Noto Sans CJK JP","Segoe UI",Roboto,sans-serif;
-}
 *{box-sizing:border-box;}
 html,body{margin:0;min-height:100vh;height:100%;background:var(--bg);color:var(--text);
   font-family:var(--sans);font-size:12.5px;line-height:1.4;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
@@ -77,19 +33,6 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
   border-radius:var(--radius-sm);color:var(--muted);background:transparent;cursor:pointer;}
 .icon-btn:hover{background:var(--panel-hover);color:var(--text-soft);}
 
-/* ---- global nav (the ONE persistent bar, on every route) ------------------*/
-.globalnav{position:sticky;top:0;z-index:30;flex:0 0 var(--appbar-h);height:var(--appbar-h);
-  display:flex;align-items:stretch;background:var(--panel);border-bottom:1px solid var(--border);}
-.globalnav-brand{flex:0 0 auto;width:auto;min-width:var(--sidebar-w);}
-.globalnav-brand:hover{text-decoration:none;}
-.globalnav-tabs{display:flex;align-items:stretch;gap:0;flex:1 1 auto;min-width:0;padding-left:4px;}
-.globalnav-tab{display:inline-flex;align-items:center;height:100%;padding:0 14px;
-  border-bottom:2px solid transparent;color:var(--muted);font-size:12.5px;font-weight:500;
-  font-family:var(--sans);letter-spacing:.01em;}
-.globalnav-tab:hover{color:var(--text-soft);text-decoration:none;}
-.globalnav-tab.active{color:var(--text);font-weight:650;border-bottom-color:var(--accent);}
-.globalnav-actions{display:flex;align-items:center;gap:6px;padding-right:14px;}
-
 .appnav{display:flex;align-items:center;gap:14px;height:var(--appbar-h);padding:0 16px;background:var(--panel);
   border-bottom:1px solid var(--border);font-size:12.5px;}
 .appnav a{color:var(--muted);} .appnav a:hover{color:var(--text);text-decoration:none;}
@@ -112,29 +55,29 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .runner-dot.claude-code{background:var(--r-claude);} .runner-dot.codex{background:var(--r-codex);} .runner-dot.cursor{background:var(--r-cursor);}
 
 /* tab strip — stays put while panes below scroll (sticky by band layout) */
-.tabs{position:sticky;top:0;z-index:20;flex:0 0 var(--tabs-h);height:var(--tabs-h);display:flex;align-items:stretch;gap:0;
+.lds-session-tabs{position:sticky;top:0;z-index:20;flex:0 0 var(--tabs-h);height:var(--tabs-h);display:flex;align-items:stretch;gap:0;
   padding:0 16px 0 calc(var(--sidebar-w) + 12px);background:var(--panel);border-bottom:1px solid var(--border);}
-.tab{display:inline-flex;align-items:center;height:100%;padding:0 11px;margin-bottom:-1px;border:0;background:transparent;
+.lds-session-tab{display:inline-flex;align-items:center;height:100%;padding:0 11px;margin-bottom:-1px;border:0;background:transparent;
   border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--sans);}
-.tab:hover{color:var(--text-soft);}
-.tab.active{color:var(--text);font-weight:650;border-bottom-color:var(--accent);}
-.tabs-spacer{flex:1 1 auto;} .tabs-tool{display:inline-flex;align-items:center;padding-right:4px;}
+.lds-session-tab:hover{color:var(--text-soft);}
+.lds-session-tab.active{color:var(--text);font-weight:650;border-bottom-color:var(--accent);}
+.lds-session-tabs-spacer{flex:1 1 auto;} .lds-session-tabs-tool{display:inline-flex;align-items:center;padding-right:4px;}
 
 /* ---- 3-col working area ----------------------------------------------------
-   NOTE: .sidebar / .main / .aside are SHARED across two grids — the host layout3
+   NOTE: .lds-layout-sidebar / .lds-layout-main / .lds-layout-aside are SHARED across two grids — the host lds-layout3
    (session-list | timeline | detail) AND the embedded .diff-embed
    (file-tree | diff | attribution). So these grid-column rules MUST stay 1/2/3.
-   The removed session-list sidebar is handled by collapsing layout3's first
+   The removed session-list sidebar is handled by collapsing lds-layout3's first
    column to 0 (inline, in SessionViewer) — NOT by renumbering these shared cells
    (renumbering them silently broke the embedded diff grid).
    minmax(0,…) + min-width:0 on every column: wide content (long diff lines,
    mono paths, pre blocks) must scroll INSIDE its pane, never widen the page. */
-.layout3{flex:1 1 auto;display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr) var(--aside-w);min-height:0;min-width:0;background:var(--bg);}
-.layout3 > *{min-width:0;}
-.layout3.diffview{grid-template-columns:var(--sidebar-w) minmax(0,1fr) var(--aside-w);}
-.sidebar{grid-column:1;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--sidebar-bg);border-right:1px solid var(--border);overflow:hidden;}
-.main{grid-column:2;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);overflow:hidden;}
-.aside{grid-column:3;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;}
+.lds-layout3{flex:1 1 auto;display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr) var(--aside-w);min-height:0;min-width:0;background:var(--bg);}
+.lds-layout3 > *{min-width:0;}
+.lds-layout3.lds-layout3--diffview{grid-template-columns:var(--sidebar-w) minmax(0,1fr) var(--aside-w);}
+.lds-layout-sidebar{grid-column:1;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--sidebar-bg);border-right:1px solid var(--border);overflow:hidden;}
+.lds-layout-main{grid-column:2;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);overflow:hidden;}
+.lds-layout-aside{grid-column:3;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;}
 /* DiffViewer embedded in the host's "Git" tab: a self-contained
    [file-tree | diff | attribution] grid that spans the host's main+aside
    columns (2–3); the host's collapsed first column stays out of the way. */
@@ -197,7 +140,7 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 /* ---- sidebar (left rail) ---------------------------------------------------
    Hierarchy: 11px uppercase section heads, right-aligned tabular counts,
    compact filter controls. */
-.sidebar-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;}
+.lds-layout-sidebar-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;}
 .project-select{display:flex;align-items:center;gap:7px;margin:10px 10px 0;height:30px;padding:0 9px;
   border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--panel);font-weight:600;font-size:12px;color:var(--text);cursor:pointer;}
 .project-select .caret{margin-left:auto;color:var(--muted-2);}
@@ -495,9 +438,9 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .annotation .atxt{font-size:11px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);}
 
 /* ---- tab count badge (Annotations) ---------------------------------------*/
-.tab .tab-count{margin-left:6px;font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;
+.lds-session-tab .lds-session-tab-count{margin-left:6px;font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;
   color:var(--muted-2);background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;padding:0 5px;line-height:15px;}
-.tab.active .tab-count{color:var(--text-soft);}
+.lds-session-tab.active .lds-session-tab-count{color:var(--text-soft);}
 
 /* ---- right-aside placeholder (run open, no step picked) ------------------*/
 .detail-placeholder{padding:18px 16px;font-size:11.5px;color:var(--muted);font-style:normal;}
@@ -543,7 +486,7 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 .findings-axis-shell{flex:1 1 auto;min-height:0;}
 /* the axis shell is a SINGLE-column grid (FindingsAxisView overrides
    grid-template-columns to minmax(0,1fr)), but this element also carries the
-   .main class whose `.main{grid-column:2}` would pin it to a non-existent 2nd
+   .lds-layout-main class whose `.lds-layout-main{grid-column:2}` would pin it to a non-existent 2nd
    track — creating a phantom empty first column (the ~280–650px left blank /
    rightward shift, intermittently sized by the selected finding's content).
    Force it back into column 1 so the findings master-detail starts flush left. */
@@ -780,7 +723,6 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 ::-webkit-scrollbar-thumb{background:#d4d9df;border-radius:6px;border:2px solid transparent;background-clip:padding-box;}
 ::-webkit-scrollbar-thumb:hover{background:#bfc6cd;background-clip:padding-box;}
 ::-webkit-scrollbar-track{background:transparent;}
-@media (max-width:1200px){:root{--aside-w:296px;--sidebar-w:248px;}}
 
 /* ---- time ribbon (bottom of both screens; segment width = real elapsed time)
    One of the two surfaces where the category palette is allowed. ---- */
@@ -848,15 +790,15 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .code-block.output{margin:0;max-height:54vh;min-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
 
 /* ---- refined session header (denser, named, mono numerics) ----
-   Height is the shared header band (--appbar-h) so the sessbar's bottom hairline
+   Height is the shared header band (--appbar-h) so the session bar's bottom hairline
    lines up with the rail brand's into one unbroken line (vertical padding drops
    to 0; align-items centres the content in the fixed band). */
-.sessbar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 18px;background:var(--panel);border-bottom:1px solid var(--border);height:var(--appbar-h);}
-.sessbar-id{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
-.sessbar-id .runner-dot{flex:0 0 auto;}
-.sessbar-title{font-size:13.5px;font-weight:650;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46ch;flex:0 1 auto;}
-.sessbar-meta{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;font-family:var(--mono);font-variant-numeric:tabular-nums;}
-.sessbar-stats{display:flex;align-items:center;gap:20px;flex:0 0 auto;}
+.lds-session-bar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 18px;background:var(--panel);border-bottom:1px solid var(--border);height:var(--appbar-h);}
+.lds-session-bar-id{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
+.lds-session-bar-id .runner-dot{flex:0 0 auto;}
+.lds-session-bar-title{font-size:13.5px;font-weight:650;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46ch;flex:0 1 auto;}
+.lds-session-bar-meta{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.lds-session-bar-stats{display:flex;align-items:center;gap:20px;flex:0 0 auto;}
 .kstat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;}
 .kstat b{font-size:13.5px;font-weight:650;color:var(--text);font-family:var(--mono);font-variant-numeric:tabular-nums;}
 .kstat span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
@@ -941,7 +883,7 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .overview-link{display:flex;align-items:center;gap:8px;margin:10px 10px 0;padding:6px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);color:var(--text);font-size:12px;font-weight:650;text-decoration:none;}
 .overview-link:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);text-decoration:none;}
 /* Overview screen (v2): a full-width analysis canvas — NO session rail. The
-   project scope lives in the header sessbar (an analysis condition). */
+   project scope lives in the header session bar (an analysis condition). */
 .overview-page{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;background:var(--bg);}
 .overview-canvas{flex:1 1 auto;overflow-y:auto;padding:14px 18px 26px;min-width:0;}
 /* project scope, inline in the Overview header (compact, no margins) */
@@ -1063,4 +1005,4 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .chip.jump-chip:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);}
 .chip.error-turn-chip{border-color:var(--red-chip);color:var(--red-text);}
 .session-item .si-flags{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;}
-.sessbar-jumps{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
+.lds-session-bar-jumps{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}

@@ -34,7 +34,7 @@ export function AttributionPane({
   onJumpToEvent?: (eventId: string) => void;
 }) {
   return (
-    <div className="aside" data-testid="aside">
+    <div className="lds-layout-aside" data-testid="aside">
       {showBanner && (
         <div className="attr-banner" data-testid="attr-banner">
           <span className="bi" data-testid="bi">⚠</span>

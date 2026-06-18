@@ -66,7 +66,7 @@ export function SessionAside({
     : {};
 
   return (
-    <aside className="aside" data-testid="aside">
+    <aside className="lds-layout-aside" data-testid="aside">
       {asideIsLauncherDup ? (
         <div className="detail" data-testid="detail">
           <div className="detail-placeholder" data-testid="detail-placeholder" data-aside-placeholder="step-inspect">

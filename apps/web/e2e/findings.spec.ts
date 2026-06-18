@@ -14,7 +14,7 @@ test.describe("Findings tab and verdict oracle", () => {
 
     const tab = page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Findings" });
     await expect(tab).toBeVisible();
-    await expect(tab).toHaveClass(/active/);
+    await expect(tab).toHaveAttribute("aria-selected", "true");
     await expect(tab.locator(`[data-testid="tab-count"]`)).toHaveText(String(sessionPending));
 
     const row = page.locator(`[data-testid="finding-row"][data-finding-id="${oracle.id}"]`);
@@ -38,7 +38,7 @@ test.describe("Findings tab and verdict oracle", () => {
 
     const row = page.locator(`[data-testid="finding-row"]`, { hasText: title });
     await row.click();
-    await expect(row).toHaveClass(/active/);
+    await expect(row).toHaveAttribute("aria-pressed", "true");
 
     const detail = page.locator(`[data-testid="finding-detail"][data-detail-finding-id]`);
     await expect(detail).toContainText(title);
@@ -128,7 +128,7 @@ test.describe("Findings tab and verdict oracle", () => {
 
     await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
     const target = page.locator(`[data-testid="event-row"][data-eid="${FINDING_FIXTURE.eventId}"]`);
-    await expect(target).toHaveClass(/selected/);
+    await expect(target).toHaveAttribute("data-selected", "true");
     await expect(target).toHaveAttribute("data-flash", "true");
   });
 
@@ -157,7 +157,7 @@ test.describe("Findings tab and verdict oracle", () => {
   }) => {
     // On Transcript the right inspector (RUN JSON / LINKED FILES) is present…
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=transcript`);
-    await expect(page.locator(`[data-testid="layout3"] > aside.aside`)).toBeVisible();
+    await expect(page.locator(`[data-testid="layout3"] > [data-testid="aside"]`)).toBeVisible();
 
     // …on Findings the inspector aside is removed entirely, and with the
     // session-list sidebar gone the work area's flanking grid tracks both collapse
@@ -166,7 +166,7 @@ test.describe("Findings tab and verdict oracle", () => {
     // full width and the two flanks are 0.
     await page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Findings" }).click();
     await expect(page.locator(`[data-testid="layout3"]`)).toHaveAttribute("data-tab", "findings");
-    await expect(page.locator(`[data-testid="layout3"] > aside.aside`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="layout3"] > [data-testid="aside"]`)).toHaveCount(0);
     const tracks = await page
       .locator(`[data-testid="layout3"]`)
       .evaluate((el) => getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).map((t) => Math.round(parseFloat(t))));
@@ -306,7 +306,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
     // the USER ASKED prompt) is selected + flashed.
     await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
     const head = page.locator(`[data-testid="event-row"][data-eid="${FINDING_FIXTURE.sessionId}-event-1"]`);
-    await expect(head).toHaveClass(/selected/);
+    await expect(head).toHaveAttribute("data-selected", "true");
   });
 
   // ⑤ expanding an evidence group reveals the inline turn transcript rows
@@ -523,7 +523,7 @@ test.describe("Findings triage (jumps, embedded transcript, sticky verdict, layo
 
     // …and the landed step is flashed/selected (highlight, requirement D).
     const head = page.locator(`[data-testid="event-row"][data-eid="${FINDING_FIXTURE.sessionId}-event-1"]`);
-    await expect(head).toHaveClass(/selected/);
+    await expect(head).toHaveAttribute("data-selected", "true");
 
     await banner.locator(`[data-testid="jump-landing-dismiss"]`).click();
     await expect(banner).toHaveCount(0);

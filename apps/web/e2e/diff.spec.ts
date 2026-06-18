@@ -127,7 +127,7 @@ test.describe("Transcript ⇄ Git cross-links", () => {
       const row = rows.find((candidate) =>
         candidate
           .querySelector('[data-testid="event-icon"]')
-          ?.classList.contains("file_edit"),
+          ?.getAttribute("data-event-kind") === "file_edit",
       );
       if (!row) throw new Error("no file-edit row found");
       row.click();
