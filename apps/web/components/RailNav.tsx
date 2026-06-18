@@ -14,7 +14,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "@/components/ds/icons";
-import { Badge } from "@/components/ds";
 
 const NAV: { href: string; label: string; nav: string; icon: IconName; match: (path: string) => boolean }[] = [
   // Sessions is the root "/"; deep links like /?session=…&tab=… are the SAME
@@ -29,11 +28,8 @@ export default function RailNav() {
   const pathname = usePathname() ?? "/";
   return (
     <nav className="lds-railnav" data-testid="globalnav" data-railnav data-active-path={pathname} aria-label="Primary">
-      <Link href="/" className="lds-rail-brand" data-testid="lds-rail-brand" title="Lathe — session observability">
-        <span className="lds-rail-logo" data-testid="lds-rail-logo">L</span>
-        <span>Lathe</span>
-        <Badge tone="neutral" className="lds-rail-ph" data-testid="lds-rail-ph">Phase 1</Badge>
-      </Link>
+      {/* brand now lives ONLY in the shell TopBar (Layout v2 brand consolidation);
+          the rail starts with its nav items. */}
       <div className="lds-rail-nav" data-testid="lds-rail-nav">
         {NAV.map((item) => {
           const active = item.match(pathname);

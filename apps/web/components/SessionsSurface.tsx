@@ -20,7 +20,7 @@
 // the same hooks while the surface is restyled.
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { fmtCost, fmtTok, humanizeDuration, parseStamp, shortModel } from "@lathe/shared";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { EVENT_LABEL } from "@/lib/event-display";
@@ -67,16 +67,8 @@ const TYPE_DOT: Record<string, string> = {
   error: "var(--c-error)",
 };
 
-export interface ProjectScope {
-  project: string;
-  sessions: number;
-  cost: number;
-  costKnown: boolean;
-}
-
 export default function SessionsSurface({
   sessions,
-  projects,
   sessionProject,
   initialModel,
   initialFrom,
@@ -84,7 +76,6 @@ export default function SessionsSurface({
   initialErrors,
 }: {
   sessions: Session[];
-  projects: ProjectScope[];
   sessionProject: Record<string, string>;
   // Overview drill-down deep links (all optional): seed the list MODEL / ERRORS /
   // date-range filters so an Overview click lands on a pre-scoped list.
@@ -94,12 +85,15 @@ export default function SessionsSurface({
   initialErrors?: "yes" | "no";
 }) {
   const router = useRouter();
+  // Project scope is the shell-owned control now (TopBar selector → ?project=);
+  // the list reads it, the same filtering the old in-surface picker drove.
+  const searchParams = useSearchParams();
+  const projectFilter = searchParams.get("project") ?? "all";
   const [search, setSearch] = useState("");
   // open the filter panel up front when a drill-down pre-seeded a filter, so the
   // active scope is visible rather than silently applied.
   const seeded = !!(initialModel || initialFrom || initialTo || initialErrors);
   const [filtersOpen, setFiltersOpen] = useState(seeded);
-  const [projectFilter, setProjectFilter] = useState("all");
   const [modelFilter, setModelFilter] = useState(initialModel ?? "all");
   const [errorsFilter, setErrorsFilter] = useState(initialErrors ?? "any");
   const [filterMode, setFilterMode] = useState("hide");
@@ -155,30 +149,11 @@ export default function SessionsSurface({
   const openSession = (id: string) => router.push(`/?session=${encodeURIComponent(id)}`);
 
   // Header actions for the WorkareaHeader (right slot). These are surface-feature
-  // controls (project picker / search / filters / sort) and live HERE, not in the
-  // shell TopBar. The TopBar's project-scope region is a separate (later) step;
-  // the per-surface project picker is deliberately kept here for now.
+  // controls (search / filters / sort) and live HERE, not in the shell TopBar.
+  // Project SCOPE is no longer a per-surface control — it moved to the shell
+  // TopBar selector (?project=), which the list reads above.
   const actions = (
     <>
-      <span className="lds-project-select" data-testid="lds-project-select">
-        <span aria-hidden style={{ display: "inline-flex" }}>
-          <Icon name="grid" size={13} />
-        </span>
-        <select
-          className="project-picker" data-testid="project-picker"
-          value={projectFilter}
-          onChange={(e) => setProjectFilter(e.target.value)}
-          title="Scope the session list to one project"
-        >
-          <option value="all">All projects · {sessions.length} sessions</option>
-          {projects.map((p) => (
-            <option key={p.project} value={p.project}>
-              {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
-            </option>
-          ))}
-        </select>
-        <span className="lds-caret" data-testid="lds-caret" aria-hidden>▾</span>
-      </span>
       <div style={{ width: 240 }}>
         <SearchInput
           placeholder="Search sessions…"

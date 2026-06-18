@@ -25,9 +25,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import StatsView from "@/components/StatsView";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
-import type { Session, StatsBundle } from "@/lib/types";
+import type { Session } from "@/lib/types";
 
 // ---- Sessions-axis deep links (every drill-down is a plain link) -----------
 // The Sessions axis (app/page.tsx → SessionViewer) seeds its session-list
@@ -48,18 +49,20 @@ function findingsHrefForSession(id: string): string {
 
 export default function OverviewView({
   sessions,
-  stats,
   eventCounts,
   sessionProject,
   pendingFindings,
 }: {
   sessions: Session[];
-  stats: StatsBundle;
   eventCounts: Record<string, Record<string, number>>;
   sessionProject: Record<string, string>;
   pendingFindings: Record<string, number>;
 }) {
-  const [projectFilter, setProjectFilter] = useState<string>("all");
+  // Project scope is the shell-owned control now (TopBar selector → ?project=);
+  // Overview reads it to scope every panel, the same filtering its old in-header
+  // picker drove.
+  const searchParams = useSearchParams();
+  const projectFilter = searchParams.get("project") ?? "all";
 
   // ---- dismissed Attention columns (VISIBILITY, decoupled from the filter) ----
   // The three Attention columns are derived from the project filter, but a user
@@ -170,26 +173,13 @@ export default function OverviewView({
   return (
     <div className="overview-page" data-testid="overview-page">
       {/* Header — mirrors the session viewer's sessbar so the chrome stays
-          consistent. The project scope lives here (an analysis condition, not a
-          navigation control), alongside the scope totals. */}
+          consistent. Project SCOPE is no longer a control here — it moved to the
+          shell TopBar selector (?project=), which this view reads. The scope
+          label + totals stay so the active scope is visible. */}
       <div className="lds-session-bar" data-testid="sessbar">
         <div className="lds-session-bar-id" data-testid="sessbar-id">
           <span className="lds-session-bar-title" data-testid="sessbar-title">Overview</span>
-          <div className="project-select overview-scope" data-testid="project-select" title="Scope every panel to one project">
-            <span aria-hidden>⊞</span>
-            <select
-              className="project-picker" data-testid="project-picker"
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-            >
-              <option value="all">All projects · {sessions.length} sessions</option>
-              {stats.projects.map((p) => (
-                <option key={p.project} value={p.project}>
-                  {p.project} · {p.sessions} ses · {p.costKnown ? `$${p.cost.toFixed(0)}` : "—"}
-                </option>
-              ))}
-            </select>
-          </div>
+          <span className="lds-session-bar-scope" data-testid="overview-scope-label">{scopeLabel}</span>
           <span className="lds-session-bar-meta" data-testid="sessbar-meta">attention items, then the cross-session breakdown</span>
         </div>
         <div className="lds-session-bar-stats" data-testid="sessbar-stats">

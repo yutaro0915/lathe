@@ -48,15 +48,10 @@ export default async function Page({
     typeof sp.seq === "string" ||
     typeof sp.fromFinding === "string";
 
-  // The project scope select + the session->project map are needed by BOTH the
-  // list surface and the viewer's sidebar, so compute them once up front.
+  // The session->project map is needed by the list surface for project scoping
+  // (the scope SELECTOR itself is shell-owned in the TopBar now → ?project=).
+  // It is derived from the same project stats.
   const [sessions, projectStats] = await Promise.all([listSessions(), getProjectStats()]);
-  const projects = projectStats.map((p) => ({
-    project: p.project,
-    sessions: p.sessions,
-    cost: p.cost,
-    costKnown: p.costKnown,
-  }));
   const sessionProject: Record<string, string> = {};
   for (const p of projectStats) for (const r of p.sessionRefs) sessionProject[r.id] = p.project;
 
@@ -72,7 +67,6 @@ export default async function Page({
     return (
       <SessionsSurface
         sessions={sessions}
-        projects={projects}
         sessionProject={sessionProject}
         initialModel={initialModel}
         initialFrom={initialFrom}

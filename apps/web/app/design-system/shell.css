@@ -20,11 +20,11 @@
 /* legacy single-split root (kept for back-compat; v2 uses .lds-shell). */
 .lds-app{display:flex;flex-direction:row;height:100vh;min-height:0;background:var(--bg);overflow:hidden;}
 
-/* ---- top bar: shell-owned scope + identity (no app-feature actions) ------
-   Minimal by contract: brand (left), a reserved project-scope region, and a
-   command affordance (right). It carries scope + identity only — Run/Find/Reset
-   and other feature actions never live here (topbar-scope-only). */
-.lds-topbar{flex:0 0 auto;display:flex;align-items:center;gap:12px;height:var(--appbar-h);padding:0 14px;
+/* ---- top bar: shell-owned scope + identity ONLY (no app-feature actions) -
+   Minimal by contract: brand mark (left), then a BORDERLESS breadcrumb project
+   selector. It carries scope + identity only — no search/command, no Run/Find/
+   Reset, no boxed control (topbar-scope-only). */
+.lds-topbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;height:var(--appbar-h);padding:0 14px;
   background:var(--panel);border-bottom:1px solid var(--border);}
 .lds-topbar .lds-tb-brand{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px;
   color:var(--text);letter-spacing:.01em;text-decoration:none;cursor:pointer;flex:0 0 auto;}
@@ -32,33 +32,28 @@
 .lds-topbar .lds-tb-logo{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
   font-weight:800;letter-spacing:-.5px;border:1px solid var(--border-strong);border-radius:5px;font-size:12px;
   color:var(--text);background:var(--panel-2);}
-/* reserved project-scope region. STEP 1 = a static, non-interactive indicator;
-   the interactive switcher + ?project= flow is a later step. */
-.lds-topbar .lds-tb-scope{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;
-  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);
-  font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap;flex:0 0 auto;cursor:default;}
+.lds-topbar .lds-tb-ph{margin-left:2px;}
+/* project-scope selector: a BORDERLESS breadcrumb segment (slash + name +
+   chevron), like Langfuse's identity breadcrumb. No box/border/outline — plain
+   text + chevron, subtle on hover/focus. A transparent native select overlays
+   the segment so the look is preserved while keeping native option semantics. */
+.lds-topbar .lds-tb-scope{position:relative;display:inline-flex;align-items:center;gap:6px;height:26px;
+  padding:0 6px;border-radius:var(--radius-sm);color:var(--text-soft);font-size:12.5px;font-weight:600;
+  white-space:nowrap;flex:0 0 auto;cursor:pointer;}
+.lds-topbar .lds-tb-scope:hover,.lds-topbar .lds-tb-scope:focus-within{background:var(--panel-hover);color:var(--text);}
+.lds-topbar .lds-tb-scope .lds-tb-scope-sep{color:var(--muted-2);font-weight:400;}
+.lds-topbar .lds-tb-scope .lds-tb-scope-name{color:inherit;}
 .lds-topbar .lds-tb-scope .lds-tb-scope-ic{display:inline-flex;color:var(--muted-2);}
-.lds-topbar .lds-tb-spacer{flex:1 1 auto;}
-.lds-topbar .lds-tb-cmd{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;
-  border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--panel);
-  color:var(--muted);font-size:12px;font-weight:550;cursor:pointer;flex:0 0 auto;white-space:nowrap;}
-.lds-topbar .lds-tb-cmd:hover{background:var(--panel-hover);color:var(--text-soft);}
-.lds-topbar .lds-tb-cmd .lds-kbd{font-family:var(--mono);font-size:10px;color:var(--muted-2);
-  border:1px solid var(--border);border-radius:3px;padding:0 4px;height:15px;display:inline-flex;align-items:center;}
+/* the real control overlays the segment, invisible but clickable, so the segment
+   stays a borderless breadcrumb while a native select drives ?project=. */
+.lds-topbar .lds-tb-scope .lds-tb-scope-sel{position:absolute;inset:0;width:100%;height:100%;
+  opacity:0;border:0;margin:0;padding:0;cursor:pointer;font:inherit;}
 
-/* ---- left rail: persistent navigation ------------------------------------ */
+/* ---- left rail: persistent navigation ------------------------------------
+   Brand now lives ONLY in the shell TopBar (brand consolidation); the rail
+   starts directly with its nav items. */
 .lds-railnav{flex:0 0 var(--rail-w);width:var(--rail-w);display:flex;flex-direction:column;min-height:0;
   background:var(--sidebar-bg);border-right:1px solid var(--border);overflow:hidden;}
-/* Brand sits in the same header band as every work-area header (--appbar-h), so
-   the rail's bottom hairline continues the work-area header's into one line. */
-.lds-rail-brand{display:flex;align-items:center;gap:9px;height:var(--appbar-h);flex:0 0 auto;padding:0 14px;
-  border-bottom:1px solid var(--border);font-weight:700;font-size:13.5px;color:var(--text);letter-spacing:.01em;
-  text-decoration:none;cursor:pointer;}
-.lds-rail-brand:hover{text-decoration:none;}
-.lds-rail-brand .lds-rail-logo{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
-  font-weight:800;letter-spacing:-.5px;border:1px solid var(--border-strong);border-radius:5px;font-size:12px;
-  color:var(--text);background:var(--panel);}
-.lds-rail-brand .lds-rail-ph{margin-left:auto;}
 .lds-rail-nav{flex:0 0 auto;display:flex;flex-direction:column;gap:2px;padding:8px;border-bottom:1px solid var(--border);}
 .lds-rail-nav-item{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border:1px solid transparent;
   border-radius:var(--radius-sm);background:transparent;color:var(--muted);font-family:var(--sans);font-size:12.5px;
@@ -134,12 +129,10 @@
 .lds-rightpanel .lds-rp-close:hover{background:var(--panel-hover);color:var(--text-soft);}
 .lds-rightpanel .lds-rp-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;}
 
-/* project scope select in the page head */
-.lds-project-select{display:flex;align-items:center;gap:7px;height:28px;padding:0 9px;
-  border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--panel);font-weight:600;
-  font-size:12px;color:var(--text);cursor:pointer;white-space:nowrap;flex:0 0 auto;}
-.lds-project-select select{appearance:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;cursor:pointer;}
-.lds-project-select .lds-caret{margin-left:2px;color:var(--muted-2);}
+/* Overview header scope label. Project SCOPE moved to the shell TopBar selector
+   (?project=); this is a read-only label of the active scope in the Overview
+   header (no control here). */
+.lds-session-bar-scope{font-size:11.5px;font-weight:600;color:var(--muted);white-space:nowrap;flex:0 0 auto;}
 
 /* ---- collapsible filters (Sessions surface) ------------------------------ */
 .lds-sessions-filters{flex:0 0 auto;display:flex;flex-direction:column;gap:10px;padding:12px 20px;

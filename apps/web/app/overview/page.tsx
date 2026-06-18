@@ -25,13 +25,13 @@ export default async function Page() {
     getPendingFindingsBySession(),
   ]);
   // session -> primary project, computed from stats so the overview's project
-  // selector scopes a consistent session set (matching the SessionViewer rule).
+  // scope (the shell TopBar selector → ?project=) scopes a consistent session set
+  // (matching the SessionViewer rule).
   const sessionProject: Record<string, string> = {};
   for (const p of stats.projects) for (const r of p.sessionRefs) sessionProject[r.id] = p.project;
   return (
     <OverviewView
       sessions={sessions}
-      stats={stats}
       eventCounts={eventCounts}
       sessionProject={sessionProject}
       pendingFindings={pendingFindings}
