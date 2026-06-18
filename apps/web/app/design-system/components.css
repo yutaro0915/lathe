@@ -499,3 +499,259 @@
 .stats-scroll{flex:1 1 auto;overflow-y:auto;padding:14px 18px 26px;}
 .stats-section{margin-bottom:20px;max-width:1320px;margin-left:auto;margin-right:auto;}
 .stats-h{font-size:11px;font-weight:700;color:var(--muted);margin:0 2px 9px;text-transform:uppercase;letter-spacing:.06em;}
+
+/* ============================================================================
+   Findings — the Findings tab + cross-session /findings axis. Master-detail
+   grid (fixed left rail), finding rows + kind/verdict chips, evidence cards,
+   embedded turn transcript, sticky verdict bar. Bespoke; no DS primitive
+   duplicates them (some use --k-* category tokens). Migrated out of globals.css
+   verbatim (DS v1 shrinks globals, grows here).
+   ========================================================================== */
+/* The Findings master-detail fills its host and never grows the page: it is a
+   bounded flex column so the inner grid (list | detail) can own the scroll. In
+   the session viewer the tab mounts inside .timeline (overflow-y:auto), so we
+   pin it to the full height and hide its own overflow — the list and detail
+   panes scroll internally, NOT the whole tab. */
+.findings-tab{padding:12px 14px;gap:0;display:flex;flex-direction:column;
+  flex:1 1 auto;min-height:0;height:100%;overflow:hidden;}
+.timeline.findings-tab{overflow:hidden;}
+.findings-tab-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
+.findings-title{display:inline-flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
+.findings-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.findings-title .count,.finding-pending-count{color:var(--muted-2);font-size:11px;font-variant-numeric:tabular-nums;}
+.findings-filter{flex:0 0 auto;}
+/* axis-only session filter (dropdown), and the tab→axis link */
+.findings-session-select{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
+.findings-session-select .finding-section-label{margin:0;}
+.findings-session-select .project-picker{height:24px;font-size:11.5px;}
+.findings-axis-link{flex:0 0 auto;font-size:11.5px;color:var(--accent);font-family:var(--mono);}
+.findings-axis-link:hover{text-decoration:underline;}
+/* the Findings AXIS screen (route /findings) reuses the same chrome bands */
+.findings-axis-page{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;}
+.findings-axis-shell{flex:1 1 auto;min-height:0;}
+/* the axis shell is a SINGLE-column grid (FindingsAxisView overrides
+   grid-template-columns to minmax(0,1fr)), but this element also carries the
+   .lds-layout-main class whose `.lds-layout-main{grid-column:2}` would pin it to a non-existent 2nd
+   track — creating a phantom empty first column (the ~280–650px left blank /
+   rightward shift, intermittently sized by the selected finding's content).
+   Force it back into column 1 so the findings master-detail starts flush left. */
+.findings-axis-main{grid-column:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+.findings-axis-main .findings-tab{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
+.finding-verdict-toast{display:flex;align-items:center;gap:8px;padding:7px 8px;margin:0 0 8px;
+  border:1px solid var(--border);background:var(--panel-hover);font-size:11.5px;color:var(--text-soft);}
+.finding-verdict-toast .finding-status-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:0 0 auto;}
+.finding-verdict-toast.accept .finding-status-dot{background:var(--green-text);}
+.finding-verdict-toast.reject .finding-status-dot{background:var(--red-text);}
+.finding-error{padding:7px 8px;margin:0 0 8px;border:1px solid var(--red-chip);background:var(--red-bg);
+  color:var(--red-text);font-size:11.5px;}
+.finding-row{display:flex;flex-direction:column;gap:5px;padding:9px 8px;border-top:1px solid var(--border-faint);}
+.finding-row:hover{background:var(--panel-hover);}
+/* list rows are now buttons (the whole row opens the detail panel) */
+button.finding-row{width:100%;text-align:left;background:transparent;border-left:0;border-right:0;border-bottom:0;
+  color:inherit;font:inherit;cursor:pointer;}
+button.finding-row:focus-visible{outline:2px solid var(--accent-ring);outline-offset:-2px;}
+.finding-row.active{background:var(--accent-weak);box-shadow:inset 2px 0 0 var(--accent);}
+.finding-mainline{display:grid;grid-template-columns:max-content minmax(0,1fr) max-content;align-items:start;gap:10px;}
+.finding-kind-chip{display:inline-flex;align-items:center;gap:6px;min-height:18px;border:1px solid var(--border);
+  border-radius:4px;background:var(--panel);padding:1px 6px;color:var(--muted);font-size:9px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;}
+.finding-kind-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:0 0 auto;}
+.finding-kind-chip.failure_loop .finding-kind-dot{background:var(--k-error);}
+.finding-kind-chip.unattributed_diff .finding-kind-dot{background:var(--k-uncertain);}
+.finding-kind-chip.excess_cost .finding-kind-dot{background:var(--cat-message);}
+.finding-kind-chip.risky_action .finding-kind-dot{background:var(--cat-subagent);}
+.finding-title-body{min-width:0;display:flex;flex-direction:column;gap:2px;}
+.finding-title-text{font-size:12.5px;font-weight:650;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.finding-body-text{font-size:11px;color:var(--text-soft);line-height:1.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.finding-verdict-chip{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);
+  border-radius:4px;background:var(--panel);color:var(--muted);padding:2px 6px;font-size:10px;font-weight:650;
+  text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;}
+.finding-verdict-chip.pending{border-color:var(--accent-ring);color:var(--text);}
+.finding-verdict-chip.accept{color:var(--green-text);border-color:var(--green-chip);}
+.finding-verdict-chip.reject{color:var(--red-text);border-color:var(--red-chip);}
+.finding-meta-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted-2);font-size:10.5px;}
+.finding-meta-line .mono{font-variant-numeric:tabular-nums;}
+.finding-evidence-list{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.finding-evidence{display:inline-flex;align-items:center;gap:6px;min-height:22px;border:1px solid var(--border);
+  border-radius:4px;background:var(--panel);color:var(--text-soft);padding:2px 7px;font-size:11px;cursor:pointer;}
+button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--border-strong);}
+.finding-evidence.stale{cursor:default;color:var(--muted-2);border-style:dashed;}
+.finding-evidence-kind{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+.finding-boundary-note{font-size:11px;color:var(--muted);border-left:2px solid var(--border-strong);padding-left:8px;}
+.finding-verdict-controls{display:grid;grid-template-columns:minmax(120px,1fr) max-content max-content;gap:6px;align-items:center;}
+.finding-verdict-reason{min-width:0;border:1px solid var(--border);border-radius:4px;background:var(--panel);
+  color:var(--text);font:inherit;font-size:12px;padding:5px 7px;}
+.finding-verdict-reason:focus{outline:2px solid var(--accent-ring);outline-offset:1px;}
+.finding-verdict-btn{border:1px solid var(--border);border-radius:4px;background:var(--panel);color:var(--text-soft);
+  font:inherit;font-size:11px;font-weight:650;padding:5px 8px;cursor:pointer;}
+.finding-verdict-btn.accept{border-color:var(--green-chip);color:var(--green-text);}
+.finding-verdict-btn.reject{border-color:var(--red-chip);color:var(--red-text);}
+.finding-verdict-btn:disabled{opacity:.55;cursor:wait;}
+
+/* ---- Findings master-detail --------------------------------------------- */
+/* Fixed two-track grid: a hard 340px list rail + the rest for the detail. Using
+   a FIXED first track (not minmax(0,340px)) keeps the list rail width constant
+   regardless of what the detail renders — the detail's intrinsic content can no
+   longer feed back into track sizing and shove the rail wider (bug D). Both
+   tracks get min-width:0 + min-height:0 so each pane scrolls inside its own box
+   and the grid never grows the page. */
+.findings-md-grid{display:grid;grid-template-columns:340px minmax(0,1fr);gap:0;
+  border-top:1px solid var(--border);flex:1 1 auto;min-height:0;min-width:0;overflow:hidden;}
+.findings-md-grid > *{min-width:0;min-height:0;}
+.findings-list{min-width:0;border-right:1px solid var(--border);overflow-y:auto;overflow-x:hidden;}
+.findings-list .finding-row:first-child{border-top:0;}
+.finding-detail{min-width:0;padding:14px 16px;display:flex;flex-direction:column;gap:14px;
+  overflow-y:auto;overflow-x:hidden;position:relative;}
+.finding-detail-empty{align-items:center;justify-content:center;color:var(--muted-2);}
+.finding-detail-empty .detail-placeholder{font-size:12px;}
+.finding-detail-head{display:flex;align-items:center;gap:8px;}
+.finding-detail-title{margin:0;font-size:14px;font-weight:650;line-height:1.4;color:var(--text);}
+.finding-detail-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:var(--muted-2);font-size:10.5px;}
+.finding-detail-meta .mono{font-variant-numeric:tabular-nums;}
+.finding-detail-body{margin:0;font-size:12.5px;line-height:1.55;color:var(--text-soft);}
+.finding-detail-section{display:flex;flex-direction:column;gap:8px;}
+.finding-section-label{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);}
+.finding-evidence-cards{display:flex;flex-direction:column;gap:10px;min-width:0;}
+.finding-evidence-card{border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);
+  padding:8px 9px;display:flex;flex-direction:column;gap:6px;min-width:0;}
+.finding-evidence-card.stale{border-style:dashed;}
+/* narrative scaffolding: SESSION → USER ASKED → EVIDENCE → AFTERWARD.
+   micro-labels are 9px uppercase, numbers mono+tabular, color stays neutral
+   (per the observability-dense palette ration — no saturation on rows). */
+.finding-evidence-microlabel{font-size:9px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--muted);}
+.finding-evidence-session{display:flex;flex-direction:column;gap:2px;padding-bottom:6px;
+  border-bottom:1px solid var(--border);}
+.finding-evidence-session-title{font-size:12px;font-weight:650;color:var(--text);line-height:1.3;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.finding-evidence-session-meta{font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.finding-evidence-trigger{display:flex;flex-direction:column;gap:2px;
+  border-left:2px solid var(--border-strong);padding:1px 0 1px 8px;}
+.finding-evidence-trigger-text{margin:0;font-size:11.5px;line-height:1.45;color:var(--text-soft);}
+.finding-evidence-trigger-seq{font-size:9.5px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
+.finding-evidence-after{display:flex;flex-direction:column;gap:3px;padding-top:6px;
+  border-top:1px solid var(--border);}
+.finding-evidence-after-meta{display:flex;align-items:center;gap:10px;font-size:10px;color:var(--muted-2);
+  text-transform:uppercase;letter-spacing:.04em;font-variant-numeric:tabular-nums;}
+.finding-evidence-after-text{margin:0;font-size:11.5px;line-height:1.45;color:var(--text-soft);}
+.finding-evidence-cardhead{display:flex;align-items:center;gap:8px;justify-content:space-between;}
+/* per-step jump chip (e.g. "step 5548 →"): kept, but visually subordinate to the
+   group-header VIEW TURN / VIEW SESSION actions (requirement C) — smaller, muted,
+   hairline border only. */
+button.finding-evidence-jump{gap:6px;font-size:10px;padding:1px 6px;min-height:20px;
+  color:var(--muted);border-color:var(--border-faint);}
+button.finding-evidence-jump:hover{color:var(--text-soft);border-color:var(--border);}
+.finding-evidence-note{font-size:11px;color:var(--muted);}
+.finding-excerpt{display:flex;flex-direction:column;gap:5px;min-width:0;}
+.finding-excerpt-meta{display:flex;align-items:center;gap:10px;font-size:10px;color:var(--muted-2);
+  text-transform:uppercase;letter-spacing:.04em;font-variant-numeric:tabular-nums;}
+.finding-excerpt-meta .ok{color:var(--green-text);}
+.finding-excerpt-meta .err{color:var(--red-text);}
+/* evidence command/output: bounded box that scrolls in BOTH axes inside the
+   detail pane (design rule: long lines get per-pane horizontal scroll, no wrap,
+   no silent truncation). The selector is intentionally specific enough to beat
+   .code-block.cmd / .code-block.output below — white-space:pre + overflow:auto
+   make a long one-liner scroll horizontally instead of wrapping; the pane's
+   min-width:0 keeps the scroll inside the box so it can never widen the page. */
+.finding-excerpt pre.finding-excerpt-pre{overflow:auto;white-space:pre;word-break:normal;}
+.finding-excerpt-empty{font-size:11px;color:var(--muted-2);}
+/* grouped evidence: one card per (session, turn). The group header carries the
+   turn position once and a mono ×N repeats count (neutral — no saturation, per
+   the palette ration); the steps stack as a hairline-separated timeline. The
+   two primary actions (VIEW TURN / VIEW SESSION) sit right of a flexible spacer
+   so they align to the trailing edge. */
+.finding-evidence-grouphead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
+.finding-evidence-position{text-transform:uppercase;letter-spacing:.04em;}
+.finding-evidence-grouphead-spacer{flex:1 1 auto;min-width:0;}
+.finding-evidence-repeats{border:1px solid var(--border-strong);
+  border-radius:999px;padding:1px 7px;font-size:10px;font-weight:650;color:var(--muted);
+  background:var(--panel-hover);}
+.finding-evidence-steps{display:flex;flex-direction:column;gap:0;}
+.finding-evidence-step{display:flex;flex-direction:column;gap:5px;padding:7px 0;
+  border-top:1px solid var(--border);min-width:0;}
+.finding-evidence-step:first-child{border-top:none;padding-top:2px;}
+.finding-evidence-step.stale{color:var(--muted-2);}
+.finding-evidence-stephead{display:flex;align-items:center;gap:8px;min-width:0;}
+.finding-evidence-stepno{font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--muted);
+  font-variant-numeric:tabular-nums;cursor:help;}
+.finding-evidence-exit{font-size:10px;font-variant-numeric:tabular-nums;}
+.finding-evidence-exit.ok{color:var(--green-text);}
+.finding-evidence-exit.err{color:var(--red-text);}
+.finding-evidence-stepspacer{flex:1 1 auto;min-width:0;}
+.finding-verdict-section .finding-verdict-decided{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  color:var(--muted-2);font-size:11px;}
+.finding-verdict-section .finding-verdict-decided .mono{font-variant-numeric:tabular-nums;}
+
+/* ---- triage: sticky verdict bar (requirement C) -------------------------- */
+/* The Accept/Reject bar pins to the detail panel's bottom edge so it is always
+   reachable while the evidence scrolls beneath it. The negative margins + pad
+   let it span the panel's full width and sit flush against the bottom, with a
+   hairline + panel background hiding the evidence as it scrolls under. */
+.finding-verdict-sticky{position:sticky;bottom:0;z-index:2;background:var(--panel);
+  margin:auto -16px -14px;padding:8px 16px 12px;border-top:1px solid var(--border);}
+
+/* ---- triage: SESSION header as a jump button (requirement A) -------------- */
+button.finding-evidence-session-jump{width:100%;text-align:left;background:transparent;
+  border:0;border-bottom:1px solid var(--border);color:inherit;font:inherit;cursor:pointer;
+  padding:0 0 6px;}
+button.finding-evidence-session-jump:hover .finding-evidence-session-title{color:var(--accent);}
+button.finding-evidence-session-jump:hover .finding-evidence-session-arrow{color:var(--accent);}
+button.finding-evidence-session-jump:focus-visible{outline:2px solid var(--accent-ring);outline-offset:2px;}
+.finding-evidence-session-headline{display:flex;align-items:center;gap:6px;}
+.finding-evidence-session-arrow{margin-left:auto;color:var(--muted-2);font-size:11px;}
+
+/* ---- triage: primary actions (VIEW TURN / VIEW SESSION) + toggle --------- */
+/* These two are the always-visible way into the transcript (requirement C):
+   labelled, outlined, and visually dominant over the secondary inline-transcript
+   toggle and the per-step jump chips. */
+.finding-evidence-actions{display:inline-flex;align-items:center;gap:6px;}
+button.finding-evidence-action{display:inline-flex;align-items:center;gap:5px;
+  border:1px solid var(--border-strong);border-radius:4px;background:var(--panel);
+  color:var(--text-soft);font:inherit;font-size:10px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;padding:3px 9px;cursor:pointer;}
+button.finding-evidence-action:hover{background:var(--panel-hover);border-color:var(--accent);color:var(--accent);}
+button.finding-evidence-action:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
+button.finding-evidence-action-turn{color:var(--accent);border-color:var(--accent);}
+.finding-evidence-turn-toggle{display:inline-flex;align-items:center;gap:5px;
+  border:0;background:transparent;color:var(--muted-2);
+  font:inherit;font-size:10px;font-weight:500;padding:2px 4px;cursor:pointer;}
+.finding-evidence-turn-toggle:hover{color:var(--text-soft);}
+.finding-evidence-turn-toggle:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
+
+/* ---- triage: embedded turn transcript (requirement B) -------------------- */
+.finding-turn-transcript{display:flex;flex-direction:column;gap:6px;margin-top:2px;
+  border-top:1px solid var(--border);padding-top:7px;min-width:0;}
+.finding-turn-transcript-head{display:flex;align-items:center;gap:10px;}
+.finding-turn-status{font-size:10.5px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
+.finding-turn-status.err{color:var(--red-text);}
+/* the bounded, scrollable event list — the core of the embedded transcript */
+.finding-turn-events{display:flex;flex-direction:column;max-height:40vh;overflow-y:auto;
+  border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);min-width:0;}
+.finding-turn-event{display:grid;grid-template-columns:max-content max-content minmax(0,1fr) max-content;
+  align-items:baseline;gap:8px;padding:4px 8px;border-top:1px solid var(--border-faint);
+  min-width:0;text-align:left;width:100%;font:inherit;color:var(--text-soft);background:transparent;}
+.finding-turn-event:first-child{border-top:0;}
+button.finding-turn-event{border-left:0;border-right:0;border-bottom:0;cursor:pointer;}
+button.finding-turn-event:hover{background:var(--panel-hover);}
+button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);outline-offset:-2px;}
+.finding-turn-event.evidence{background:var(--accent-weak);box-shadow:inset 2px 0 0 var(--accent);}
+.finding-turn-event-seq{font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
+.finding-turn-event-type{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--muted);white-space:nowrap;}
+.finding-turn-event.err .finding-turn-event-type{color:var(--red-text);}
+.finding-turn-event-body{min-width:0;font-size:11px;line-height:1.4;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+/* a mono COMMAND row must never be silently truncated (design rule: no silent
+   clipping). It scrolls horizontally inside its own grid cell — the minmax(0,1fr)
+   + min-width:0 cell bounds the scroll so a long one-liner can't widen the page. */
+.finding-turn-event-body:has(.finding-turn-event-cmd){overflow-x:auto;overflow-y:hidden;
+  text-overflow:clip;}
+.finding-turn-event-cmd{font-size:11px;color:var(--text);font-variant-numeric:tabular-nums;
+  white-space:pre;}
+.finding-turn-event-text{color:var(--text-soft);}
+.finding-turn-event-exit{font-size:10px;font-variant-numeric:tabular-nums;}
+.finding-turn-event-exit.ok{color:var(--green-text);}
+.finding-turn-event-exit.err{color:var(--red-text);}
