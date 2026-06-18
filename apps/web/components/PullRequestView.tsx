@@ -1,7 +1,19 @@
 "use client";
 
+// components/PullRequestView.tsx — the PR origin AXIS (route /pr). A
+// master-detail: a PR list (master) + the selected PR's detail.
+//
+// Layout v2 (slice 5): the surface's TOP header is the shell-owned Surface
+// WorkareaHeader (title "Pull Requests" + the imported-count meta) — the PR view
+// no longer draws its own top-of-surface band. The .pr-shell master-detail rides
+// in the Surface body, and the .pr-hero stays as the DETAIL entity header INSIDE
+// the body (the selected PR title/number/author/state), the same way the Findings
+// axis keeps its finding-detail header inside its master-detail body. Global
+// navigation (the old inline "Sessions" link) is the shell Rail's job now.
+
 import Link from "next/link";
 import { fmtInt, parseStamp } from "@lathe/shared";
+import Surface from "@/components/Surface";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import type { PullRequestBundle, PullRequestSummary } from "@/lib/types";
 
@@ -36,16 +48,21 @@ export default function PullRequestView({
   const selected = bundle?.pullRequest;
   const reviews = selected ? reviewRows(selected.reviews) : [];
 
+  // The imported-count rides as the WorkareaHeader meta (was the .pr-sidebar-head
+  // sub-line); the count stays on the `muted` testid the e2e contract reads.
+  const meta = (
+    <span className="muted small" data-testid="muted">{pullRequests.length} imported</span>
+  );
+
   return (
-    <div className="pr-shell" data-testid="pr-shell">
+    // The PR axis no longer draws a top-of-surface band: the shell-owned Surface
+    // WorkareaHeader carries the title + imported-count meta, so the master-detail
+    // body (pr-list + pr-detail) starts flush under one uniform header. The
+    // .pr-hero below is the DETAIL entity header inside the body, not a surface
+    // header band (Layout v2, slice 5).
+    <Surface surface="pr" title="Pull Requests" meta={meta}>
+      <div className="pr-shell" data-testid="pr-shell">
       <aside className="pr-sidebar" data-testid="pr-sidebar">
-        <div className="pr-sidebar-head" data-testid="pr-sidebar-head">
-          <div>
-            <div className="panel-title" data-testid="panel-title" style={{ margin: 0 }}>Pull Requests</div>
-            <div className="muted small" data-testid="muted">{pullRequests.length} imported</div>
-          </div>
-          <Link href="/" className="btn btn-sm" data-testid="btn">Sessions</Link>
-        </div>
         <div className="pr-list" data-testid="pr-list">
           {pullRequests.map((pr) => (
             <Link
@@ -145,6 +162,7 @@ export default function PullRequestView({
           </>
         )}
       </main>
-    </div>
+      </div>
+    </Surface>
   );
 }

@@ -180,6 +180,7 @@ export default function OverviewView({
   const meta = (
     <>
       <span className="lds-session-bar-scope" data-testid="overview-scope-label">{scopeLabel}</span>
+      <span className="lds-meta-sep" aria-hidden="true"> · </span>
       <span data-testid="sessbar-meta">attention items, then the cross-session breakdown</span>
     </>
   );
