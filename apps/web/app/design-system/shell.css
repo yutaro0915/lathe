@@ -102,15 +102,3 @@
 .lds-sg-zero{font-family:var(--mono);font-size:12px;color:var(--muted-2);}
 .lds-sg-flags{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;}
 .lds-sg-empty{color:var(--muted-2);font-size:12px;padding:14px 20px;}
-
-/* ---- compatibility shim --------------------------------------------------
-   The rail keeps the legacy `globalnav` / `globalnav-tab` hooks (machine-
-   readable axis contract used by agents + e2e). The old globals.css styled
-   those as a TOP bar; these higher-specificity selectors re-assert the rail
-   geometry so the legacy single-class rules can't shrink/reflow the rail. */
-.lds-railnav.globalnav{position:static;flex:0 0 var(--rail-w);width:var(--rail-w);height:auto;
-  align-items:stretch;}
-.lds-rail-nav.globalnav-tabs{flex:0 0 auto;padding:8px;}
-.lds-rail-nav-item.globalnav-tab{height:30px;border-bottom:1px solid transparent;}
-.lds-rail-nav-item.globalnav-tab.active{border-bottom-color:transparent;box-shadow:inset 3px 0 0 var(--accent);}
-.lds-rail-brand.globalnav-brand{width:auto;min-width:0;border-right:0;}

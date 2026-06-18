@@ -28,7 +28,7 @@ export function SessionTabs({
   clearGitFocus: () => void;
 }) {
   return (
-    <div className="tabs" data-testid="tabs" role="tablist">
+    <div className="lds-session-tabs" data-testid="tabs" role="tablist">
       {TABS.map(([key, label]) => (
         <button
           key={key}
@@ -36,7 +36,7 @@ export function SessionTabs({
           role="tab"
           aria-selected={activeTab === key}
           data-tab={key}
-          className={`tab${activeTab === key ? " active" : ""}`}
+          className={`lds-session-tab${activeTab === key ? " active" : ""}`}
           data-testid="tab"
           onClick={() => {
             setActiveTab(key);
@@ -44,12 +44,12 @@ export function SessionTabs({
           }}
         >
           {label}
-          {key === "annotations" && annotationsCount > 0 && <span className="tab-count" data-testid="tab-count">{annotationsCount}</span>}
-          {key === "findings" && pendingFindingsCount > 0 && <span className="tab-count" data-testid="tab-count">{pendingFindingsCount}</span>}
+          {key === "annotations" && annotationsCount > 0 && <span className="lds-session-tab-count" data-testid="tab-count">{annotationsCount}</span>}
+          {key === "findings" && pendingFindingsCount > 0 && <span className="lds-session-tab-count" data-testid="tab-count">{pendingFindingsCount}</span>}
         </button>
       ))}
-      <span className="tabs-spacer" data-testid="tabs-spacer" />
-      <span className="tabs-tool" data-testid="tabs-tool">
+      <span className="lds-session-tabs-spacer" data-testid="tabs-spacer" />
+      <span className="lds-session-tabs-tool" data-testid="tabs-tool">
         <span className="sort-select" data-testid="sort-select">{visibleCount} shown</span>
       </span>
     </div>

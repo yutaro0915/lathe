@@ -131,9 +131,9 @@ export default function OverviewView({
       {/* Header — mirrors the session viewer's sessbar so the chrome stays
           consistent. The project scope lives here (an analysis condition, not a
           navigation control), alongside the scope totals. */}
-      <div className="sessbar" data-testid="sessbar">
-        <div className="sessbar-id" data-testid="sessbar-id">
-          <span className="sessbar-title" data-testid="sessbar-title">Overview</span>
+      <div className="lds-session-bar" data-testid="sessbar">
+        <div className="lds-session-bar-id" data-testid="sessbar-id">
+          <span className="lds-session-bar-title" data-testid="sessbar-title">Overview</span>
           <div className="project-select overview-scope" data-testid="project-select" title="Scope every panel to one project">
             <span aria-hidden>⊞</span>
             <select
@@ -149,9 +149,9 @@ export default function OverviewView({
               ))}
             </select>
           </div>
-          <span className="sessbar-meta" data-testid="sessbar-meta">attention items, then the cross-session breakdown</span>
+          <span className="lds-session-bar-meta" data-testid="sessbar-meta">attention items, then the cross-session breakdown</span>
         </div>
-        <div className="sessbar-stats" data-testid="sessbar-stats">
+        <div className="lds-session-bar-stats" data-testid="sessbar-stats">
           <div className="kstat" data-testid="kstat">
             <b>{fmtInt(scopeTotals.sessions)}</b>
             <span>sessions</span>

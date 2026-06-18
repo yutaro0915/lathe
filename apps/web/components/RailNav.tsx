@@ -28,20 +28,20 @@ const NAV: { href: string; label: string; nav: string; icon: IconName; match: (p
 export default function RailNav() {
   const pathname = usePathname() ?? "/";
   return (
-    <nav className="lds-railnav globalnav" data-testid="globalnav" data-railnav data-active-path={pathname} aria-label="Primary">
-      <Link href="/" className="lds-rail-brand globalnav-brand" data-testid="lds-rail-brand" title="Lathe — session observability">
+    <nav className="lds-railnav" data-testid="globalnav" data-railnav data-active-path={pathname} aria-label="Primary">
+      <Link href="/" className="lds-rail-brand" data-testid="lds-rail-brand" title="Lathe — session observability">
         <span className="lds-rail-logo" data-testid="lds-rail-logo">L</span>
         <span>Lathe</span>
         <Badge tone="neutral" className="lds-rail-ph" data-testid="lds-rail-ph">Phase 1</Badge>
       </Link>
-      <div className="lds-rail-nav globalnav-tabs" data-testid="lds-rail-nav">
+      <div className="lds-rail-nav" data-testid="lds-rail-nav">
         {NAV.map((item) => {
           const active = item.match(pathname);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`lds-rail-nav-item globalnav-tab${active ? " active" : ""}`} data-testid="globalnav-tab"
+              className={`lds-rail-nav-item${active ? " active" : ""}`} data-testid="globalnav-tab"
               data-nav={item.nav}
               data-state={active ? "active" : "inactive"}
               aria-current={active ? "page" : undefined}

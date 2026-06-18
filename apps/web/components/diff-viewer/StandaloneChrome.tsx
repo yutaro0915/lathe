@@ -24,10 +24,10 @@ export function StandaloneChrome({
   const commitText = `${current.commitCount} commit${current.commitCount === 1 ? "" : "s"}`;
   return (
     <>
-      <div className="sessbar" data-testid="sessbar">
-        <div className="sessbar-id" data-testid="sessbar-id">
+      <div className="lds-session-bar" data-testid="sessbar">
+        <div className="lds-session-bar-id" data-testid="sessbar-id">
           <span className={`runner-dot ${current.runner}`} data-testid="runner-dot" aria-hidden />
-          <span className="sessbar-title" data-testid="sessbar-title" title={current.title}>
+          <span className="lds-session-bar-title" data-testid="sessbar-title" title={current.title}>
             {current.title}
           </span>
           {current.errorCount > 0 && (
@@ -35,12 +35,12 @@ export function StandaloneChrome({
               {current.errorCount} error{current.errorCount === 1 ? "" : "s"}
             </span>
           )}
-          <span className="sessbar-meta" data-testid="sessbar-meta">
+          <span className="lds-session-bar-meta" data-testid="sessbar-meta">
             Git diff · {runnerLabel} · <span className="mono" data-testid="mono">⎇ {branch}</span> · {commitText} ·{" "}
             {current.startedAt.replace("T", " ").slice(0, 16)}
           </span>
         </div>
-        <div className="sessbar-stats" data-testid="sessbar-stats">
+        <div className="lds-session-bar-stats" data-testid="sessbar-stats">
           <div className="kstat" data-testid="kstat">
             <b>{fmtInt(files.length)}</b>
             <span>files</span>
@@ -64,7 +64,7 @@ export function StandaloneChrome({
         </div>
       </div>
 
-      <div className="tabs" data-testid="tabs" role="tablist">
+      <div className="lds-session-tabs" data-testid="tabs" role="tablist">
         {(
           [
             ["transcript", "Transcript"],
@@ -77,14 +77,14 @@ export function StandaloneChrome({
             role="tab"
             aria-selected={false}
             data-tab={key}
-            className="tab"
+            className="lds-session-tab"
             data-testid="tab"
             onClick={() => router.push(`/?session=${encodeURIComponent(currentId)}&tab=${key}`)}
           >
             {label}
           </button>
         ))}
-        <span className="tab active" data-testid="tab" role="tab" aria-selected={true} data-tab="git">Git</span>
+        <span className="lds-session-tab active" data-testid="tab" role="tab" aria-selected={true} data-tab="git">Git</span>
         {(
           [
             ["skills", "Skills"],
@@ -98,15 +98,15 @@ export function StandaloneChrome({
             role="tab"
             aria-selected={false}
             data-tab={key}
-            className="tab"
+            className="lds-session-tab"
             data-testid="tab"
             onClick={() => router.push(`/?session=${encodeURIComponent(currentId)}&tab=${key}`)}
           >
             {label}
           </button>
         ))}
-        <span className="tabs-spacer" data-testid="tabs-spacer" />
-        <span className="tabs-tool" data-testid="tabs-tool">
+        <span className="lds-session-tabs-spacer" data-testid="tabs-spacer" />
+        <span className="lds-session-tabs-tool" data-testid="tabs-tool">
           <label style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
             <span className="muted small" data-testid="muted">Session</span>
             <select

@@ -188,7 +188,7 @@
 
   /* ---- chrome band heights (fixed app shell) ----
      --appbar-h is the ONE header band height shared by the rail brand and every
-     work-area header (session sessbar / Sessions page-head / Overview head), so
+     work-area header (session bar / Sessions page-head / Overview head), so
      their bottom hairlines line up into a single unbroken line across the rail
      and the work area. */
   --appbar-h:  48px;
@@ -210,6 +210,13 @@
   --gap-row:    var(--sp-3);
   --pad-panel:  var(--sp-6);
   --pad-cell:   var(--sp-7);
+}
+
+@media (max-width:1200px){
+  :root{
+    --aside-w: 296px;
+    --sidebar-w: 248px;
+  }
 }
 
 /* ---- base element defaults (base.css) ----------------------------------- */

@@ -20,7 +20,7 @@ export function FileTree({
   onSelectFile: (id: string) => void;
 }) {
   return (
-    <div className="sidebar" data-testid="sidebar">
+    <div className="lds-layout-sidebar" data-testid="sidebar">
       <div className="filetree-head" data-testid="filetree-head">
         <div className="title" data-testid="title">Changed Files</div>
         <div className="sub" data-testid="sub">{files.length} files changed</div>

@@ -77,7 +77,7 @@ export function DiffWorkspace({
 }) {
   return (
     <div
-      className={embedded ? "diff-embed" : "layout3 diffview"}
+      className={embedded ? "diff-embed" : "lds-layout3 lds-layout3--diffview"}
       data-testid={embedded ? "diff-embed" : "layout3"}
       style={embedded ? undefined : { gridTemplateColumns: "280px minmax(0,1fr) 340px" }}
     >

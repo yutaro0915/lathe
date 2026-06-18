@@ -28,16 +28,16 @@ export function MetricsBar({
 }) {
   const sessionDate = parseStamp(primary.startedAt).date;
   return (
-    <div className="sessbar" data-testid="sessbar">
-      <div className="sessbar-id" data-testid="sessbar-id">
+    <div className="lds-session-bar" data-testid="sessbar">
+      <div className="lds-session-bar-id" data-testid="sessbar-id">
         <span className={`runner-dot ${primary.runner}`} data-testid="runner-dot" aria-hidden />
-        <span className="sessbar-title" data-testid="sessbar-title" title={primary.title}>{primary.title}</span>
+        <span className="lds-session-bar-title" data-testid="sessbar-title" title={primary.title}>{primary.title}</span>
         {primary.errorCount > 0 && (
           <span className="badge err" data-testid="badge" title={`${primary.errorCount} tool call(s) returned a non-zero exit (incl. sub-agents). Not a session-level verdict.`}>
             {primary.errorCount} error{primary.errorCount === 1 ? "" : "s"}
           </span>
         )}
-        <span className="sessbar-meta" data-testid="sessbar-meta">
+        <span className="lds-session-bar-meta" data-testid="sessbar-meta">
           {primary.model ?? "—"} · <span className="mono" data-testid="mono">⎇ {branch}</span> · {commitLabel} · {sessionDate} {parseStamp(primary.startedAt).time}
         </span>
         <CostAnomalyChip session={primary} />
@@ -55,7 +55,7 @@ export function MetricsBar({
             {currentSessionPendingFindingsCount > 0 && <span className="chip-sub mono" data-testid="chip-sub">{currentSessionPendingFindingsCount} pending</span>}
           </button>
         )}
-        <span className="sessbar-jumps" data-testid="sessbar-jumps">
+        <span className="lds-session-bar-jumps" data-testid="sessbar-jumps">
           {highestTurnJump && (
             <button
               type="button"
@@ -94,7 +94,7 @@ export function MetricsBar({
           </span>
         )}
       </div>
-      <div className="sessbar-stats" data-testid="sessbar-stats">
+      <div className="lds-session-bar-stats" data-testid="sessbar-stats">
         <KStat value={humanizeDuration(primary.durationMs)} label="duration" />
         <KStat value={fmtInt(primary.turnCount)} label="turns" />
         <KStat value={fmtInt(primary.toolCount)} label="tools" />

@@ -53,7 +53,7 @@ export function DiffPane({
   onSetHunkWindow: React.Dispatch<React.SetStateAction<number>>;
 }) {
   return (
-    <div className="main" data-testid="main">
+    <div className="lds-layout-main" data-testid="main">
       <div className="diff-wrap" data-testid="diff-wrap">
         <DiffToolbar
           active={active}
