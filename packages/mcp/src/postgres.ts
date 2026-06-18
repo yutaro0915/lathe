@@ -12,16 +12,20 @@ export function getDatabaseUrl(): string {
   return process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 }
 
-let pool: Pool | undefined;
+declare global {
+  // eslint-disable-next-line no-var
+  var __lathePgPool: Pool | undefined;
+}
 
 export function getPool(): Pool {
-  if (!pool) {
-    pool = new Pool({ connectionString: getDatabaseUrl() });
+  if (!globalThis.__lathePgPool) {
+    const pool = new Pool({ connectionString: getDatabaseUrl() });
     pool.on('error', (error) => {
       console.error(`[lathe-mcp-postgres] idle client error: ${(error as Error).stack ?? String(error)}`);
     });
+    globalThis.__lathePgPool = pool;
   }
-  return pool;
+  return globalThis.__lathePgPool;
 }
 
 export async function queryRows<T>(sql: string, params: unknown[] = []): Promise<T[]> {
@@ -35,8 +39,8 @@ export async function queryOne<T>(sql: string, params: unknown[] = []): Promise<
 }
 
 export async function closePool(): Promise<void> {
-  if (!pool) return;
-  const current = pool;
-  pool = undefined;
-  await current.end();
+  if (!globalThis.__lathePgPool) return;
+  const pool = globalThis.__lathePgPool;
+  globalThis.__lathePgPool = undefined;
+  await pool.end();
 }
