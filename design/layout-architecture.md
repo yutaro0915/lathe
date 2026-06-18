@@ -17,7 +17,7 @@
 | Rail | shell（root layout） | section nav: Sessions / Findings / PR / Overview（将来 Harness / Evals・Evaluators / Datasets・Experiments / Scores） | section は常に現在軸をハイライト |
 | WorkareaHeader | shell・**単一 component**（`<Surface>`/`<WorkareaHeader>`） | surface が渡す `{title, meta?, actions?, tabs?}`、＋ `← 戻る`/breadcrumb（section→entity の 2 段のみ） | **ヘッダー chrome はこの component にしか存在しない**。surface は `.lds-page-head`/`.lds-session-bar`/`.pr-hero` を二度と描かない |
 | Body | surface | surface の content のみ | 高さ・幅・余白は WorkareaHeader が固定するので構造的に段差不能 |
-| RightPanel | shell・collapsible（× で閉じる） | Inspector/detail（現 aside を shell 化）＋将来枠 | 各 surface が独自 aside grid を作らない |
+| ~~RightPanel（狭 Inspector）~~ → **wide detail（master-detail）** | surface body | **transcript の event 詳細は狭パネルでなく「event 一覧 + 広い detail」**（Langfuse の trace 詳細風）。detail = Input/Output 主役（Pretty[md]⇄Raw 切替・code 強調・コピー、md preview が読める幅）＋ metadata 列（Tool/Latency/Exit/Tokens、将来 eval Scores 枠）。Findings/PR と同じ master-detail 型 | 重要情報を狭パネルに押し込まない（注釈 #6 / 2026-06-18 ユーザ決定: 案 ii）。narrow Inspector は廃止 |
 
 ## project scope（昇格）
 
