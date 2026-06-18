@@ -13,7 +13,7 @@
 
 | region | 所有 | 中身 | 不変条件 |
 |---|---|---|---|
-| Top bar | shell（root layout） | brand `Lathe` ＋ **project scope switcher**（`All projects ▾`／`<project> ▾`、選ぶと全 section が再 scope）＋ ⌘K | **アプリ機能ボタン・account/user を載せない**（scope と識別のみ） |
+| Top bar | shell（root layout） | brand `Lathe` ＋ **枠なし breadcrumb 風の project セレクタ**（`Lathe / All projects ▾`、text+chevron、border/box なし）。選ぶと `?project=` で全 section を再 scope | **project 選択と識別だけ**。search/⌘K・アプリ機能ボタン・account/user は載せない。**枠で囲まない**（Langfuse の `/ Yutaro Ono ▾` のようにシンプル）。search は各 surface の WorkareaHeader 内（scope 付き）に置く |
 | Rail | shell（root layout） | section nav: Sessions / Findings / PR / Overview（将来 Harness / Evals・Evaluators / Datasets・Experiments / Scores） | section は常に現在軸をハイライト |
 | WorkareaHeader | shell・**単一 component**（`<Surface>`/`<WorkareaHeader>`） | surface が渡す `{title, meta?, actions?, tabs?}`、＋ `← 戻る`/breadcrumb（section→entity の 2 段のみ） | **ヘッダー chrome はこの component にしか存在しない**。surface は `.lds-page-head`/`.lds-session-bar`/`.pr-hero` を二度と描かない |
 | Body | surface | surface の content のみ | 高さ・幅・余白は WorkareaHeader が固定するので構造的に段差不能 |
@@ -28,7 +28,7 @@
 ## 機械強制（rubric）
 
 - `layout-authority`: ヘッダー chrome（旧 3 class ＋ 新 WorkareaHeader の styling）は WorkareaHeader component にしか現れない（surface 内 grep 0）。新 surface が自前ヘッダーを描くと RED。
-- `topbar-scope-only`: Top bar component にアプリ機能アクション（Run/Find/Reset/フィルタ等のボタン）が無い（scope switcher・brand・⌘K のみ）。machine もしくは agent-judge。
+- `topbar-scope-only`: Top bar component は project セレクタ・brand のみ（search/⌘K・Run/Find/Reset/フィルタ等のボタン・枠付きコントロールを置かない）。machine もしくは agent-judge。
 
 ## build 手順（slice、各 gate+現物+e2e、実装=Opus・監査=Claude）
 
