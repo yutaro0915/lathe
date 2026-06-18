@@ -31,19 +31,16 @@ export default function LoadingSessionViewer() {
         .sk-kstat{display:flex;flex-direction:column;gap:5px;align-items:flex-end}
         .sk-tabs{display:flex;gap:10px;padding:8px 16px;border-bottom:1px solid var(--border,#e4e7ec)}
         .sk-layout{display:grid;
-          grid-template-columns:var(--sidebar-w,264px) minmax(0,1fr) var(--aside-w,336px);
+          grid-template-columns:minmax(0,1fr) var(--aside-w,336px);
           height:calc(100vh - 220px)}
         .sk-col{padding:12px;overflow:hidden}
-        .sk-col.left{border-right:1px solid var(--border,#e4e7ec)}
         .sk-col.right{border-left:1px solid var(--border,#e4e7ec)}
-        .sk-item{padding:10px 0;border-bottom:1px solid var(--border-faint,#edeff3);
-          display:flex;flex-direction:column;gap:6px}
         .sk-row{padding:9px 0;border-bottom:1px solid var(--border-faint,#edeff3);
           display:flex;align-items:center;gap:10px}
         .sk-label{font:600 10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
           letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2,#98a1ae);
           padding:2px 0 10px}
-        @media (max-width:1100px){.sk-layout{grid-template-columns:var(--sidebar-w,264px) minmax(0,1fr)}
+        @media (max-width:1100px){.sk-layout{grid-template-columns:minmax(0,1fr)}
           .sk-col.right{display:none}}
       `}</style>
 
@@ -71,18 +68,10 @@ export default function LoadingSessionViewer() {
         ))}
       </div>
 
-      {/* Band 4 — 3-column layout */}
+      {/* Band 4 — main workarea + right inspector (no left session rail; the
+          session-list sidebar was removed, so the skeleton mirrors the current
+          single-workarea shell: main timeline + inspector aside). */}
       <div className="sk-layout" data-testid="sk-layout">
-        <div className="sk-col left" data-testid="sk-col">
-          <div className="sk-label" data-testid="sk-label">sessions</div>
-          {Array.from({ length: 9 }).map((_, i) => (
-            <div className="sk-item" data-testid="sk-item" key={i}>
-              {bar("85%", 11)}
-              {bar("55%", 9)}
-              {bar("70%", 9)}
-            </div>
-          ))}
-        </div>
         <div className="sk-col" data-testid="sk-col">
           <div className="sk-label" data-testid="sk-label">loading session</div>
           {Array.from({ length: 12 }).map((_, i) => (

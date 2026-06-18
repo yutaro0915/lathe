@@ -117,3 +117,19 @@
 .lds-minibar__track{position:relative;height:13px;background:var(--bg-sunken);border-radius:3px;overflow:hidden;}
 .lds-minibar__fill{position:absolute;inset:0 auto 0 0;background:var(--chart-bar);border-radius:3px;}
 .lds-minibar__value{font-family:var(--mono);font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
+
+/* ---- Attention panel close / restore controls ---------------------------
+   Migrated out of globals.css (DS v1 shrinks globals, grows here). Plain class
+   selectors imported globally via design-system/index.css; used by the Overview
+   Attention panel for per-column dismiss (×) and the restore-hidden control. */
+/* head-right groups the (optional) restore control with the scope label */
+.attn-head-right{display:inline-flex;align-items:baseline;gap:10px;}
+/* restore-hidden: quiet text button, accent on hover; only shown when columns hidden */
+.attn-restore{border:0;background:transparent;padding:0;color:var(--muted-2);font-family:var(--sans);font-size:11px;
+  cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+.attn-restore:hover{color:var(--accent);}
+/* per-column close (×): tucked at the head's trailing edge, neutral until hover */
+.attn-col-close{flex:0 0 auto;border:0;background:transparent;padding:0;width:15px;height:15px;line-height:1;
+  display:inline-flex;align-items:center;justify-content:center;border-radius:var(--radius-sm);
+  color:var(--muted-2);font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;}
+.attn-col-close:hover{background:var(--panel-hover);color:var(--text);}

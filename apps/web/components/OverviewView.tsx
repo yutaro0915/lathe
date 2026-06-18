@@ -23,7 +23,7 @@
 // In-session analytics — what one specific run did — live on the SessionViewer
 // "Stats" tab (SessionStatsView). Cross-session aggregates do not belong there.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import StatsView from "@/components/StatsView";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
@@ -60,6 +60,47 @@ export default function OverviewView({
   pendingFindings: Record<string, number>;
 }) {
   const [projectFilter, setProjectFilter] = useState<string>("all");
+
+  // ---- dismissed Attention columns (VISIBILITY, decoupled from the filter) ----
+  // The three Attention columns are derived from the project filter, but a user
+  // may want to remove a column independently of the scope. `dismissed` holds the
+  // group keys (`cost` / `errors` / `findings`) the user has hidden; it is wholly
+  // separate from `projectFilter` so changing the scope never re-adds a hidden
+  // column. Persisted to localStorage so a removal survives a reload.
+  //
+  // Initialised EMPTY so the first client render matches the server render (and
+  // the e2e fixtures still see every group); the persisted value is loaded in an
+  // effect after mount. localStorage access is guarded for SSR safety.
+  const DISMISSED_KEY = "lathe.overview.attn.dismissed";
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DISMISSED_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setDismissed(new Set(parsed.filter((k) => typeof k === "string")));
+      }
+    } catch {
+      /* localStorage unavailable (SSR / privacy mode) — keep the empty default */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DISMISSED_KEY, JSON.stringify([...dismissed]));
+    } catch {
+      /* localStorage unavailable — persistence is best-effort */
+    }
+  }, [dismissed]);
+
+  const dismissGroup = (key: string) =>
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  const restoreDismissed = () => setDismissed(new Set());
 
   // sessions in the current scope (project) — drives the charts and the panels.
   const scopeSessions = useMemo(() => {
@@ -181,7 +222,19 @@ export default function OverviewView({
         <section className="attn-panel" data-testid="attn-panel" data-panel="attention">
           <div className="attn-head" data-testid="attn-head">
             <span className="attn-title" data-testid="attn-title">NEEDS ATTENTION</span>
-            <span className="muted small" data-testid="muted">{scopeLabel}</span>
+            <span className="attn-head-right">
+              {dismissed.size > 0 && (
+                <button
+                  type="button"
+                  className="attn-restore" data-testid="attn-restore"
+                  onClick={restoreDismissed}
+                  title="Show the columns you hid"
+                >
+                  restore hidden ({dismissed.size})
+                </button>
+              )}
+              <span className="muted small" data-testid="muted">{scopeLabel}</span>
+            </span>
           </div>
 
           {attentionEmpty ? (
@@ -191,6 +244,7 @@ export default function OverviewView({
           ) : (
             <div className="attn-cols" data-testid="attn-cols">
               {/* ① G9 cost outliers */}
+              {!dismissed.has("cost") && (
               <div className="attn-col" data-testid="attn-col" data-attn-group="cost">
                 <div
                   className="attn-col-head" data-testid="attn-col-head"
@@ -199,6 +253,12 @@ export default function OverviewView({
                   <span>COST OUTLIERS</span>
                   <span className="attn-col-basis mono" data-testid="attn-col-basis">&gt;5× runner median, min $50 (G9)</span>
                   <span className="attn-count mono" data-testid="attn-count">{costAlerts.length}</span>
+                  <button
+                    type="button"
+                    className="attn-col-close" data-testid="attn-col-close" data-col="cost"
+                    onClick={() => dismissGroup("cost")}
+                    title="Hide this column" aria-label="Hide cost outliers column"
+                  >×</button>
                 </div>
                 {costAlerts.length === 0 ? (
                   <div className="attn-none" data-testid="attn-none">none</div>
@@ -223,8 +283,10 @@ export default function OverviewView({
                   ))
                 )}
               </div>
+              )}
 
               {/* ② error-heavy sessions */}
+              {!dismissed.has("errors") && (
               <div className="attn-col" data-testid="attn-col" data-attn-group="errors">
                 <div
                   className="attn-col-head" data-testid="attn-col-head"
@@ -233,6 +295,12 @@ export default function OverviewView({
                   <span>MOST ERRORS</span>
                   <span className="attn-col-basis mono" data-testid="attn-col-basis">by failed tool calls</span>
                   <span className="attn-count mono" data-testid="attn-count">{errorSessions.length}</span>
+                  <button
+                    type="button"
+                    className="attn-col-close" data-testid="attn-col-close" data-col="errors"
+                    onClick={() => dismissGroup("errors")}
+                    title="Hide this column" aria-label="Hide most errors column"
+                  >×</button>
                 </div>
                 {errorSessions.length === 0 ? (
                   <div className="attn-none" data-testid="attn-none">none</div>
@@ -252,8 +320,10 @@ export default function OverviewView({
                   ))
                 )}
               </div>
+              )}
 
               {/* ③ pending findings */}
+              {!dismissed.has("findings") && (
               <div className="attn-col" data-testid="attn-col" data-attn-group="findings">
                 <div
                   className="attn-col-head" data-testid="attn-col-head"
@@ -267,6 +337,12 @@ export default function OverviewView({
                   >
                     {pendingTotal} →
                   </Link>
+                  <button
+                    type="button"
+                    className="attn-col-close" data-testid="attn-col-close" data-col="findings"
+                    onClick={() => dismissGroup("findings")}
+                    title="Hide this column" aria-label="Hide pending findings column"
+                  >×</button>
                 </div>
                 {pendingSessions.length === 0 ? (
                   <div className="attn-none" data-testid="attn-none">none</div>
@@ -286,6 +362,7 @@ export default function OverviewView({
                   ))
                 )}
               </div>
+              )}
             </div>
           )}
         </section>

@@ -56,7 +56,7 @@ a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 
 /* tab strip — stays put while panes below scroll (sticky by band layout) */
 .lds-session-tabs{position:sticky;top:0;z-index:20;flex:0 0 var(--tabs-h);height:var(--tabs-h);display:flex;align-items:stretch;gap:0;
-  padding:0 16px 0 calc(var(--sidebar-w) + 12px);background:var(--panel);border-bottom:1px solid var(--border);}
+  padding:0 20px;background:var(--panel);border-bottom:1px solid var(--border);}
 .lds-session-tab{display:inline-flex;align-items:center;height:100%;padding:0 11px;margin-bottom:-1px;border:0;background:transparent;
   border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--sans);}
 .lds-session-tab:hover{color:var(--text-soft);}
@@ -793,7 +793,7 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
    Height is the shared header band (--appbar-h) so the session bar's bottom hairline
    lines up with the rail brand's into one unbroken line (vertical padding drops
    to 0; align-items centres the content in the fixed band). */
-.lds-session-bar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 18px;background:var(--panel);border-bottom:1px solid var(--border);height:var(--appbar-h);}
+.lds-session-bar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--border);height:var(--appbar-h);}
 .lds-session-bar-id{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
 .lds-session-bar-id .runner-dot{flex:0 0 auto;}
 .lds-session-bar-title{font-size:13.5px;font-weight:650;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46ch;flex:0 1 auto;}
