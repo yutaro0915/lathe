@@ -73,6 +73,7 @@
   "dependencies": {
     "@lathe/acp-client": "workspace:*",
     "@lathe/domain": "workspace:*",
+    "@lathe/mcp": "workspace:*",
     "@lathe/shared": "workspace:*",
     "next": "^15.5.4",
     "pg": "^8.16.3",

@@ -23,6 +23,9 @@ importers:
       '@lathe/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@lathe/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       '@lathe/shared':
         specifier: workspace:*
         version: link:../../packages/shared

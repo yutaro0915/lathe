@@ -1,7 +1,9 @@
 import * as crypto from 'node:crypto';
 import {
+  EVIDENCE_SUBJECT_KINDS,
   FINDING_BODY_MAX_LENGTH,
   FINDING_EVIDENCE_MAX_ITEMS,
+  FINDING_KINDS,
   FINDING_LOCATOR_MAX_LENGTH,
   FINDING_NOTE_MAX_LENGTH,
   FINDING_TITLE_MAX_LENGTH,
@@ -14,6 +16,7 @@ import {
   parseStoredAnalysis,
   stableJson,
   type EvidenceSubjectKind,
+  type FindingAnalysisInput,
   type FindingEvidenceInput,
   type FindingKind,
   type SubmitFindingInput,
@@ -22,6 +25,27 @@ import {
 import { getPool, queryOne, queryRows } from './postgres';
 
 type JsonRecord = Record<string, unknown>;
+
+export {
+  EVIDENCE_SUBJECT_KINDS,
+  FINDING_BODY_MAX_LENGTH,
+  FINDING_EVIDENCE_MAX_ITEMS,
+  FINDING_KINDS,
+  FINDING_LOCATOR_MAX_LENGTH,
+  FINDING_NOTE_MAX_LENGTH,
+  FINDING_TITLE_MAX_LENGTH,
+  VERDICT_FILTERS,
+  parseStoredAnalysis,
+  stableJson,
+};
+export type {
+  EvidenceSubjectKind,
+  FindingAnalysisInput,
+  FindingEvidenceInput,
+  FindingKind,
+  SubmitFindingInput,
+  VerdictFilter,
+};
 
 export interface ListSessionsFilter {
   projectId?: string;
