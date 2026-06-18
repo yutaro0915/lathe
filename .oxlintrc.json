@@ -1,0 +1,52 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "rules": {
+    "max-lines": ["warn", { "max": 500, "skipBlankLines": true, "skipComments": true }],
+    "max-lines-per-function": ["warn", { "max": 80 }],
+    "no-unused-vars": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["apps/web/e2e/**/*.spec.ts"],
+      "rules": {
+        "max-lines": ["warn", { "max": 800, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["apps/web/components/SessionViewer.tsx"],
+      "rules": {
+        "max-lines": ["warn", { "max": 2518, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["apps/web/scripts/analyst-engine.ts"],
+      "rules": {
+        "max-lines": ["warn", { "max": 1768, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["apps/web/lib/db.ts"],
+      "rules": {
+        "max-lines": ["warn", { "max": 1612, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["apps/web/components/DiffViewer.tsx"],
+      "rules": {
+        "max-lines": ["warn", { "max": 1280, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["apps/web/components/FindingsExplorer.tsx"],
+      "rules": {
+        "max-lines": ["warn", { "max": 1030, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
+      "files": ["apps/web/e2e/app.spec.ts"],
+      "rules": {
+        "max-lines": ["warn", { "max": 2869, "skipBlankLines": true, "skipComments": true }]
+      }
+    }
+  ]
+}

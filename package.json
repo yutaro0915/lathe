@@ -1,5 +1,14 @@
 {
   "name": "lathe-monorepo",
   "private": true,
-  "packageManager": "pnpm@10.18.1"
+  "packageManager": "pnpm@10.18.1",
+  "scripts": {
+    "lint:deps": "depcruise --config .dependency-cruiser.js --output-type err-long apps/web/app apps/web/components apps/web/lib packages/mcp/src/server.ts packages/mcp/src/verify.ts packages/acp-client/src packages/shared/src packages/client/src",
+    "lint:ox": "oxlint",
+    "lint": "pnpm lint:deps && pnpm lint:ox"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "^16.10.4",
+    "oxlint": "^0.16.12"
+  }
 }
