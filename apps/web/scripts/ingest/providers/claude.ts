@@ -10,6 +10,7 @@ import {
   hhmmss,
   isCommit,
   isTest,
+  langOf,
   lineCount,
   parseSubagentUsage,
   preview,
@@ -244,16 +245,6 @@ export function buildClaudeSession(file: string, opts: ProviderBuildOptions): Bu
       filesByPath.set(p, f);
     }
     return f;
-  };
-
-  const langOf = (p: string): string | null => {
-    const ext = p.split('.').pop()?.toLowerCase();
-    const m: Record<string, string> = {
-      ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
-      py: 'python', sql: 'sql', css: 'css', md: 'markdown',
-      json: 'json', sh: 'bash', mjs: 'javascript', html: 'html',
-    };
-    return (ext && m[ext]) || null;
   };
 
   for (const r of recs) {

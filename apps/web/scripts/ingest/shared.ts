@@ -96,6 +96,25 @@ export function lineCount(s: string): number {
   return s.replace(/\n$/, '').split('\n').length;
 }
 
+export function langOf(p: string): string | null {
+  const ext = p.split('.').pop()?.toLowerCase();
+  const languages: Record<string, string> = {
+    ts: 'typescript',
+    tsx: 'tsx',
+    js: 'javascript',
+    jsx: 'jsx',
+    py: 'python',
+    sql: 'sql',
+    css: 'css',
+    md: 'markdown',
+    json: 'json',
+    sh: 'bash',
+    mjs: 'javascript',
+    html: 'html',
+  };
+  return (ext && languages[ext]) || null;
+}
+
 export function clampLines(s: string, prefix: string, max: number): string {
   const lines = (s ?? '').replace(/\n$/, '').split('\n');
   const shown = lines.slice(0, max).map((l) => prefix + l);

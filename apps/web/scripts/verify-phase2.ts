@@ -4,8 +4,7 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { Pool } from 'pg';
-import { closePool, DEFAULT_DATABASE_URL, getPool } from '../lib/postgres';
+import { closePool, getPool } from '../lib/postgres';
 import type { Built } from './ingest/built';
 import { insertBuilt } from './ingest/db';
 import {
@@ -16,10 +15,10 @@ import {
 import { ingestNotify, type IngestNotifyPayload } from './ingest/notify';
 import { buildClaudeSession } from './ingest/providers/claude';
 import { pickDefaultTranscriptsDir } from './ingest/shared';
+import { withScratchDatabase } from './verify/scratch';
 
 const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
 const VERIFY_BUILD_OPTIONS = { maxEvents: 100000, maxFiles: 100000, maxHunkLines: 200 };
-const ORIGINAL_DATABASE_URL = process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 
 function fail(message: string): never {
   throw new Error(message);
@@ -43,28 +42,6 @@ function execGit(cwd: string, args: string[]): string {
 
 function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
-}
-
-function scratchDatabaseUrl(schema: string): string {
-  const url = new URL(ORIGINAL_DATABASE_URL);
-  url.searchParams.set('options', `-c search_path=${schema},public`);
-  return url.toString();
-}
-
-async function withScratchDatabase<T>(fn: () => Promise<T>): Promise<T> {
-  const schema = `phase2_verify_${process.pid}_${Date.now()}`.replace(/[^a-zA-Z0-9_]/g, '_');
-  const admin = new Pool({ connectionString: ORIGINAL_DATABASE_URL });
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  const previousDatabaseUrl = process.env.DATABASE_URL;
-  process.env.DATABASE_URL = scratchDatabaseUrl(schema);
-  try {
-    return await fn();
-  } finally {
-    await closePool();
-    process.env.DATABASE_URL = previousDatabaseUrl;
-    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-    await admin.end();
-  }
 }
 
 function claudeTranscriptDirs(): string[] {
@@ -734,7 +711,13 @@ async function runVerifyCommand(command: string | undefined): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await withScratchDatabase(() => runVerifyCommand(process.argv[2]));
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  await withScratchDatabase('phase2_verify', () => runVerifyCommand(process.argv[2]));
+  if (previousDatabaseUrl === undefined) {
+    if (process.env.DATABASE_URL !== undefined) fail('DATABASE_URL was not restored after scratch teardown');
+  } else if (process.env.DATABASE_URL !== previousDatabaseUrl) {
+    fail('DATABASE_URL changed after scratch teardown');
+  }
 }
 
 main()

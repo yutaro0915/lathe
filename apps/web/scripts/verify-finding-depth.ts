@@ -1,40 +1,15 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { Pool } from 'pg';
-import { closePool, DEFAULT_DATABASE_URL, getPool } from '../lib/postgres';
+import { closePool, getPool } from '../lib/postgres';
 import { assertAnalysisGrounded, backfillFindingAnalysis, runAnalyst, runAnalystSmoke } from './analyst-engine';
+import { withScratchDatabase } from './verify/scratch';
 
 const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
 const KNOWN_INCIDENTS_PATH = path.resolve(process.cwd(), '..', '..', 'spec', 'known-incidents.json');
 const FAKE_ACP_AGENT_PATH = path.resolve(process.cwd(), '..', '..', 'packages', 'acp-client', 'test', 'fixtures', 'fake-acp-agent.mjs');
-const ORIGINAL_DATABASE_URL = process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 
 function fail(message: string): never {
   throw new Error(message);
-}
-
-function scratchDatabaseUrl(schema: string): string {
-  const url = new URL(ORIGINAL_DATABASE_URL);
-  url.searchParams.set('options', `-c search_path=${schema},public`);
-  return url.toString();
-}
-
-async function withScratch<T>(prefix: string, fn: () => Promise<T>): Promise<T> {
-  const schema = `${prefix}_${process.pid}_${Date.now()}`.replace(/[^a-zA-Z0-9_]/g, '_');
-  const admin = new Pool({ connectionString: ORIGINAL_DATABASE_URL });
-  const previousDatabaseUrl = process.env.DATABASE_URL;
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  await closePool();
-  process.env.DATABASE_URL = scratchDatabaseUrl(schema);
-  try {
-    return await fn();
-  } finally {
-    await closePool();
-    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = previousDatabaseUrl;
-    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-    await admin.end();
-  }
 }
 
 async function applySchema(): Promise<void> {
@@ -57,7 +32,7 @@ async function assertDepthColumns(label: string): Promise<void> {
 }
 
 async function verifyFreshMigration(): Promise<void> {
-  await withScratch('finding_depth_fresh', async () => {
+  await withScratchDatabase('finding_depth_fresh', async () => {
     await applySchema();
     await assertDepthColumns('fresh first apply');
     await applySchema();
@@ -66,7 +41,7 @@ async function verifyFreshMigration(): Promise<void> {
 }
 
 async function verifyExistingMigration(): Promise<void> {
-  await withScratch('finding_depth_existing', async () => {
+  await withScratchDatabase('finding_depth_existing', async () => {
     await getPool().query(`
       CREATE TABLE projects (id TEXT PRIMARY KEY, display_name TEXT NOT NULL);
       CREATE TABLE harness_versions (
@@ -133,7 +108,7 @@ async function seedAnalystSession(): Promise<string> {
 }
 
 async function verifyRulesAnalysis(): Promise<void> {
-  await withScratch('finding_depth_rules', async () => {
+  await withScratchDatabase('finding_depth_rules', async () => {
     await applySchema();
     const sessionId = await seedAnalystSession();
     const result = await runAnalyst({ candidate: 'rules-v1', sessionId, source: 'smoke' });
@@ -143,7 +118,7 @@ async function verifyRulesAnalysis(): Promise<void> {
 }
 
 async function verifyGenericAnalysisRejected(): Promise<void> {
-  await withScratch('finding_depth_generic', async () => {
+  await withScratchDatabase('finding_depth_generic', async () => {
     await applySchema();
     const sessionId = await seedAnalystSession();
     const inserted = await getPool().query<{ id: number }>(
@@ -216,7 +191,7 @@ async function analysisCauseForTurn(sessionId: string, seq: number): Promise<str
 }
 
 async function verifyCueRouting(): Promise<void> {
-  await withScratch('finding_depth_cue_routing', async () => {
+  await withScratchDatabase('finding_depth_cue_routing', async () => {
     await applySchema();
     const sessionId = await seedCueRoutingSession();
     const rgCause = await analysisCauseForTurn(sessionId, 2);
@@ -254,7 +229,7 @@ async function withDeterministicAcpAgent<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function verifyDeterministicAcpSubmitPath(): Promise<void> {
-  await withScratch('finding_depth_fake_acp', async () => {
+  await withScratchDatabase('finding_depth_fake_acp', async () => {
     await applySchema();
     const sessionId = await seedAnalystSession();
     await withDeterministicAcpAgent(async () => {
@@ -358,7 +333,7 @@ async function copyKnownIncidentRows(sessionIds: string[]): Promise<void> {
 }
 
 async function warnKnownIncidentSmoke(): Promise<void> {
-  await withScratch('finding_depth_known', async () => {
+  await withScratchDatabase('finding_depth_known', async () => {
     await applySchema();
     const sessionIds = knownIncidentSessionIds();
     if (!sessionIds.length) fail('known incident fixture file has no session ids');
@@ -373,7 +348,7 @@ async function warnKnownIncidentSmoke(): Promise<void> {
 }
 
 async function verifyAcpFailureFailsClosed(): Promise<void> {
-  await withScratch('finding_depth_acp_required', async () => {
+  await withScratchDatabase('finding_depth_acp_required', async () => {
     await applySchema();
     const sessionIds = knownIncidentSessionIds();
     if (!sessionIds.length) fail('known incident fixture file has no session ids');
@@ -404,7 +379,7 @@ async function verifyAcpFailureFailsClosed(): Promise<void> {
 }
 
 async function verifyFinding110To114Backfill(): Promise<void> {
-  await withScratch('finding_depth_existing_findings', async () => {
+  await withScratchDatabase('finding_depth_existing_findings', async () => {
     await applySchema();
     const ids = [110, 111, 112, 113, 114];
     const rows = await getPool().query<{ id: number }>(
