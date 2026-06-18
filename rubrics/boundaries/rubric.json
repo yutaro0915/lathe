@@ -1,0 +1,18 @@
+{
+  "title": "層の境界 (I1 生SQL局所化 / I2 package非app依存)",
+  "scope": ["apps/web", "packages"],
+  "pass_to_task": "生 SQL は lib/db・ingest/db のみ（route/component/lib/write は経由して呼ぶ）。packages/* は apps/web を import しない。",
+  "checks": [
+    {
+      "id": "i1-no-postgres-leak",
+      "value": "生 SQL 発行を lib/db・ingest/db に局所化（route/component/lib/write が @/lib/postgres を直 import しない=I1）。守ると DB アクセスが一元化され、層を跨いだ直叩きが防げる。",
+      "verify": { "cmd": "pnpm lint:deps 2>&1 | grep -c 'I1-postgres' || true", "expect": "eq:0", "means": "depcruise I1 違反警告 = 0" }
+    },
+    {
+      "id": "i2-package-no-app",
+      "value": "packages/* が apps/web を import しない（I2）。守ると package が独立し、別プロセス起動・再利用ができる。",
+      "verify": { "cmd": "pnpm lint:deps 2>&1 | grep -c 'I2-package' || true", "expect": "le:1", "means": "depcruise I2 違反 ≤1（verify.ts の postgres 直 import は別 slice へ deferred）" }
+    }
+  ],
+  "origin": "監査 2026-06-17 / architecture.md I1-I2"
+}

@@ -1,0 +1,26 @@
+{
+  "title": "e2e は CSS クラスに依存しない (testid/role/aria のみ)",
+  "scope": ["apps/web/e2e"],
+  "pass_to_task": "e2e のセレクタは data-testid / getByRole / getByText / aria-selected / data-state のみ。CSS クラス由来 (class~= / [class / .locator(\".class\")) を使わない。assert する leaf 要素にはコンポーネント側で testid か aria を付与する。テスト数は不変。",
+  "checks": [
+    {
+      "id": "no-class-selectors",
+      "value": "e2e がコンポーネントの CSS クラス名・DOM 階層に結合しないこと。守られれば UI の見た目/クラス改修(r4 等)で e2e が壊れず、単純な UI 変更が地獄化しない（r6 churn の根絶）。",
+      "verify": {
+        "cmd": "grep -rEc -e 'class~=' -e '\\[class' -e '\\.locator\\(.\\.[a-z]' apps/web/e2e/*.spec.ts apps/web/e2e/helpers.ts 2>/dev/null | awk -F: '{s+=$2} END{print s+0}'",
+        "expect": "eq:0",
+        "means": "e2e/helpers 内のクラス由来セレクタ出現数 = 0"
+      }
+    },
+    {
+      "id": "tests-present",
+      "value": "脱結合のリファクタでテストを削って『通った』ことにしない（カバレッジ不変）。",
+      "verify": {
+        "cmd": "grep -rhE '(^|[[:space:]])test\\(' apps/web/e2e/*.spec.ts 2>/dev/null | wc -l | tr -d ' '",
+        "expect": "ge:100",
+        "means": "test() 件数 ≥ 100"
+      }
+    }
+  ],
+  "origin": "r6 失敗: コンテナ testid + leaf class の hybrid で gaming・手 grep ゲートが狭く見逃した (2026-06-18)"
+}

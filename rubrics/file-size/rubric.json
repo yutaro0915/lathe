@@ -1,0 +1,17 @@
+{
+  "title": "ファイルサイズ上限 (I4: 1 ファイル ≤500 行)",
+  "scope": ["apps/web", "packages"],
+  "pass_to_task": "新規ファイルは ≤500 行。god-file は分割で単調減少（増やさない・7 本目を作らない）。",
+  "checks": [
+    {
+      "id": "oversized-source-files",
+      "value": "1 ファイル 500 行超を作らない/減らす（I4）。守るとテスト・リファクタ・レビューが可能な粒度に保たれ、god-component が再発しない（2000 行級 6 本の解消）。",
+      "verify": {
+        "cmd": "pnpm lint:ox 2>&1 | grep -c 'max-lines)' || true",
+        "expect": "eq:0",
+        "means": "oxlint の file max-lines 違反 = 0。既存 god-file は grandfather で許容し、新規/悪化した >500 ファイルだけを違反にする（スライス外の god-file で落とさない）"
+      }
+    }
+  ],
+  "origin": "神ファイル 6 本 (2026-06-18)"
+}

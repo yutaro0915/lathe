@@ -1,0 +1,17 @@
+{
+  "title": "MCP サービスは単一 home (packages/mcp/service)・apps/web は re-export のみ",
+  "scope": ["packages/mcp", "apps/web/lib/mcp.ts"],
+  "pass_to_task": "MCP サービスの定義 home は packages/mcp/src/service.ts。apps/web/lib/mcp.ts は import/re-export のみ。同名関数を 2 箇所で define しない。境界(I2)を直すために複製を作らない。",
+  "checks": [
+    {
+      "id": "no-overlapping-defs",
+      "value": "MCP サービスロジックが単一定義で apps/web と packages/mcp に二重化しないこと。守られれば片方だけ直して drift する事故が起きず、境界修正(I2)が複製にすり替わらない（r3 の 917 行複製の再発防止）。",
+      "verify": {
+        "cmd": "comm -12 <(grep -oE 'function [A-Za-z]+' apps/web/lib/mcp.ts 2>/dev/null | sort -u) <(grep -oE 'function [A-Za-z]+' packages/mcp/src/service.ts 2>/dev/null | sort -u) | wc -l | tr -d ' '",
+        "expect": "eq:0",
+        "means": "両ファイルで define される同名関数の数 = 0"
+      }
+    }
+  ],
+  "origin": "r3 失敗: service.ts に apps/web/lib/mcp を 917 行複製 (2026-06-18)"
+}

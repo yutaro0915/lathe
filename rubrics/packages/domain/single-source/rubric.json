@@ -1,0 +1,17 @@
+{
+  "title": "共有純粋ユーティリティ (stableJson 等) は @lathe/domain に単一定義",
+  "scope": ["packages/domain", "apps/web/scripts/analyst-engine.ts", "apps/web/lib/mcp.ts"],
+  "pass_to_task": "stableJson / parseStoredAnalysis 等の共有純粋ユーティリティは @lathe/domain に 1 定義。consumer は import するだけ。再定義しない。",
+  "checks": [
+    {
+      "id": "stableJson-single-def",
+      "value": "共有純粋ユーティリティが @lathe/domain に単一定義であること。守られれば複数コピーの仕様ずれ（片方だけ修正されてロジックが分岐する事故）を防ぐ。",
+      "verify": {
+        "cmd": "grep -rEl --include='*.ts' --exclude-dir=.next --exclude-dir=dist --exclude-dir=node_modules 'function stableJson|const stableJson' apps/web packages 2>/dev/null | wc -l | tr -d ' '",
+        "expect": "le:1",
+        "means": "stableJson を定義するファイル数 ≤ 1"
+      }
+    }
+  ],
+  "origin": "r3: stableJson/parseStoredAnalysis を domain に統一 (2026-06-18)"
+}
