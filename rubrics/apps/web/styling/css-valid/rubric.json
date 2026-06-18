@@ -1,0 +1,17 @@
+{
+  "title": "CSS は構文として妥当 (コメント/ブレースが閉じる)",
+  "scope": ["apps/web/app", "apps/web/components"],
+  "pass_to_task": "globals.css / design-system/*.css を編集したら、コメント(/* */)とブレース({})が正しく閉じること。コメント本文に */ を書かない(クラス名 .x*/ 等で途中閉じが起きる)。",
+  "checks": [
+    {
+      "id": "css-comment-and-brace-balance",
+      "value": "CSS が構文として妥当(コメント・ブレースが閉じる)であること。守ると CSS 構文エラーで dev/build が壊れるのを防ぐ。事故: DS 移植 slice5 で breadcrumb コメント `/* ... .lds-session-bar*/.kstat ... */` が内包 */ で途中閉じし build を破壊、rubric gate を全 GREEN で通過した(=ゲートが CSS を一切コンパイル/検査していなかった穴)。CI の full build は backlog 的に遅いので、軽量な構文検査を per-slice gate に置く。",
+      "verify": {
+        "cmd": "node -e \"const fs=require('fs'),cp=require('child_process');const files=cp.execSync('git ls-files apps/web/app apps/web/components',{encoding:'utf8'}).split('\\n').filter(f=>f.endsWith('.css'));let bad=0;for(const f of files){const s=fs.readFileSync(f,'utf8');let inC=false;for(let i=0;i<s.length-1;i++){if(!inC&&s[i]==='/'&&s[i+1]==='*'){inC=true;i++;}else if(inC&&s[i]==='*'&&s[i+1]==='/'){inC=false;i++;}else if(!inC&&s[i]==='*'&&s[i+1]==='/'){bad++;i++;}}if(inC)bad++;}console.log(bad);\"",
+        "expect": "eq:0",
+        "means": "全 apps/web の .css でコメント開閉が均衡(CSS コメントは非ネスト＝INSIDE/OUTSIDE state machine。OUTSIDE の stray */、未終了 /* が 0)。違反>0 で RED。INSIDE の /* は文字列扱い(tokens/* 等の誤検出を避ける)"
+      }
+    }
+  ],
+  "origin": "DS 移植 slice5 の breadcrumb コメント */ 内包で build 破壊・gate 通過(2026-06-18)。失敗→ゲート全体最適化として新設"
+}
