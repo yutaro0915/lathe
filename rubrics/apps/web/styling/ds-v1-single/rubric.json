@@ -5,13 +5,13 @@
   "checks": [
     {
       "id": "globals-css-shrinking",
-      "value": "旧スタイル系(globals.css)と DS v1 が二重に存在する状態を解消し、単一系にすること(I3)。守ると token/クラスの二重定義・値衝突が無くなり、UI 改修が一系統で済む。現状 988 行=backlog、目標 0。bespoke surface CSS は DS bundle へ relocate、共有 base は lds-* primitive 採用で重複解消。",
+      "value": "旧スタイル系(globals.css)と DS v1 が二重に存在する状態を解消し、単一系にすること(I3)。守ると token/クラスの二重定義・値衝突が無くなり、UI 改修が一系統で済む。現状 960 行=backlog、目標 0。bespoke surface CSS は DS bundle へ relocate、共有 base は lds-* primitive 採用で重複解消。",
       "verify": {
         "cmd": "wc -l < apps/web/app/globals.css 2>/dev/null || echo 0",
-        "expect": "le:988",
-        "means": "globals.css の行数 ≤988(現天井)。slice 着地ごとに auditor が天井を締め 0 へ。増やしたら RED"
+        "expect": "le:960",
+        "means": "globals.css の行数 ≤960(現天井)。slice 着地ごとに auditor が天井を締め 0 へ。増やしたら RED"
       }
     }
   ],
-  "origin": "r4 で :root 一本化・一部クラス移行。globals.css 完全撤去は backlog (2026-06-18)。ratchet 履歴: 1008→988 (slice1 TimeRibbon, 2026-06-18)"
+  "origin": "r4 で :root 一本化・一部クラス移行。globals.css 完全撤去は backlog (2026-06-18)。ratchet 履歴: 1008→988 (slice1 TimeRibbon)→960 (slice2 PullRequestView), 2026-06-18"
 }
