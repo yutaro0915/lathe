@@ -1,17 +1,17 @@
 {
-  "title": "折りたたみ可能な UI は再オープン可能 — Inspector の 閉→開 (interaction)",
+  "title": "折りたたみ可能な UI は一貫した toggle で開閉できる — Inspector (interaction)",
   "scope": ["apps/web/app", "apps/web/components"],
-  "pass_to_task": "× 等で閉じられる collapsible UI(Surface の RightPanel = Inspector)は、必ず再オープンする affordance を持つ。閉じたら reload しないと戻らない、という袋小路を作らない。閉→reopen 操作出現→開 が壊れていないことをインタラクション e2e で固定する。",
+  "pass_to_task": "collapsible UI(Surface の RightPanel = Inspector)の開閉は 1 つの一貫した edge toggle で行う。閉じる操作と開く操作が別物(旧: 閉=× / 開=別レール)だったり、閉じたら reload しないと戻らない袋小路を作らない。同一 toggle で collapse↔expand が壊れていないことを interaction e2e で固定する。",
   "checks": [
     {
-      "id": "inspector-close-then-reopen",
-      "value": "Inspector(Surface RightPanel)を × で閉じると reopen 操作が一切なく、reload するまで戻らなかった(ユーザー報告 2026-06-19)。これはクリック遷移の不変条件で、layout-integrity(静的ジオメトリ)では捕れない=別系統のインタラクション検査が要る。閉→reopen 出現→クリック→再表示 を pin することで、collapsible UI の『閉じたら戻れない』回帰を機械 gate で塞ぐ。",
+      "id": "inspector-collapse-expand-toggle",
+      "value": "Inspector(Surface RightPanel)を × で閉じると再オープン操作が無く reload まで戻らず(報告1)、応急の reopen レールを足した直後も『閉=× / 開=別レール』と開閉が非対称で UI として破綻していた(報告2、2026-06-19)。これはクリック遷移の不変条件で layout-integrity(静的ジオメトリ)では捕れない=別系統のインタラクション検査が要る。1 つの edge toggle(lds-rp-toggle)で collapse↔expand が同一操作・同一位置で成立することを pin し、『閉じたら戻れない』『開閉が別物』の回帰を機械 gate で塞ぐ。",
       "verify": {
-        "cmd": "DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe E2E_PORT=3255 pnpm -C apps/web exec playwright test e2e/session-viewer.spec.ts -g \"closing the Inspector reveals a reopen control that restores it\"",
+        "cmd": "DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe E2E_PORT=3255 pnpm -C apps/web exec playwright test e2e/session-viewer.spec.ts -g \"the Inspector collapses and re-expands via one consistent edge toggle\"",
         "expect": "exit0",
-        "means": "Inspector を開いた状態→× で閉→ reopen 操作(lds-rp-reopen)が出現→クリックで再表示、の interaction が成立する。reopen affordance が無い/壊れていれば playwright が exit 1(検証済み: Surface の fix を revert すると lds-rp-reopen not found で FAIL)。前提: scratch DB(55433)起動 + disposable worktree で実行。"
+        "means": "開いた Inspector → 同一 toggle(lds-rp-toggle, aria-expanded=true)を click で collapse(aria-expanded=false、toggle は同位置に残る)→ もう一度 click で expand(再表示)。toggle が閉時に消える/反転しない/片方向しか無いと playwright が exit 1(検証済み: toggle を閉時に描画しないと not found で FAIL)。前提: scratch DB(55433)起動 + disposable worktree で実行。"
       }
     }
   ],
-  "origin": "ユーザー報告『一度 Inspector を消したら開けない』(2026-06-19)。原因=Surface.tsx で panelOpen=false 時に aside が null になるだけで reopen 操作が存在しなかった。fix=lds-rp-reopen レール(commit a3c8d38)、test=session-viewer.spec.ts の Inspector reopen describe(commit b703e2f)。UI rubric 枠組みの interaction 系(geometry の layout-integrity と対)。"
+  "origin": "報告1『一度 Inspector を消したら開けない』→ reopen レール追加(a3c8d38)。報告2『× と別レールで開閉が非対称、スライダーに統一しろ』(2026-06-19)→ × を廃し単一 edge toggle lds-rp-toggle に統一(collapse=› / expand=‹+label、aria-expanded で反転、commit 55ec67e)。test=session-viewer.spec.ts(同 commit)。UI rubric 枠組みの interaction 系(geometry の layout-integrity と対)。"
 }
