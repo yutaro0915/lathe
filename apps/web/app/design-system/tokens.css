@@ -64,6 +64,10 @@
   --border-strong: #c3cad3;
   --border-faint:  #eaecf1;
 
+  /* ---- scrollbar thumb (neutral grays, idle + hover) ---- */
+  --scrollbar:       #d4d9df;
+  --scrollbar-hover: #bfc6cd;
+
   /* ---- text ramp (contrast-tuned) ---- */
   --text:      #161d27;
   --text-soft: #333d4c;
@@ -79,6 +83,10 @@
   --accent-strong: #2e5fc2;
   --accent-weak:   #edf2fb;
   --accent-ring:   rgba(59,111,212,.30);
+  /* text/glyph color that sits ON a saturated/dark fill (primary button accent,
+     active tab on --text). Pure white; tokenized so "white on accent" is one
+     semantic decision, not a literal scattered across the bundle. */
+  --on-accent:     #ffffff;
 
   /* ---- semantic: success / additions (sage green) ---- */
   --green:        #3d8f63;
@@ -133,6 +141,13 @@
 
   --chart-bar:  #6982bd;
   --chart-line: #5fa07b;
+
+  /* JSON syntax-highlight palette (tool-result / payload pretty-print). A small
+     documented 3-hue set — keys / strings / numbers — kept here so the colors
+     are tokens, not literals embedded in the highlighter rule. */
+  --json-key: #6b5fa8;
+  --json-str: #3d7a55;
+  --json-num: #3a6ea8;
 
   /* per-event-type dot colors */
   --c-user:      var(--cat-message);

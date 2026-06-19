@@ -14,7 +14,7 @@
 .lds-btn:hover{background:var(--panel-hover);}
 .lds-btn:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
 .lds-btn:disabled{opacity:.5;cursor:not-allowed;}
-.lds-btn--primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+.lds-btn--primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
 .lds-btn--primary:hover{background:var(--accent-strong);}
 .lds-btn--ghost{border-color:transparent;background:transparent;color:var(--muted);}
 .lds-btn--ghost:hover{background:var(--panel-hover);color:var(--text-soft);}
@@ -293,13 +293,13 @@
   border:1px solid var(--border-strong);border-radius:5px;background:var(--panel);color:var(--text-soft);
   font-size:11.5px;font-weight:600;cursor:pointer;}
 .sa-tab:hover{background:var(--panel-hover);color:var(--text);}
-.sa-tab.active{background:var(--text);border-color:var(--text);color:#fff;}
+.sa-tab.active{background:var(--text);border-color:var(--text);color:var(--on-accent);}
 .sa-tab-count{color:var(--muted);font-weight:500;font-size:10.5px;font-family:var(--mono);font-variant-numeric:tabular-nums;}
 .sa-tab.active .sa-tab-count{color:rgba(255,255,255,.8);}
 .sa-tab-idx,.sa-card-idx{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;
   border-radius:4px;background:var(--bg-sunken);color:var(--muted);font-family:var(--mono);font-size:10px;
   font-weight:700;flex:0 0 auto;font-variant-numeric:tabular-nums;}
-.sa-tab.active .sa-tab-idx{background:rgba(255,255,255,.22);color:#fff;}
+.sa-tab.active .sa-tab-idx{background:rgba(255,255,255,.22);color:var(--on-accent);}
 
 /* overview spine: one clickable card per run, in chronological order */
 .sa-card{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:start;column-gap:11px;width:100%;
@@ -952,7 +952,7 @@ button.event-type-badge{height:auto;min-height:24px;}
 .code-block .copy{position:absolute;top:6px;right:6px;color:var(--muted-2);cursor:pointer;}
 .run-json{margin:8px 14px 14px;padding:9px 11px;background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius-sm);
   font-family:var(--mono);font-size:10.5px;line-height:1.55;color:var(--text-soft);white-space:pre;overflow:auto;max-height:220px;}
-.json-key{color:#6b5fa8;} .json-str{color:#3d7a55;} .json-num{color:#3a6ea8;} .json-punct{color:var(--muted-2);}
+.json-key{color:var(--json-key);} .json-str{color:var(--json-str);} .json-num{color:var(--json-num);} .json-punct{color:var(--muted-2);}
 
 /* ---- right-aside placeholder (run open, no step picked) ------------------*/
 .detail-placeholder{padding:18px 16px;font-size:11.5px;color:var(--muted);font-style:normal;}

@@ -1,0 +1,22 @@
+{
+  "plugins": ["stylelint-declaration-strict-value"],
+  "rules": {
+    "scale-unlimited/declaration-strict-value": [
+      ["/color/", "background", "fill", "stroke"],
+      {
+        "ignoreValues": ["currentColor", "transparent", "inherit", "0"],
+        "ignoreFunctions": true,
+        "expandShorthand": true,
+        "message": "Expected a token (var(--...)) or keyword — a raw literal breaks DS consistency (second styling system / token drift)"
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["app/design-system/tokens.css"],
+      "rules": {
+        "scale-unlimited/declaration-strict-value": null
+      }
+    }
+  ]
+}

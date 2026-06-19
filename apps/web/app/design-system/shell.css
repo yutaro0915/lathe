@@ -84,7 +84,7 @@
 .lds-rail-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;}
 .lds-rail-user{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 12px;border-top:1px solid var(--border);
   background:var(--sidebar-bg);}
-.lds-rail-user .lds-avatar{width:24px;height:24px;border-radius:50%;background:var(--text-soft);color:#fff;
+.lds-rail-user .lds-avatar{width:24px;height:24px;border-radius:50%;background:var(--text-soft);color:var(--on-accent);
   display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex:0 0 auto;}
 .lds-rail-user .lds-uname{font-size:12px;font-weight:600;color:var(--text);}
 .lds-rail-user .lds-gear{margin-left:auto;color:var(--muted-2);display:inline-flex;cursor:pointer;}
