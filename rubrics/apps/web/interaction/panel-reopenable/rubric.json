@@ -1,0 +1,17 @@
+{
+  "title": "折りたたみ可能な UI は再オープン可能 — Inspector の 閉→開 (interaction)",
+  "scope": ["apps/web/app", "apps/web/components"],
+  "pass_to_task": "× 等で閉じられる collapsible UI(Surface の RightPanel = Inspector)は、必ず再オープンする affordance を持つ。閉じたら reload しないと戻らない、という袋小路を作らない。閉→reopen 操作出現→開 が壊れていないことをインタラクション e2e で固定する。",
+  "checks": [
+    {
+      "id": "inspector-close-then-reopen",
+      "value": "Inspector(Surface RightPanel)を × で閉じると reopen 操作が一切なく、reload するまで戻らなかった(ユーザー報告 2026-06-19)。これはクリック遷移の不変条件で、layout-integrity(静的ジオメトリ)では捕れない=別系統のインタラクション検査が要る。閉→reopen 出現→クリック→再表示 を pin することで、collapsible UI の『閉じたら戻れない』回帰を機械 gate で塞ぐ。",
+      "verify": {
+        "cmd": "DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe E2E_PORT=3255 pnpm -C apps/web exec playwright test e2e/session-viewer.spec.ts -g \"closing the Inspector reveals a reopen control that restores it\"",
+        "expect": "exit0",
+        "means": "Inspector を開いた状態→× で閉→ reopen 操作(lds-rp-reopen)が出現→クリックで再表示、の interaction が成立する。reopen affordance が無い/壊れていれば playwright が exit 1(検証済み: Surface の fix を revert すると lds-rp-reopen not found で FAIL)。前提: scratch DB(55433)起動 + disposable worktree で実行。"
+      }
+    }
+  ],
+  "origin": "ユーザー報告『一度 Inspector を消したら開けない』(2026-06-19)。原因=Surface.tsx で panelOpen=false 時に aside が null になるだけで reopen 操作が存在しなかった。fix=lds-rp-reopen レール(commit a3c8d38)、test=session-viewer.spec.ts の Inspector reopen describe(commit b703e2f)。UI rubric 枠組みの interaction 系(geometry の layout-integrity と対)。"
+}
