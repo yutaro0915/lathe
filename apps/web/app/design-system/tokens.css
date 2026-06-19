@@ -68,7 +68,11 @@
   --text:      #161d27;
   --text-soft: #333d4c;
   --muted:     #555f6d;
-  --muted-2:   #818b98;
+  /* AA-floored: the lightest TEXT tier must still clear 4.5:1 on the panel /
+     sunken grounds it sits on (WCAG 1.4.3). #818b98 read 3.07–3.45:1; #626c7c
+     reads ≥4.75:1 on --bg-sunken and ≥5.3:1 on --panel while staying visibly
+     lighter than --muted. Decorative uses (dots / separators) only darken. */
+  --muted-2:   #626c7c;
 
   /* ---- accent (interactive / selection) — rationed ---- */
   --accent:        #3b6fd4;
@@ -98,7 +102,10 @@
 
   /* ---- semantic: warning / modifications (amber) ---- */
   --amber:      #b08530;
-  --amber-text: #94691f;
+  /* AA-floored: amber text on --amber-bg (warn badges, cost anomaly chip) read
+     4.42:1 at #94691f; #8a6113 reads ~5.0:1 on --amber-bg and ~5.5:1 on --panel
+     (green/red text pairs already clear 4.5:1 on their tinted grounds). */
+  --amber-text: #8a6113;
   --amber-bg:   #f9f3e6;
   --amber-chip: #efe2c4;
 
