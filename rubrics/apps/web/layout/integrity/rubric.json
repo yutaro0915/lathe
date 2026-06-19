@@ -1,0 +1,17 @@
+{
+  "title": "描画後レイアウト整合性 — はみ出し/文字切れ/段差/重なり/詰まり/detail幅 (T2)",
+  "scope": ["apps/web/app", "apps/web/components"],
+  "pass_to_task": "UI surface を変えたら実ブラウザ描画後のレイアウト不変条件を壊さない。はみ出し・無音の文字切れ・ヘッダー段差/重なり・パネルからの spill・master-detail の detail が list より狭い、を target 1500 / narrow 700 の両幅で作らない。dense 情報は detail 側へ、list は compact に。",
+  "checks": [
+    {
+      "id": "render-layout-integrity",
+      "value": "段差・はみ出し・無音の文字切れ・ヘッダー重なり・cramped panel・list より狭い detail は source に現れず描画後にしか存在しない=静的 gate(ds-v1-single/file-size/css-valid/layout-authority)が全て GREEN のまま出荷された失敗の正体(2026-06 の段差/詰まり連発)。実ブラウザで整数 layout rect を計測し算術で決定的に塞ぐ(pixel diff も判定 AI も使わない)。守ると目視でしか拾えなかった回帰が機械 gate になる。6 surface(Sessions/transcript/Stats/Findings/PR/Overview)× 2 幅。",
+      "verify": {
+        "cmd": "DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe E2E_PORT=3252 pnpm -C apps/web exec playwright test e2e/layout-integrity.spec.ts",
+        "expect": "exit0",
+        "means": "6 surface × 2 幅(1500/700)の描画ジオメトリ不変条件(no-overflow/no-truncation/header-aligned/no-overlap/fits-container/detail-wider-than-list)が全て満たされる。どれか 1 系統でも違反なら playwright が exit 1。前提: scratch DB(55433)が起動・ingest 済み + disposable worktree で実行(main worktree は dev-server-collision-guard で build/e2e 不可)。axe color-contrast/target-size は当面 soft(報告のみ、別途 hard 化予定)。"
+      }
+    }
+  ],
+  "origin": "段差/cramped/truncation の連続失敗(2026-06)。T1 の layout-authority(header chrome の所有者を grep)では描画結果が見えない=T2 描画ジオメトリ層を新設。UI rubric 枠組みの裏取り調査 wf_31e41313。spec=apps/web/e2e/layout-integrity.spec.ts(commit 1756511)。"
+}
