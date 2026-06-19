@@ -72,7 +72,24 @@ export default function Surface({ title, meta, actions, tabs, rightPanel, childr
           </div>
           <div className="lds-rp-body" data-testid="lds-rp-body">{rightPanel.children}</div>
         </aside>
-      ) : null}
+      ) : (
+        // Reopen affordance: a slim right-edge vertical rail shown ONLY when the
+        // panel is closed. Without it, closing the panel (× = lds-rp-close) left
+        // no way back short of a page reload. Clicking restores the panel. It
+        // shows the panel's own title (falling back to "Inspector") rotated along
+        // the rail so the user sees WHAT reopens.
+        <button
+          type="button"
+          className="lds-rp-reopen"
+          data-testid="lds-rp-reopen"
+          aria-label="Open panel"
+          title="Open panel"
+          onClick={() => setPanelOpen(true)}
+        >
+          <span className="lds-rp-reopen-chevron" aria-hidden="true">‹</span>
+          <span className="lds-rp-reopen-label">{rightPanel.title ?? "Inspector"}</span>
+        </button>
+      )}
     </div>
   ) : (
     children
