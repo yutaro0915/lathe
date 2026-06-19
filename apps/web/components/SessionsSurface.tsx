@@ -276,7 +276,7 @@ export default function SessionsSurface({
               onClick={() => openSession(s.id)}
             >
               <span className="lds-sg-main" data-testid="lds-sg-main">
-                <span className="lds-sg-title" data-testid="lds-sg-title">{s.title}</span>
+                <span className="lds-sg-title" data-testid="lds-sg-title" title={s.title}>{s.title}</span>
                 <span className="lds-sg-meta" data-testid="lds-sg-meta">
                   <span>
                     {st.date}, {st.time}
