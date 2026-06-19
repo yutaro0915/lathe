@@ -476,7 +476,9 @@
 .diff-hunk.collapsed .htext{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .diff-hunk.collapsed .collapsed-note{font-size:11px;color:var(--muted-2);margin-left:auto;white-space:nowrap;font-family:var(--mono);font-variant-numeric:tabular-nums;}
 /* diff → transcript back-link: jump to the step that produced this hunk */
-.linked-event .le-jump{flex:0 0 auto;align-self:center;background:var(--bg-sunken);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-family:var(--mono);font-size:10.5px;padding:2px 6px;cursor:pointer;white-space:nowrap;}
+/* ≥24×24 hit target (WCAG 2.5.8): the glyph/label stays small, the button box
+   grows to meet the minimum (same fix as .tw-expand). */
+.linked-event .le-jump{flex:0 0 auto;align-self:center;display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;background:var(--bg-sunken);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-family:var(--mono);font-size:10.5px;padding:2px 6px;cursor:pointer;white-space:nowrap;}
 .linked-event .le-jump:hover{color:var(--text);border-color:var(--accent-ring);background:var(--accent-weak);}
 .confidence{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;white-space:nowrap;}
 .confidence::before{content:"";width:6px;height:6px;border-radius:50%;}

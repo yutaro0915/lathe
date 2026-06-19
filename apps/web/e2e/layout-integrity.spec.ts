@@ -35,9 +35,9 @@
 //                           legitimately holds taller/wider content on its axis).
 //   6 detail-wider-than-list — master-detail surfaces: side-by-side ⇒ detail wider
 //                           than list; stacked (narrow) ⇒ detail not narrower.
-//   7 a11y                — axe-core color-contrast + target-size, REPORTED per
-//                           surface (counts printed); assertion wired (soft) to
-//                           gate once the baseline is clean.
+//   7 a11y                — axe-core color-contrast + target-size, HARD-gated per
+//                           surface (counts printed, then asserted ==0): the
+//                           baseline is clean across all 7 surfaces × 2 widths.
 //
 // Visibility is gated FIRST in every check (display:none / zero-box /
 // getClientRects().length===0 read 0/0 and would be false negatives).
@@ -417,12 +417,14 @@ test.describe("layout-integrity", () => {
         type: "a11y",
         description: `${surface.name} @${width}px :: ${a11yLines.join("; ") || "clean"}`,
       });
-      // Gate wiring: this assertion goes RED once the build is expected clean.
-      // It is currently SOFT so the run REPORTS the real baseline instead of
-      // hard-failing on a pre-existing contrast/target-size debt the auditor has
-      // not yet scoped (see report). Flip `expect.soft` -> `expect` to gate.
+      // Gate wiring: HARD. The baseline is driven to ZERO across all 7 surfaces
+      // × 2 widths (color-contrast AA + target-size 24px). The last residual —
+      // /diff's .le-jump back-link below the 24px tap-target minimum — is grown
+      // to a ≥24px box (--amber-text was already AA-floored to #8a6113 ≈5.0:1 on
+      // --amber-bg upstream). Any NEW color-contrast or target-size violation on
+      // any surface now fails the gate.
       const totalA11y = axe.reduce((n, r) => n + r.count, 0);
-      expect.soft(totalA11y, `a11y (color-contrast+target-size) baseline on ${surface.name} @${width}px`).toBeGreaterThanOrEqual(0);
+      expect(totalA11y, `a11y (color-contrast+target-size) on ${surface.name} @${width}px`).toBe(0);
     });
   }
 });
