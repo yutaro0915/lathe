@@ -323,3 +323,37 @@ test.describe("Transcript: turn grouping", () => {
     await expect.poll(async () => page.locator(`[data-testid="event-row"]`).count()).toBe(headers);
   });
 });
+
+test.describe("Inspector (RightPanel) reopen", () => {
+  // An INTERACTION invariant the geometry gate can't catch: it needs a click
+  // flow. The Inspector (Surface RightPanel) closes with ×; before the fix there
+  // was NO control to bring it back, so closing it stranded the user until a page
+  // reload. This pins down close → reopen-control-appears → reopen → panel-back.
+  // The non-transcript, non-full-width tabs (tools/skills/subagents/raw) render
+  // the RightPanel; we use the tools tab.
+  test("closing the Inspector reveals a reopen control that restores it", async ({ page }) => {
+    // discover a real seeded session via the existing helper, opened on the
+    // tools inspector tab (no hardcoded id).
+    await gotoViewer(page, "tab=tools");
+
+    const rightpanel = page.locator(`[data-testid="lds-rightpanel"]`);
+    const close = page.locator(`[data-testid="lds-rp-close"]`);
+    const reopen = page.locator(`[data-testid="lds-rp-reopen"]`);
+
+    // 1. the Inspector starts open; no reopen control yet.
+    await expect(rightpanel).toBeVisible();
+    await expect(reopen).toBeHidden();
+
+    // 2. close it — the panel goes away.
+    await close.click();
+    await expect(rightpanel).toBeHidden();
+
+    // 3. the reopen control is now visible (the affordance that was missing).
+    await expect(reopen).toBeVisible();
+
+    // 4. clicking it brings the Inspector back.
+    await reopen.click();
+    await expect(rightpanel).toBeVisible();
+    await expect(reopen).toBeHidden();
+  });
+});
