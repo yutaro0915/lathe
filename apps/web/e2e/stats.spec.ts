@@ -7,7 +7,16 @@ test.describe("Stats tab (in-session)", () => {
   test("the Stats tab shows charts for THIS session only (not cross-session)", async ({
     page,
   }) => {
-    await page.goto("/?tab=stats");
+    // Land on a session that DETERMINISTICALLY has per-turn data (>1 user turn,
+    // a non-zero wall-clock turn) so the per-turn "Where this session went" chart
+    // has bars to draw. A bare "/?tab=stats" resolves to getPrimarySession(),
+    // which — once the cost-anomaly fixtures (seq 2/3/4, no transcript events)
+    // are seeded by registerFixtureHooks() — is the earliest root session with
+    // ZERO turns, so its per-turn chart is (correctly) its empty state: a
+    // test-selection flake, not a chart bug. This still exercises the per-session
+    // (not cross-session) Stats tab — the session viewer keeps naming the SESSION.
+    const session = await findCompactCodexSession();
+    await page.goto(`/?session=${session}&tab=stats`);
     // sessbar still names the SESSION (not 'Overview'/'Statistics'): the tab is
     // per-session by design — cross-session analytics live at /overview.
     await expect(page.locator(`[data-testid="sessbar-title"]`)).not.toHaveText(/^(Overview|Statistics)/);
