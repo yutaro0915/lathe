@@ -71,7 +71,7 @@ export function AttributionPane({
             >
               <span className="le-idx" data-testid="le-idx">{index + 1}</span>
               <div className="le-body" data-testid="le-body">
-                <div className="le-turn" data-testid="le-turn">
+                <div className="le-turn" data-testid="le-turn" title={`Turn ${linkedEvent.event.seq}: ${linkedEvent.event.title}`}>
                   <b>Turn {linkedEvent.event.seq}:</b> {linkedEvent.event.title}
                 </div>
                 <div className="le-meta" data-testid="le-meta">
@@ -145,7 +145,7 @@ export function AttributionPane({
           {annotations.map((annotation) => (
             <div className="annotation" data-testid="annotation" key={annotation.id}>
               <span className={`akind ${annotation.kind}`} data-testid="akind" />
-              <span className="nowrap" data-testid="nowrap">{annotation.note ?? annotation.kind}</span>
+              <span className="nowrap" data-testid="nowrap" title={annotation.note ?? annotation.kind}>{annotation.note ?? annotation.kind}</span>
             </div>
           ))}
         </div>

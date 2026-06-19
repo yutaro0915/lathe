@@ -153,7 +153,7 @@ function DiffToolbar({
 }) {
   return (
     <div className="diff-toolbar" data-testid="diff-toolbar">
-      <span className="fpath" data-testid="fpath">{active ? active.path : "—"}</span>
+      <span className="fpath" data-testid="fpath" title={active ? active.path : undefined}>{active ? active.path : "—"}</span>
       <span className="fstats" data-testid="fstats">
         <span className="add" data-testid="add">{active ? active.additions : 0} additions</span>
         {" / "}

@@ -419,7 +419,7 @@ export default function SessionViewer({
 
   const body = isFullWidthTab ? (
     <div className="lds-sv-fill" data-testid="main" data-tab={activeTab}>
-      {activeTab === "git" && <GitTab sessions={sessions} bundle={bundle} currentId={currentId} focusEventId={gitFocusEvent} focusFileId={gitFocusFileId} focusHunkId={gitFocusHunkId} onJumpToEvent={(eid) => { setActiveTab("transcript"); selectTimelineEvent(eid, true); clearGitFocus(); }} />}
+      {activeTab === "git" && <GitTab bundle={bundle} currentId={currentId} focusEventId={gitFocusEvent} focusFileId={gitFocusFileId} focusHunkId={gitFocusHunkId} onJumpToEvent={(eid) => { setActiveTab("transcript"); selectTimelineEvent(eid, true); clearGitFocus(); }} />}
       {activeTab === "stats" && <StatsTab bundle={bundle} />}
       {activeTab === "findings" && <FindingsTab findings={findings} setFindings={setFindings} sessions={sessions} currentId={currentId} resolveEvidence={resolveEvidence} onJumpToSession={jumpToFindingSession} onJumpToTurn={jumpToFindingTurn} />}
     </div>

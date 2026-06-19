@@ -79,6 +79,16 @@ const SURFACES: Surface[] = [
     build: (sid) => `/?session=${encodeURIComponent(sid)}&tab=stats`,
   },
   {
+    // The standalone Git-diff route. /diff is a server REDIRECT to
+    // /?session=<id>&tab=git, so it lands on the SAME shell-owned <Surface> as
+    // every other surface (no self-drawn header band). Bare /diff defaults to the
+    // most recent session that actually HAS changed files, so the diff workspace
+    // (file tree + hunks + attribution) renders populated. The workspace is a
+    // three-pane grid, NOT a list+detail master-detail, so no `masterDetail`.
+    name: "Diff (Git, standalone /diff)",
+    build: () => "/diff",
+  },
+  {
     name: "Findings",
     build: () => "/findings",
     masterDetail: { list: "findings-list", detail: "finding-detail" },

@@ -1,10 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import TimeRibbon from "@/components/TimeRibbon";
 import { DiffWorkspace } from "@/components/diff-viewer/DiffWorkspace";
-import { StandaloneChrome } from "@/components/diff-viewer/StandaloneChrome";
 import {
   HUNK_PAGE,
   buildTree,
@@ -16,16 +13,20 @@ import type {
   ChangedFile,
   DiffHunk,
   LinkedEvent,
-  Session,
   SessionBundle,
   TranscriptEvent,
 } from "@/lib/types";
 
+// DiffViewer renders the diff WORKSPACE only (file tree + hunks + attribution).
+// It is always EMBEDDED in the session viewer's Git tab — the shell-owned
+// WorkareaHeader (Surface, via SessionViewer) owns the session title/meta, the
+// tab nav, and the session switcher. The diff no longer draws its own header
+// chrome (the old standalone `.lds-session-bar` band + `.lds-session-tabs` are
+// gone); /diff redirects to /?session=<id>&tab=git, which composes this through
+// <Surface> like every other surface.
 interface Props {
-  sessions: Session[];
   bundle: SessionBundle;
   currentId: string;
-  embedded?: boolean;
   focusEventId?: string;
   focusFileId?: string;
   focusHunkId?: string;
@@ -33,17 +34,13 @@ interface Props {
 }
 
 export default function DiffViewer({
-  sessions,
   bundle,
   currentId,
-  embedded = false,
   focusEventId,
   focusFileId,
   focusHunkId,
   onJumpToEvent,
 }: Props) {
-  const router = useRouter();
-  const session = bundle.session;
   const files = bundle.changedFiles;
 
   const focusHit = useMemo(() => {
@@ -208,63 +205,40 @@ export default function DiffViewer({
     });
   }
 
-  function switchSession(id: string) {
-    if (id !== currentId) router.push(`/diff?session=${id}`);
-  }
-
   return (
-    <>
-      {!embedded && (
-        <StandaloneChrome
-          sessions={sessions}
-          current={session}
-          currentId={currentId}
-          files={files}
-          onSwitchSession={switchSession}
-        />
-      )}
-      <DiffWorkspace
-        active={active}
-        annotations={bundle.annotations}
-        collapsedFolders={collapsedFolders}
-        coveredCount={coveredCount}
-        embedded={embedded}
-        expandedHunks={expandedHunks}
-        files={files}
-        hunkAttr={hunkAttr}
-        hunkIndex={hunkIndex}
-        hunkRefs={hunkRefs}
-        hunks={hunks}
-        linkedEvents={linkedEvents}
-        moreHunks={moreHunks}
-        rawJson={rawEventJson(selectedEvent, selected)}
-        renderedHunks={renderedHunks}
-        selected={selected}
-        selectedEvent={selectedEvent}
-        showAllHunks={showAllHunks}
-        showBanner={showBanner}
-        showRawJson={showRawJson}
-        touchedSteps={touchedSteps}
-        viewMode={viewMode}
-        visibleTree={visibleTree}
-        onExpandHunk={expandHunk}
-        onGotoHunk={gotoHunk}
-        onJumpToEvent={onJumpToEvent}
-        onSelectFile={selectFile}
-        onSetHunkWindow={setHunkWindow}
-        onSetSelectedLinkedEventId={setSelectedLinkedEventId}
-        onSetShowAllHunks={setShowAllHunks}
-        onSetShowRawJson={setShowRawJson}
-        onSetViewMode={setViewMode}
-        onToggleFolder={toggleFolder}
-      />
-      {!embedded && (
-        <TimeRibbon
-          events={bundle.events}
-          selectedId={selectedEvent?.id}
-          title="Time spent (session)"
-        />
-      )}
-    </>
+    <DiffWorkspace
+      active={active}
+      annotations={bundle.annotations}
+      collapsedFolders={collapsedFolders}
+      coveredCount={coveredCount}
+      expandedHunks={expandedHunks}
+      files={files}
+      hunkAttr={hunkAttr}
+      hunkIndex={hunkIndex}
+      hunkRefs={hunkRefs}
+      hunks={hunks}
+      linkedEvents={linkedEvents}
+      moreHunks={moreHunks}
+      rawJson={rawEventJson(selectedEvent, selected)}
+      renderedHunks={renderedHunks}
+      selected={selected}
+      selectedEvent={selectedEvent}
+      showAllHunks={showAllHunks}
+      showBanner={showBanner}
+      showRawJson={showRawJson}
+      touchedSteps={touchedSteps}
+      viewMode={viewMode}
+      visibleTree={visibleTree}
+      onExpandHunk={expandHunk}
+      onGotoHunk={gotoHunk}
+      onJumpToEvent={onJumpToEvent}
+      onSelectFile={selectFile}
+      onSetHunkWindow={setHunkWindow}
+      onSetSelectedLinkedEventId={setSelectedLinkedEventId}
+      onSetShowAllHunks={setShowAllHunks}
+      onSetShowRawJson={setShowRawJson}
+      onSetViewMode={setViewMode}
+      onToggleFolder={toggleFolder}
+    />
   );
 }

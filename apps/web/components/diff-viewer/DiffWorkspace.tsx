@@ -11,7 +11,6 @@ export function DiffWorkspace({
   annotations,
   collapsedFolders,
   coveredCount,
-  embedded,
   expandedHunks,
   files,
   hunkAttr,
@@ -45,7 +44,6 @@ export function DiffWorkspace({
   annotations: Annotation[];
   collapsedFolders: Set<string>;
   coveredCount: number;
-  embedded: boolean;
   expandedHunks: Set<string>;
   files: ChangedFile[];
   hunkAttr: Map<string, Attribution | undefined>;
@@ -76,11 +74,14 @@ export function DiffWorkspace({
   onToggleFolder: (path: string) => void;
 }) {
   return (
-    <div
-      className={embedded ? "diff-embed" : "lds-layout3 lds-layout3--diffview"}
-      data-testid={embedded ? "diff-embed" : "layout3"}
-      style={embedded ? undefined : { gridTemplateColumns: "280px minmax(0,1fr) 340px" }}
-    >
+    // Always embedded in the session viewer's Git-tab body (the diff workspace =
+    // file tree + hunks + attribution). The shell owns the header chrome via
+    // <Surface>; this is just the three-pane workspace inside the Surface body.
+    // data-scroll: the dense three-pane diff has a natural minimum width; when the
+    // work area is narrower (700px gate width) the whole workspace scrolls
+    // horizontally INSIDE its pane rather than clipping (the no-overflow gate
+    // exempts data-scroll panes — same contract as the diff body itself).
+    <div className="diff-embed" data-testid="diff-embed" data-scroll>
       <FileTree
         files={files}
         active={active}
