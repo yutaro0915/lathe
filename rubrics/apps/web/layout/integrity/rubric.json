@@ -5,11 +5,11 @@
   "checks": [
     {
       "id": "render-layout-integrity",
-      "value": "段差・はみ出し・無音の文字切れ・ヘッダー重なり・cramped panel・list より狭い detail は source に現れず描画後にしか存在しない=静的 gate(ds-v1-single/file-size/css-valid/layout-authority)が全て GREEN のまま出荷された失敗の正体(2026-06 の段差/詰まり連発)。実ブラウザで整数 layout rect を計測し算術で決定的に塞ぐ(pixel diff も判定 AI も使わない)。守ると目視でしか拾えなかった回帰が機械 gate になる。6 surface(Sessions/transcript/Stats/Findings/PR/Overview)× 2 幅。",
+      "value": "段差・はみ出し・無音の文字切れ・ヘッダー重なり・cramped panel・list より狭い detail は source に現れず描画後にしか存在しない=静的 gate(ds-v1-single/file-size/css-valid/layout-authority)が全て GREEN のまま出荷された失敗の正体(2026-06 の段差/詰まり連発)。実ブラウザで整数 layout rect を計測し算術で決定的に塞ぐ(pixel diff も判定 AI も使わない)。守ると目視でしか拾えなかった回帰が機械 gate になる。7 surface(Sessions/transcript/Stats/Findings/PR/Overview/Diff)× 2 幅。",
       "verify": {
         "cmd": "DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe E2E_PORT=3252 pnpm -C apps/web exec playwright test e2e/layout-integrity.spec.ts",
         "expect": "exit0",
-        "means": "6 surface × 2 幅(1500/700)の描画ジオメトリ不変条件(no-overflow/no-truncation/header-aligned/no-overlap/fits-container/detail-wider-than-list)が全て満たされる。どれか 1 系統でも違反なら playwright が exit 1。前提: scratch DB(55433)が起動・ingest 済み + disposable worktree で実行(main worktree は dev-server-collision-guard で build/e2e 不可)。axe color-contrast/target-size は当面 soft(報告のみ、別途 hard 化予定)。"
+        "means": "7 surface × 2 幅(1500/700)の描画ジオメトリ不変条件(no-overflow/no-truncation/header-aligned/no-overlap/fits-container/detail-wider-than-list)が全て満たされる。どれか 1 系統でも違反なら playwright が exit 1。前提: scratch DB(55433)が起動・ingest 済み + disposable worktree で実行(main worktree は dev-server-collision-guard で build/e2e 不可)。axe color-contrast/target-size は当面 soft(報告のみ、別途 hard 化予定)。"
       }
     }
   ],

@@ -1,0 +1,17 @@
+{
+  "title": "ヘッダー chrome は WorkareaHeader 単一所有 — surface は自前 band を描かない (T1)",
+  "scope": ["apps/web/app", "apps/web/components"],
+  "pass_to_task": "新しい surface の header chrome は <Surface>/WorkareaHeader 経由で出す。legacy band class(.lds-session-bar / .lds-page-head)を className で自前描画しない(段差の原因)。pr-hero(PR body 内の detail entity header)と lds-session-bar-scope(Overview の scope label)は許可済み例外。",
+  "checks": [
+    {
+      "id": "no-self-drawn-header-band",
+      "value": "各 surface が自前で header 帯(.lds-page-head / .lds-session-bar の系統)を描いていたのがヘッダー段差の根本原因=レイアウト権威の不在。chrome を WorkareaHeader 単一 component に集約し surface は body を流し込むだけにすると構造的に段差不能。T1(所有者の grep)は描画前に source で違反を止める層であり、描画後の整列・はみ出しは T2(layout/integrity の header-aligned 等)が見る。両層で header 段差を恒久ロックする。",
+      "verify": {
+        "cmd": "grep -rhoE 'className=\"[^\"]*lds-(session-bar|page-head)(\"| )' apps/web/app apps/web/components --include='*.tsx' | grep -v 'lds-session-bar-scope' | wc -l | tr -d ' '",
+        "expect": "eq:0",
+        "means": "legacy header band class(.lds-session-bar / .lds-page-head)を className で使う surface が 0。pr-hero(PR の detail header)と lds-session-bar-scope(Overview の scope label)は pattern 対象外で許可。新 surface が自前 band を描くと >0 で RED(検証済み: 注入で 1)。"
+      }
+    }
+  ],
+  "origin": "段差事故(各 surface が .lds-page-head/.lds-session-bar/.pr-hero を自前描画しレイアウト権威が無かった)→ Layout v2 で <Surface> に chrome 集約。最後の自前 band だった StandaloneChrome(/diff のデッド !embedded 分岐)を撤去して例外ゼロ化(commit eedf948、2026-06-19)。region 契約=design/layout-architecture.md。T2=layout/integrity(描画ジオメトリ)と対。"
+}
