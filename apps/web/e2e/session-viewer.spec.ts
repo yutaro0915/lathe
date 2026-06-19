@@ -324,36 +324,40 @@ test.describe("Transcript: turn grouping", () => {
   });
 });
 
-test.describe("Inspector (RightPanel) reopen", () => {
+test.describe("Inspector (RightPanel) collapse/expand toggle", () => {
   // An INTERACTION invariant the geometry gate can't catch: it needs a click
-  // flow. The Inspector (Surface RightPanel) closes with ×; before the fix there
-  // was NO control to bring it back, so closing it stranded the user until a page
-  // reload. This pins down close → reopen-control-appears → reopen → panel-back.
+  // flow. The Inspector (Surface RightPanel) used to close with a header × and
+  // reopen with a SEPARATE edge rail — two asymmetric controls. Now ONE edge
+  // toggle (lds-rp-toggle) handles both directions: it is the SAME affordance in
+  // the same place, flipping its state (aria-expanded / data-rp-open) and label.
+  // This pins down the full open → collapse → still-visible toggle → expand
+  // cycle through that single control (stronger: one mechanism, never stranded).
   // The non-transcript, non-full-width tabs (tools/skills/subagents/raw) render
   // the RightPanel; we use the tools tab.
-  test("closing the Inspector reveals a reopen control that restores it", async ({ page }) => {
+  test("the Inspector collapses and re-expands via one consistent edge toggle", async ({ page }) => {
     // discover a real seeded session via the existing helper, opened on the
     // tools inspector tab (no hardcoded id).
     await gotoViewer(page, "tab=tools");
 
     const rightpanel = page.locator(`[data-testid="lds-rightpanel"]`);
-    const close = page.locator(`[data-testid="lds-rp-close"]`);
-    const reopen = page.locator(`[data-testid="lds-rp-reopen"]`);
+    const toggle = page.locator(`[data-testid="lds-rp-toggle"]`);
 
-    // 1. the Inspector starts open; no reopen control yet.
+    // 1. the Inspector starts open; the ONE toggle is present and reads expanded.
     await expect(rightpanel).toBeVisible();
-    await expect(reopen).toBeHidden();
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
 
-    // 2. close it — the panel goes away.
-    await close.click();
+    // 2. clicking the SAME toggle collapses the panel — it goes away, but the
+    //    toggle stays (same control, now reading collapsed: the way back).
+    await toggle.click();
     await expect(rightpanel).toBeHidden();
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
 
-    // 3. the reopen control is now visible (the affordance that was missing).
-    await expect(reopen).toBeVisible();
-
-    // 4. clicking it brings the Inspector back.
-    await reopen.click();
+    // 3. clicking that same toggle again re-expands the Inspector.
+    await toggle.click();
     await expect(rightpanel).toBeVisible();
-    await expect(reopen).toBeHidden();
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 });

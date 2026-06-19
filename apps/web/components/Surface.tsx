@@ -18,7 +18,11 @@
 //   • the Body: the scroll region the surface fills (children). The body itself
 //     is a non-scrolling flex column so a surface can place a fixed sub-row (e.g.
 //     a filters panel) above its own scrolling list.
-//   • a collapsible RightPanel (closed with ×) when `rightPanel` is supplied.
+//   • a collapsible RightPanel (toggled by ONE edge slider) when `rightPanel`
+//     is supplied. Collapse and expand are the SAME affordance — a slim vertical
+//     edge-tab pinned to the right (VS Code / Langfuse side-panel style). It
+//     flips its chevron + aria-label by state instead of using two asymmetric
+//     controls (the old header × to close + a separate edge rail to reopen).
 
 import * as React from "react";
 
@@ -33,7 +37,8 @@ export interface SurfaceProps {
   // optional tabs row, rendered directly under the header.
   tabs?: React.ReactNode;
   // optional collapsible right inspector panel. When supplied, the body splits
-  // into a main column + this panel; the panel closes with the × control.
+  // into a main column + this panel; a single right-edge slider toggle collapses
+  // and expands it (the same control in both directions).
   rightPanel?: {
     title?: React.ReactNode;
     children: React.ReactNode;
@@ -52,44 +57,40 @@ export interface SurfaceProps {
 export default function Surface({ title, meta, actions, tabs, rightPanel, children, surface, headerTestId }: SurfaceProps) {
   const [panelOpen, setPanelOpen] = React.useState(rightPanel?.defaultOpen ?? true);
 
+  const panelTitle = rightPanel?.title ?? "Inspector";
   const body = rightPanel ? (
-    <div className="lds-surface-split" data-testid="lds-surface-split">
+    <div className="lds-surface-split" data-testid="lds-surface-split" data-rp-open={panelOpen}>
       <div className="lds-surface-main" data-testid="lds-surface-main">{children}</div>
       {panelOpen ? (
         <aside className="lds-rightpanel" data-testid="lds-rightpanel">
           <div className="lds-rp-head" data-testid="lds-rp-head">
             <span className="lds-rp-title" data-testid="lds-rp-title">{rightPanel.title}</span>
-            <button
-              type="button"
-              className="lds-rp-close"
-              data-testid="lds-rp-close"
-              aria-label="Close panel"
-              title="Close panel"
-              onClick={() => setPanelOpen(false)}
-            >
-              ×
-            </button>
           </div>
           <div className="lds-rp-body" data-testid="lds-rp-body">{rightPanel.children}</div>
         </aside>
-      ) : (
-        // Reopen affordance: a slim right-edge vertical rail shown ONLY when the
-        // panel is closed. Without it, closing the panel (× = lds-rp-close) left
-        // no way back short of a page reload. Clicking restores the panel. It
-        // shows the panel's own title (falling back to "Inspector") rotated along
-        // the rail so the user sees WHAT reopens.
-        <button
-          type="button"
-          className="lds-rp-reopen"
-          data-testid="lds-rp-reopen"
-          aria-label="Open panel"
-          title="Open panel"
-          onClick={() => setPanelOpen(true)}
-        >
-          <span className="lds-rp-reopen-chevron" aria-hidden="true">‹</span>
-          <span className="lds-rp-reopen-label">{rightPanel.title ?? "Inspector"}</span>
-        </button>
-      )}
+      ) : null}
+      {/* The ONE collapse/expand affordance. A slim right-edge vertical tab,
+          always in the same place (pinned to the right edge of the split), in
+          BOTH states — like the VS Code / Langfuse side-panel collapse. It does
+          not use two asymmetric controls (the old header × + a separate reopen
+          rail); it flips chevron direction + aria-label by `panelOpen`:
+            • OPEN  → "›" (collapse, pointing toward the edge), label hidden.
+            • CLOSED→ "‹" (expand) + the panel's "Inspector" label.
+          One stable testid (lds-rp-toggle) + aria-expanded + data-rp-open so a
+          test/CSS can read the state. */}
+      <button
+        type="button"
+        className="lds-rp-toggle"
+        data-testid="lds-rp-toggle"
+        data-rp-open={panelOpen}
+        aria-expanded={panelOpen}
+        aria-label={panelOpen ? "Collapse panel" : "Expand panel"}
+        title={panelOpen ? "Collapse panel" : "Expand panel"}
+        onClick={() => setPanelOpen((open) => !open)}
+      >
+        <span className="lds-rp-toggle-chevron" aria-hidden="true">{panelOpen ? "›" : "‹"}</span>
+        {panelOpen ? null : <span className="lds-rp-toggle-label">{panelTitle}</span>}
+      </button>
     </div>
   ) : (
     children
