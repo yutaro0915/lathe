@@ -38,6 +38,14 @@
 //   7 a11y                — axe-core color-contrast + target-size, HARD-gated per
 //                           surface (counts printed, then asserted ==0): the
 //                           baseline is clean across all 7 surfaces × 2 widths.
+//   8 no-collapsed-content — a VISIBLE element carrying meaningful text rendered
+//                           at ~0 width (squeezed to invisibility: width<8px AND
+//                           scrollWidth>clientWidth). Closes the blind spot the
+//                           Sessions title slipped through — a width-0 label that
+//                           had BOTH a `title=` tooltip AND a scroll-pane ancestor,
+//                           exempting it from Families 2 and 1 at once. This family
+//                           does NOT honor those exemptions; it DOES exempt sr-only
+//                           / visually-hidden text and zero-text decoration.
 //
 // Visibility is gated FIRST in every check (display:none / zero-box /
 // getClientRects().length===0 read 0/0 and would be false negatives).
@@ -348,6 +356,74 @@ function collectViolations({ masterDetail }: CollectArg): string[] {
         out.push(`[detail-wider-than-list] detail(${masterDetail.detail})=${dr.width.toFixed(1)}px <= list(${masterDetail.list})=${lr.width.toFixed(1)}px`);
       }
     }
+  }
+
+  // ===== Family 8: no-collapsed-content (squeezed-to-invisible) ==========
+  // The blind spot the Sessions title slipped through: a VISIBLE element that
+  // carries meaningful text but is rendered at ~0 width — its content is
+  // squeezed out of existence. Families 1/2 (overflow / silent-ellipsis) miss it
+  // because BOTH of their escape hatches apply at once: a `title=` tooltip exempts
+  // it from no-truncation, and a scroll-pane ancestor exempts it from no-overflow.
+  // A width-0-but-titled label inside a scroll pane is invisible to both — yet to
+  // the user the most important column has simply VANISHED. This family closes
+  // that gap directly and does NOT honor the tooltip / scroll-pane exemptions.
+  //
+  // NOTE the shared isVisible gate canNOT be reused here: it requires
+  // boundingRect.width > 0, but a width-0 collapse is EXACTLY what this family
+  // hunts — gating on isVisible would skip the target. So this family uses an
+  // isRendered gate that asserts the element is painted (client rects, not
+  // display:none / visibility:hidden / opacity:0) and has positive HEIGHT (a real
+  // line box), while allowing width to be ~0.
+  //
+  // Signature of a real collapse (all four):
+  //   (1) passes isRendered (painted, positive height) — width is allowed to be 0,
+  //   (2) carries meaningful text — trimmed length >= 2 AND at least one
+  //       letter/number (so pure-punctuation separators like "·" don't count),
+  //   (3) box width < 8px (squeezed to invisibility),
+  //   (4) scrollWidth > clientWidth (the content WANTS room but the box is ~0 —
+  //       this is a squeeze, not a legitimately empty/narrow element).
+  //
+  // EXEMPT genuine non-cases so the check fires only on real collapses:
+  //   - visually-hidden / sr-only accessibility text — the canonical clip pattern
+  //     (position:absolute + a 1px box and/or clip / clip-path). That text is
+  //     MEANT to be invisible; flagging it would be a false positive.
+  //   - zero-size icon / decoration spans — no meaningful text (already excluded
+  //     by gate 2; SVG/icon nodes are skipped explicitly for clarity).
+  const hasWord = (s: string): boolean => /[\p{L}\p{N}]/u.test(s);
+  // sr-only / visually-hidden: the standard "clip a 1px box absolutely" idiom used
+  // to expose text to AT while hiding it visually. Such an element is width-0 BY
+  // DESIGN, so it must not trip the collapse check.
+  const isVisuallyHidden = (el: Element, cs: CSSStyleDeclaration): boolean => {
+    if (cs.position === "absolute" || cs.position === "fixed") {
+      const tinyBox = el.clientWidth <= 1 || el.clientHeight <= 1;
+      const clipped =
+        (cs.clip && cs.clip !== "auto") ||
+        (cs.clipPath && cs.clipPath !== "none") ||
+        cs.overflow === "hidden";
+      if (tinyBox && clipped) return true;
+    }
+    return false;
+  };
+  // painted + positive height, but width is allowed to be ~0 (the collapse).
+  const isRendered = (el: Element): boolean => {
+    if (el.getClientRects().length === 0) return false;
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden" || cs.visibility === "collapse") return false;
+    if (parseFloat(cs.opacity || "1") === 0) return false;
+    return el.getBoundingClientRect().height > 0;
+  };
+  for (const el of all) {
+    if (!isRendered(el)) continue;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "svg" || tag === "img" || tag === "canvas" || tag === "path") continue; // decoration, not text
+    const text = (el.textContent || "").trim();
+    if (text.length < 2 || !hasWord(text)) continue; // not meaningful text
+    const rect = el.getBoundingClientRect();
+    if (rect.width >= 8) continue; // has real width — not collapsed
+    if (el.scrollWidth <= el.clientWidth) continue; // genuinely empty/narrow, not squeezed
+    const cs = getComputedStyle(el);
+    if (isVisuallyHidden(el, cs)) continue; // intentional sr-only / visually-hidden text
+    out.push(`[no-collapsed-content] ${idOf(el)} width=${rect.width.toFixed(1)}px scrollWidth=${el.scrollWidth} ("${text.slice(0, 40)}")`);
   }
 
   return out;
