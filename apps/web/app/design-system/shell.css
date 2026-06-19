@@ -139,6 +139,13 @@
      box rather than spill the band. The inner .lds-sv-title keeps its ellipsis +
      title tooltip, so the full name stays reachable. */
   .lds-wh[data-testid="sessbar"] .lds-wh-titles{overflow-x:auto;overflow-y:hidden;}
+  /* The meta slot defaults to flex-shrink:1 + ellipsis, so once the (non-shrinking)
+     title fills the scrollable cluster the meta collapses to width:0 — but its own
+     box is 0, so scrolling the cluster reveals NOTHING (the model/branch/date line
+     vanishes). Inside the now-scrollable cluster the meta no longer needs to
+     ellipsize: stop it shrinking so it keeps its real width and becomes reachable
+     by the cluster's horizontal scroll. */
+  .lds-wh[data-testid="sessbar"] .lds-wh-meta{flex:0 0 auto;overflow:visible;text-overflow:clip;}
 }
 /* Surface row that hosts a sub-component (filters etc.) below the header. */
 .lds-surface-row{flex:0 0 auto;}
@@ -284,3 +291,14 @@
 .lds-sg-zero{font-family:var(--mono);font-size:12px;color:var(--muted-2);}
 .lds-sg-flags{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;}
 .lds-sg-empty{color:var(--muted-2);font-size:12px;padding:14px 20px;}
+/* Narrow widths: the five fixed metric tracks (132+92+64+72+84 + gaps ≈ 514px)
+   plus the title's 1fr exceed a ~700px work area, so the 1fr title track
+   resolves to 0 and the most important column (the session title) renders at
+   width:0 — invisible — while the list quietly scrolls sideways. Give the title
+   track a readable FLOOR (minmax keeps the desktop 1fr identical, since at wide
+   widths 1fr ≫ 220px) so the row instead grows past the work area and the WHOLE
+   list (head + rows, same template) scrolls horizontally in its existing scroll
+   pane — the title stays visible and the columns stay aligned. */
+@media (max-width:860px){
+  .lds-sg-head,.lds-sg-row{grid-template-columns:minmax(220px,1fr) 132px 92px 64px 72px 84px;}
+}

@@ -277,7 +277,16 @@ export default function SessionsSurface({
             >
               <span className="lds-sg-main" data-testid="lds-sg-main">
                 <span className="lds-sg-title" data-testid="lds-sg-title" title={s.title}>{s.title}</span>
-                <span className="lds-sg-meta" data-testid="lds-sg-meta">
+                {/* The meta line ellipsizes its last item (the model) inside the
+                    title column; at narrow widths that item can clip. A `title`
+                    tooltip exposes the full date · duration · model so the clip is
+                    never SILENT (the layout-integrity no-truncation gate exempts a
+                    titled clipped label). Visual appearance is unchanged. */}
+                <span
+                  className="lds-sg-meta"
+                  data-testid="lds-sg-meta"
+                  title={`${st.date}, ${st.time} · ${humanizeDuration(s.durationMs)} · ${shortModel(s.model)}`}
+                >
                   <span>
                     {st.date}, {st.time}
                   </span>

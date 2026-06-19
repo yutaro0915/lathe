@@ -177,6 +177,14 @@
 .attn-row:hover{background:var(--panel-hover);border-color:var(--border-faint);text-decoration:none;}
 .attn-row-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto;}
 .attn-row-meta{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;font-family:var(--mono);font-variant-numeric:tabular-nums;}
+/* Narrow widths: three equal attn columns in a ~436px work area give each column
+   ~114px, and the row's right-aligned meta (date/ratio) then eats the whole width,
+   collapsing the row TITLE to 0 (invisible). Stack the three columns into one so
+   each row gets the full width and its title keeps room (same degrade-to-one-column
+   pattern the PR shell uses at this breakpoint). */
+@media (max-width:860px){
+  .attn-cols{grid-template-columns:minmax(0,1fr);}
+}
 .badge.neutral .attn-ratio,.badge.attn-ratio{font-family:var(--mono);font-variant-numeric:tabular-nums;}
 /* head-right groups the (optional) restore control with the scope label */
 .attn-head-right{display:inline-flex;align-items:baseline;gap:10px;}
