@@ -58,6 +58,20 @@
 - 意味: peer が**自分の destination を持つ**なら **遷移**（session → SessionViewer）。peer が**現 entity の sub-content**なら **inline 展開**（tool → その invocations）。挙動を peer の性質に束ねると、どの list でも一貫する。
 - 実現: 🧩 comparison-list の row が `navigate | expand` を取る（chevron の有無で示す）。📐 どちらかの判断は「peer が独立 destination か」で機械的に決まる。
 
+## Git 画面
+
+### D13. diff の +/− coloring は色配給制（D10）の semantic 例外
+- 意味: category color ではなく semantic（追加=green / 削除=red）・機能的・普遍。error-red が特権なのと同じ枠。diff renderer の中でだけ使い、行・バッジには漏らさない。
+- 実現: 🧩 diff renderer 内のみ。📐 D10 の明示例外として doc 化（taste でなく規則の例外）。
+
+### D14. artifact ↔ step の双方向 attribution
+- 意味: 各 hunk / 変更ファイルを「それを産んだ step」に紐づけ、Git ↔ Transcript を双方向 jump（`↗ Turn N · edit`）。coding-agent 観測固有の「変更 → 原因」追跡。
+- 実現: 🧩 attribution link（hunk→step / file→step）。データ実在（hunk attribution map）。
+
+### D15. Git view は diff の組織軸を segmented で切替（by step / by file-tree）
+- 意味: 同一 diff データを process 軸（step ごとの差分）と artifact 軸（従来のファイルツリー差分）で見せ、読む目的で選ぶ。**両軸とも file↔step attribution を通す**（file 軸では各ファイルにどの step が変えたか、step 軸では各 step がどのファイルを変えたか）。
+- 実現: 🧩 segmented control（D の局所・即時・排他トグル要素を再利用）＋ 2 view。diff は unified（side-by-side は狭幅で死ぬので不採用）。
+
 ## 視覚（visual、全画面）
 
 ### D10. 色配給制（配給 6 色は TimeRibbon / minimap / chart のみ。行・バッジは neutral+小 dot、error red のみ全面特権）
