@@ -106,6 +106,32 @@
 - 意味: 彩度を全面に撒くと密度の高い observability 画面が読めなくなる（原本の「彩度の洪水」の恒久対策）。色を使う価値が密度コストを上回るのは可視化だけ。
 - 実現: ✅ `styling/token-consistency`（色値の出所=var(--token)）＋ 📐 doc（どの**面**で使ってよいかは taste、機械化しない）。
 
+## Chat 画面
+
+### D22. Chat = 2 surface（全面 destination A ＋ 永続 context panel B、agent/thread 共有）
+- 意味: 「腰を据えて分析」=全面 A（Rail destination・thread 一覧＋会話）、「今の画面の文脈で随時聞く」=panel B。同一 agent・同一 thread を共有し、B の `↗` で A へ昇格＝同じ会話の連続。別機能でなく 1 agent の 2 表示。
+- 実現: 🧩 surface A（/chat route、thread-list＋conversation）＋ surface B（docked 右 panel）。会話/thread/composer を共有。summon 口（常駐/ショートカット/Rail）は ⏳ 未確定（捏造しない）。
+
+### D23. context 付与 = 実 UI component の指定（type 列挙でない）
+- 意味: 「見ているものを指す」が最短。作った各 component（session 行 / finding / turn / step / subagent カード / hunk…）がそのまま context handle。type を列挙させるのは誤り。
+- 実現: 🧩 ①open/new-thread でそのページ entity を 1 度自動添付 ②画面上の実 component を hover→`+ chat` で添付 ③composer 上部「Add context」→ multi-select picker（**要素名が縦 stack**）④自然言語。context = 具体 element（[[design/phase2-finding-model]] の finding_evidence subject_kind に対応、D21）。
+
+### D24. chat agent は tool 制限・提案まで（適用は人間）
+- 意味: 分析特化に保ち coding agent 化させない（ROADMAP 設計境界）。ハーネス改善は文面提案まで、適用は人間。指摘は finding 提出 → 採否（D20）に乗る。
+- 実現: 📐 lathe MCP 5 tools のみ（編集/bash なし、[[design/phase2-finding-model]] §6.4）。会話内 `finding として提出` ＋ evidence jump（D21）。⏳ 自己観測の汚染は識別タグで分離（§6.5）。
+
+### D25. context panel(B) は navigation-independent（永続）
+- 意味: B は画面遷移で reset/再 bind しない。context は明示添付（open 時 1 度＋クリック）であって nav 追従でない。腰を据えた対話が画面移動で壊れない。
+- 実現: 🧩 panel state（thread / 添付 context / scroll）を route 非依存に保持。`persists` を UI で明示。
+
+### D26. 入力域 = 単一枠 composer（atomic component を内包、A/B で再利用）
+- 意味: 入力域は単一責務の部品の合成。**入力欄**=文字入力のみ / **stacked context**=添付 context を縦 stack（枠付きの別 component）/ **Add context**=stack 末尾の追加口。これらを 1 つの composer 枠が内包。分解により A でも B でも同一 composer を使い回す。
+- 実現: 🧩 composer（単一枠）= stacked-context ＋ Add-context ＋ input-field。surface A/B 共通。➕ rubric 候補（composer 構造の不変＝component 検査）。
+
+### D27（⏳ 予約）. chat 内の生成 UI（その場分析を viz で提示）
+- 意味: agent が分析結果をその場生成 UI で提示する機能。**現時点では不要・今後実装**。採用時は「DS プリミティブの合成（色配給 D10・rubric 内）」か「自由生成」かを先に裁可（捏造しない）。
+- 実現: ⏳ target。枠のみ予約（今は作らない）。
+
 ---
 ## 運用（doc⇄実現を腐らせない）
 新しい決定は本ファイルに **規約/意味/実現** で 1 件追記し、🧩 なら component、✅/➕ なら rubric を **lockstep** で land（片肺禁止）。rubric の `origin` から本ファイルへ相互リンク。機械化しない（📐）ものは「taste、gate 化しない」と明示（Goodhart 回避）。
