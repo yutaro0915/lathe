@@ -48,6 +48,16 @@
 - 意味: **rubric**=検証可能な価値判断の単位 / **eval**=rubric に実行環境＋context を与えた use-case / **完了**=その eval が通ること（run が満たしたい条件）。ただし eval を狙わない run もあるので **headline(first view) にしない**。review 状態・DoD は現状の概念に**無い**ので設計しない。
 - 実現: ✅ rubric=`rubrics/`（既存）。⏳ eval=未導入（target、枠だけ空ける）。
 
+## 合成・再利用（composition）
+
+### D11. 「N 個の peer を共有次元で比較」は comparison-list（再利用 component）
+- 意味: session でも tool でも意味構造は同じ（peers を共有次元で比較）→ 同一 component を使い回す。peers と列が変わるだけ。新画面は確定部品の合成で組む。
+- 実現: 🧩 comparison-list（D3）。Tools tab = D3（list）＋ D6（drilldown）＋ D8（Step）の合成＝新規設計ほぼゼロ。
+
+### D12. list 行の click 挙動は peer の性質で決まる（遷移 vs inline 展開）
+- 意味: peer が**自分の destination を持つ**なら **遷移**（session → SessionViewer）。peer が**現 entity の sub-content**なら **inline 展開**（tool → その invocations）。挙動を peer の性質に束ねると、どの list でも一貫する。
+- 実現: 🧩 comparison-list の row が `navigate | expand` を取る（chevron の有無で示す）。📐 どちらかの判断は「peer が独立 destination か」で機械的に決まる。
+
 ## 視覚（visual、全画面）
 
 ### D10. 色配給制（配給 6 色は TimeRibbon / minimap / chart のみ。行・バッジは neutral+小 dot、error red のみ全面特権）
