@@ -86,6 +86,20 @@
 - 意味: 同一データを 2 軸で。By step＝実行位置（並列横・逐次縦、D17）。All＝turn/step 非依存の全体集計（何がどれだけ呼ばれたか、comparison-list）。
 - 実現: 🧩 segmented `[By step | All]`（tab toolbar・**英語ラベル**、session header には置かない）＋ 2 view。Git の dual-axis（D15）と同型。曖昧語/日本語の UI ラベルは禁止（copy 原則）。
 
+## Findings 画面
+
+### D19. Findings detail の核は Analysis（analyst の構造化推論）
+- 意味: finding は body（現象）だけでなく **なぜ重要か・agent が何を意図したか・原因仮説** が価値。実 `analysis` jsonb = impact / agent_intent / cause_hypothesis を detail の核に据える。「lathe agent がどんな推論で出したか」はこの analysis が答え（捏造でなく実データ参照）。
+- 実現: 🧩 detail = body ＋ Analysis(impact/agent_intent/cause_hypothesis) ＋ Evidence ＋ 採否。⏳ 将来「agent reasoning trace（analysis に至った推論過程）」を予約（lathe agent 統合後、点線枠）。データ実在（findings.analysis jsonb）。
+
+### D20. 採否ライフサイクル: verdict → backlog
+- 意味: 採否は accept/reject ＋ 一言で終わらず、accept は backlog（open/addressed/dismissed）で **行動まで追う**（G2: 有意義 finding = accept ＋ ハーネス編集/task 化）。初の user-action 画面。
+- 実現: 🧩 verdict（accept/reject ＋ 一言、finding_verdicts）＋ backlog_status（open/addressed/dismissed）。1-click ＋ 一言 UX。
+
+### D21. evidence は source への jump（論理座標）
+- 意味: finding の根拠は session/turn/step/hunk/pr へ jump できる（D14 attribution の一般化、finding ↔ source 双方向）。論理座標で再 ingest 後も再解決、失敗時「根拠は更新された」を明示（隠さない）。
+- 実現: 🧩 evidence link（subject_kind ＋ 論理座標）。data 実在（finding_evidence）。kind は色配給で neutral、accepted は dim、confidence は数値。
+
 ## 視覚（visual、全画面）
 
 ### D10. 色配給制（配給 6 色は TimeRibbon / minimap / chart のみ。行・バッジは neutral+小 dot、error red のみ全面特権）
