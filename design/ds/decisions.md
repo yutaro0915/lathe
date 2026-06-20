@@ -1,0 +1,59 @@
+# Lathe Design System — 決定記録（規約 / 意味 / 実現）
+
+> status: building（2026-06-19〜）
+> worked example（画面を 1 つずつ意味から導く対話）で **決まったこと** を、3 点セットで永続化する正本:
+> **規約（what）/ 意味（why）/ 実現（どう機械・component で担保するか）**。
+> これは破棄した as-is base（現画面の写生・px ハードコード）とは別物。`design.md`＝target 原則、本ファイル＝決定した規約＋実現。
+> 実現の凡例: 🧩=component で体現 / ✅=既存 rubric で機械強制 / ➕=rubric 候補(未実装) / 📐=doc・taste(機械化しない) / 🔤=語彙 / ⏳=target(未導入)
+
+## 全体（cross-cutting）
+
+### D1. 画面 = workarea のみ（shell の TopBar/Rail は画面の定義にも mockup にも含めない）
+- 意味: scope(project) と nav(section) は全画面共通の frame。「scope がこの画面に効く」≠「この画面が scope を描く」。混同すると層が壊れる。
+- 実現: 🧩 shell(root layout) が TopBar/Rail を所有、画面は `<Surface>` の workarea slot を埋めるだけ。✅ `layout/authority`（surface は自前 header band を描かない＝grep 0）。
+
+### D2. 画面設計は観測の目的から導く（agent 種別で変わる）
+- 意味: lathe=coding agent → **outcome / quality / completion** が主、turn 内のミクロ過程は副次。workflow agent(Langfuse) は turn-flow が主目的 → 設計が違って当然。Langfuse を写すのは誤り。
+- 実現: 📐 doc・全画面の決定フィルタ（taste、機械化しない）。
+
+## Sessions 画面
+
+### D3. Sessions = 比較リスト（整列した列の table）
+- 意味: 「多数の peer を共有次元で**比較**して選ぶ」という意味が representation をほぼ一意に決める（cards/chart は比較に弱く実質負ける）。＝簡単な画面は DS が当たり前を追認するだけで、設計の余地は薄い。
+- 実現: 🧩 comparison-list（可変 title=leading 1fr / 固定 metric 列=trailing、responsive floor `minmax(220px,1fr)`+scroll）。✅ `layout/integrity`（幅0潰れ・列崩れ・はみ出し）。
+
+### D4. runner（agent）は icon、text にしない
+- 意味: agent 種別は色＋形で一目に。text は識別が遅い。
+- 実現: 🧩 runner-icon（色＋monogram、full name は `title`、実ロゴに差し替え可）。📐 doc。
+
+### D5. session = span（期間）ゆえ timestamp 列を置かない
+- 意味: session は期間で時点ではない → 適当な時刻表示は**嘘**になる。期間表現は UI が複雑化するので今は出さない。＝**意味の正しさ > 表示の都合**。
+- 実現: 📐 doc・principle。
+
+## SessionViewer 画面
+
+### D6. SessionViewer = inline turn drill-down（turn は畳み既定＝全体像、click でその下に詳細展開）
+- 意味: Langfuse の「turn+detail 一体スクロールで全体像が掴めない」を構造で解く。畳み既定＝全 turn が見える、click で 1 turn だけその場展開。横 detail pane を持たないので操作も視線も増えない。
+- 実現: 🧩 turn-drilldown(accordion)。⚠ **supersedes** 旧 side-by-side wide master-detail（commit cc8f349）＋ `layout/integrity` の `detail-wider-than-list` 不変条件 → 実装時に ADR で差し替え（as-is→target の乖離）。
+
+### D7. 単位語: step（行動の単位）/ event（データ実体）。kind = {thinking, investigate, execute, edit, message}。error は kind でなく横断 state
+- 意味: step = agent の reason–act ループの 1 単位（thinking も調査も実行も編集も等しく 1 step）。"action" は狭すぎ（ReAct: thought≠action、tool 呼び出しのみ）。error はどの step にも付く状態。
+- 実現: 🔤 語彙。data model の `event`。
+
+### D8. step component は 1 つ・枠は均一（kind は中身だけ＝icon / signal / 均一な detail block の中身）
+- 意味: step ごとに枠の形を変える＝1 component を kind 別 N レイアウトに分岐＝**バグの温床・管理不能**。枠を均一にし、kind は data で表現する。
+- 実現: 🧩 単一 Step component（kind は icon・signal・detail-block の中身のみ可変、container は不変）。➕ rubric 候補（kind 別の step container を作らない＝component/grep 検査）。
+
+### D9. rubric / eval / 完了の定義（eval/rubric は first view にしない。review・DoD は無い）
+- 意味: **rubric**=検証可能な価値判断の単位 / **eval**=rubric に実行環境＋context を与えた use-case / **完了**=その eval が通ること（run が満たしたい条件）。ただし eval を狙わない run もあるので **headline(first view) にしない**。review 状態・DoD は現状の概念に**無い**ので設計しない。
+- 実現: ✅ rubric=`rubrics/`（既存）。⏳ eval=未導入（target、枠だけ空ける）。
+
+## 視覚（visual、全画面）
+
+### D10. 色配給制（配給 6 色は TimeRibbon / minimap / chart のみ。行・バッジは neutral+小 dot、error red のみ全面特権）
+- 意味: 彩度を全面に撒くと密度の高い observability 画面が読めなくなる（原本の「彩度の洪水」の恒久対策）。色を使う価値が密度コストを上回るのは可視化だけ。
+- 実現: ✅ `styling/token-consistency`（色値の出所=var(--token)）＋ 📐 doc（どの**面**で使ってよいかは taste、機械化しない）。
+
+---
+## 運用（doc⇄実現を腐らせない）
+新しい決定は本ファイルに **規約/意味/実現** で 1 件追記し、🧩 なら component、✅/➕ なら rubric を **lockstep** で land（片肺禁止）。rubric の `origin` から本ファイルへ相互リンク。機械化しない（📐）ものは「taste、gate 化しない」と明示（Goodhart 回避）。
