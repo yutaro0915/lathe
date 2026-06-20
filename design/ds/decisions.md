@@ -72,6 +72,20 @@
 - 意味: 同一 diff データを process 軸（step ごとの差分）と artifact 軸（従来のファイルツリー差分）で見せ、読む目的で選ぶ。**両軸とも file↔step attribution を通す**（file 軸では各ファイルにどの step が変えたか、step 軸では各 step がどのファイルを変えたか）。
 - 実現: 🧩 segmented control（D の局所・即時・排他トグル要素を再利用）＋ 2 view。diff は unified（side-by-side は狭幅で死ぬので不採用）。
 
+## Subagents 画面
+
+### D16. subagent = 入れ子 session（再帰）
+- 意味: subagent は session の入れ子。詳細は親 session と同じ facet（Transcript / Tools / Git の 3 tab）で見る — SessionViewer の部品を再帰再利用する。
+- 実現: 🧩 nested mini-session（Transcript/Tools/Git の 3 tab、card 選択で行の下に展開・× で閉）。SessionViewer 部品の再帰利用。
+
+### D17. レイアウト幾何 ＝ 実行幾何
+- 意味: 同一階層（同 step ＝並列、順序に優劣なし）＝横並び（3 つ以上は横スクロール）。異階層（異 step/turn ＝逐次、時間的区別が意味を持つ＝結果を受けて次を呼ぶ）＝縦の時系列。並列を縦に積むと「逐次」に誤読させる。
+- 実現: 🧩 並列＝横スクロール row（card click → 行の下に単一詳細、再 click で閉）／逐次＝縦。Transcript tab にも propagate（step が並列 fan-out したら横）。📐 機械検査は難しく component 契約＋doc 寄り。
+
+### D18. Subagents tab = view switch `[By step | All]`
+- 意味: 同一データを 2 軸で。By step＝実行位置（並列横・逐次縦、D17）。All＝turn/step 非依存の全体集計（何がどれだけ呼ばれたか、comparison-list）。
+- 実現: 🧩 segmented `[By step | All]`（tab toolbar・**英語ラベル**、session header には置かない）＋ 2 view。Git の dual-axis（D15）と同型。曖昧語/日本語の UI ラベルは禁止（copy 原則）。
+
 ## 視覚（visual、全画面）
 
 ### D10. 色配給制（配給 6 色は TimeRibbon / minimap / chart のみ。行・バッジは neutral+小 dot、error red のみ全面特権）
