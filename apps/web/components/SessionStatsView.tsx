@@ -154,6 +154,34 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
   return (
     <div className="stats-embed" data-testid="stats-embed">
       <div className="stats-scroll" data-testid="stats-scroll">
+        {/* D32: per-session quantitative profile opens with a horizontal
+            stat-strip (cost / tokens-io / turns / tools / errors). Color is
+            rationed (D10): only the errors value is clean red (--c-error). */}
+        <div className="stat-strip" data-testid="stat-strip">
+          <span className="stat" data-testid="stat">
+            <span className="stat-k" data-testid="stat-k">cost</span>{" "}
+            <span className="stat-v" data-testid="stat-v">{fmtCost(session.costUsd)}</span>
+          </span>
+          <span className="stat" data-testid="stat">
+            <span className="stat-k" data-testid="stat-k">tokens</span>{" "}
+            <span className="stat-v" data-testid="stat-v">{fmtCompact(session.tokenUsage)}</span>{" "}
+            <span className="stat-k" data-testid="stat-k">
+              (in {fmtCompact(session.tokenIn)} / out {fmtCompact(session.tokenOut)})
+            </span>
+          </span>
+          <span className="stat" data-testid="stat">
+            <span className="stat-k" data-testid="stat-k">turns</span>{" "}
+            <span className="stat-v" data-testid="stat-v">{fmtInt(n)}</span>
+          </span>
+          <span className="stat" data-testid="stat">
+            <span className="stat-k" data-testid="stat-k">tools</span>{" "}
+            <span className="stat-v" data-testid="stat-v">{fmtInt(session.toolCount)}</span>
+          </span>
+          <span className="stat" data-testid="stat-errors">
+            <span className="stat-k" data-testid="stat-k">errors</span>{" "}
+            <span className="stat-v stat-v-error" data-testid="stat-v">{fmtInt(session.errorCount)}</span>
+          </span>
+        </div>
         <div className="chart-grid" data-testid="chart-grid">
           {/* 1. per-turn cost (duration as bars, tokens as line) */}
           <section className="chart-card chart-wide" data-testid="chart-card">

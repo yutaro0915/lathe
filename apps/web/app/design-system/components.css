@@ -536,6 +536,15 @@
    Findings axis session filter, which reuses the project-picker class/testid). */
 .project-picker{flex:1 1 auto;min-width:0;background:transparent;border:none;color:var(--text);font:inherit;font-size:12px;font-weight:650;cursor:pointer;padding:2px 0;}
 .project-picker:focus{outline:none;}
+/* D32: per-session stat-strip — the session's quantitative headline (cost /
+   tokens-io / turns / tools / errors) above the chart grid. Mono, tabular, wraps
+   (never overflows) at narrow width; label = tertiary, value = primary. Color is
+   rationed (D10): only the errors value is privileged clean red (--c-error). */
+.stat-strip{display:flex;flex-wrap:wrap;gap:6px 18px;max-width:1320px;margin:0 auto 14px;padding-bottom:13px;border-bottom:1px solid var(--border);font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px;}
+.stat-strip .stat{display:inline-flex;align-items:baseline;gap:5px;white-space:nowrap;}
+.stat-strip .stat-k{color:var(--muted-2);}
+.stat-strip .stat-v{color:var(--text);font-weight:500;}
+.stat-strip .stat-v-error{color:var(--c-error);}
 /* Stats tab — dependency-free charts (inline SVG + CSS bars).
    Layout-bug fix #1: charts get a centered max-width so an ultra-wide window
    doesn't strand all content on the left with a blank right half. */
