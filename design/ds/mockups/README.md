@@ -13,6 +13,7 @@
   - §1 Composer 単体（単一枠：stacked context ＋ Add context ＋ 入力欄、D26）
   - §2 画面全体 ＋ context panel B（右 dock・永続、D22/D23/D25）
   - §3 全面 chat A（Rail destination・thread 一覧＋会話、D22/D24）
+- [`pr.html`](./pr.html) — PR detail の確定形（D28–D29）。過程（session⇄PR attribution、sha/branch strength 区別）＋ Changed files（inline 展開で簡易コード確認）＋ Reviews(compact)。深い diff/review は GitHub。eval/rubric 評価は feature 未存在のため未掲載（D30 ⏳）。
 - [`_tokens.css`](./_tokens.css) — mockup プレビュー用トークン（承認時の dark 近似）。
 
 ## 開き方

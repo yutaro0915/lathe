@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lathe DS — PR detail（承認済み mockup, D28–D29）</title>
+<link rel="stylesheet" href="./_tokens.css" />
+</head>
+<body>
+<!-- PR detail（destination）. 核 = ①過程(session⇄PR attribution) ②Changed files(簡易コード確認, inline diff).
+     深い review・全 diff は GitHub/IDE。eval/rubric 評価は feature 未存在のため未掲載(D30 ⏳)。 -->
+<div style="width:100%;height:720px;display:flex;flex-direction:column;background:var(--color-background-primary);font-family:var(--font-sans);overflow:hidden;">
+
+  <div style="display:flex;align-items:center;gap:10px;padding:0 16px;height:42px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);">
+    <span style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;"><i class="ti ti-topology-star-3" style="font-size:16px;color:var(--color-text-info);"></i> lathe</span>
+    <span style="color:var(--color-text-tertiary);font-size:13px;">/</span>
+    <button style="display:inline-flex;align-items:center;gap:5px;font-size:13px;border:0;background:transparent;color:var(--color-text-secondary);cursor:pointer;padding:2px 4px;">harness-observability <i class="ti ti-chevron-down" style="font-size:14px;"></i></button>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0;">
+
+    <div style="flex:0 0 60px;border-right:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column;align-items:center;padding-top:10px;gap:3px;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-list-details" style="font-size:20px;"></i><span style="font-size:9px;">Sessions</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-bulb" style="font-size:20px;"></i><span style="font-size:9px;">Findings</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-info);border-left:2px solid var(--color-text-info);"><i class="ti ti-git-pull-request" style="font-size:20px;"></i><span style="font-size:9px;">PR</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-chart-bar" style="font-size:20px;"></i><span style="font-size:9px;">Overview</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-messages" style="font-size:20px;"></i><span style="font-size:9px;">Chat</span></div>
+    </div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+
+      <div style="flex:0 0 auto;padding:11px 16px;border-bottom:0.5px solid var(--color-border-tertiary);">
+        <div style="display:flex;align-items:center;gap:9px;">
+          <button style="display:inline-flex;align-items:center;gap:4px;font-size:12px;border:0;background:transparent;color:var(--color-text-tertiary);cursor:pointer;padding:0;"><i class="ti ti-arrow-left" style="font-size:15px;"></i></button>
+          <span style="font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">feat: layout-integrity T2 gate</span>
+          <span style="font-size:13px;color:var(--color-text-tertiary);font-family:var(--font-mono);flex:0 0 auto;">#142</span>
+          <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--color-text-secondary);border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);padding:1px 7px;flex:0 0 auto;"><i class="ti ti-git-merge" style="font-size:12px;"></i> merged</span>
+          <span style="flex:1;"></span>
+          <a style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--color-text-secondary);text-decoration:none;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:3px 9px;cursor:pointer;flex:0 0 auto;"><i class="ti ti-brand-github" style="font-size:13px;"></i> View on GitHub <i class="ti ti-external-link" style="font-size:12px;"></i></a>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:8px;padding-left:25px;font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-mono);">
+          <span style="display:inline-flex;align-items:center;gap:4px;"><i class="ti ti-git-branch" style="font-size:13px;"></i>loop/26-ui-shell → main</span>
+          <span>yutaro0915</span>
+          <span>merged 2d ago</span>
+        </div>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:22px;">
+
+        <div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:8px;">過程 · この PR を産んだ session · 2</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;align-items:center;gap:11px;padding:9px 12px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);cursor:pointer;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;background:#d97757;color:#fff;font-size:11px;font-weight:600;flex:0 0 auto;" title="Claude Code">C</span>
+              <span style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">メソドロジ逸脱</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-family:var(--font-mono);color:var(--color-text-secondary);border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:1px 6px;flex:0 0 auto;" title="commit SHA で精密にリンク"><i class="ti ti-link" style="font-size:12px;"></i> a1b2c3d</span>
+              <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);flex:0 0 auto;">$2.71 · 14 turns</span>
+              <i class="ti ti-chevron-right" style="font-size:15px;color:var(--color-text-tertiary);flex:0 0 auto;"></i>
+            </div>
+            <div style="display:flex;align-items:center;gap:11px;padding:9px 12px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);cursor:pointer;">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;background:#10a37f;color:#fff;font-size:11px;font-weight:600;flex:0 0 auto;" title="Codex">Co</span>
+              <span style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">T2 gate 実装</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);border:0.5px dashed var(--color-border-secondary);border-radius:4px;padding:1px 6px;flex:0 0 auto;" title="branch 一致の fallback（弱いリンク）"><i class="ti ti-git-branch" style="font-size:12px;"></i> branch · fallback</span>
+              <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);flex:0 0 auto;">$1.10 · 6 turns</span>
+              <i class="ti ti-chevron-right" style="font-size:15px;color:var(--color-text-tertiary);flex:0 0 auto;"></i>
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:6px;"><i class="ti ti-link" style="font-size:11px;"></i> sha=精密 / <i class="ti ti-git-branch" style="font-size:11px;"></i> branch=弱い fallback。行 click で session の transcript まで遡れる。</div>
+        </div>
+
+        <div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:8px;display:flex;align-items:center;gap:8px;">Changed files · 12
+            <span style="display:inline-flex;align-items:center;gap:2px;"><span style="width:7px;height:7px;background:var(--color-background-success);border-radius:1px;"></span><span style="width:7px;height:7px;background:var(--color-background-success);border-radius:1px;"></span><span style="width:7px;height:7px;background:var(--color-background-success);border-radius:1px;"></span><span style="width:7px;height:7px;background:var(--color-background-danger);border-radius:1px;"></span><span style="width:7px;height:7px;background:var(--color-background-secondary);border-radius:1px;"></span></span>
+            <span style="font-family:var(--font-mono);font-weight:400;letter-spacing:0;text-transform:none;color:var(--color-text-tertiary);">+340 −85</span>
+          </div>
+
+          <div style="border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);overflow:hidden;margin-bottom:6px;">
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 11px;background:var(--color-background-secondary);">
+              <i class="ti ti-chevron-down" style="font-size:14px;color:var(--color-text-secondary);flex:0 0 auto;"></i>
+              <i class="ti ti-file-diff" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i>
+              <span style="flex:1;font-family:var(--font-mono);font-size:12px;color:var(--color-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">apps/web/components/Surface.tsx</span>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);flex:0 0 auto;">+18 −8</span>
+            </div>
+            <div style="font-family:var(--font-mono);font-size:11.5px;line-height:1.6;">
+              <div style="padding:1px 11px;color:var(--color-text-tertiary);">@@ RightPanel toggle @@</div>
+              <div style="padding:1px 11px;background:var(--color-background-danger);color:var(--color-text-primary);">− &lt;button className="lds-rp-close" onClick={close}&gt;×&lt;/button&gt;</div>
+              <div style="padding:1px 11px;background:var(--color-background-danger);color:var(--color-text-primary);">− {collapsed &amp;&amp; &lt;button className="lds-rp-reopen" /&gt;}</div>
+              <div style="padding:1px 11px;background:var(--color-background-success);color:var(--color-text-primary);">+ &lt;button className="lds-rp-toggle" aria-expanded={panelOpen}&gt;</div>
+              <div style="padding:1px 11px;background:var(--color-background-success);color:var(--color-text-primary);">+ &nbsp;&nbsp;&lt;span&gt;{panelOpen ? "›" : "‹"}&lt;/span&gt;</div>
+              <div style="padding:1px 11px;color:var(--color-text-secondary);">&nbsp;&nbsp;&lt;/button&gt;</div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:1px;">
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 11px;font-size:12px;border-radius:4px;cursor:pointer;"><i class="ti ti-chevron-right" style="font-size:14px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><i class="ti ti-file-diff" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">apps/web/e2e/layout-integrity.spec.ts</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);flex:0 0 auto;">+210 −0</span></div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 11px;font-size:12px;border-radius:4px;cursor:pointer;"><i class="ti ti-chevron-right" style="font-size:14px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><i class="ti ti-file-diff" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">rubrics/apps/web/layout/integrity/rubric.json</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);flex:0 0 auto;">+84 −0</span></div>
+            <div style="font-size:11px;color:var(--color-text-tertiary);padding:5px 11px;">他 9 ファイル… <span style="color:var(--color-text-info);cursor:pointer;">全 diff を GitHub で開く →</span></div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:8px;">Reviews · 1</div>
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);">
+            <i class="ti ti-check" style="font-size:15px;color:var(--color-text-secondary);flex:0 0 auto;"></i>
+            <span style="font-size:12px;color:var(--color-text-secondary);flex:0 0 auto;">approved</span>
+            <span style="font-size:12px;color:var(--color-text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">LGTM、gate の不変条件が明確</span>
+            <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);flex:0 0 auto;">yutaro0915 · 2d</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

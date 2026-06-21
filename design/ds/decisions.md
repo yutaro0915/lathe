@@ -5,7 +5,7 @@
 > **規約（what）/ 意味（why）/ 実現（どう機械・component で担保するか）**。
 > これは破棄した as-is base（現画面の写生・px ハードコード）とは別物。`design.md`＝target 原則、本ファイル＝決定した規約＋実現。
 > 実現の凡例: 🧩=component で体現 / ✅=既存 rubric で機械強制 / ➕=rubric 候補(未実装) / 📐=doc・taste(機械化しない) / 🔤=語彙 / ⏳=target(未導入)
-> **再現性**: 承認済みの画面/部品は「再現可能な現物」として [`mockups/`](./mockups/) に standalone HTML で版管理する（prose だけでは見た目を再現できないため）。現状 = Chat（[`mockups/chat.html`](./mockups/chat.html)、D22–D26）。実 component＋rubric 化（🧩/➕）は実装フェーズで lockstep に行う。
+> **再現性**: 承認済みの画面/部品は「再現可能な現物」として [`mockups/`](./mockups/) に standalone HTML で版管理する（prose だけでは見た目を再現できないため）。現状 = Chat（[`mockups/chat.html`](./mockups/chat.html)、D22–D26）/ PR（[`mockups/pr.html`](./mockups/pr.html)、D28–D29）。実 component＋rubric 化（🧩/➕）は実装フェーズで lockstep に行う。
 
 ## 全体（cross-cutting）
 
@@ -106,6 +106,20 @@
 ### D10. 色配給制（配給 6 色は TimeRibbon / minimap / chart のみ。行・バッジは neutral+小 dot、error red のみ全面特権）
 - 意味: 彩度を全面に撒くと密度の高い observability 画面が読めなくなる（原本の「彩度の洪水」の恒久対策）。色を使う価値が密度コストを上回るのは可視化だけ。
 - 実現: ✅ `styling/token-consistency`（色値の出所=var(--token)）＋ 📐 doc（どの**面**で使ってよいかは taste、機械化しない）。
+
+## PR 画面
+
+### D28. PR 画面の核 = 作成過程（attribution）＋ 成果物の簡易確認（diff）
+- 意味: PR は coding agent の outcome。GitHub が深い diff/review を持つので lathe は写さず、**「どの agent 作業がこの PR を産んだか」への逆引き**（D14/D21 の一般化）と、**簡易にコードを確認できる diff** を持つ。深い review・全 diff は IDE/GitHub に委ねる。
+- 実現: 🧩 PR detail = ①過程（Produced by = 連携 session の attribution）＋ ②Changed files（inline 展開で簡易コード確認、diff renderer 再利用 D15）＋ Reviews(compact)。PR list = comparison-list（D11）/ 行 click = navigate（D12、PR は独立 destination）。state badge = neutral（D10）/ +/− = D13 / GitHub = 外部正本への jump。データ実在（`pull_requests` / `session_pull_requests` view、design/g1-pr-linkage.md・adr/0006）。
+
+### D29. session⇄PR の連携 strength を隠さず区別
+- 意味: 連携は many-to-many で link_method = sha（commit 一致＝精密）/ branch（head_ref 一致＝弱い fallback、取り違えうる）。弱い provenance を強い体で見せない（D21「根拠は更新された」を隠さない精神）。
+- 実現: 🧩 sha = 実線 chip＋short sha（ti-link）/ branch = 破線 chip＋"fallback"（ti-git-branch）。data 実在（`session_pull_requests.link_method`）。
+
+### D30（⏳ 予約）. PR の eval/rubric 評価（通過提示）は将来
+- 意味: 「この PR がどう評価されるべきか・eval/rubric を通過しているか」を outcome に対し示すのは有効（D9 の rubric/eval/完了 の適用）。ただし**現状その feature は未存在**のため今は UI 化しない。
+- 実現: ⏳ target。feature 実装後に「過程・確認」へ評価軸を追加（捏造しない）。
 
 ## Chat 画面
 
