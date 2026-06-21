@@ -281,7 +281,7 @@ export default function OverviewView({
                       className="attn-row" data-testid="attn-row"
                       data-session-id={s.id}
                     >
-                      <span className="attn-row-title" data-testid="attn-row-title" title={s.title}>{s.title}</span>
+                      <span className="attn-row-title" data-testid="attn-row-title" data-ellipsis-ok title={s.title}>{s.title}</span>
                       <span className="attn-row-meta" data-testid="attn-row-meta">
                         <span className="mono" data-testid="mono">{fmtCost(s.costUsd)}</span>
                         {ratio != null && (
@@ -323,7 +323,7 @@ export default function OverviewView({
                       className="attn-row" data-testid="attn-row"
                       data-session-id={s.id}
                     >
-                      <span className="attn-row-title" data-testid="attn-row-title" title={s.title}>{s.title}</span>
+                      <span className="attn-row-title" data-testid="attn-row-title" data-ellipsis-ok title={s.title}>{s.title}</span>
                       <span className="attn-row-meta" data-testid="attn-row-meta">
                         <span className="badge err" data-testid="badge">{s.errorCount} err</span>
                       </span>
@@ -365,7 +365,7 @@ export default function OverviewView({
                       className="attn-row" data-testid="attn-row"
                       data-session-id={s.id}
                     >
-                      <span className="attn-row-title" data-testid="attn-row-title" title={s.title}>{s.title}</span>
+                      <span className="attn-row-title" data-testid="attn-row-title" data-ellipsis-ok title={s.title}>{s.title}</span>
                       <span className="attn-row-meta" data-testid="attn-row-meta">
                         <span className="badge neutral" data-testid="badge">{pending} pending</span>
                       </span>

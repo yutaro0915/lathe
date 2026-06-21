@@ -277,7 +277,7 @@ export default function StatsView({
               {models.map((m) => {
                 const inner = (
                   <>
-                    <span className="hbar-label mono" data-testid="hbar-label" title={`${m.name} · ${m.sessions} ses · ${fmtCompact(m.tokens)} tok`}>
+                    <span className="hbar-label mono" data-testid="hbar-label" data-ellipsis-ok title={`${m.name} · ${m.sessions} ses · ${fmtCompact(m.tokens)} tok`}>
                       {shortModel(m.name)}
                     </span>
                     <span className="hbar-track" data-testid="hbar-track">
@@ -344,7 +344,7 @@ export default function StatsView({
                 );
                 const inner = (
                   <>
-                    <span className="hbar-label ttl big-ttl" data-testid="hbar-label" title={s.title}>
+                    <span className="hbar-label ttl big-ttl" data-testid="hbar-label" data-ellipsis-ok title={s.title}>
                       {s.title}
                       {status}
                     </span>
