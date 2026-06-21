@@ -275,7 +275,7 @@
 
 /* ---- sessions grid: full-width, lives directly in MAIN ------------------- */
 .lds-sessions-grid{display:flex;flex-direction:column;gap:0;padding:0;}
-.lds-sg-head,.lds-sg-row{display:grid;grid-template-columns:minmax(0,1fr) 84px 92px 64px 72px 84px;
+.lds-sg-head,.lds-sg-row{display:grid;grid-template-columns:minmax(0,1fr) 84px 86px 92px 64px 72px 84px;
   align-items:center;column-gap:14px;padding:0 20px;}
 .lds-sg-head{height:34px;flex:0 0 auto;position:sticky;top:0;z-index:1;background:var(--bg-sunken);
   border-bottom:1px solid var(--border);font-size:10px;font-weight:700;text-transform:uppercase;
@@ -293,19 +293,22 @@
 .lds-sg-main .lds-sg-meta > span:last-child{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;}
 .lds-sg-main .lds-sg-meta .lds-sep{color:var(--muted-2);}
 .lds-sg-num{font-family:var(--mono);font-size:12px;color:var(--text-soft);}
+.lds-sg-model{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .lds-sg-cost{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text-soft);}
 .lds-sg-cost.muted{color:var(--muted-2);font-weight:400;}
 .lds-sg-zero{font-family:var(--mono);font-size:12px;color:var(--muted-2);}
 .lds-sg-flags{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;}
 .lds-sg-empty{color:var(--muted-2);font-size:12px;padding:14px 20px;}
-/* Narrow widths: the five fixed metric tracks (84+92+64+72+84 + gaps ≈ 466px)
-   plus the title's 1fr exceed a ~700px work area, so the 1fr title track
-   resolves to 0 and the most important column (the session title) renders at
-   width:0 — invisible — while the list quietly scrolls sideways. Give the title
-   track a readable FLOOR (minmax keeps the desktop 1fr identical, since at wide
-   widths 1fr ≫ 220px) so the row instead grows past the work area and the WHOLE
-   list (head + rows, same template) scrolls horizontally in its existing scroll
-   pane — the title stays visible and the columns stay aligned. */
+/* Narrow widths: the fixed tracks (Runner 84 + Model 86 + Tokens 92 + Turns 64
+   + Errors 72 + Cost 84 + gaps ≈ 566px) plus the title's 1fr exceed a ~700px
+   work area, so the 1fr title track resolves to 0 and the most important column
+   (the session title) renders at width:0 — invisible — while the list quietly
+   scrolls sideways. Give the title track a readable FLOOR (minmax keeps the
+   desktop 1fr identical, since at wide widths 1fr ≫ 220px) so the row instead
+   grows past the work area and the WHOLE list (head + rows, same template)
+   scrolls horizontally in its existing scroll pane — the title stays visible and
+   the columns stay aligned. */
 @media (max-width:860px){
-  .lds-sg-head,.lds-sg-row{grid-template-columns:minmax(220px,1fr) 84px 92px 64px 72px 84px;}
+  .lds-sg-head,.lds-sg-row{grid-template-columns:minmax(220px,1fr) 84px 86px 92px 64px 72px 84px;}
 }

@@ -9,9 +9,10 @@
 // renders.
 //
 // Built from Lathe Design System v1 primitives + the sessions-grid layout
-// classes (app/design-system/shell.css). Columns: Session 1fr / Runner 132px /
-// Tokens 92px / Turns 64px / Errors 72px / Cost 84px — head sticky, 54px rows,
-// hover. Numbers are mono + tabular.
+// classes (app/design-system/shell.css). Columns: Session 1fr / Runner 84px /
+// Model 86px (D3, mono) / Tokens 92px / Turns 64px / Errors 72px / Cost 84px —
+// head sticky, 54px rows, hover. Numbers are mono + tabular. Per D5 a session is
+// a span, so no timestamp is shown — the meta line carries only the duration.
 //
 // Machine-readable / e2e contract (dual-operability + data oracles): each row
 // keeps the stable `session-item` class and `data-session-id`, renders the
@@ -21,7 +22,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { fmtCost, fmtTok, humanizeDuration, parseStamp, shortModel } from "@lathe/shared";
+import { fmtCost, fmtTok, humanizeDuration, shortModel } from "@lathe/shared";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { EVENT_LABEL } from "@/lib/event-display";
 import CostAnomalyChip from "@/components/CostAnomalyChip";
@@ -260,13 +261,13 @@ export default function SessionsSurface({
         <div className="lds-sg-head" data-testid="lds-sg-head">
           <span>Session</span>
           <span>Runner</span>
+          <span>Model</span>
           <span className="r" data-testid="r">Tokens</span>
           <span className="r" data-testid="r">Turns</span>
           <span className="r" data-testid="r">Errors</span>
           <span className="r" data-testid="r">Cost</span>
         </div>
         {visible.map((s) => {
-          const st = parseStamp(s.startedAt);
           return (
             <button
               key={s.id}
@@ -277,23 +278,13 @@ export default function SessionsSurface({
             >
               <span className="lds-sg-main" data-testid="lds-sg-main">
                 <span className="lds-sg-title" data-testid="lds-sg-title" title={s.title}>{s.title}</span>
-                {/* The meta line ellipsizes its last item (the model) inside the
-                    title column; at narrow widths that item can clip. A `title`
-                    tooltip exposes the full date · duration · model so the clip is
-                    never SILENT (the layout-integrity no-truncation gate exempts a
-                    titled clipped label). Visual appearance is unchanged. */}
-                <span
-                  className="lds-sg-meta"
-                  data-testid="lds-sg-meta"
-                  title={`${st.date}, ${st.time} · ${humanizeDuration(s.durationMs)} · ${shortModel(s.model)}`}
-                >
-                  <span>
-                    {st.date}, {st.time}
-                  </span>
-                  <span className="lds-sep" data-testid="lds-sep">·</span>
+                {/* D5: a session is a span, not an instant — no timestamp is
+                    shown (an arbitrary point-in-time would be a lie). The meta
+                    line now carries ONLY the duration (a span is honest). Model
+                    moved out to its own column (D3 comparison-list). The single
+                    duration item cannot ellipsize-silently, so no title needed. */}
+                <span className="lds-sg-meta" data-testid="lds-sg-meta">
                   <span>{humanizeDuration(s.durationMs)}</span>
-                  <span className="lds-sep" data-testid="lds-sep">·</span>
-                  <span>{shortModel(s.model)}</span>
                 </span>
               </span>
               <span className="lds-sg-flags" data-testid="lds-sg-flags">
@@ -307,6 +298,12 @@ export default function SessionsSurface({
                 </span>
                 <CostAnomalyChip session={s} />
               </span>
+              {/* D3: Model promoted to its own column (after Runner, before the
+                  numeric columns). Mono, secondary, ellipsis on overflow; the
+                  full model string rides as `title` so any clip is non-silent
+                  (the layout-integrity no-truncation gate exempts a titled
+                  clipped label — same pattern as lds-sg-title above). */}
+              <span className="lds-sg-model" data-testid="lds-sg-model" title={s.model ?? ""}>{shortModel(s.model)}</span>
               <span className="lds-sg-num r" data-testid="lds-sg-num">{fmtTok(s.tokenUsage)}</span>
               <span className="lds-sg-num r" data-testid="lds-sg-num">{s.turnCount}</span>
               <span className="r" data-testid="r">
