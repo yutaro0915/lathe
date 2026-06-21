@@ -178,10 +178,15 @@
   --k-commit:    var(--cat-tool);
   --k-uncertain: var(--cat-uncertain);
 
-  /* runner identity dots — prominent provider colors */
-  --r-claude: #d97757;  /* Claude Code — Anthropic clay/coral */
-  --r-codex:  #10a37f;  /* Codex — OpenAI teal-green          */
-  --r-cursor: #4f6ef2;  /* Cursor — vivid indigo-blue         */
+  /* runner identity — prominent provider colors, AA-floored.
+     D4 puts a white (--on-accent) monogram ON these fills (the runner-icon), so
+     each must clear WCAG 1.4.3 (4.5:1) against #fff — the original brand hues
+     (#d97757 / #10a37f / #4f6ef2) read 2.4–4.3:1 and failed the layout-integrity
+     a11y gate. These darken-only shifts keep the provider hue/identity while the
+     white glyph clears 4.5:1 (same AA-floor discipline as --muted-2 / --amber-text). */
+  --r-claude: #c4522c;  /* Claude Code — Anthropic clay/coral (was #d97757) */
+  --r-codex:  #0d8668;  /* Codex — OpenAI teal-green (was #10a37f)          */
+  --r-cursor: #4969f2;  /* Cursor — indigo-blue (was #4f6ef2)               */
 
   /* ---- spacing scale (4px base, compact — spacing.css) ---- */
   --sp-0:  0;

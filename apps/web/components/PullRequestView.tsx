@@ -14,7 +14,7 @@
 import Link from "next/link";
 import { fmtInt, parseStamp } from "@lathe/shared";
 import Surface from "@/components/Surface";
-import { RUNNER_LABEL } from "@/lib/runner-display";
+import { RunnerIcon } from "@/components/ds";
 import type { PullRequestBundle, PullRequestSummary } from "@/lib/types";
 
 function stateLabel(pr: PullRequestSummary): string {
@@ -130,9 +130,8 @@ export default function PullRequestView({
               <div className="linked-session-list" data-testid="linked-session-list">
                 {bundle.linkedSessions.map(({ session, linkMethod }) => (
                   <Link key={`${session.id}:${linkMethod}`} href={`/?session=${encodeURIComponent(session.id)}`} className="linked-session" data-testid="linked-session">
-                    <span className={`runner-dot ${session.runner}`} data-testid="runner-dot" />
+                    <RunnerIcon runner={session.runner} size={16} />
                     <span className="linked-session-title" data-testid="linked-session-title" title={session.title}>{session.title}</span>
-                    <span className="muted" data-testid="muted">{RUNNER_LABEL[session.runner]}</span>
                     <span className="chip" data-testid="chip">{linkMethod}</span>
                     <span className="muted" data-testid="muted">{parseStamp(session.startedAt).date}</span>
                   </Link>

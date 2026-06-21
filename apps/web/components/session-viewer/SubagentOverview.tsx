@@ -1,6 +1,7 @@
 import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
 import { fmtCost, fmtTok, shortModel } from "@lathe/shared";
 import type { TranscriptEvent } from "@/lib/types";
+import { RunnerIcon } from "@/components/ds";
 import { durLabel } from "./types";
 import { invocationSummaryLine, type InvocationSummary } from "./subagents";
 
@@ -31,7 +32,12 @@ export function SubagentOverview({
             <span className="sa-card-idx" data-testid="sa-card-idx">{i + 1}</span>
             <div className="sa-card-main" data-testid="sa-card-main">
               <div className="sa-card-top" data-testid="sa-card-top">
-                <span className="event-type-badge subagent" data-testid="event-type-badge">⌥ {e.subagent ?? "sub-agent"}</span>
+                {/* D4: runner = color+monogram icon (resolved from the linked
+                    child session when present; unlinked runs have no resolved
+                    runner → neutral fallback). The sub-agent NAME stays as text
+                    beside it (it was the only place the name appeared). */}
+                <RunnerIcon runner={linkedChild?.runner ?? ""} size={16} />
+                <span className="sa-name" data-testid="sa-name">{e.subagent ?? "sub-agent"}</span>
                 {displayModel && <span className="sa-model" data-testid="sa-model" title="model the sub-agent ran on">{shortModel(displayModel)}</span>}
                 <span className="sa-card-time" data-testid="sa-card-time">{e.ts}</span>
                 {runFailed && <span className="badge failed" data-testid="badge">error</span>}

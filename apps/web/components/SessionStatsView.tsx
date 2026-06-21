@@ -16,6 +16,7 @@
 import { useMemo } from "react";
 import { EVENT_COLOR, EVENT_LABEL } from "@/lib/event-display";
 import { basename, fmtCompact, fmtCost, fmtDuration, fmtInt, shortModel } from "@lathe/shared";
+import { RunnerIcon } from "@/components/ds";
 import type { EventType, SessionBundle } from "@/lib/types";
 
 export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) {
@@ -273,6 +274,9 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
               {subagents.map((s) => (
                 <div className="hbar-row" data-testid="hbar-row" key={s.id} title={`${s.name} · ${s.toolUses ?? "?"} tools`}>
                   <span className="hbar-label" data-testid="hbar-label">
+                    {/* D4: runner icon (sub-agents run under this session's
+                        runner) + name; replaces the bare text label. */}
+                    <RunnerIcon runner={session.runner} size={16} style={{ marginRight: 6, verticalAlign: "-4px" }} />
                     {s.name}
                     {s.model && (
                       <span className="muted small mono" data-testid="muted" style={{ marginLeft: 6 }}>

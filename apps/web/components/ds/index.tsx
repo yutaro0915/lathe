@@ -240,24 +240,43 @@ export function ConfidenceChip({ level = "unattributed", children, className = "
   );
 }
 
-/* ---- RunnerPill ---------------------------------------------------------- */
-const RUNNER_COLORS: Record<string, string> = {
-  "claude-code": "var(--r-claude)",
-  claude: "var(--r-claude)",
-  codex: "var(--r-codex)",
-  cursor: "var(--r-cursor)",
+/* ---- RunnerIcon ---------------------------------------------------------- */
+// D4: agent (runner) is identified by COLOR + SHAPE, never spelled-out text. A
+// fixed square chip carries the runner's brand color (var(--r-*) token) with a
+// short monogram glyph in --on-accent; the full runner name lives in the `title`
+// attribute (the only place the name appears). One reusable primitive replaces
+// the dot+TEXT RunnerPill and the scattered text runner badges, so every surface
+// reads runner identity the same way (Sessions / Subagents / Stats / PR).
+const RUNNER_META: Record<string, { color: string; mono: string; name: string }> = {
+  "claude-code": { color: "var(--r-claude)", mono: "C", name: "Claude Code" },
+  claude: { color: "var(--r-claude)", mono: "C", name: "Claude Code" },
+  codex: { color: "var(--r-codex)", mono: "Co", name: "Codex" },
+  cursor: { color: "var(--r-cursor)", mono: "Cu", name: "Cursor" },
 };
-export interface RunnerPillProps extends React.HTMLAttributes<HTMLSpanElement> {
+export interface RunnerIconProps extends React.HTMLAttributes<HTMLSpanElement> {
   runner: string;
-  label?: React.ReactNode;
+  /** Square edge in px (default 18). Radius is the token --radius-xs (4px). */
+  size?: number;
 }
-export function RunnerPill({ runner, label, className = "", ...rest }: RunnerPillProps) {
+export function RunnerIcon({ runner, size = 18, className = "", style, ...rest }: RunnerIconProps) {
   const key = String(runner || "").toLowerCase().replace(/\s+/g, "-");
-  const color = RUNNER_COLORS[key] || "var(--cat-uncertain)";
+  const meta = RUNNER_META[key];
+  const color = meta?.color ?? "var(--cat-uncertain)";
+  const mono = meta?.mono ?? "?";
+  const name = meta?.name ?? (runner || "unknown runner");
   return (
-    <span className={`lds-runner ${className}`.trim()} {...rest}>
-      <span className="lds-runner__dot" data-testid="lds-runner__dot" style={{ background: color }} />
-      {label ?? runner}
+    // role="img" + aria-label: the chip is a brand GRAPHIC whose accessible name
+    // is the full runner name; the monogram glyph is just the picture. The fill
+    // tokens are AA-floored so the white (--on-accent) glyph still clears 4.5:1.
+    <span
+      className={`lds-runner-icon ${className}`.trim()}
+      role="img"
+      title={name}
+      aria-label={name}
+      style={{ width: size, height: size, background: color, ...style }}
+      {...rest}
+    >
+      {mono}
     </span>
   );
 }

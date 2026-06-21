@@ -31,7 +31,7 @@ import {
   Badge,
   Button,
   Checkbox,
-  RunnerPill,
+  RunnerIcon,
   SearchInput,
   Segmented,
   Select,
@@ -297,7 +297,14 @@ export default function SessionsSurface({
                 </span>
               </span>
               <span className="lds-sg-flags" data-testid="lds-sg-flags">
-                <RunnerPill runner={s.runner} label={RUNNER_LABEL[s.runner]} className="runner-badge" data-testid="runner-badge" />
+                {/* D4: runner = color + monogram icon (full name in title); the
+                    stable `runner-badge` hook moves to this wrapper, and the full
+                    runner name rides as visually-hidden text so the runner data
+                    oracle (and screen readers) still resolve it by name. */}
+                <span className="runner-badge" data-testid="runner-badge" title={RUNNER_LABEL[s.runner]}>
+                  <RunnerIcon runner={s.runner} />
+                  <span className="lds-sr-only">{RUNNER_LABEL[s.runner]}</span>
+                </span>
                 <CostAnomalyChip session={s} />
               </span>
               <span className="lds-sg-num r" data-testid="lds-sg-num">{fmtTok(s.tokenUsage)}</span>
