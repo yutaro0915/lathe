@@ -52,6 +52,26 @@
 
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import {
+  FINDING_FIXTURE,
+  PR_FIXTURE,
+  cleanupCostFallbackFixtures,
+  cleanupFindingFixtures,
+  cleanupPrFixture,
+  cleanupSubagentFixtures,
+  seedCostFallbackFixtures,
+  seedFindingFixtures,
+  seedPrFixture,
+  seedSubagentFixtures,
+} from "./helpers";
+
+// The MAIN session every per-session surface (Transcript / Stats / Diff) renders.
+// The findings fixture session is a COMPLETE main session: it has transcript
+// events (a user turn + steps), a changed file with a diff hunk + attribution,
+// and the controlled-title findings — i.e. everything the transcript, stats, and
+// git surfaces need to render POPULATED. Pinning to it (instead of discovering
+// the first ambient session) is what makes the per-session surfaces hermetic.
+const MAIN_SESSION_ID = FINDING_FIXTURE.sessionId;
 
 // axe-core UMD source, injected via addScriptTag content (offline, no network).
 // Resolved relative to process.cwd() (Playwright runs from the config dir,
@@ -89,36 +109,35 @@ const SURFACES: Surface[] = [
   {
     // The standalone Git-diff route. /diff is a server REDIRECT to
     // /?session=<id>&tab=git, so it lands on the SAME shell-owned <Surface> as
-    // every other surface (no self-drawn header band). Bare /diff defaults to the
-    // most recent session that actually HAS changed files, so the diff workspace
-    // (file tree + hunks + attribution) renders populated. The workspace is a
-    // three-pane grid, NOT a list+detail master-detail, so no `masterDetail`.
+    // every other surface (no self-drawn header band). Bare /diff defaults to
+    // WHATEVER ambient session happens to be the lowest-seq one with changed
+    // files — non-hermetic. We pass the SEEDED main session explicitly (it has a
+    // changed file + diff hunk + attribution), so the diff workspace (file tree +
+    // hunks + attribution) always renders the SAME populated content. The
+    // workspace is a three-pane grid, NOT a list+detail master-detail, so no
+    // `masterDetail`.
     name: "Diff (Git, standalone /diff)",
-    build: () => "/diff",
+    build: (sid) => `/diff?session=${encodeURIComponent(sid)}`,
   },
   {
+    // The cross-session Findings axis lists EVERY finding project-wide by default
+    // (ambient → non-hermetic). `?session=<id>` is honoured as the initial
+    // session filter (app/findings/page.tsx), so scoping it to the seeded main
+    // session renders ONLY the controlled-title fixture findings — fixed content.
     name: "Findings",
-    build: () => "/findings",
+    build: (sid) => `/findings?session=${encodeURIComponent(sid)}`,
     masterDetail: { list: "findings-list", detail: "finding-detail" },
   },
   {
+    // /pr defaults to the most-recently-updated PR (ambient → non-hermetic). Pin
+    // it to the seeded fixture PR via `?pr=<id>` so the PR surface always renders
+    // the SAME PR + its linked sessions.
     name: "PR",
-    build: () => "/pr",
+    build: () => `/pr?pr=${encodeURIComponent(PR_FIXTURE.prId)}`,
     masterDetail: { list: "pr-sidebar", detail: "pr-main" },
   },
   { name: "Overview", build: () => "/overview" },
 ];
-
-// Discover a valid seeded session id from the Sessions list (avoids hardcoding
-// an id that may not exist in a given seed).
-async function discoverSessionId(page: Page): Promise<string> {
-  await page.goto("/");
-  const first = page.locator(`[data-testid="session-list"] [data-testid="session-item"]`).first();
-  await expect(first).toBeVisible();
-  const id = await first.getAttribute("data-session-id");
-  if (!id) throw new Error("layout-integrity: no seeded session id on the Sessions surface");
-  return id;
-}
 
 async function settle(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle");
@@ -459,11 +478,30 @@ async function runAxe(page: Page): Promise<AxeResult[]> {
 // report tells you WHICH width a violation fired at.
 // ---------------------------------------------------------------------------
 test.describe("layout-integrity", () => {
-  let sid = "";
-  test.beforeAll(async ({ browser }) => {
-    const page = await browser.newPage();
-    sid = await discoverSessionId(page);
-    await page.close();
+  // The seeded main session id is FIXED (not discovered from the live list), so
+  // every per-session surface renders the SAME content run-to-run.
+  const sid = MAIN_SESSION_ID;
+
+  // HERMETIC SEED: every run renders the SAME fixed content across all 7 surfaces.
+  //  - seedFindingFixtures() builds the MAIN session (transcript turn + steps,
+  //    changed file + diff hunk + attribution) AND the controlled-title findings
+  //    the Transcript / Stats / Git / Findings surfaces render.
+  //  - seedSubagentFixtures() / seedCostFallbackFixtures() round out the data the
+  //    Sessions list, Stats, and Overview aggregates read.
+  //  - seedPrFixture() builds the fixture PR the PR surface is pinned to.
+  // afterAll tears it all back down so the gate leaves the scratch DB as found.
+  test.beforeAll(async () => {
+    await seedCostFallbackFixtures();
+    await seedFindingFixtures();
+    await seedSubagentFixtures();
+    await seedPrFixture();
+  });
+
+  test.afterAll(async () => {
+    await cleanupPrFixture();
+    await cleanupSubagentFixtures();
+    await cleanupFindingFixtures();
+    await cleanupCostFallbackFixtures();
   });
 
   for (const surface of SURFACES) {

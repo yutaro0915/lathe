@@ -1012,6 +1012,37 @@ export async function expandAllTurns(page: Page) {
   if ((await expand.count()) > 0) await expand.click();
 }
 
+// Tear down the PR fixture rows (the same delete order seedPrFixture runs before
+// it inserts). seedPrFixture is self-cleaning, so historically no caller needed
+// this; the layout-integrity gate seeds the PR fixture in beforeAll and must
+// leave the scratch DB as it found it, so it calls this in afterAll.
+export async function cleanupPrFixture() {
+  await withDb(async (client) => {
+    await client.query("BEGIN");
+    try {
+      await client.query("DELETE FROM session_commits WHERE session_id IN ($1,$2)", [
+        PR_FIXTURE.shaSession,
+        PR_FIXTURE.branchSession,
+      ]);
+      await client.query("DELETE FROM transcript_events WHERE session_id IN ($1,$2)", [
+        PR_FIXTURE.shaSession,
+        PR_FIXTURE.branchSession,
+      ]);
+      await client.query("DELETE FROM sessions WHERE id IN ($1,$2)", [
+        PR_FIXTURE.shaSession,
+        PR_FIXTURE.branchSession,
+      ]);
+      await client.query("DELETE FROM pr_commits WHERE pr_id = $1", [PR_FIXTURE.prId]);
+      await client.query("DELETE FROM pull_requests WHERE id = $1", [PR_FIXTURE.prId]);
+      await client.query("DELETE FROM projects WHERE id = $1", [PR_FIXTURE.projectId]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
 export async function seedPrFixture() {
   const client = new Client({ connectionString: DATABASE_URL });
   await client.connect();
