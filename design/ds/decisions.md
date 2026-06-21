@@ -5,7 +5,7 @@
 > **規約（what）/ 意味（why）/ 実現（どう機械・component で担保するか）**。
 > これは破棄した as-is base（現画面の写生・px ハードコード）とは別物。`design.md`＝target 原則、本ファイル＝決定した規約＋実現。
 > 実現の凡例: 🧩=component で体現 / ✅=既存 rubric で機械強制 / ➕=rubric 候補(未実装) / 📐=doc・taste(機械化しない) / 🔤=語彙 / ⏳=target(未導入)
-> **再現性**: 承認済みの画面/部品は「再現可能な現物」として [`mockups/`](./mockups/) に standalone HTML で版管理する（prose だけでは見た目を再現できないため）。現状 = Chat（[`mockups/chat.html`](./mockups/chat.html)、D22–D26）/ PR（[`mockups/pr.html`](./mockups/pr.html)、D28–D29）。実 component＋rubric 化（🧩/➕）は実装フェーズで lockstep に行う。
+> **再現性**: 承認済みの画面/部品は「再現可能な現物」として [`mockups/`](./mockups/) に standalone HTML で版管理する（prose だけでは見た目を再現できないため）。現状 = Chat（[`mockups/chat.html`](./mockups/chat.html)、D22–D26）/ PR（[`mockups/pr.html`](./mockups/pr.html)、D28–D29）/ Overview（[`mockups/overview.html`](./mockups/overview.html)、D31）。実 component＋rubric 化（🧩/➕）は実装フェーズで lockstep に行う。
 
 ## 全体（cross-cutting）
 
@@ -106,6 +106,14 @@
 ### D10. 色配給制（配給 6 色は TimeRibbon / minimap / chart のみ。行・バッジは neutral+小 dot、error red のみ全面特権）
 - 意味: 彩度を全面に撒くと密度の高い observability 画面が読めなくなる（原本の「彩度の洪水」の恒久対策）。色を使う価値が密度コストを上回るのは可視化だけ。
 - 実現: ✅ `styling/token-consistency`（色値の出所=var(--token)）＋ 📐 doc（どの**面**で使ってよいかは taste、機械化しない）。
+
+## Overview 画面
+
+### D31. Overview = attention funnel（次にどこを掘るか）、totals dashboard ではない
+- 意味: N session 俯瞰の目的は「cost / 無駄 / risk がどこに集中し、次にどこを掘るか」。totals の羅列でなく、優先順位づけた注目先＋trend を出し、各々が該当 axis へ drill（観測目的から導く D2）。既存 OverviewView も funnel 構造＝写経でなく追認。
+- 実現: 🧩 Attention（cost outlier G9 / most errors / pending findings の 3 ランク列、row→navigate D12）＋ Trends（cost by runner / cost over time / findings by kind、色配給 D10）＋ comparison-list 再利用。⏳「現時点の最適を選び更新」運用（確定しすぎない）。
+- 色の補足（D10 運用則）: 色は「減らす」のでなく「正しい色を配給」する。問題シグナル＝**clean red**（くすんだ赤茶＝bg-tint token の文字流用は不可）、非問題＝neutral。neutral 一色化は可読性を落とすので不可。
+- データ実在性（2026-06-21 dev DB 実照合、378 session）: **即表示可** = cost / error / runner / time（median $1.96・max $1,341・claude-code $18.46[n127] / codex $1.21[n217]・error を持つ session 211・最大 82）。**nascent** = findings 系（5 件・全 `failure_loop`・pending 0）→ 枠は置くが充実は運用後。mockup の個別行・件数は illustrative。実運用整備は **deploy 時**。
 
 ## PR 画面
 

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lathe DS — Overview（承認済み mockup, D31）</title>
+<link rel="stylesheet" href="./_tokens.css" />
+</head>
+<body>
+<!-- Overview = attention funnel「次にどこを掘るか」(D31)。totals dashboard ではない。
+     色配給(D10)の運用: 問題シグナルは clean red (#ff5c5c)、非問題は neutral。色を削って
+     可読性を落とさない(neutral 一色化は不可)。くすんだ赤茶=bg-tint の文字流用は不可。
+
+     データ実在性（2026-06-21 dev DB 実照合）:
+       即表示可 = cost / error / runner / time
+         sessions 378 / cost既知 344 / median $1.96 / max $1,341 /
+         claude-code median $18.46 (n=127) / codex median $1.21 (n=217) /
+         error を持つ session 211・最大 82
+       nascent  = findings 系（5 件・全 failure_loop・pending 0）→ 枠は置くが充実は運用後
+     本 mockup の stat 値・attention の個別行・件数は illustrative（実運用整備は deploy 時）。 -->
+<div style="width:100%;height:760px;display:flex;flex-direction:column;background:var(--color-background-primary);font-family:var(--font-sans);overflow:hidden;">
+
+  <div style="display:flex;align-items:center;gap:10px;padding:0 16px;height:42px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);">
+    <span style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;"><i class="ti ti-topology-star-3" style="font-size:16px;color:var(--color-text-info);"></i> lathe</span>
+    <span style="color:var(--color-text-tertiary);font-size:13px;">/</span>
+    <button style="display:inline-flex;align-items:center;gap:5px;font-size:13px;border:0;background:transparent;color:var(--color-text-secondary);cursor:pointer;padding:2px 4px;">harness-observability <i class="ti ti-chevron-down" style="font-size:14px;"></i></button>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0;">
+
+    <div style="flex:0 0 60px;border-right:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column;align-items:center;padding-top:10px;gap:3px;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-list-details" style="font-size:20px;"></i><span style="font-size:9px;">Sessions</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-bulb" style="font-size:20px;"></i><span style="font-size:9px;">Findings</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-git-pull-request" style="font-size:20px;"></i><span style="font-size:9px;">PR</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-info);border-left:2px solid var(--color-text-info);"><i class="ti ti-chart-bar" style="font-size:20px;"></i><span style="font-size:9px;">Overview</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-messages" style="font-size:20px;"></i><span style="font-size:9px;">Chat</span></div>
+    </div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+
+      <div style="flex:0 0 auto;padding:11px 16px;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;gap:18px;">
+        <span style="font-size:15px;font-weight:500;">Overview</span>
+        <span style="display:flex;gap:16px;font-family:var(--font-mono);font-size:12px;color:var(--color-text-secondary);">
+          <span><span style="color:var(--color-text-tertiary);">sessions</span> 378</span>
+          <span><span style="color:var(--color-text-tertiary);">median</span> $1.96</span>
+          <span><span style="color:var(--color-text-tertiary);">max</span> $1,341</span>
+          <span><span style="color:var(--color-text-tertiary);">cost &gt; $50</span> <span style="color:#ff5c5c;">42</span></span>
+        </span>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:22px;">
+
+        <div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:8px;">Attention · 次にどこを掘るか</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+
+            <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:0.5px solid var(--color-border-tertiary);"><span style="width:7px;height:7px;border-radius:50%;background:#ff5c5c;flex:0 0 auto;"></span><span style="font-size:12px;font-weight:500;flex:1;">Cost outliers · G9</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);">42</span><i class="ti ti-x" style="font-size:13px;color:var(--color-text-tertiary);cursor:pointer;"></i></div>
+              <div style="display:flex;flex-direction:column;">
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;cursor:pointer;"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);">依存更新の無限ループ</span><span style="font-family:var(--font-mono);font-size:11px;color:#ff5c5c;font-weight:500;">×14.5</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:46px;text-align:right;">$1,341</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;cursor:pointer;"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">全文検索の最適化</span><span style="font-family:var(--font-mono);font-size:11px;color:#ff5c5c;font-weight:500;">×6.4</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:46px;text-align:right;">$412</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;cursor:pointer;"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">スキーマ移行</span><span style="font-family:var(--font-mono);font-size:11px;color:#ff5c5c;font-weight:500;">×3.0</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:46px;text-align:right;">$271</span></div>
+                <div style="font-size:11px;color:var(--color-text-info);padding:6px 10px;cursor:pointer;">42 件すべて →</div>
+              </div>
+            </div>
+
+            <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:0.5px solid var(--color-border-tertiary);"><span style="width:7px;height:7px;border-radius:50%;background:#ff5c5c;flex:0 0 auto;"></span><span style="font-size:12px;font-weight:500;flex:1;">Most errors</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);">211</span><i class="ti ti-x" style="font-size:13px;color:var(--color-text-tertiary);cursor:pointer;"></i></div>
+              <div style="display:flex;flex-direction:column;">
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;cursor:pointer;"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);">テスト修正の反復</span><span style="font-family:var(--font-mono);font-size:11px;color:#ff5c5c;font-weight:500;">82 err</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;cursor:pointer;"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">型エラー解消</span><span style="font-family:var(--font-mono);font-size:11px;color:#ff5c5c;font-weight:500;">57 err</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;cursor:pointer;"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">lint 修正</span><span style="font-family:var(--font-mono);font-size:11px;color:#ff5c5c;font-weight:500;">41 err</span></div>
+                <div style="font-size:11px;color:var(--color-text-info);padding:6px 10px;cursor:pointer;">error の多い順 →</div>
+              </div>
+            </div>
+
+            <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:0.5px solid var(--color-border-tertiary);"><i class="ti ti-bulb" style="font-size:14px;color:var(--color-text-tertiary);"></i><span style="font-size:12px;font-weight:500;flex:1;">Pending findings</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);">0</span><i class="ti ti-x" style="font-size:13px;color:var(--color-text-tertiary);cursor:pointer;"></i></div>
+              <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:22px 10px;gap:6px;">
+                <i class="ti ti-checks" style="font-size:20px;color:var(--color-text-tertiary);"></i>
+                <span style="font-size:11px;color:var(--color-text-tertiary);text-align:center;">未採否の finding なし<br><span style="opacity:.7;">（現状 5 件すべて triage 済み）</span></span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:8px;">Trends</div>
+          <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;">
+
+            <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:11px 12px;">
+              <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px;">Cost by runner <span style="color:var(--color-text-tertiary);">(median)</span></div>
+              <div style="display:flex;flex-direction:column;gap:9px;">
+                <div style="display:flex;align-items:center;gap:8px;"><span style="flex:0 0 88px;display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--color-text-secondary);"><span style="width:8px;height:8px;border-radius:2px;background:#d97757;"></span>claude-code</span><div style="flex:1;height:9px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden;"><div style="width:100%;height:100%;background:#d97757;opacity:.85;"></div></div><span style="flex:0 0 auto;font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);">$18.46</span></div>
+                <div style="display:flex;align-items:center;gap:8px;"><span style="flex:0 0 88px;display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--color-text-secondary);"><span style="width:8px;height:8px;border-radius:2px;background:#10a37f;"></span>codex</span><div style="flex:1;height:9px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden;"><div style="width:6.5%;height:100%;background:#10a37f;"></div></div><span style="flex:0 0 auto;font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);">$1.21</span></div>
+              </div>
+              <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:10px;">claude-code 127 / codex 217 session。中央値が ~15× 差 = runner で原価が別物。</div>
+            </div>
+
+            <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:11px 12px;">
+              <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px;">Cost over time</div>
+              <div style="display:flex;align-items:flex-end;gap:4px;height:74px;">
+                <div style="flex:1;height:30%;background:var(--color-text-tertiary);border-radius:1px;"></div>
+                <div style="flex:1;height:45%;background:var(--color-text-tertiary);border-radius:1px;"></div>
+                <div style="flex:1;height:38%;background:var(--color-text-tertiary);border-radius:1px;"></div>
+                <div style="flex:1;height:80%;background:#ff5c5c;border-radius:1px;" title="anomaly 集中日"></div>
+                <div style="flex:1;height:52%;background:var(--color-text-tertiary);border-radius:1px;"></div>
+                <div style="flex:1;height:60%;background:var(--color-text-tertiary);border-radius:1px;"></div>
+                <div style="flex:1;height:42%;background:var(--color-text-tertiary);border-radius:1px;"></div>
+                <div style="flex:1;height:55%;background:var(--color-text-tertiary);border-radius:1px;"></div>
+              </div>
+              <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:9px;">日次。赤＝anomaly 集中日 → 掘る。</div>
+            </div>
+
+            <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:11px 12px;">
+              <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px;">Findings by kind</div>
+              <div style="display:flex;flex-direction:column;gap:7px;">
+                <div style="display:flex;align-items:center;gap:8px;"><span style="flex:0 0 92px;font-size:10px;color:var(--color-text-secondary);font-family:var(--font-mono);">failure_loop</span><div style="flex:1;height:8px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden;"><div style="width:100%;height:100%;background:var(--color-text-tertiary);"></div></div><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);">5</span></div>
+                <div style="display:flex;align-items:center;gap:8px;"><span style="flex:0 0 92px;font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono);">excess_cost</span><div style="flex:1;height:8px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden;"></div><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);">0</span></div>
+                <div style="display:flex;align-items:center;gap:8px;"><span style="flex:0 0 92px;font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono);">unattributed</span><div style="flex:1;height:8px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden;"></div><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);">0</span></div>
+                <div style="display:flex;align-items:center;gap:8px;"><span style="flex:0 0 92px;font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono);">risky_action</span><div style="flex:1;height:8px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden;"></div><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);">0</span></div>
+              </div>
+              <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:10px;">現状 failure_loop のみ（Phase 2 で他 kind が育つ）。</div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
