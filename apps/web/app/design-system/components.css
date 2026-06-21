@@ -611,7 +611,10 @@ button.finding-row:focus-visible{outline:2px solid var(--accent-ring);outline-of
    per-kind hue overrides are dropped; kind is read from the text label). */
 .finding-kind-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:0 0 auto;}
 .finding-title-body{min-width:0;display:flex;flex-direction:column;gap:2px;}
-.finding-title-text{font-size:12.5px;font-weight:650;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* D + no-truncation gate: list title WRAPS (mockup findings.html list shows a 2-line
+   title); the old nowrap+ellipsis clipped long titles horizontally (layout/integrity
+   no-truncation RED on long fixture findings). Wrapping removes the horizontal clip. */
+.finding-title-text{font-size:12.5px;font-weight:650;color:var(--text);line-height:1.35;}
 .finding-body-text{font-size:11px;color:var(--text-soft);line-height:1.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .finding-verdict-chip{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);
   border-radius:4px;background:var(--panel);color:var(--muted);padding:2px 6px;font-size:10px;font-weight:650;
