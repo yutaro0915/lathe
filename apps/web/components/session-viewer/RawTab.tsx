@@ -1,4 +1,5 @@
 import type { TranscriptEvent } from "@/lib/types";
+import { JsonView } from "./JsonView";
 
 export function RawTab({
   selected,
@@ -20,7 +21,7 @@ export function RawTab({
         </button>
       </div>
       <pre className="run-json" data-testid="run-json" style={{ whiteSpace: "pre-wrap" }}>
-        {JSON.stringify(selected ?? events, null, 2)}
+        <JsonView value={selected ?? events} />
       </pre>
     </div>
   );
