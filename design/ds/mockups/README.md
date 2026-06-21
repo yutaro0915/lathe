@@ -17,6 +17,17 @@
 - [`overview.html`](./overview.html) — Overview の確定形（D31）。attention funnel「次にどこを掘るか」（cost outliers G9 / most errors / pending findings の 3 ランク列）＋ Trends（cost by runner / over time / findings by kind）。色は clean red を問題シグナルにのみ配給。**データ実在性（2026-06-21 dev DB 照合）**: cost/error/runner/time は即表示可、findings 系は nascent（枠のみ）。stat・個別行は illustrative、実運用整備は deploy 時。
 - [`stats.html`](./stats.html) — SessionViewer の Stats tab（D32）。session 単位の定量プロファイル（per-turn cost / event composition / file churn / subagent runs）= Overview の chart 語彙の session scale 版。
 - [`minor-tabs.html`](./minor-tabs.html) — SessionViewer の Skills / Annotations / Raw（D33–D35）。Skills=Tools 同型 comparison-list / Annotations=時系列の導出フラグ＋step jump（kind neutral・error のみ red）/ Raw=ground-truth JSON（3-hue palette・copy）。current-best、実装で調整。
+
+### 主要画面（D1–D21、2026-06-21 に reproducibility parity を達成）
+
+- [`sessions.html`](./sessions.html) — Sessions list（D3–D5 / D11 / D12）。comparison-list table・runner icon monogram・**no timestamp**（session=span）・navigate chevron。**全行が実 DB データ**（title/runner/model/cost/turns）。
+- [`transcript.html`](./transcript.html) — SessionViewer → Transcript（D6–D8）。turn-drilldown accordion・**単一 Step component**（kind=中身だけ）・error=横断 state（clean red）。
+- [`tools.html`](./tools.html) — SessionViewer → Tools（D11 / D12 / D8）。comparison-list 再利用＋行 click で invocations を inline 展開。
+- [`git.html`](./git.html) — SessionViewer → Git（D13–D15）。dual-axis segmented [By step | By file]・file↔step attribution（↗Turn N）・unified diff（+/− は diff 内のみ）。実 file 名は changed_files から。
+- [`subagents.html`](./subagents.html) — SessionViewer → Subagents（D16–D18）。並列=横スクロール / 逐次=縦・card→nested mini-session 3-tab・view switch [By step | All]。
+- [`findings.html`](./findings.html) — Findings（D19–D21）。detail 核=**Analysis**（impact/agent_intent/cause_hypothesis、**実 findings.analysis jsonb verbatim**）＋evidence jump＋verdict→backlog。
+
+> 監査メモ（2026-06-21）: findings の Analysis 箱が `overflow:hidden` ＋ flex-column scroll pane で flex-shrink 潰れ（2px）→ `flex:0 0 auto` で修正。全 6 画面ブラウザ描画検証 GREEN。
 - [`_tokens.css`](./_tokens.css) — mockup プレビュー用トークン（承認時の dark 近似）。
 
 ## 開き方

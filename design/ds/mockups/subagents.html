@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lathe DS — Subagents tab（承認済み mockup, D16–D18）</title>
+<link rel="stylesheet" href="./_tokens.css" />
+</head>
+<body>
+<!-- Subagents tab = SessionViewer の入れ子 session view（D16–D18）。SessionViewer 部品の再帰再利用。
+     D18: view switch segmented [By step | All]（tab toolbar・英語ラベル・session header には置かない、By step active）。
+          Git の dual-axis(D15) と同型。曖昧語/日本語の UI ラベルは禁止。
+     D17: レイアウト幾何 ＝ 実行幾何。同 step＝並列＝横並び row（3 つ以上は横スクロール、順序に優劣なし）。
+          異 step/turn＝逐次＝縦の時系列。並列を縦に積むと逐次に誤読させる（禁止）。
+     D16: subagent = 入れ子 session。詳細は親と同じ 3 facet（Transcript/Tools/Git の 3 tab）で見る。
+          card click → 行の下に単一詳細展開（single-select・再 click で閉）・turn 間に ↓ は置かない。
+     色配給(D10/D31): neutral 既定、問題シグナルのみ clean red(#ff5c5c)、runner claude #d97757 / codex #10a37f。
+
+     データ実在性（2026-06-21 dev DB 実照合）:
+       subagent イベントは実在 = transcript_events type='subagent' が 873 行。
+     本 mockup の subagent 名・cost・tools 数・step ラベル・nested 行は illustrative（実運用整備は実装時）。 -->
+<div style="width:100%;height:760px;display:flex;flex-direction:column;background:var(--color-background-primary);font-family:var(--font-sans);overflow:hidden;">
+  <div style="display:flex;align-items:center;gap:10px;padding:0 16px;height:42px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);">
+    <span style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;"><i class="ti ti-topology-star-3" style="font-size:16px;color:var(--color-text-info);"></i> lathe</span>
+    <span style="color:var(--color-text-tertiary);font-size:13px;">/</span>
+    <button style="display:inline-flex;align-items:center;gap:5px;font-size:13px;border:0;background:transparent;color:var(--color-text-secondary);cursor:pointer;padding:2px 4px;">harness-observability <i class="ti ti-chevron-down" style="font-size:14px;"></i></button>
+  </div>
+  <div style="flex:1;display:flex;min-height:0;">
+    <div style="flex:0 0 60px;border-right:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column;align-items:center;padding-top:10px;gap:3px;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-info);border-left:2px solid var(--color-text-info);"><i class="ti ti-list-details" style="font-size:20px;"></i><span style="font-size:9px;">Sessions</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-bulb" style="font-size:20px;"></i><span style="font-size:9px;">Findings</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-git-pull-request" style="font-size:20px;"></i><span style="font-size:9px;">PR</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-chart-bar" style="font-size:20px;"></i><span style="font-size:9px;">Overview</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-messages" style="font-size:20px;"></i><span style="font-size:9px;">Chat</span></div>
+    </div>
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;background:#d97757;color:#fff;font-size:11px;font-weight:600;flex:0 0 auto;">C</span>
+        <span style="font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">大規模リファクタの実装</span>
+        <span style="font-size:12px;color:var(--color-text-tertiary);font-family:var(--font-mono);flex:0 0 auto;">$46.99 · 7 turns</span>
+      </div>
+
+      <div style="display:flex;gap:16px;padding:0 16px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);height:36px;align-items:center;font-size:12px;overflow-x:auto;white-space:nowrap;">
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Transcript</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Tools</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Git</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Skills</span>
+        <span style="color:var(--color-text-primary);font-weight:500;border-bottom:1.5px solid var(--color-text-primary);height:36px;display:flex;align-items:center;flex:0 0 auto;">Subagents</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Annotations</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Findings</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Raw</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Stats</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 16px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);">
+        <div style="display:inline-flex;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-sm);overflow:hidden;">
+          <span style="font-size:12px;padding:4px 12px;background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500;">By step</span>
+          <span style="font-size:12px;padding:4px 12px;background:transparent;color:var(--color-text-tertiary);border-left:0.5px solid var(--color-border-secondary);cursor:pointer;">All</span>
+        </div>
+        <span style="font-size:11px;color:var(--color-text-tertiary);">実行位置で配置（並列＝横・逐次＝縦、D17）</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-mono);">4 subagents</span>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:18px;">
+
+        <!-- ===== 並列ブロック: 同 step ＝横並び（3 つ以上 → 横スクロール、順序に優劣なし、D17） ===== -->
+        <div>
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;">
+            <span style="font-size:12px;font-weight:600;color:var(--color-text-secondary);font-family:var(--font-mono);">Turn 2 · step 5</span>
+            <span style="font-size:11px;color:var(--color-text-tertiary);">3 件 並列</span>
+          </div>
+
+          <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;">
+
+            <!-- 選択中 card（detail がこの row の下に展開） -->
+            <div style="flex:0 0 224px;border:0.5px solid var(--color-text-info);border-radius:var(--border-radius-md);padding:10px 11px;cursor:pointer;background:var(--color-background-secondary);">
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;background:#d97757;color:#fff;font-size:9px;font-weight:600;flex:0 0 auto;">C</span>
+                <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);">Explore · 構造調査</span>
+              </div>
+              <div style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);">$3.10 · 22 tools</div>
+            </div>
+
+            <div style="flex:0 0 224px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 11px;cursor:pointer;">
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;background:#d97757;color:#fff;font-size:9px;font-weight:600;flex:0 0 auto;">C</span>
+                <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">Explore · 影響範囲</span>
+              </div>
+              <div style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);">$1.80 · 14 tools</div>
+            </div>
+
+            <div style="flex:0 0 224px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 11px;cursor:pointer;">
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;background:#10a37f;color:#fff;font-size:9px;font-weight:600;flex:0 0 auto;">X</span>
+                <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">test-runner · 回帰確認</span>
+              </div>
+              <div style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);">$0.42 · 9 tools</div>
+            </div>
+
+            <div style="flex:0 0 56px;display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary);"><i class="ti ti-chevron-right" style="font-size:18px;"></i></div>
+
+          </div>
+
+          <!-- ===== 選択 card の detail = 入れ子 mini-session（Transcript/Tools/Git の 3 tab、D16）。card row の下に展開 ===== -->
+          <div style="margin-top:10px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);overflow:hidden;">
+
+            <div style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);">
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:3px;background:#d97757;color:#fff;font-size:10px;font-weight:600;flex:0 0 auto;">C</span>
+              <span style="font-size:13px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Explore · 構造調査</span>
+              <span style="font-size:11px;color:var(--color-text-tertiary);font-family:var(--font-mono);flex:0 0 auto;">$3.10 · 22 tools</span>
+              <i class="ti ti-x" style="font-size:14px;color:var(--color-text-tertiary);cursor:pointer;flex:0 0 auto;" title="再 click で閉"></i>
+            </div>
+
+            <div style="display:flex;gap:16px;padding:0 12px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);height:32px;align-items:center;font-size:12px;">
+              <span style="color:var(--color-text-primary);font-weight:500;border-bottom:1.5px solid var(--color-text-primary);height:32px;display:flex;align-items:center;">Transcript</span>
+              <span style="color:var(--color-text-tertiary);">Tools</span>
+              <span style="color:var(--color-text-tertiary);">Git</span>
+            </div>
+
+            <div style="display:flex;flex-direction:column;">
+              <div style="display:flex;align-items:center;gap:9px;padding:7px 12px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;"><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);min-width:42px;">step 1</span><i class="ti ti-search" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">Grep · "SessionViewer" を全体検索</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);">38 hits</span></div>
+              <div style="display:flex;align-items:center;gap:9px;padding:7px 12px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;"><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);min-width:42px;">step 2</span><i class="ti ti-file" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">Read · components/SessionViewer.tsx</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);">412 行</span></div>
+              <div style="display:flex;align-items:center;gap:9px;padding:7px 12px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;"><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);min-width:42px;">step 3</span><i class="ti ti-file" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">Read · components/Surface.tsx</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);">236 行</span></div>
+              <div style="display:flex;align-items:center;gap:9px;padding:7px 12px;font-size:12px;"><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);min-width:42px;">step 4</span><i class="ti ti-message" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">要約 · 3 facet が tab で合成されている</span></div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ===== 逐次ブロック: 異 step ＝縦に積む（時系列、並列とは別ブロック、turn 間に ↓ は置かない、D17） ===== -->
+        <div>
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;">
+            <span style="font-size:12px;font-weight:600;color:var(--color-text-secondary);font-family:var(--font-mono);">Turn 4 · step 2</span>
+            <span style="font-size:11px;color:var(--color-text-tertiary);">1 件</span>
+          </div>
+
+          <div style="display:flex;gap:10px;">
+            <div style="flex:0 0 224px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 11px;cursor:pointer;">
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;background:#d97757;color:#fff;font-size:9px;font-weight:600;flex:0 0 auto;">C</span>
+                <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">Explore · 移行後の再検証</span>
+              </div>
+              <div style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);">$1.24 · 11 tools</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

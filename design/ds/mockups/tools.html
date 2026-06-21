@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lathe DS — Tools tab（承認済み mockup, D11/D12/D8）</title>
+<link rel="stylesheet" href="./_tokens.css" />
+</head>
+<body>
+<!-- SessionViewer → Tools tab。新規設計ほぼゼロ＝確定部品の合成（D11）。
+     D11 Tools = comparison-list 再利用（tool は peer、共有次元 = invocation count。Sessions list と同一 component）。
+     D12 行 click = inline 展開（tool の invocations は現 session の sub-content であって独立 destination でない
+          → navigate でなく expand。展開行は chevron-DOWN、畳んでいる行は chevron-RIGHT）。
+     D8 展開した invocations は単一 Step component で描く（枠は不変、kind = icon / signal / detail の中身だけ可変。
+          kind 別に container を分岐しない）。
+     色配給(D10): kind は neutral（小 dot/icon）、clean red(#ff5c5c) は本物の error signal のみ（撒かない）。
+
+     データ実在（2026-06-21 dev DB 実照合、transcript_events GROUP BY type）:
+       即表示可 = tool 種別と invocation count（comparison-list の count 列）:
+         bash 26426 / file_read 10788 / file_edit 6573 / file_write 2730 /
+         subagent 873 / commit 448 / memory 365 / test 286
+       本 mockup は単一 session スコープの表示なので、上の DB 全体 count を session 規模に縮約して提示
+       （session header の $46.99 / 7 turns / 134 tools は stats.html と同一の実 session 値）。
+     illustrative = 各行の cost/dur 列、展開した個別 invocation の command/args と result signal、error の 1 件。
+     実 component＋rubric 化は実装フェーズで lockstep。 -->
+<div style="width:100%;height:760px;display:flex;flex-direction:column;background:var(--color-background-primary);font-family:var(--font-sans);overflow:hidden;">
+
+  <div style="display:flex;align-items:center;gap:10px;padding:0 16px;height:42px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);">
+    <span style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;"><i class="ti ti-topology-star-3" style="font-size:16px;color:var(--color-text-info);"></i> lathe</span>
+    <span style="color:var(--color-text-tertiary);font-size:13px;">/</span>
+    <button style="display:inline-flex;align-items:center;gap:5px;font-size:13px;border:0;background:transparent;color:var(--color-text-secondary);cursor:pointer;padding:2px 4px;">harness-observability <i class="ti ti-chevron-down" style="font-size:14px;"></i></button>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0;">
+
+    <div style="flex:0 0 60px;border-right:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column;align-items:center;padding-top:10px;gap:3px;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-info);border-left:2px solid var(--color-text-info);"><i class="ti ti-list-details" style="font-size:20px;"></i><span style="font-size:9px;">Sessions</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-bulb" style="font-size:20px;"></i><span style="font-size:9px;">Findings</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-git-pull-request" style="font-size:20px;"></i><span style="font-size:9px;">PR</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-chart-bar" style="font-size:20px;"></i><span style="font-size:9px;">Overview</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-messages" style="font-size:20px;"></i><span style="font-size:9px;">Chat</span></div>
+    </div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;background:#d97757;color:#fff;font-size:11px;font-weight:600;flex:0 0 auto;">C</span>
+        <span style="font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">大規模リファクタの実装</span>
+        <span style="font-size:12px;color:var(--color-text-tertiary);font-family:var(--font-mono);flex:0 0 auto;">$46.99 · 7 turns</span>
+      </div>
+
+      <div style="display:flex;gap:16px;padding:0 16px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);height:36px;align-items:center;font-size:12px;overflow-x:auto;white-space:nowrap;">
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Transcript</span>
+        <span style="color:var(--color-text-primary);font-weight:500;border-bottom:1.5px solid var(--color-text-primary);height:36px;display:flex;align-items:center;flex:0 0 auto;">Tools</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Git</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Skills</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Subagents</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Annotations</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Findings</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Raw</span>
+        <span style="color:var(--color-text-tertiary);flex:0 0 auto;">Stats</span>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;padding:14px 16px;">
+
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;">
+          <span style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);">Tools · invocation 数で比較</span>
+          <span style="font-size:10px;color:var(--color-text-tertiary);">行 click で invocations を展開（D12）。</span>
+        </div>
+
+        <!-- comparison-list（D11）: tool = peer、共有次元 = invocation count。Sessions list と同一 component。
+             各行 = [tool icon] [tool name flex:1] [count mono] [cost/dur mono] [chevron]。
+             行 click = inline 展開（D12）。展開行のみ chevron-down、他は chevron-right。 -->
+        <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);overflow:hidden;">
+
+          <!-- row: bash（最多） -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;"><i class="ti ti-terminal-2" style="font-size:15px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-size:12px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);">bash</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);min-width:34px;text-align:right;">×48</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:78px;text-align:right;">$6.20 · 2m14s</span><i class="ti ti-chevron-right" style="font-size:14px;color:var(--color-text-tertiary);flex:0 0 auto;"></i></div>
+
+          <!-- row: file_read — EXPANDED（chevron-down, D12）。子 = 単一 Step component 列（D8） -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;background:var(--color-background-secondary);"><i class="ti ti-file-text" style="font-size:15px;color:var(--color-text-secondary);flex:0 0 auto;"></i><span style="flex:1;font-size:12px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);">file_read</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);min-width:34px;text-align:right;">×31</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:78px;text-align:right;">$1.05 · 0m41s</span><i class="ti ti-chevron-down" style="font-size:14px;color:var(--color-text-secondary);flex:0 0 auto;"></i></div>
+
+          <!-- 展開ボディ = invocations を均一 Step component で列挙（D8: 枠不変・kind は中身だけ）。
+               各 Step row = [kind icon] [command/args mono flex:1] [result signal] -->
+          <div style="border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-primary);">
+            <div style="display:flex;align-items:center;gap:9px;padding:6px 12px 6px 30px;border-bottom:0.5px solid var(--color-border-tertiary);"><i class="ti ti-file-text" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-size:11px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">core/types.ts</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);flex:0 0 auto;">412 lines</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:6px 12px 6px 30px;border-bottom:0.5px solid var(--color-border-tertiary);"><i class="ti ti-file-text" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-size:11px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">lib/db.ts</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-tertiary);flex:0 0 auto;">238 lines</span></div>
+            <!-- ONE invocation に error state（clean red #ff5c5c、D10。kind は変えず signal だけ赤） -->
+            <div style="display:flex;align-items:center;gap:9px;padding:6px 12px 6px 30px;border-bottom:0.5px solid var(--color-border-tertiary);"><i class="ti ti-alert-triangle" style="font-size:13px;color:#ff5c5c;flex:0 0 auto;"></i><span style="flex:1;font-size:11px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">components/Surfac.tsx</span><span style="font-family:var(--font-mono);font-size:10px;color:#ff5c5c;flex:0 0 auto;">ENOENT · no such file</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:6px 12px 6px 30px;"><span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);">… 28 件すべて表示</span></div>
+          </div>
+
+          <!-- row: file_edit -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;"><i class="ti ti-edit" style="font-size:15px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-size:12px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">file_edit</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);min-width:34px;text-align:right;">×17</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:78px;text-align:right;">$2.80 · 0m52s</span><i class="ti ti-chevron-right" style="font-size:14px;color:var(--color-text-tertiary);flex:0 0 auto;"></i></div>
+
+          <!-- row: file_write -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;"><i class="ti ti-file-plus" style="font-size:15px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-size:12px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">file_write</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);min-width:34px;text-align:right;">×9</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:78px;text-align:right;">$1.40 · 0m19s</span><i class="ti ti-chevron-right" style="font-size:14px;color:var(--color-text-tertiary);flex:0 0 auto;"></i></div>
+
+          <!-- row: subagent -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;"><i class="ti ti-robot" style="font-size:15px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-size:12px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">subagent</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);min-width:34px;text-align:right;">×2</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:78px;text-align:right;">$4.90 · 1m48s</span><i class="ti ti-chevron-right" style="font-size:14px;color:var(--color-text-tertiary);flex:0 0 auto;"></i></div>
+
+          <!-- row: test -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;"><i class="ti ti-flask" style="font-size:15px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-size:12px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">test</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);min-width:34px;text-align:right;">×6</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:78px;text-align:right;">$0.85 · 0m33s</span><i class="ti ti-chevron-right" style="font-size:14px;color:var(--color-text-tertiary);flex:0 0 auto;"></i></div>
+
+          <!-- row: commit -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;"><i class="ti ti-git-commit" style="font-size:15px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-size:12px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">commit</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);min-width:34px;text-align:right;">×3</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:78px;text-align:right;">$0.30 · 0m08s</span><i class="ti ti-chevron-right" style="font-size:14px;color:var(--color-text-tertiary);flex:0 0 auto;"></i></div>
+
+          <!-- row: memory（最少） -->
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;"><i class="ti ti-bookmark" style="font-size:15px;color:var(--color-text-tertiary);flex:0 0 auto;"></i><span style="flex:1;font-size:12px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-secondary);">memory</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);min-width:34px;text-align:right;">×2</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);min-width:78px;text-align:right;">$0.12 · 0m04s</span><i class="ti ti-chevron-right" style="font-size:14px;color:var(--color-text-tertiary);flex:0 0 auto;"></i></div>
+
+        </div>
+
+        <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:8px;">同一 comparison-list を Sessions / Skills でも再利用（D11）。peer が sub-content なので行 click = navigate でなく inline 展開（D12）。展開部は単一 Step component で描く（枠不変、kind は中身だけ・D8）。</div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

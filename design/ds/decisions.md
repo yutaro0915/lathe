@@ -5,7 +5,7 @@
 > **規約（what）/ 意味（why）/ 実現（どう機械・component で担保するか）**。
 > これは破棄した as-is base（現画面の写生・px ハードコード）とは別物。`design.md`＝target 原則、本ファイル＝決定した規約＋実現。
 > 実現の凡例: 🧩=component で体現 / ✅=既存 rubric で機械強制 / ➕=rubric 候補(未実装) / 📐=doc・taste(機械化しない) / 🔤=語彙 / ⏳=target(未導入)
-> **再現性**: 承認済みの画面/部品は「再現可能な現物」として [`mockups/`](./mockups/) に standalone HTML で版管理する（prose だけでは見た目を再現できないため）。現状 = Chat（[`mockups/chat.html`](./mockups/chat.html)、D22–D26）/ PR（[`mockups/pr.html`](./mockups/pr.html)、D28–D29）/ Overview（[`mockups/overview.html`](./mockups/overview.html)、D31）/ SessionViewer 残り tab（[`mockups/stats.html`](./mockups/stats.html)・[`mockups/minor-tabs.html`](./mockups/minor-tabs.html)、D32–D35）。実 component＋rubric 化（🧩/➕）は実装フェーズで lockstep に行う。
+> **再現性**: 承認済みの画面/部品は「再現可能な現物」として [`mockups/`](./mockups/) に standalone HTML で版管理する（prose だけでは見た目を再現できないため）。**全画面が standalone mockup 化済み（reproducibility parity 達成 2026-06-21、[`mockups/`](./mockups/)、全 11 ファイルをブラウザ描画検証）**: Sessions/Transcript/Tools/Git/Subagents/Findings（D1–D21）＋ Chat（D22–27）＋ PR（D28–30）＋ Overview（D31）＋ SessionViewer 残り tab（D32–35）。各 mockup は実 DB に grounding（実値か illustrative かを top comment で明示）。実 component＋rubric 化（🧩/➕）は実装フェーズで lockstep に行う。
 
 ## 全体（cross-cutting）
 

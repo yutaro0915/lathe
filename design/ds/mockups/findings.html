@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lathe DS — Findings（承認済み mockup, D19–D21）</title>
+<link rel="stylesheet" href="./_tokens.css" />
+</head>
+<body>
+<!-- Findings（top-level section）. 決定: D19 detail 核 = Analysis(impact / agent_intent / cause_hypothesis、実 findings.analysis jsonb)
+     ＋将来「agent reasoning trace」を点線で予約 / D20 採否ライフサイクル = verdict(accept/reject＋一言) → backlog_status(open/addressed/dismissed)、初の user-action 画面・1-click＋一言 / D21 evidence = source への jump(論理座標、finding_evidence subject_kind)。
+     色配給(D10/D31): kind バッジ＝NEUTRAL（finding kind は色付けしない）/ clean red(#ff5c5c) は本物の error・problem シグナルだけ / accepted finding は dim / confidence は数値(mono)。
+
+     データ実在性（2026-06-21 dev DB 実照合、findings 5 件）:
+       REAL = 各 finding の title / confidence / body(現象) / analysis jsonb(impact・agent_intent・cause_hypothesis) は DB から verbatim。
+              採否(finding_verdicts)も実データ: 5 件すべて accept 済み(analyst=hybrid-v1)、reason も実在。evidence は subject_kind=turn。
+       ILLUSTRATIVE = evidence の論理座標表示(↗ session / ↗ Turn N / ↗ hunk / ↗ PR #N)の体裁・件数、backlog_status の値、左右ペインの選択状態。
+       NASCENT = kind は現状すべて failure_loop の 1 種のみ（kind の多様性は Phase 2 運用後に育つ。D31 同旨）。 -->
+<div style="width:100%;height:760px;display:flex;flex-direction:column;background:var(--color-background-primary);font-family:var(--font-sans);overflow:hidden;">
+
+  <div style="display:flex;align-items:center;gap:10px;padding:0 16px;height:42px;flex:0 0 auto;border-bottom:0.5px solid var(--color-border-tertiary);">
+    <span style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;"><i class="ti ti-topology-star-3" style="font-size:16px;color:var(--color-text-info);"></i> lathe</span>
+    <span style="color:var(--color-text-tertiary);font-size:13px;">/</span>
+    <button style="display:inline-flex;align-items:center;gap:5px;font-size:13px;border:0;background:transparent;color:var(--color-text-secondary);cursor:pointer;padding:2px 4px;">harness-observability <i class="ti ti-chevron-down" style="font-size:14px;"></i></button>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0;">
+
+    <div style="flex:0 0 60px;border-right:0.5px solid var(--color-border-tertiary);display:flex;flex-direction:column;align-items:center;padding-top:10px;gap:3px;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-list-details" style="font-size:20px;"></i><span style="font-size:9px;">Sessions</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-info);border-left:2px solid var(--color-text-info);"><i class="ti ti-bulb" style="font-size:20px;"></i><span style="font-size:9px;">Findings</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-git-pull-request" style="font-size:20px;"></i><span style="font-size:9px;">PR</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-chart-bar" style="font-size:20px;"></i><span style="font-size:9px;">Overview</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;width:100%;color:var(--color-text-tertiary);"><i class="ti ti-messages" style="font-size:20px;"></i><span style="font-size:9px;">Chat</span></div>
+    </div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+
+      <div style="flex:0 0 auto;padding:11px 16px;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;gap:18px;">
+        <span style="font-size:15px;font-weight:500;">Findings</span>
+        <span style="display:flex;gap:16px;font-family:var(--font-mono);font-size:12px;color:var(--color-text-secondary);">
+          <span><span style="color:var(--color-text-tertiary);">total</span> 5</span>
+          <span><span style="color:var(--color-text-tertiary);">pending</span> 0</span>
+          <span><span style="color:var(--color-text-tertiary);">accepted</span> 5</span>
+        </span>
+        <span style="flex:1;"></span>
+        <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--color-text-tertiary);"><i class="ti ti-info-circle" style="font-size:13px;"></i> 現状 kind は failure_loop のみ</span>
+      </div>
+
+      <div style="flex:1;display:flex;min-height:0;">
+
+        <!-- master list (left) — peer = finding。selected 行はハイライト。kind バッジ neutral / confidence 数値 mono / accepted は dim -->
+        <div style="flex:0 0 360px;border-right:0.5px solid var(--color-border-tertiary);overflow-y:auto;display:flex;flex-direction:column;">
+
+          <!-- row 1 — SELECTED (conf 0.95) -->
+          <div style="display:flex;flex-direction:column;gap:6px;padding:11px 14px;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);border-left:2px solid var(--color-text-info);cursor:pointer;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--font-mono);color:var(--color-text-secondary);border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:1px 6px;flex:0 0 auto;">failure_loop</span>
+              <span style="flex:1;"></span>
+              <i class="ti ti-check" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;" title="accepted"></i>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-secondary);flex:0 0 auto;" title="confidence">0.95</span>
+            </div>
+            <span style="font-size:13px;color:var(--color-text-primary);line-height:1.4;">同一コマンドパターンの反復失敗ループ（gh issue view --comments）</span>
+          </div>
+
+          <!-- row 2 (conf 0.92) accepted → dim -->
+          <div style="display:flex;flex-direction:column;gap:6px;padding:11px 14px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;opacity:.6;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--font-mono);color:var(--color-text-tertiary);border:0.5px solid var(--color-border-tertiary);border-radius:4px;padding:1px 6px;flex:0 0 auto;">failure_loop</span>
+              <span style="flex:1;"></span>
+              <i class="ti ti-check" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;" title="accepted"></i>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);flex:0 0 auto;" title="confidence">0.92</span>
+            </div>
+            <span style="font-size:13px;color:var(--color-text-secondary);line-height:1.4;">同一コマンドパターンの反復失敗ループ（git diff --check 系）</span>
+          </div>
+
+          <!-- row 3 (conf 0.90) accepted → dim -->
+          <div style="display:flex;flex-direction:column;gap:6px;padding:11px 14px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;opacity:.6;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--font-mono);color:var(--color-text-tertiary);border:0.5px solid var(--color-border-tertiary);border-radius:4px;padding:1px 6px;flex:0 0 auto;">failure_loop</span>
+              <span style="flex:1;"></span>
+              <i class="ti ti-check" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;" title="accepted"></i>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);flex:0 0 auto;" title="confidence">0.90</span>
+            </div>
+            <span style="font-size:13px;color:var(--color-text-secondary);line-height:1.4;">同一コマンドパターンの反復失敗ループ（スクリプト行範囲抽出）</span>
+          </div>
+
+          <!-- row 4 (conf 0.90) accepted → dim -->
+          <div style="display:flex;flex-direction:column;gap:6px;padding:11px 14px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;opacity:.6;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--font-mono);color:var(--color-text-tertiary);border:0.5px solid var(--color-border-tertiary);border-radius:4px;padding:1px 6px;flex:0 0 auto;">failure_loop</span>
+              <span style="flex:1;"></span>
+              <i class="ti ti-check" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;" title="accepted"></i>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);flex:0 0 auto;" title="confidence">0.90</span>
+            </div>
+            <span style="font-size:13px;color:var(--color-text-secondary);line-height:1.4;">同一コマンドパターンの反復失敗ループ（ripgrep 横断検索）</span>
+          </div>
+
+          <!-- row 5 (conf 0.82) accepted → dim -->
+          <div style="display:flex;flex-direction:column;gap:6px;padding:11px 14px;border-bottom:0.5px solid var(--color-border-tertiary);cursor:pointer;opacity:.6;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--font-mono);color:var(--color-text-tertiary);border:0.5px solid var(--color-border-tertiary);border-radius:4px;padding:1px 6px;flex:0 0 auto;">failure_loop</span>
+              <span style="flex:1;"></span>
+              <i class="ti ti-check" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;" title="accepted"></i>
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-text-tertiary);flex:0 0 auto;" title="confidence">0.82</span>
+            </div>
+            <span style="font-size:13px;color:var(--color-text-secondary);line-height:1.4;">データ依存・環境依存の不安定なテスト結果</span>
+          </div>
+
+        </div>
+
+        <!-- detail pane (right) — selected finding (conf 0.95) -->
+        <div style="flex:1;min-width:0;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:20px;">
+
+          <!-- title + body(現象) -->
+          <div>
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px;">
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-family:var(--font-mono);color:var(--color-text-secondary);border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:1px 7px;flex:0 0 auto;">failure_loop</span>
+              <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);flex:0 0 auto;" title="analyst が出した confidence"><span style="color:var(--color-text-tertiary);">conf</span> 0.95</span>
+              <span style="flex:1;"></span>
+              <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);flex:0 0 auto;">analyst hybrid-v1</span>
+            </div>
+            <h2 style="font-size:16px;font-weight:600;line-height:1.4;margin:0 0 10px;color:var(--color-text-primary);">同一コマンドパターンの反復失敗ループ（gh issue view --comments）</h2>
+            <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:5px;">現象</div>
+            <p style="font-size:13px;line-height:1.65;color:var(--color-text-secondary);margin:0;">「Swiftで新規プロジェクトを作成」および「ML性能をレビュー」の複数セッションにわたり、<span style="font-family:var(--font-mono);font-size:12px;color:var(--color-text-primary);">gh issue view # --comments</span> コマンドが最大15回の反復非ゼロ終了を記録した。リポジトリ指定の有無を問わず同パターンの失敗ループが複数コンテキストで再現しており、セッション横断的な現象である。</p>
+          </div>
+
+          <!-- ANALYSIS — D19 visual core: impact / agent_intent / cause_hypothesis（実 analysis jsonb verbatim）
+               flex:0 0 auto = detail pane(flex-column overflow-auto)の content overflow 時に overflow:hidden で
+               min-height:0 になり flex-shrink で潰れるのを防ぐ（2026-06-21 監査で発見・修正）。 -->
+          <div style="border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);overflow:hidden;flex:0 0 auto;">
+            <div style="display:flex;align-items:center;gap:7px;padding:8px 13px;background:var(--color-background-secondary);border-bottom:0.5px solid var(--color-border-tertiary);">
+              <i class="ti ti-brain" style="font-size:15px;color:var(--color-text-secondary);"></i>
+              <span style="font-size:12px;font-weight:600;color:var(--color-text-primary);">Analysis</span>
+              <span style="font-size:11px;color:var(--color-text-tertiary);">analyst の構造化推論</span>
+            </div>
+            <div style="display:flex;flex-direction:column;">
+
+              <div style="padding:11px 13px;border-bottom:0.5px solid var(--color-border-tertiary);">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;"><i class="ti ti-alert-triangle" style="font-size:13px;color:var(--color-text-tertiary);"></i><span style="font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-tertiary);">impact</span></div>
+                <p style="font-size:12.5px;line-height:1.65;color:var(--color-text-secondary);margin:0;">重要度高 (conf 95%): エラー文が原因（Projects classic 廃止）を明示しているのに手法を変えず20回反復し、トークン・時間を空振りに費やした。最終的に seq 2421 で <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-primary);">--json number,title,body,comments</span> に切り替えて回避できており、「エラー本文を読んで手法を変える」という1ステップが欠けていた。放置すると gh を使う全 close 判断・issue 監査でこのループが再発する。</p>
+              </div>
+
+              <div style="padding:11px 13px;border-bottom:0.5px solid var(--color-border-tertiary);">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;"><i class="ti ti-target" style="font-size:13px;color:var(--color-text-tertiary);"></i><span style="font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-tertiary);">agent_intent</span></div>
+                <p style="font-size:12.5px;line-height:1.65;color:var(--color-text-secondary);margin:0;">issue 監査サブエージェントが、close 可否を判断するために各 issue の本文とコメントを読み取ろうとしていた（直前 turn: 「Python 側の単体テストは15件通過。次に差分を見て計測 CSV と perf report の変更が issue に反映されているか詰める」）。手段として <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-primary);">gh issue view N --comments</span> を選び、issue 2/3/6/7 に対し繰り返した。</p>
+              </div>
+
+              <div style="padding:11px 13px;">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;"><i class="ti ti-bulb" style="font-size:13px;color:var(--color-text-tertiary);"></i><span style="font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-tertiary);">cause_hypothesis</span></div>
+                <p style="font-size:12.5px;line-height:1.65;color:var(--color-text-secondary);margin:0;">仮説: gh CLI が issue 本文取得時に内部で Projects (classic) GraphQL フィールド (repository.issue.projectCards) を必ず叩き、これが sunset 済みのため <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-primary);">gh issue view N --comments</span> が exit 1 を返している。agent はエラー本文が「Projects 廃止」を指していることを手掛かりに使わず、コメント取得という目的を達するため番号だけ変えて同じ <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--color-text-primary);">--comments</span> 形を15〜20回反復した。</p>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- EVIDENCE — D21: source への jump（論理座標。finding_evidence subject_kind=turn は実在、座標表示は illustrative） -->
+          <div>
+            <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:8px;">Evidence · source へ jump · 4</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <a style="display:flex;align-items:center;gap:9px;padding:7px 11px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);text-decoration:none;cursor:pointer;">
+                <i class="ti ti-arrow-up-right" style="font-size:14px;color:var(--color-text-info);flex:0 0 auto;"></i>
+                <span style="font-size:10px;font-family:var(--font-mono);color:var(--color-text-tertiary);border:0.5px solid var(--color-border-tertiary);border-radius:4px;padding:0 5px;flex:0 0 auto;">turn</span>
+                <span style="font-size:12px;color:var(--color-text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Turn 7 · execute — first failed command in repeated pattern</span>
+                <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);flex:0 0 auto;">Swiftで新規プロジェクト</span>
+              </a>
+              <a style="display:flex;align-items:center;gap:9px;padding:7px 11px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);text-decoration:none;cursor:pointer;">
+                <i class="ti ti-arrow-up-right" style="font-size:14px;color:var(--color-text-info);flex:0 0 auto;"></i>
+                <span style="font-size:10px;font-family:var(--font-mono);color:var(--color-text-tertiary);border:0.5px solid var(--color-border-tertiary);border-radius:4px;padding:0 5px;flex:0 0 auto;">turn</span>
+                <span style="font-size:12px;color:var(--color-text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Turn 9 · execute — later failed command in repeated pattern</span>
+                <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);flex:0 0 auto;">Swiftで新規プロジェクト</span>
+              </a>
+              <a style="display:flex;align-items:center;gap:9px;padding:7px 11px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);text-decoration:none;cursor:pointer;">
+                <i class="ti ti-arrow-up-right" style="font-size:14px;color:var(--color-text-info);flex:0 0 auto;"></i>
+                <span style="font-size:10px;font-family:var(--font-mono);color:var(--color-text-tertiary);border:0.5px solid var(--color-border-tertiary);border-radius:4px;padding:0 5px;flex:0 0 auto;">turn</span>
+                <span style="font-size:12px;color:var(--color-text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Turn 3 · execute — later failed command in repeated pattern</span>
+                <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);flex:0 0 auto;">ML性能をレビュー</span>
+              </a>
+              <a style="display:flex;align-items:center;gap:9px;padding:7px 11px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);text-decoration:none;cursor:pointer;">
+                <i class="ti ti-arrow-up-right" style="font-size:14px;color:var(--color-text-info);flex:0 0 auto;"></i>
+                <span style="font-size:10px;font-family:var(--font-mono);color:var(--color-text-tertiary);border:0.5px solid var(--color-border-tertiary);border-radius:4px;padding:0 5px;flex:0 0 auto;">turn</span>
+                <span style="font-size:12px;color:var(--color-text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Turn 11 · execute — later failed command in repeated pattern</span>
+                <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);flex:0 0 auto;">ML性能をレビュー</span>
+              </a>
+            </div>
+            <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:6px;"><i class="ti ti-arrow-up-right" style="font-size:11px;"></i> 論理座標で参照（subject_kind=turn）。再 ingest 後も同座標で再解決、失敗時は「根拠は更新された」を明示。</div>
+          </div>
+
+          <!-- VERDICT controls — D20: accept/reject ＋ 一言 → backlog_status。初の user-action（1-click ＋ 一言）。
+               実データ: この finding は accept 済み（reason 実在）→ accept を選択状態、backlog_status は illustrative。 -->
+          <div style="border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);padding:13px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px;">
+              <span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--color-text-tertiary);">Verdict</span>
+              <span style="flex:1;"></span>
+              <span style="font-size:11px;font-family:var(--font-mono);color:var(--color-text-tertiary);">decided by user</span>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px;">
+              <!-- accept = 選択中（neutral 強調、accepted は色を撒かない） -->
+              <button style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;border:0.5px solid var(--color-text-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);border-radius:var(--border-radius-md);padding:5px 13px;cursor:pointer;"><i class="ti ti-check" style="font-size:14px;"></i> Accept</button>
+              <!-- reject = 未選択 -->
+              <button style="display:inline-flex;align-items:center;gap:5px;font-size:12px;border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-tertiary);border-radius:var(--border-radius-md);padding:5px 13px;cursor:pointer;"><i class="ti ti-x" style="font-size:14px;"></i> Reject</button>
+              <span style="flex:1;"></span>
+              <span style="font-size:11px;color:var(--color-text-tertiary);">採否は 1-click</span>
+            </div>
+
+            <!-- one-line reason input（実 reason を value に） -->
+            <div style="display:flex;align-items:center;gap:8px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:6px 10px;background:var(--color-background-primary);">
+              <i class="ti ti-message-2" style="font-size:13px;color:var(--color-text-tertiary);flex:0 0 auto;"></i>
+              <span style="flex:1;font-size:12px;color:var(--color-text-secondary);">gh --comments を外す/別取得に切替</span>
+              <span style="font-size:10px;color:var(--color-text-tertiary);flex:0 0 auto;">理由（一言）</span>
+            </div>
+
+            <!-- backlog_status chip — accept 後は行動まで追う（open / addressed / dismissed） -->
+            <div style="display:flex;align-items:center;gap:9px;margin-top:13px;padding-top:12px;border-top:0.5px solid var(--color-border-tertiary);">
+              <span style="font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--color-text-tertiary);">Backlog</span>
+              <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--color-text-secondary);border:0.5px solid var(--color-border-secondary);border-radius:999px;padding:2px 11px;cursor:pointer;"><span style="width:6px;height:6px;border-radius:50%;background:var(--color-text-secondary);"></span> open <i class="ti ti-chevron-down" style="font-size:13px;color:var(--color-text-tertiary);"></i></span>
+              <span style="font-size:11px;color:var(--color-text-tertiary);">→ addressed / dismissed で行動を追う（G2: accept ＋ ハーネス編集 or task 化）</span>
+            </div>
+          </div>
+
+          <!-- reserved: agent reasoning trace（D19 ⏳、点線枠。lathe agent 統合後に解禁） -->
+          <div style="border:1px dashed var(--color-border-secondary);border-radius:var(--border-radius-md);padding:13px;display:flex;align-items:center;gap:10px;">
+            <i class="ti ti-timeline-event-text" style="font-size:17px;color:var(--color-text-tertiary);flex:0 0 auto;"></i>
+            <div style="flex:1;">
+              <div style="font-size:12px;color:var(--color-text-secondary);">agent reasoning trace <span style="font-size:13px;">⏳</span></div>
+              <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px;">analysis に至った推論過程を表示（予約枠）。lathe agent 統合後に解禁。</div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
