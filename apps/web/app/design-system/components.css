@@ -365,8 +365,9 @@
   padding:0 2px;font-family:var(--mono);white-space:nowrap;}
 .sa-jump:hover{text-decoration:underline;}
 
-/* sub-agent: failed-steps signals (distinct from Result) */
-.failed-steps-chip{font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;color:var(--muted-2);}
+/* sub-agent: failed-steps signals (distinct from Result). D10: a failure signal
+   gets the privileged clean-red token, not a dim neutral. */
+.failed-steps-chip{font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;color:var(--red-text);}
 .stat-v .stat-note.failed-steps-note{margin-left:6px;font-family:var(--mono);font-size:10px;font-weight:500;
   font-variant-numeric:tabular-nums;color:var(--muted-2);}
 
@@ -606,11 +607,9 @@ button.finding-row:focus-visible{outline:2px solid var(--accent-ring);outline-of
 .finding-kind-chip{display:inline-flex;align-items:center;gap:6px;min-height:18px;border:1px solid var(--border);
   border-radius:4px;background:var(--panel);padding:1px 6px;color:var(--muted);font-size:9px;font-weight:700;
   text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;}
+/* D34/D10: the kind dot stays neutral for EVERY kind (color rationing — the
+   per-kind hue overrides are dropped; kind is read from the text label). */
 .finding-kind-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:0 0 auto;}
-.finding-kind-chip.failure_loop .finding-kind-dot{background:var(--k-error);}
-.finding-kind-chip.unattributed_diff .finding-kind-dot{background:var(--k-uncertain);}
-.finding-kind-chip.excess_cost .finding-kind-dot{background:var(--cat-message);}
-.finding-kind-chip.risky_action .finding-kind-dot{background:var(--cat-subagent);}
 .finding-title-body{min-width:0;display:flex;flex-direction:column;gap:2px;}
 .finding-title-text{font-size:12.5px;font-weight:650;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .finding-body-text{font-size:11px;color:var(--text-soft);line-height:1.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -1120,25 +1119,24 @@ button.event-type-badge{height:auto;min-height:24px;}
 .annotation .akind{width:7px;height:7px;border-radius:50%;flex:0 0 auto;margin-top:4px;}
 .annotation .akind.error{background:var(--k-error);} .annotation .akind.test{background:var(--k-git);} .annotation .akind.edit{background:var(--k-edit);}
 .annotation .akind.commit{background:var(--k-commit);} .annotation .akind.note{background:var(--muted-2);}
-/* labelled annotation item (session viewer): kind tag + step + note text */
-.annotation .amain{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1 1 auto;}
-.annotation .ameta{display:flex;align-items:center;gap:7px;}
-.annotation .akind-tag{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:1px 5px;border-radius:3px;white-space:nowrap;flex:0 0 auto;
-  border:1px solid var(--border);background:var(--panel);color:var(--muted);}
-.annotation .akind-tag.error{background:var(--red-bg);color:var(--red-text);border-color:var(--red-chip);}
-.annotation .akind-tag.commit{color:var(--green-text);border-color:var(--green-chip);}
-.annotation .akind-tag.test{color:var(--text-soft);}
-.annotation .akind-tag.edit{color:var(--text-soft);}
-.annotation .akind-tag.note{color:var(--gray-chip-tx);}
-.annotation .aseq{font-family:var(--mono);font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
-.annotation .atxt{font-size:11px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);}
+/* labelled annotation item (Annotations tab): single horizontal line —
+   [dot][kind][step][note][↗]. D34/D10: color is rationed to neutral; the kind is
+   plain text + a small leading dot, both neutral for every kind, with the
+   privileged clean red reserved for `error` only. */
+.annotation .adot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;background:var(--muted-2);}
+.annotation .adot.err{background:var(--red);}
+.annotation .akind-tag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  white-space:nowrap;flex:0 0 auto;color:var(--muted);}
+.annotation .aseq{font-family:var(--mono);font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;flex:0 0 auto;}
+.annotation .atxt{font-size:11px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);flex:1 1 auto;min-width:0;}
+.annotation .ajump{font-size:11px;color:var(--muted-2);flex:0 0 auto;margin-left:auto;}
 /* Annotations tab (session-wide, moved out of the right aside) */
 .annotations-tab{padding:12px 14px;}
 .annotations-tab-head{display:flex;align-items:center;gap:8px;}
 .annotations-tab-head .ann-tab-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
 .annotations-tab-head .count{color:var(--muted-2);font-weight:500;font-size:11px;font-variant-numeric:tabular-nums;}
 .annotations-tab-sub{font-size:11px;color:var(--muted);line-height:1.5;margin:4px 0 8px;}
-.annotation.annotation-tab-row{padding:7px 4px;border-top:1px solid var(--border-faint);}
+.annotation.annotation-tab-row{align-items:center;gap:8px;padding:7px 4px;border-top:1px solid var(--border-faint);}
 .annotation.annotation-tab-row:hover{background:var(--panel-hover);}
 
 /* ============================================================================

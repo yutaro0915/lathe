@@ -53,13 +53,15 @@ export function AnnotationsTab({
               title={target ? `${a.kind} at step ${a.atSeq} — click to jump to the Transcript` : `${a.kind} at step ${a.atSeq}`}
               style={{ cursor: target ? "pointer" : "default" }}
             >
-              <span className="amain" data-testid="amain">
-                <span className="ameta" data-testid="ameta">
-                  <span className={`akind-tag ${a.kind as AnnotationKind}`} data-testid="akind-tag">{a.kind}</span>
-                  <span className="aseq" data-testid="aseq">step {a.atSeq}</span>
-                </span>
-                {a.note && <span className="atxt" data-testid="atxt">{a.note}</span>}
-              </span>
+              {/* D34/D10: single horizontal line, color rationed to neutral —
+                  [dot][kind][step][note][↗]. The leading dot and kind text are
+                  neutral for every kind; only `error` gets the privileged clean
+                  red. The trailing ↗ signals the jump to the source step. */}
+              <span className={`adot ${a.kind === "error" ? "err" : ""}`} data-testid="adot" aria-hidden />
+              <span className="akind-tag" data-testid="akind-tag">{a.kind}</span>
+              <span className="aseq" data-testid="aseq">step {a.atSeq}</span>
+              {a.note && <span className="atxt" data-testid="atxt">{a.note}</span>}
+              {target && <span className="ajump" data-testid="ajump" aria-hidden>↗</span>}
             </div>
           );
         })
