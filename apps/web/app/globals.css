@@ -19,7 +19,6 @@ html,body{margin:0;min-height:100vh;height:100%;background:var(--bg);color:var(-
 body{overflow:hidden;}
 a{color:var(--accent);text-decoration:none;} a:hover{text-decoration:underline;}
 
-.runner-pill{display:inline-flex;align-items:center;gap:6px;font-weight:600;}
 .runner-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}
 .runner-dot.claude-code{background:var(--r-claude);} .runner-dot.codex{background:var(--r-codex);} .runner-dot.cursor{background:var(--r-cursor);}
 
