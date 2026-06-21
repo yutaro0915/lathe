@@ -15,6 +15,8 @@
   - §3 全面 chat A（Rail destination・thread 一覧＋会話、D22/D24）
 - [`pr.html`](./pr.html) — PR detail の確定形（D28–D29）。過程（session⇄PR attribution、sha/branch strength 区別）＋ Changed files（inline 展開で簡易コード確認）＋ Reviews(compact)。深い diff/review は GitHub。eval/rubric 評価は feature 未存在のため未掲載（D30 ⏳）。
 - [`overview.html`](./overview.html) — Overview の確定形（D31）。attention funnel「次にどこを掘るか」（cost outliers G9 / most errors / pending findings の 3 ランク列）＋ Trends（cost by runner / over time / findings by kind）。色は clean red を問題シグナルにのみ配給。**データ実在性（2026-06-21 dev DB 照合）**: cost/error/runner/time は即表示可、findings 系は nascent（枠のみ）。stat・個別行は illustrative、実運用整備は deploy 時。
+- [`stats.html`](./stats.html) — SessionViewer の Stats tab（D32）。session 単位の定量プロファイル（per-turn cost / event composition / file churn / subagent runs）= Overview の chart 語彙の session scale 版。
+- [`minor-tabs.html`](./minor-tabs.html) — SessionViewer の Skills / Annotations / Raw（D33–D35）。Skills=Tools 同型 comparison-list / Annotations=時系列の導出フラグ＋step jump（kind neutral・error のみ red）/ Raw=ground-truth JSON（3-hue palette・copy）。current-best、実装で調整。
 - [`_tokens.css`](./_tokens.css) — mockup プレビュー用トークン（承認時の dark 近似）。
 
 ## 開き方

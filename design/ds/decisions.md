@@ -5,7 +5,7 @@
 > **規約（what）/ 意味（why）/ 実現（どう機械・component で担保するか）**。
 > これは破棄した as-is base（現画面の写生・px ハードコード）とは別物。`design.md`＝target 原則、本ファイル＝決定した規約＋実現。
 > 実現の凡例: 🧩=component で体現 / ✅=既存 rubric で機械強制 / ➕=rubric 候補(未実装) / 📐=doc・taste(機械化しない) / 🔤=語彙 / ⏳=target(未導入)
-> **再現性**: 承認済みの画面/部品は「再現可能な現物」として [`mockups/`](./mockups/) に standalone HTML で版管理する（prose だけでは見た目を再現できないため）。現状 = Chat（[`mockups/chat.html`](./mockups/chat.html)、D22–D26）/ PR（[`mockups/pr.html`](./mockups/pr.html)、D28–D29）/ Overview（[`mockups/overview.html`](./mockups/overview.html)、D31）。実 component＋rubric 化（🧩/➕）は実装フェーズで lockstep に行う。
+> **再現性**: 承認済みの画面/部品は「再現可能な現物」として [`mockups/`](./mockups/) に standalone HTML で版管理する（prose だけでは見た目を再現できないため）。現状 = Chat（[`mockups/chat.html`](./mockups/chat.html)、D22–D26）/ PR（[`mockups/pr.html`](./mockups/pr.html)、D28–D29）/ Overview（[`mockups/overview.html`](./mockups/overview.html)、D31）/ SessionViewer 残り tab（[`mockups/stats.html`](./mockups/stats.html)・[`mockups/minor-tabs.html`](./mockups/minor-tabs.html)、D32–D35）。実 component＋rubric 化（🧩/➕）は実装フェーズで lockstep に行う。
 
 ## 全体（cross-cutting）
 
@@ -48,6 +48,26 @@
 ### D9. rubric / eval / 完了の定義（eval/rubric は first view にしない。review・DoD は無い）
 - 意味: **rubric**=検証可能な価値判断の単位 / **eval**=rubric に実行環境＋context を与えた use-case / **完了**=その eval が通ること（run が満たしたい条件）。ただし eval を狙わない run もあるので **headline(first view) にしない**。review 状態・DoD は現状の概念に**無い**ので設計しない。
 - 実現: ✅ rubric=`rubrics/`（既存）。⏳ eval=未導入（target、枠だけ空ける）。
+
+## SessionViewer の残り tab（Stats / Skills / Annotations / Raw）
+
+> いずれも既存部品の再利用（DS が generative になった証拠）。current-best、実装で調整。
+
+### D32. Stats tab = session 単位の定量プロファイル（Overview の chart/stat 語彙を再利用）
+- 意味: 1 run の「測れる形」（cost / token / turn / event composition / file churn / subagent）。Overview の cross-session 集計の session scale 版。
+- 実現: 🧩 stat strip ＋ chart grid（per-turn cost/token・event composition・file churn・subagent runs・memory・hooks）= Overview の chart 部品再利用。色配給 D10（error=clean red、+/− は diff 内のみ D13）。データ実在（SessionStatsView、sessions / transcript_events / changed_files）。
+
+### D33. Skills tab = Tools 同型（capability を N 回 = comparison-list 再利用）
+- 意味: skill は「使った能力」。Tools（invocation を N 回）と意味構造が同じ → 同一 component。
+- 実現: 🧩 comparison-list（D11）、行 click で invocations 展開（D12）。as-is の timeline から target（comparison-list）へ寄せる。データ実在（transcript_events type='skill'）。
+
+### D34. Annotations tab = 時系列の導出フラグ＋ source jump（kind は neutral、error のみ red）
+- 意味: provider が transcript から自動生成する「注目すべき瞬間」（error / edit / test / commit）。導出データ（再 ingest で再生成、永続層でない）。各々その step へ jump（D14/D21 attribution）。
+- 実現: 🧩 時系列リスト（atSeq 昇順）＋ jump-to-step。kind は neutral ラベル＋小 dot、**error のみ clean red**（D10。as-is の 5 色タグは色配給違反なので是正）。データ実在（annotations 表 4,890 行 / kind 4 種）。
+
+### D35. Raw tab = ground-truth の JSON viewer（escape hatch）
+- 意味: 加工前の event そのもの。UI を信じきれない時に源へ降りる trust-but-verify の出口。
+- 実現: 🧩 JSON viewer（mono ＋ documented JSON 3-hue palette: key/str/num、D10 の明示例外）＋ copy。選択 step の 1 event / 未選択なら events 配列。データ実在（transcript_events.*）。
 
 ## 合成・再利用（composition）
 
