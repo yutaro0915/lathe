@@ -5,6 +5,7 @@
 > **規約（what）/ 意味（why）/ 実現（どう機械・component で担保するか）**。
 > これは破棄した as-is base（現画面の写生・px ハードコード）とは別物。`design.md`＝target 原則、本ファイル＝決定した規約＋実現。
 > 実現の凡例: 🧩=component で体現 / ✅=既存 rubric で機械強制 / ➕=rubric 候補(未実装) / 📐=doc・taste(機械化しない) / 🔤=語彙 / ⏳=target(未導入)
+> **再現性**: 承認済みの画面/部品は「再現可能な現物」として [`mockups/`](./mockups/) に standalone HTML で版管理する（prose だけでは見た目を再現できないため）。現状 = Chat（[`mockups/chat.html`](./mockups/chat.html)、D22–D26）。実 component＋rubric 化（🧩/➕）は実装フェーズで lockstep に行う。
 
 ## 全体（cross-cutting）
 

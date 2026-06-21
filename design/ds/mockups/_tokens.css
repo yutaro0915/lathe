@@ -1,0 +1,42 @@
+/* ============================================================================
+   Lathe DS — mockup プレビュー用トークン（承認済み worked example の再現用）。
+
+   これは design/ds/decisions.md の決定を「再現可能な現物」として残すための
+   standalone プレビュー用トークン。承認は dark プレビューで行われたため、その
+   見た目を忠実に再現する dark パレットを置く。
+
+   ⚠ 実 app の正本トークンは apps/web/app/design-system/tokens.css
+   （light-canonical, observability-dense）。chat UI の正式なテーマ対応（light/
+   dark）と実 component + rubric 化は実装フェーズで行う。ここでは承認された
+   「構造・レイアウト・部品の合成」を忠実に保つことが目的（色は近似）。
+   ========================================================================== */
+@import url('https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.30.0/dist/tabler-icons.min.css');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic",
+               "Noto Sans CJK JP", "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-background-primary:   #1b1c1e;
+  --color-background-secondary: #2a2c2f;
+  --color-background-info:      #2c3f59;
+  --color-background-success:   #1f3d2e;
+  --color-background-danger:    #c2454a;
+
+  --color-text-primary:   #e8e9ec;
+  --color-text-secondary: #b3b8bf;
+  --color-text-tertiary:  #7d828b;
+  --color-text-info:      #6ea8fe;
+
+  --color-border-secondary: #3c3f44;
+  --color-border-tertiary:  #2e3033;
+  --color-border-info:      #3d5a8a;
+
+  --border-radius-sm: 5px;
+  --border-radius-md: 6px;
+  --border-radius-lg: 10px;
+}
+
+html, body { margin: 0; }
+body { background: var(--color-background-primary); color: var(--color-text-primary); font-family: var(--font-sans); }
