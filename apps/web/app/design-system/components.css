@@ -382,19 +382,14 @@
 .metric-sep{width:1px;height:24px;background:var(--border);flex:0 0 auto;}
 
 /* ---- refined session header (denser, named, mono numerics) ----
-   Height is the shared header band (--appbar-h) so the session bar's bottom hairline
-   lines up with the rail brand's into one unbroken line (vertical padding drops
-   to 0; align-items centres the content in the fixed band). */
-.lds-session-bar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--border);height:var(--appbar-h);}
-.lds-session-bar-id{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto;}
-.lds-session-bar-id .runner-dot{flex:0 0 auto;}
-.lds-session-bar-title{font-size:13.5px;font-weight:650;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46ch;flex:0 1 auto;}
-.lds-session-bar-meta{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto;font-family:var(--mono);font-variant-numeric:tabular-nums;}
-.lds-session-bar-stats{display:flex;align-items:center;gap:20px;flex:0 0 auto;}
+   The old self-drawn .lds-session-bar* band (the per-surface header the
+   SessionViewer/Overview/Findings used to draw before Layout v2) is gone — its
+   chrome moved into the single shell-owned WorkareaHeader (components/Surface.tsx,
+   live classes .lds-sv-* / .lds-wh-*). Only .kstat survives here: it styles the
+   metric tiles that now ride in the Surface `actions` slot. */
 .kstat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;}
 .kstat b{font-size:13.5px;font-weight:650;color:var(--text);font-family:var(--mono);font-variant-numeric:tabular-nums;}
 .kstat span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
-.lds-session-bar-jumps{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
 
 /* active date-range deep-link banner in the session-list sidebar */
 .date-range-banner{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--text-soft);background:var(--bg-sunken);border:1px solid var(--border-faint);border-radius:var(--radius-sm);padding:2px 7px;}
@@ -1044,23 +1039,13 @@ button.event-type-badge{height:auto;min-height:24px;}
 .md .md-link{color:var(--accent);text-decoration:underline;word-break:break-word;}
 
 /* ============================================================================
-   Session tab strip — the session-viewer + standalone-diff chrome tabs.
-   Bespoke: the TabBar primitive (lds-tabs) has no trailing-tool slot, and this
-   strip is sticky-by-band with a spacer + trailing tool. Migrated out of
-   globals.css verbatim (DS v1 shrinks globals, grows here).
+   The old standalone .lds-session-tabs* strip (the session-viewer + standalone-
+   diff chrome tabs that sat at a different indent from the metrics band — the
+   origin of the header step) is gone. The tabs now render into the Surface tabs
+   slot under the single WorkareaHeader (live classes .lds-sv-tabs / .lds-sv-tab,
+   see components/session-viewer/SessionTabs.tsx). The .sort-select below is the
+   shared trailing tool and stays.
    ========================================================================== */
-/* tab strip — stays put while panes below scroll (sticky by band layout) */
-.lds-session-tabs{position:sticky;top:0;z-index:20;flex:0 0 var(--tabs-h);height:var(--tabs-h);display:flex;align-items:stretch;gap:0;
-  padding:0 20px;background:var(--panel);border-bottom:1px solid var(--border);}
-.lds-session-tab{display:inline-flex;align-items:center;height:100%;padding:0 11px;margin-bottom:-1px;border:0;background:transparent;
-  border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--sans);}
-.lds-session-tab:hover{color:var(--text-soft);}
-.lds-session-tab.active{color:var(--text);font-weight:650;border-bottom-color:var(--accent);}
-.lds-session-tabs-spacer{flex:1 1 auto;} .lds-session-tabs-tool{display:inline-flex;align-items:center;padding-right:4px;}
-/* tab count badge (Annotations / Findings) */
-.lds-session-tab .lds-session-tab-count{margin-left:6px;font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;
-  color:var(--muted-2);background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;padding:0 5px;line-height:15px;}
-.lds-session-tab.active .lds-session-tab-count{color:var(--text-soft);}
 /* trailing sort/count tool in the strip */
 .sort-select{height:24px;padding:0 7px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);
   background:var(--panel);color:var(--text-soft);font-size:11px;display:inline-flex;align-items:center;gap:5px;
