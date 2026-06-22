@@ -32,6 +32,13 @@ export type EventFileRole = 'read' | 'edit' | 'write';
 export type AnnotationKind = 'error' | 'test' | 'edit' | 'commit' | 'note';
 export type FindingKind = 'failure_loop' | 'unattributed_diff' | 'excess_cost' | 'risky_action';
 export type FindingVerdictValue = 'accept' | 'reject';
+export type FindingBacklogStatus = 'open' | 'addressed' | 'dismissed';
+
+export interface FindingAnalysis {
+  impact?: string;
+  agentIntent?: string;
+  causeHypothesis?: string;
+}
 
 export interface Session {
   id: string;
@@ -273,12 +280,15 @@ export interface Finding {
   kind: FindingKind;
   title: string;
   body: string;
+  analysis: FindingAnalysis | null;
   confidence: number;
   harnessVersionId: string | null;
   harnessProvider: string | null;
   harnessContentHash: string | null;
   harnessGitCommit: string | null;
   projectId: string;
+  backlogStatus: FindingBacklogStatus | null;
+  backlogActor: string | null;
   evidence: FindingEvidence[];
   verdict: FindingVerdict | null;
 }

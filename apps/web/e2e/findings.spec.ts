@@ -1,4 +1,4 @@
-import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
+import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, backlogStatusForFinding, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
 
 registerFixtureHooks();
 
@@ -33,7 +33,7 @@ test.describe("Findings tab and verdict oracle", () => {
   test("clicking a list row opens its detail panel with verdict controls", async ({
     page,
   }) => {
-    const title = FINDING_FIXTURE.titles.verdict;
+    const title = FINDING_FIXTURE.titles.jump;
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
 
     const row = page.locator(`[data-testid="finding-row"]`, { hasText: title });
@@ -44,6 +44,37 @@ test.describe("Findings tab and verdict oracle", () => {
     await expect(detail).toContainText(title);
     await expect(detail.locator(`[data-testid="finding-verdict-btn"][data-verdict="accept"]`)).toBeVisible();
     await expect(detail.locator(`[data-testid="finding-verdict-btn"][data-verdict="reject"]`)).toBeVisible();
+
+    const analysis = detail.locator(`[data-testid="finding-analysis"]`);
+    await expect(analysis).toHaveAttribute("data-analysis-fields", "3");
+    await expect(analysis.locator(`[data-testid="finding-analysis-field"]`)).toHaveCount(3);
+    await expect(analysis.locator(`[data-analysis-field="impact"]`)).toContainText(
+      FINDING_FIXTURE.analysis.full.impact
+    );
+    await expect(analysis.locator(`[data-analysis-field="agent_intent"]`)).toContainText(
+      FINDING_FIXTURE.analysis.full.agent_intent
+    );
+    await expect(analysis.locator(`[data-analysis-field="cause_hypothesis"]`)).toContainText(
+      FINDING_FIXTURE.analysis.full.cause_hypothesis
+    );
+  });
+
+  test("detail Analysis omits missing jsonb fields without fabricating them", async ({
+    page,
+  }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    await page.locator(`[data-testid="finding-row"]`, { hasText: FINDING_FIXTURE.titles.verdict }).click();
+    const analysis = page
+      .locator(`[data-testid="finding-detail"][data-detail-finding-id]`)
+      .locator(`[data-testid="finding-analysis"]`);
+    await expect(analysis).toHaveAttribute("data-analysis-fields", "2");
+    await expect(analysis.locator(`[data-analysis-field="impact"]`)).toContainText(
+      FINDING_FIXTURE.analysis.partial.impact
+    );
+    await expect(analysis.locator(`[data-analysis-field="agent_intent"]`)).toContainText(
+      FINDING_FIXTURE.analysis.partial.agent_intent
+    );
+    await expect(analysis.locator(`[data-analysis-field="cause_hypothesis"]`)).toHaveCount(0);
   });
 
   test("Accept with a short reason inserts a verdict and Undo removes it", async ({
@@ -59,9 +90,11 @@ test.describe("Findings tab and verdict oracle", () => {
 
     await expect(page.locator(`[data-testid="finding-verdict-toast"][data-verdict="accept"]`)).toContainText("Accepted");
     await expect.poll(async () => verdictCountForFinding(title)).toBe(1);
+    await expect.poll(async () => backlogStatusForFinding(title)).toBe("open");
 
     await page.locator(`[data-testid="finding-verdict-toast"] [data-testid="btn"]`, { hasText: "Undo" }).click();
     await expect.poll(async () => verdictCountForFinding(title)).toBe(0);
+    await expect.poll(async () => backlogStatusForFinding(title)).toBeNull();
     await expect(page.locator(`[data-testid="finding-row"]`, { hasText: title })).toHaveAttribute("data-verdict", "pending");
   });
 
@@ -102,6 +135,26 @@ test.describe("Findings tab and verdict oracle", () => {
       () => (window as typeof window & { __findingClicks?: number }).__findingClicks ?? 0
     );
     expect(clicks).toBe(0);
+  });
+
+  test("accepted findings expose and update backlog status", async ({ page }) => {
+    const title = FINDING_FIXTURE.titles.decided;
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    await page.locator(`[data-testid="findings-filter"] button`, { hasText: "Decided" }).click();
+    await page.locator(`[data-testid="finding-row"]`, { hasText: title }).click();
+
+    const detail = page.locator(`[data-testid="finding-detail"][data-detail-finding-id]`);
+    const control = detail.locator(`[data-testid="finding-backlog-control"]`);
+    await expect(control).toHaveAttribute("data-backlog-status", "open");
+    const select = detail.locator(`[data-testid="finding-backlog-select"]`);
+    await expect(select).toHaveValue("open");
+
+    await select.selectOption("addressed");
+    await expect.poll(async () => backlogStatusForFinding(title)).toBe("addressed");
+    await expect(control).toHaveAttribute("data-backlog-status", "addressed");
+
+    await select.selectOption("open");
+    await expect.poll(async () => backlogStatusForFinding(title)).toBe("open");
   });
 
   test("detail evidence excerpt shows the evidence command from the seq", async ({ page }) => {

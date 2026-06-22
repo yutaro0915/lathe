@@ -31,6 +31,8 @@ import type {
   PullRequestState,
   PullRequestSummary,
   Finding,
+  FindingAnalysis,
+  FindingBacklogStatus,
   FindingEvidence,
   FindingEvidenceExcerpt,
   FindingEvidenceNarrative,
@@ -147,9 +149,12 @@ interface FindingRow {
   kind: string;
   title: string;
   body: string;
+  analysis: string | Record<string, unknown> | null;
   confidence: number;
   harness_version_id: string | null;
   project_id: string;
+  backlog_status: string | null;
+  backlog_actor: string | null;
   harness_provider: string | null;
   harness_content_hash: string | null;
   harness_git_commit: string | null;
@@ -380,6 +385,35 @@ function toFindingVerdict(row: FindingVerdictRow): FindingVerdict {
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
   };
+}
+
+function parseJsonRecord(value: string | Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!value) return null;
+  if (typeof value !== 'string') return value;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function analysisString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function toFindingAnalysis(value: FindingRow['analysis']): FindingAnalysis | null {
+  const record = parseJsonRecord(value);
+  if (!record) return null;
+  const analysis: FindingAnalysis = {
+    impact: analysisString(record, 'impact'),
+    agentIntent: analysisString(record, 'agent_intent'),
+    causeHypothesis: analysisString(record, 'cause_hypothesis'),
+  };
+  return analysis.impact || analysis.agentIntent || analysis.causeHypothesis ? analysis : null;
 }
 
 // Read a numeric locator key (analyst-engine writes turn/event evidence as
@@ -748,12 +782,15 @@ function toFinding(row: FindingRow, evidence: FindingEvidence[]): Finding {
     kind: row.kind as FindingKind,
     title: row.title,
     body: row.body,
+    analysis: toFindingAnalysis(row.analysis),
     confidence: row.confidence,
     harnessVersionId: row.harness_version_id,
     harnessProvider: row.harness_provider,
     harnessContentHash: row.harness_content_hash,
     harnessGitCommit: row.harness_git_commit,
     projectId: row.project_id,
+    backlogStatus: row.backlog_status as FindingBacklogStatus | null,
+    backlogActor: row.backlog_actor,
     evidence,
     verdict,
   };
@@ -1123,8 +1160,8 @@ export async function listFindings(): Promise<Finding[]> {
          FROM finding_verdicts
         ORDER BY finding_id, decided_at DESC, id DESC
      )
-     SELECT f.id, f.created_at, f.analyst, f.kind, f.title, f.body, f.confidence,
-            f.harness_version_id, f.project_id,
+     SELECT f.id, f.created_at, f.analyst, f.kind, f.title, f.body, f.analysis, f.confidence,
+            f.harness_version_id, f.project_id, f.backlog_status, f.backlog_actor,
             hv.provider AS harness_provider,
             hv.content_hash AS harness_content_hash,
             hv.git_commit AS harness_git_commit,
@@ -1192,6 +1229,26 @@ export async function deleteFindingVerdict(findingId: number, verdictId: number)
     [findingId, verdictId],
   );
   return Boolean(row);
+}
+
+export async function updateFindingBacklogStatus(
+  findingId: number,
+  backlogStatus: FindingBacklogStatus | null,
+): Promise<{ backlogStatus: FindingBacklogStatus | null; backlogActor: string | null } | undefined> {
+  const row = await queryOne<{ backlog_status: string | null; backlog_actor: string | null }>(
+    `UPDATE findings
+        SET backlog_status = $2,
+            backlog_actor = CASE WHEN $2::text IS NULL THEN NULL ELSE 'user' END
+      WHERE id = $1
+      RETURNING backlog_status, backlog_actor`,
+    [findingId, backlogStatus],
+  );
+  return row
+    ? {
+        backlogStatus: row.backlog_status as FindingBacklogStatus | null,
+        backlogActor: row.backlog_actor,
+      }
+    : undefined;
 }
 
 export async function updateFindingAnalysisIfMissing(

@@ -17,6 +17,7 @@ import {
 } from "@/components/findings-explorer/model";
 import type {
   Finding,
+  FindingBacklogStatus,
   FindingEvidence,
   FindingVerdict,
   FindingVerdictValue,
@@ -29,6 +30,22 @@ export {
   findingTouchesSession,
   type ResolvedEvidence,
 } from "@/components/findings-explorer/model";
+
+const ANALYSIS_FIELDS: {
+  key: keyof NonNullable<Finding["analysis"]>;
+  label: string;
+  testId: string;
+}[] = [
+  { key: "impact", label: "impact", testId: "impact" },
+  { key: "agentIntent", label: "agent_intent", testId: "agent_intent" },
+  { key: "causeHypothesis", label: "cause_hypothesis", testId: "cause_hypothesis" },
+];
+
+const BACKLOG_LABEL: Record<FindingBacklogStatus, string> = {
+  open: "open",
+  addressed: "addressed",
+  dismissed: "dismissed",
+};
 
 export default function FindingsExplorer({
   findings,
@@ -213,14 +230,33 @@ export default function FindingsExplorer({
       const response = await fetch(`/api/findings/${finding.id}/verdict`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ verdict, reason: reasonDrafts[finding.id] ?? "" }),
+        body: JSON.stringify({
+          verdict,
+          reason: reasonDrafts[finding.id] ?? "",
+          backlogStatus: verdict === "accept" ? "open" : null,
+        }),
       });
-      const payload = (await response.json()) as { ok?: boolean; verdict?: FindingVerdict; error?: string };
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        verdict?: FindingVerdict;
+        backlogStatus?: FindingBacklogStatus | null;
+        backlogActor?: string | null;
+        error?: string;
+      };
       if (!response.ok || !payload.ok || !payload.verdict) {
         throw new Error(payload.error ?? "verdict failed");
       }
       setFindings((prev) =>
-        prev.map((item) => (item.id === finding.id ? { ...item, verdict: payload.verdict! } : item)),
+        prev.map((item) =>
+          item.id === finding.id
+            ? {
+                ...item,
+                verdict: payload.verdict!,
+                backlogStatus: payload.backlogStatus ?? null,
+                backlogActor: payload.backlogActor ?? null,
+              }
+            : item,
+        ),
       );
       setReasonDrafts((prev) => ({ ...prev, [finding.id]: "" }));
       setRecentVerdict({
@@ -248,11 +284,50 @@ export default function FindingsExplorer({
       const payload = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || !payload.ok) throw new Error(payload.error ?? "undo failed");
       setFindings((prev) =>
-        prev.map((item) => (item.id === recent.findingId ? { ...item, verdict: null } : item)),
+        prev.map((item) =>
+          item.id === recent.findingId
+            ? { ...item, verdict: null, backlogStatus: null, backlogActor: null }
+            : item,
+        ),
       );
       setRecentVerdict(null);
     } catch (err) {
       setError((err as Error).message);
+    }
+  }
+
+  async function updateBacklogStatus(finding: Finding, backlogStatus: FindingBacklogStatus) {
+    if (busy[finding.id]) return;
+    setError(null);
+    setBusy((prev) => ({ ...prev, [finding.id]: true }));
+    try {
+      const response = await fetch(`/api/findings/${finding.id}/verdict`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ backlogStatus }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        backlogStatus?: FindingBacklogStatus | null;
+        backlogActor?: string | null;
+        error?: string;
+      };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? "backlog update failed");
+      setFindings((prev) =>
+        prev.map((item) =>
+          item.id === finding.id
+            ? {
+                ...item,
+                backlogStatus: payload.backlogStatus ?? null,
+                backlogActor: payload.backlogActor ?? null,
+              }
+            : item,
+        ),
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy((prev) => ({ ...prev, [finding.id]: false }));
     }
   }
 
@@ -345,7 +420,7 @@ export default function FindingsExplorer({
                   onClick={() => selectFinding(finding.id)}
                 >
                   <div className="finding-mainline" data-testid="finding-mainline">
-                    <span className={`finding-kind-chip ${finding.kind}`} data-testid="finding-kind-chip">
+                    <span className="finding-kind-chip" data-testid="finding-kind-chip">
                       <span className="finding-kind-dot" data-testid="finding-kind-dot" aria-hidden />
                       {FINDING_KIND_LABEL[finding.kind]}
                     </span>
@@ -376,6 +451,10 @@ export default function FindingsExplorer({
                     finding.harnessContentHash ?? finding.harnessVersionId,
                   )}`
                 : "—";
+              const analysisItems = ANALYSIS_FIELDS.flatMap((field) => {
+                const value = finding.analysis?.[field.key];
+                return value ? [{ ...field, value }] : [];
+              });
               return (
                 <div
                   className={`finding-detail ${verdict}`} data-testid="finding-detail"
@@ -383,7 +462,7 @@ export default function FindingsExplorer({
                   data-verdict={verdict}
                 >
                   <div className="finding-detail-head" data-testid="finding-detail-head">
-                    <span className={`finding-kind-chip ${finding.kind}`} data-testid="finding-kind-chip">
+                    <span className="finding-kind-chip" data-testid="finding-kind-chip">
                       <span className="finding-kind-dot" data-testid="finding-kind-dot" aria-hidden />
                       {FINDING_KIND_LABEL[finding.kind]}
                     </span>
@@ -398,6 +477,36 @@ export default function FindingsExplorer({
                     <span className="mono" data-testid="mono">harness {harnessLabel}</span>
                   </div>
                   {finding.body && <p className="finding-detail-body" data-testid="finding-detail-body">{finding.body}</p>}
+
+                  <div className="finding-analysis" data-testid="finding-analysis" data-analysis-fields={analysisItems.length}>
+                    <div className="finding-analysis-head" data-testid="finding-analysis-head">
+                      <span className="finding-section-label" data-testid="finding-section-label">Analysis</span>
+                      <span className="finding-analysis-caption" data-testid="finding-analysis-caption">
+                        structured analyst output
+                      </span>
+                    </div>
+                    {analysisItems.length > 0 ? (
+                      <div className="finding-analysis-items" data-testid="finding-analysis-items">
+                        {analysisItems.map((item) => (
+                          <div
+                            key={item.testId}
+                            className="finding-analysis-item"
+                            data-testid="finding-analysis-field"
+                            data-analysis-field={item.testId}
+                          >
+                            <div className="finding-analysis-label" data-testid="finding-analysis-label">
+                              {item.label}
+                            </div>
+                            <p className="finding-analysis-text" data-testid="finding-analysis-text">{item.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="finding-analysis-empty" data-testid="finding-analysis-empty">
+                        No structured analysis captured.
+                      </div>
+                    )}
+                  </div>
 
                   <div className="finding-detail-section" data-testid="finding-detail-section">
                     <div className="finding-section-label" data-testid="finding-section-label">Evidence · {finding.evidence.length}</div>
@@ -790,9 +899,43 @@ export default function FindingsExplorer({
                           {finding.verdict.decidedBy} · {finding.verdict.reason || "no reason"}
                         </span>
                         {finding.verdict.verdict === "accept" && (
-                          <div className="finding-boundary-note" data-testid="finding-boundary-note">
-                            Harness edits are manual (P2 boundary)
-                          </div>
+                          <>
+                            <label
+                              className="finding-backlog-control"
+                              data-testid="finding-backlog-control"
+                              data-backlog-status={finding.backlogStatus ?? "none"}
+                            >
+                              <span>Backlog</span>
+                              <select
+                                data-testid="finding-backlog-select"
+                                value={finding.backlogStatus ?? ""}
+                                disabled={!!busy[finding.id]}
+                                onChange={(event) =>
+                                  void updateBacklogStatus(
+                                    finding,
+                                    event.target.value as FindingBacklogStatus,
+                                  )
+                                }
+                              >
+                                <option value="" disabled>
+                                  no status
+                                </option>
+                                {(
+                                  Object.entries(BACKLOG_LABEL) as [
+                                    FindingBacklogStatus,
+                                    string,
+                                  ][]
+                                ).map(([value, label]) => (
+                                  <option key={value} value={value}>
+                                    {label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <div className="finding-boundary-note" data-testid="finding-boundary-note">
+                              Harness edits are manual (P2 boundary)
+                            </div>
+                          </>
                         )}
                       </div>
                     ) : (

@@ -628,10 +628,8 @@
 .finding-verdict-toast{display:flex;align-items:center;gap:8px;padding:7px 8px;margin:0 0 8px;
   border:1px solid var(--border);background:var(--panel-hover);font-size:11.5px;color:var(--text-soft);}
 .finding-verdict-toast .finding-status-dot{width:7px;height:7px;border-radius:50%;background:var(--muted-2);flex:0 0 auto;}
-.finding-verdict-toast.accept .finding-status-dot{background:var(--green-text);}
-.finding-verdict-toast.reject .finding-status-dot{background:var(--red-text);}
-.finding-error{padding:7px 8px;margin:0 0 8px;border:1px solid var(--red-chip);background:var(--red-bg);
-  color:var(--red-text);font-size:11.5px;}
+.finding-error{padding:7px 8px;margin:0 0 8px;border:1px solid var(--c-error);background:var(--panel);
+  color:var(--text-soft);font-size:11.5px;}
 .finding-row{display:flex;flex-direction:column;gap:5px;padding:9px 8px;border-top:1px solid var(--border-faint);}
 .finding-row:hover{background:var(--panel-hover);}
 /* list rows are now buttons (the whole row opens the detail panel) */
@@ -656,8 +654,7 @@ button.finding-row:focus-visible{outline:2px solid var(--accent-ring);outline-of
   border-radius:4px;background:var(--panel);color:var(--muted);padding:2px 6px;font-size:10px;font-weight:650;
   text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;}
 .finding-verdict-chip.pending{border-color:var(--accent-ring);color:var(--text);}
-.finding-verdict-chip.accept{color:var(--green-text);border-color:var(--green-chip);}
-.finding-verdict-chip.reject{color:var(--red-text);border-color:var(--red-chip);}
+.finding-verdict-chip.accept,.finding-verdict-chip.reject{color:var(--text-soft);border-color:var(--border-strong);}
 .finding-meta-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted-2);font-size:10.5px;}
 .finding-meta-line .mono{font-variant-numeric:tabular-nums;}
 .finding-evidence-list{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
@@ -673,8 +670,7 @@ button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--b
 .finding-verdict-reason:focus{outline:2px solid var(--accent-ring);outline-offset:1px;}
 .finding-verdict-btn{border:1px solid var(--border);border-radius:4px;background:var(--panel);color:var(--text-soft);
   font:inherit;font-size:11px;font-weight:650;padding:5px 8px;cursor:pointer;}
-.finding-verdict-btn.accept{border-color:var(--green-chip);color:var(--green-text);}
-.finding-verdict-btn.reject{border-color:var(--red-chip);color:var(--red-text);}
+.finding-verdict-btn.accept,.finding-verdict-btn.reject{border-color:var(--border-strong);color:var(--text-soft);}
 .finding-verdict-btn:disabled{opacity:.55;cursor:wait;}
 
 /* ---- Findings master-detail --------------------------------------------- */
@@ -707,6 +703,18 @@ button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--b
 .finding-detail-section{display:flex;flex-direction:column;gap:8px;}
 .finding-section-label{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
   color:var(--muted);}
+.finding-analysis{display:flex;flex-direction:column;gap:0;border:1px solid var(--border);
+  border-radius:var(--radius-sm);background:var(--panel);overflow:hidden;flex:0 0 auto;}
+.finding-analysis-head{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--panel-2);
+  border-bottom:1px solid var(--border-faint);}
+.finding-analysis-caption{font-size:10.5px;color:var(--muted-2);}
+.finding-analysis-items{display:flex;flex-direction:column;}
+.finding-analysis-item{padding:9px 10px;border-top:1px solid var(--border-faint);}
+.finding-analysis-item:first-child{border-top:0;}
+.finding-analysis-label{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+  margin-bottom:4px;font-family:var(--mono);}
+.finding-analysis-text{margin:0;font-size:12.5px;line-height:1.55;color:var(--text-soft);}
+.finding-analysis-empty{padding:10px;font-size:11.5px;color:var(--muted-2);font-family:var(--mono);}
 .finding-evidence-cards{display:flex;flex-direction:column;gap:10px;min-width:0;}
 .finding-evidence-card{border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);
   padding:8px 9px;display:flex;flex-direction:column;gap:6px;min-width:0;}
@@ -742,8 +750,8 @@ button.finding-evidence-jump:hover{color:var(--text-soft);border-color:var(--bor
 .finding-excerpt{display:flex;flex-direction:column;gap:5px;min-width:0;}
 .finding-excerpt-meta{display:flex;align-items:center;gap:10px;font-size:10px;color:var(--muted-2);
   text-transform:uppercase;letter-spacing:.04em;font-variant-numeric:tabular-nums;}
-.finding-excerpt-meta .ok{color:var(--green-text);}
-.finding-excerpt-meta .err{color:var(--red-text);}
+.finding-excerpt-meta .ok{color:var(--muted-2);}
+.finding-excerpt-meta .err{color:var(--text-soft);font-weight:700;}
 /* evidence command/output: bounded box that scrolls in BOTH axes inside the
    detail pane (design rule: long lines get per-pane horizontal scroll, no wrap,
    no silent truncation). The selector is intentionally specific enough to beat
@@ -773,12 +781,19 @@ button.finding-evidence-jump:hover{color:var(--text-soft);border-color:var(--bor
 .finding-evidence-stepno{font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--muted);
   font-variant-numeric:tabular-nums;cursor:help;}
 .finding-evidence-exit{font-size:10px;font-variant-numeric:tabular-nums;}
-.finding-evidence-exit.ok{color:var(--green-text);}
-.finding-evidence-exit.err{color:var(--red-text);}
+.finding-evidence-exit.ok{color:var(--muted-2);}
+.finding-evidence-exit.err{display:inline-flex;align-items:center;gap:4px;color:var(--text-soft);font-weight:700;}
+.finding-evidence-exit.err::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--c-error);flex:0 0 auto;}
 .finding-evidence-stepspacer{flex:1 1 auto;min-width:0;}
 .finding-verdict-section .finding-verdict-decided{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   color:var(--muted-2);font-size:11px;}
 .finding-verdict-section .finding-verdict-decided .mono{font-variant-numeric:tabular-nums;}
+.finding-backlog-control{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);
+  border:1px solid var(--border);border-radius:var(--radius-xs);background:var(--panel);padding:3px 7px;}
+.finding-backlog-control span{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
+.finding-backlog-control select{border:0;background:transparent;color:var(--text-soft);font:inherit;
+  font-family:var(--mono);font-size:10.5px;cursor:pointer;}
+.finding-backlog-control select:focus-visible{outline:2px solid var(--accent-ring);outline-offset:2px;}
 
 /* ---- triage: sticky verdict bar (requirement C) -------------------------- */
 /* The Accept/Reject bar pins to the detail panel's bottom edge so it is always
@@ -821,7 +836,7 @@ button.finding-evidence-action-turn{color:var(--accent);border-color:var(--accen
   border-top:1px solid var(--border);padding-top:7px;min-width:0;}
 .finding-turn-transcript-head{display:flex;align-items:center;gap:10px;}
 .finding-turn-status{font-size:10.5px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
-.finding-turn-status.err{color:var(--red-text);}
+.finding-turn-status.err{color:var(--text-soft);font-weight:700;}
 /* the bounded, scrollable event list — the core of the embedded transcript */
 .finding-turn-events{display:flex;flex-direction:column;max-height:40vh;overflow-y:auto;
   border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);min-width:0;}
@@ -836,7 +851,7 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .finding-turn-event-seq{font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums;}
 .finding-turn-event-type{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
   color:var(--muted);white-space:nowrap;}
-.finding-turn-event.err .finding-turn-event-type{color:var(--red-text);}
+.finding-turn-event.err .finding-turn-event-type{color:var(--text-soft);}
 .finding-turn-event-body{min-width:0;font-size:11px;line-height:1.4;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;}
 /* a mono COMMAND row must never be silently truncated (design rule: no silent
@@ -848,8 +863,9 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
   white-space:pre;}
 .finding-turn-event-text{color:var(--text-soft);}
 .finding-turn-event-exit{font-size:10px;font-variant-numeric:tabular-nums;}
-.finding-turn-event-exit.ok{color:var(--green-text);}
-.finding-turn-event-exit.err{color:var(--red-text);}
+.finding-turn-event-exit.ok{color:var(--muted-2);}
+.finding-turn-event-exit.err{display:inline-flex;align-items:center;gap:4px;color:var(--text-soft);font-weight:700;}
+.finding-turn-event-exit.err::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--c-error);flex:0 0 auto;}
 
 /* ============================================================================
    Transcript / timeline (screen A) — the instrument table, event rows, turn

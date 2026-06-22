@@ -40,6 +40,17 @@ export const FINDING_FIXTURE = {
     // 140-char `rg -n …` one-liner, exaggerated.
     longLine: "Fixture long no-wrap command pending",
   },
+  analysis: {
+    full: {
+      impact: "Fixture impact: repeated failure wastes review time.",
+      agent_intent: "Fixture intent: inspect the failing command evidence.",
+      cause_hypothesis: "Fixture cause: command retry happened without changing strategy.",
+    },
+    partial: {
+      impact: "Fixture impact: token spend crossed the review line.",
+      agent_intent: "Fixture intent: estimate the cost risk before accepting.",
+    },
+  },
   // a single-line command with NO break opportunities (one unbroken token chain)
   // — the worst case for layout: must scroll inside the excerpt pane, not wrap or
   // overflow the page.
@@ -181,10 +192,15 @@ export async function seedFindingFixtures() {
 
       const jumpFinding = (
         await client.query<{ id: number }>(
-          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
-           VALUES ('rules-v1','failure_loop',$1,'Repeated failing command in a single turn.',0.92,$2,$3)
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id,analysis)
+           VALUES ('rules-v1','failure_loop',$1,'Repeated failing command in a single turn.',0.92,$2,$3,$4::jsonb)
            RETURNING id`,
-          [FINDING_FIXTURE.titles.jump, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+          [
+            FINDING_FIXTURE.titles.jump,
+            FINDING_FIXTURE.harnessId,
+            FINDING_FIXTURE.projectId,
+            JSON.stringify(FINDING_FIXTURE.analysis.full),
+          ]
         )
       ).rows[0].id;
       await client.query(
@@ -204,10 +220,15 @@ export async function seedFindingFixtures() {
 
       const verdictFinding = (
         await client.query<{ id: number }>(
-          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
-           VALUES ('llm-v1','excess_cost',$1,'Token cost crossed the review threshold.',0.81,$2,$3)
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id,analysis)
+           VALUES ('llm-v1','excess_cost',$1,'Token cost crossed the review threshold.',0.81,$2,$3,$4::jsonb)
            RETURNING id`,
-          [FINDING_FIXTURE.titles.verdict, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+          [
+            FINDING_FIXTURE.titles.verdict,
+            FINDING_FIXTURE.harnessId,
+            FINDING_FIXTURE.projectId,
+            JSON.stringify(FINDING_FIXTURE.analysis.partial),
+          ]
         )
       ).rows[0].id;
       await client.query(
@@ -275,10 +296,15 @@ export async function seedFindingFixtures() {
 
       const decidedFinding = (
         await client.query<{ id: number }>(
-          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id)
-           VALUES ('hybrid-v1','risky_action',$1,'Fixture decided finding.',0.44,$2,$3)
+          `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id,analysis,backlog_status,backlog_actor)
+           VALUES ('hybrid-v1','risky_action',$1,'Fixture decided finding.',0.44,$2,$3,$4::jsonb,'open','user')
            RETURNING id`,
-          [FINDING_FIXTURE.titles.decided, FINDING_FIXTURE.harnessId, FINDING_FIXTURE.projectId]
+          [
+            FINDING_FIXTURE.titles.decided,
+            FINDING_FIXTURE.harnessId,
+            FINDING_FIXTURE.projectId,
+            JSON.stringify(FINDING_FIXTURE.analysis.full),
+          ]
         )
       ).rows[0].id;
       await client.query(
@@ -383,6 +409,21 @@ export async function verdictCountForFinding(title: string): Promise<number> {
       )
     ).rows[0];
     return row?.n ?? 0;
+  });
+}
+
+export async function backlogStatusForFinding(title: string): Promise<string | null> {
+  return withDb(async (client) => {
+    const row = (
+      await client.query<{ backlog_status: string | null }>(
+        `SELECT backlog_status
+           FROM findings
+          WHERE title = $1`,
+        [title]
+      )
+    ).rows[0];
+    if (!row) throw new Error(`finding backlog missing for ${title}`);
+    return row.backlog_status;
   });
 }
 
