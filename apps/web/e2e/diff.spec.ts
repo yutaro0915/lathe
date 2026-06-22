@@ -1,6 +1,13 @@
-import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findMultiFileDiffSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
+import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
 
 registerFixtureHooks();
+
+// Stable multi-file diff session persisted in the scratch DB and already used by
+// sibling diff tests. Pinning here (instead of ambient ORDER BY seq DESC
+// discovery via findMultiFileDiffSession) makes the multi-file tests
+// deterministic under the full parallel suite, where concurrent fixture seeds
+// can otherwise shift which session "the most recent multi-file session" means.
+const MULTI_FILE_SID = "144d8b23-cb28-4208-9b0c-98dfa585a741";
 
 // Slice 10 (ADR-git-single-column): the Git diff is a SINGLE-COLUMN ACCORDION —
 // a [By step | By file] segmented over the same diff data, unified-only
@@ -22,18 +29,62 @@ test.describe("Diff viewer (/diff)", () => {
   });
 
   test("By file is the default axis; clicking a closed file toggles its hunks inline", async ({ page }) => {
-    const sessionId = await findMultiFileDiffSession();
+    // Pin to the same stable multi-file session used by sibling diff tests. The
+    // old findMultiFileDiffSession() did ambient ORDER BY seq DESC discovery,
+    // which the full parallel suite shifts mid-run (the PR fixture seeds
+    // seq=900001 sessions), making this test flake.
+    const sessionId = MULTI_FILE_SID;
+    // Resolve, from the DB, the file that opens by default (lowest seq; the
+    // accordion default-opens changedFiles[0], and getChangedFiles orders by seq
+    // ASC) and a deterministic closed target: the lowest-seq other file that has
+    // at least one diff hunk.
+    const { firstFileId, closedFileId } = await withDb(async (client) => {
+      const rows = (
+        await client.query<{ firstFileId: string; closedFileId: string }>(
+          `WITH ordered_files AS (
+             SELECT cf.id, cf.seq, COUNT(dh.id)::int AS hunk_count
+               FROM changed_files cf
+               LEFT JOIN diff_hunks dh ON dh.file_id = cf.id
+              WHERE cf.session_id = $1
+              GROUP BY cf.id, cf.seq
+           ),
+           first_file AS (
+             SELECT id, seq
+               FROM ordered_files
+              ORDER BY seq ASC
+              LIMIT 1
+           )
+           SELECT first_file.id AS "firstFileId",
+                  closed_file.id AS "closedFileId"
+             FROM first_file
+             JOIN LATERAL (
+               SELECT id
+                 FROM ordered_files
+                WHERE seq > first_file.seq
+                  AND hunk_count > 0
+                ORDER BY seq ASC
+                LIMIT 1
+             ) closed_file ON TRUE`,
+          [sessionId],
+        )
+      ).rows;
+      expect(rows).toHaveLength(1);
+      return rows[0]!;
+    });
     await page.goto(`/diff?session=${encodeURIComponent(sessionId)}`);
     // By file is the active axis by default (per the mockup).
     const axis = page.locator(`[data-testid="diff-axis-switch"]`);
     await expect(axis.locator(`[role="tab"][aria-selected="true"]`)).toHaveText(/By file/);
     await expect(page.locator(`[data-testid="diff-acc-list"]`)).toHaveAttribute("data-axis", "by-file");
-    // pick a CLOSED file (the first file opens by default; a multi-file session
-    // guarantees a second, closed one) and toggle it open → its hunks appear.
-    await expect(page.locator(`[data-testid="file-row"][data-row-kind="file"]`).first()).toBeVisible();
-    const target = page.locator(`[data-testid="file-row"][data-row-kind="file"]:not([data-active="true"])`).first();
-    const fileId = await target.getAttribute("data-file-id");
-    const body = page.locator(`[data-testid="diff-acc-file"][data-file-id="${fileId}"] [data-testid="diff-acc-body"]`);
+    // the default-open (first) file is active; the chosen closed file is not.
+    await expect(
+      page.locator(`[data-testid="file-row"][data-row-kind="file"][data-file-id="${firstFileId}"]`),
+    ).toHaveAttribute("data-active", "true");
+    const target = page.locator(`[data-testid="file-row"][data-row-kind="file"][data-file-id="${closedFileId}"]`);
+    await expect(target).toBeVisible();
+    await expect(target).not.toHaveAttribute("data-active", "true");
+    // toggle the closed file open → its hunks appear inline below.
+    const body = page.locator(`[data-testid="diff-acc-file"][data-file-id="${closedFileId}"] [data-testid="diff-acc-body"]`);
     await expect(body).toHaveCount(0);
     await target.click();
     await expect(body).toHaveCount(1);
@@ -102,7 +153,9 @@ test.describe("Diff viewer (/diff)", () => {
   });
 
   test("the diffstat header reports files / +adds / −dels", async ({ page }) => {
-    const sessionId = await findMultiFileDiffSession();
+    // Pin to the same stable multi-file session. Ambient discovery shifts under
+    // the full parallel suite.
+    const sessionId = MULTI_FILE_SID;
     await page.goto(`/diff?session=${encodeURIComponent(sessionId)}`);
     const stat = page.locator(`[data-testid="diffstat"]`);
     await expect(stat).toBeVisible();
