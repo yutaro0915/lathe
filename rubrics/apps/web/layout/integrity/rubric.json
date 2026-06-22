@@ -9,7 +9,7 @@
       "verify": {
         "cmd": "DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe E2E_PORT=3252 pnpm -C apps/web exec playwright test e2e/layout-integrity.spec.ts",
         "expect": "exit0",
-        "means": "7 surface × 2 幅(1500/700)の描画ジオメトリ不変条件(no-overflow/no-truncation/header-aligned/no-overlap/fits-container/detail-wider-than-list/no-collapsed-content)が全て満たされる。どれか 1 系統でも違反なら playwright が exit 1。前提: scratch DB(55433)が起動・ingest 済み + disposable worktree で実行(main worktree は dev-server-collision-guard で build/e2e 不可)。axe color-contrast/target-size は当面 soft(報告のみ、別途 hard 化予定)。"
+        "means": "7 surface × 2 幅(1500/700)の描画ジオメトリ不変条件(no-overflow/no-truncation/header-aligned/no-overlap/fits-container/detail-wider-than-list/no-collapsed-content)が全て満たされる。detail-wider-than-list は master-detail 面(Findings/PR)のみ適用 — Transcript は D6 で inline turn-accordion へ移行し master-detail を持たない(ADR-detail-wider-than-list、commit cc8f349 を supersede)。どれか 1 系統でも違反なら playwright が exit 1。前提: scratch DB(55433)が起動・ingest 済み + disposable worktree で実行(main worktree は dev-server-collision-guard で build/e2e 不可)。axe color-contrast/target-size は当面 soft(報告のみ、別途 hard 化予定)。"
       }
     }
   ],

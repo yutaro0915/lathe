@@ -87,7 +87,8 @@ const AXE_SOURCE = readFileSync(
 // `build` receives a live, valid seeded session id so the per-session surfaces
 // (SessionViewer transcript, in-session Stats) navigate to REAL data.
 // `masterDetail` names the list + detail panes for the #6 invariant; only the
-// transcript / Findings / PR surfaces are master-detail.
+// Findings / PR surfaces are master-detail. The transcript moved to an inline
+// turn-accordion (D6 / ADR-detail-wider-than-list) and is no longer master-detail.
 // ---------------------------------------------------------------------------
 type Surface = {
   name: string;
@@ -98,9 +99,14 @@ type Surface = {
 const SURFACES: Surface[] = [
   { name: "Sessions (list)", build: () => "/" },
   {
+    // ADR-detail-wider-than-list (D6): the transcript is an INLINE turn-accordion
+    // (turns collapsed by default; expanding one reveals its steps in place; a
+    // step expands its detail-block inline). There is NO side detail pane, so the
+    // #6 detail-wider-than-list invariant no longer applies — `masterDetail` is
+    // intentionally absent. Supersedes the wide master-detail (commit cc8f349).
+    // The generic no-overflow / no-truncation / fits-container checks still run.
     name: "SessionViewer (transcript)",
     build: (sid) => `/?session=${encodeURIComponent(sid)}&tab=transcript`,
-    masterDetail: { list: "lds-sv-tx-list", detail: "lds-sv-tx-detail" },
   },
   {
     name: "Stats (in-session)",
