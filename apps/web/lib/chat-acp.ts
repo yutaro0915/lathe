@@ -48,11 +48,15 @@ function chatMcpServers(): McpServer[] {
 }
 
 function permissionToolName(request: PermissionRequest): string {
-  const meta = request.toolCall?._meta;
+  const toolCall = request.toolCall as Record<string, unknown> | undefined;
+  const meta = toolCall?._meta;
   const metaTool = meta && typeof meta === 'object' && !Array.isArray(meta)
     ? (meta as Record<string, unknown>).toolName
     : undefined;
-  const raw = [request.toolCall?.name, request.toolCall?.toolName, metaTool]
+  // claude-agent-acp v0.49.0 puts the MCP tool name in `toolCall.title` (kind:"other")
+  // and does NOT set `name`/`toolName`. Read `title` too, otherwise every MCP tool
+  // permission request resolves to '' and is rejected — even allow-listed lathe tools.
+  const raw = [toolCall?.name, toolCall?.toolName, metaTool, toolCall?.title]
     .find((item) => typeof item === 'string');
   return typeof raw === 'string' ? raw : '';
 }
@@ -98,7 +102,20 @@ export async function runChatAgent(input: {
     sessionMeta: {
       claudeCode: {
         emitRawSDKMessages: true,
-        options: { tools: [...READ_ONLY_LATHE_TOOLS].filter((tool) => tool.startsWith('mcp__')) },
+        // The lathe MCP tools reach the model via `mcpServers` (chatMcpServers), NOT
+        // via `options.tools` — that field is claude-agent-acp's built-in tool selector
+        // (acp-agent.js: `tools = userProvidedOptions?.tools ?? preset`). Putting MCP
+        // names there yielded no usable toolset, so the agent hallucinated the tool call
+        // as text. Live-verified: `tools: []` ALSO suppresses the MCP tools (the agent
+        // still hallucinated), so we OMIT `tools` and let it default to the claude_code
+        // preset; the MCP tools then surface and the agent really calls
+        // mcp__lathe__list_sessions. Built-in edit/bash is restricted at the permission
+        // gate (allowChatPermission denies anything outside READ_ONLY_LATHE_TOOLS) plus
+        // the read-only MCP server (LATHE_MCP_DISABLE_SUBMIT_FINDING=1).
+        // settingSources:[] stops the agent inheriting the user's ~/.claude config
+        // (19 personal skills) which would otherwise leak in via the claude-agent-acp
+        // default of ["user","project","local"] (D24 violation). Live-verified gone.
+        options: { settingSources: [] },
       },
     },
     prompt: input.prompt,
