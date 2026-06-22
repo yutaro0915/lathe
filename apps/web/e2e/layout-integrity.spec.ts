@@ -53,6 +53,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import {
+  CHAT_FIXTURE,
   FINDING_FIXTURE,
   PR_FIXTURE,
   cleanupCostFallbackFixtures,
@@ -145,6 +146,14 @@ const SURFACES: Surface[] = [
     build: () => `/pr?pr=${encodeURIComponent(PR_FIXTURE.prId)}`,
   },
   { name: "Overview", build: () => "/overview" },
+  {
+    // ADR-chat-reintroduction (slice 13): full-page Chat surface A. Pinned to the
+    // seeded fixture thread so the conversation renders deterministically.
+    // thread-list + conversation + single-frame composer; NOT a list+wide-detail
+    // master-detail, so `masterDetail` is intentionally absent.
+    name: "Chat (surface A)",
+    build: () => `/chat?thread=${CHAT_FIXTURE.threadId}`,
+  },
 ];
 
 async function settle(page: Page): Promise<void> {
