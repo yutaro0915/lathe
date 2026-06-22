@@ -49,12 +49,6 @@ export function summarizeInvocation(
   return { kids, toolUses, runFailed, failedSteps, model, costUsd, tokens, observedTools, linkedChild };
 }
 
-export function invocationSummaryLine(e: TranscriptEvent): string {
-  const body = (e.body ?? "").trim();
-  if (body) return body.split("\n").find((l) => l.trim()) ?? e.title;
-  return e.title;
-}
-
 // The compact card stat-line numbers (D18 card: `cost · N tools`). The displayed
 // tool count + cost prefer the linked child's resolved facts, falling back to the
 // launcher meta / observed kids — the same precedence the old detail used, kept in
