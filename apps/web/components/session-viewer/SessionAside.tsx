@@ -4,7 +4,6 @@ import type { EventFile, EventType, Session, TranscriptEvent } from "@/lib/types
 import { JsonView } from "./JsonView";
 
 type Props = {
-  asideIsLauncherDup: boolean;
   selected?: TranscriptEvent;
   selectedFiles: EventFile[];
   primary: Session;
@@ -22,7 +21,6 @@ type Props = {
 };
 
 export function SessionAside({
-  asideIsLauncherDup,
   selected,
   selectedFiles,
   primary,
@@ -67,14 +65,7 @@ export function SessionAside({
 
   return (
     <div className="lds-sv-aside" data-testid="aside">
-      {asideIsLauncherDup ? (
-        <div className="detail" data-testid="detail">
-          <div className="detail-placeholder" data-testid="detail-placeholder" data-aside-placeholder="step-inspect">
-            Select a step to inspect
-          </div>
-        </div>
-      ) : (
-        <div className="detail" data-testid="detail">
+      <div className="detail" data-testid="detail">
           <div className="detail-head" data-testid="detail-head">
             <span className={`event-icon ${selType}`} data-testid="event-icon" aria-hidden>{TYPE_GLYPH[selType] ?? "•"}</span>
             <span className="dtitle" data-testid="dtitle">{selType === "bash" ? "Bash (shell)" : EVENT_LABEL[selType]}</span>
@@ -193,8 +184,7 @@ export function SessionAside({
           <pre className="run-json" data-testid="run-json">
             <JsonView value={runJson} />
           </pre>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

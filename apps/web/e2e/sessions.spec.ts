@@ -210,31 +210,143 @@ test.describe("Cost anomaly detection", () => {
   });
 });
 
-test.describe("Sub-agent runs (Subagents tab)", () => {
-  // session known to spawn 3 distinct general-purpose runs
+test.describe("Subagents tab (slice 9 — D18 [By step|All] + D17 geometry + D16 nested)", () => {
+  // session known to spawn 3 distinct general-purpose runs, all inline-kids,
+  // fired consecutively in one turn → a single PARALLEL block of 3 cards.
   const SID = "da2ac032-a905-4267-8e5f-851456926a79";
 
-  test("linked Codex sub-agent shows child session facts and opens the sub-session", async ({
-    page,
-  }) => {
+  test("D18: a [By step | All] view switch with a subagents count (By step default)", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    const seg = page.locator(`[data-testid="sa-view-switch"]`);
+    await expect(seg).toBeVisible();
+    // English labels; "By step" is the active default.
+    await expect(seg.locator(`[role="tab"]`, { hasText: "By step" })).toHaveAttribute("aria-selected", "true");
+    await expect(seg.locator(`[role="tab"]`, { hasText: "All" })).toBeVisible();
+    // the count lives on the right of the toolbar.
+    await expect(page.locator(`[data-testid="sa-toolbar-count"]`)).toContainText(/\d+ subagents/);
+  });
+
+  test("D17: same-step launchers render as a parallel horizontal card row", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    // the 3 consecutive same-turn launchers form ONE parallel block (K 件 並列).
+    const block = page.locator(`[data-testid="sa-block"][data-parallel="true"]`).first();
+    await expect(block).toBeVisible();
+    await expect(block.locator(`[data-testid="sa-block-where"]`)).toContainText(/Turn \d+ · step \d+/);
+    await expect(block.locator(`[data-testid="sa-block-count"]`)).toContainText(/parallel/);
+    const cards = block.locator(`[data-testid="sa-card"]`);
+    expect(await cards.count()).toBe(3);
+    // a card shows [runner icon][name][cost · N tools].
+    await expect(cards.first().locator(`[data-testid="sa-card-name"]`)).toContainText("general-purpose");
+    await expect(cards.first().locator(`[data-testid="sa-card-meta"]`)).toContainText(/tools/);
+  });
+
+  test("D16: clicking a card expands an inline nested mini-session (3-tab, flat Step list)", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    // collapsed by default: no nested session yet.
+    await expect(page.locator(`[data-testid="sa-nested"]`)).toHaveCount(0);
+    const card = page.locator(`[data-testid="sa-card"]`).first();
+    await card.click();
+    await expect(card).toHaveAttribute("aria-expanded", "true");
+    const nested = page.locator(`[data-testid="sa-nested"]`).first();
+    await expect(nested).toBeVisible();
+    // the nested header carries the runner name + cost·tools + a × close.
+    await expect(nested.locator(`[data-testid="sa-nested-name"]`)).toContainText("general-purpose");
+    await expect(nested.locator(`[data-testid="sa-nested-close"]`)).toBeVisible();
+    // the 3-tab bar (Transcript / Tools / Git), Transcript active.
+    const tabs = nested.locator(`[data-testid="sa-nested-tab"]`);
+    expect(await tabs.count()).toBe(3);
+    await expect(nested.locator(`[data-testid="sa-nested-tab"][data-nested-tab="transcript"]`)).toHaveAttribute("aria-selected", "true");
+    // nested Transcript = a FLAT list of reused Step components (step 1..N).
+    await expect
+      .poll(async () => nested.locator(`[data-testid="sa-nested-step"]`).count())
+      .toBeGreaterThan(0);
+    await expect(nested.locator(`[data-testid="sa-nested-step"]`).first().locator(`[data-testid="event-row"][data-row-kind="step"]`)).toBeVisible();
+  });
+
+  test("D16: nested Tools = a comparison-list; nested Git = scoped diff", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    await page.locator(`[data-testid="sa-card"]`).first().click();
+    const nested = page.locator(`[data-testid="sa-nested"]`).first();
+    // switch to the nested Tools facet — a reused ComparisonList (sa-tool rows).
+    await nested.locator(`[data-testid="sa-nested-tab"][data-nested-tab="tools"]`).click();
+    await expect
+      .poll(async () => nested.locator(`[data-testid="sa-tools-list"] [data-testid="sa-tool-row"]`).count())
+      .toBeGreaterThan(0);
+    // switch to the nested Git facet — either a scoped diff or an honest empty.
+    await nested.locator(`[data-testid="sa-nested-tab"][data-nested-tab="git"]`).click();
+    await expect(nested.locator(`[data-testid="sa-nested-body"][data-nested-tab="git"]`)).toBeVisible();
+  });
+
+  test("clicking the same card again (or ×) closes the nested session", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    const card = page.locator(`[data-testid="sa-card"]`).first();
+    await card.click();
+    await expect(page.locator(`[data-testid="sa-nested"]`)).toHaveCount(1);
+    await card.click();
+    await expect(page.locator(`[data-testid="sa-nested"]`)).toHaveCount(0);
+  });
+
+  test("D18 All: a comparison-list aggregate (count desc), expandable into nested sessions", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=subagents`);
+    await page.locator(`[data-testid="sa-view-switch"] [role="tab"]`, { hasText: "All" }).click();
+    // ComparisonList appends an `s` to the list testid: prefix "sa-all" → "sa-alls-list".
+    const rows = page.locator(`[data-testid="sa-alls-list"] [data-testid="sa-all-row"]`);
+    await expect(rows.first()).toBeVisible();
+    // the 3 general-purpose runs aggregate into one peer with count ×3.
+    await expect(rows.first().locator(`[data-testid="sa-all-name"]`)).toContainText("general-purpose");
+    await expect(rows.first().locator(`[data-testid="sa-all-count"]`)).toContainText("3");
+    // count is non-increasing down the list (sorted desc).
+    const counts = await page
+      .locator(`[data-testid="sa-alls-list"] [data-testid="sa-all-count"]`)
+      .evaluateAll((els) => (els as HTMLElement[]).map((e) => Number((e.textContent ?? "").replace(/[^0-9]/g, ""))));
+    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]);
+    // row expand reveals a nested mini-session per invocation (D16, same as By step).
+    await rows.first().click();
+    await expect
+      .poll(async () => page.locator(`[data-testid="sa-all-body"] [data-testid="sa-nested"]`).count())
+      .toBeGreaterThan(0);
+  });
+
+  test("D16 linkedChild: a linked sub-agent keeps the honest OPEN SUB-SESSION navigation", async ({ page }) => {
     await page.goto(`/?session=${SUBAGENT_FIXTURE.parentId}&tab=subagents`);
-    const linked = page.locator(`[data-testid="sa-card"]`, { hasText: "Linked fixture subagent task" });
-    await expect(linked).toContainText("3 steps");
-    await expect(linked).toContainText("2 tools");
-    await expect(linked).toContainText(/gpt-5/i);
-    await expect(linked).toContainText("$0.13");
-    await expect(linked).toContainText("OPEN SUB-SESSION");
-    await linked.getByText("OPEN SUB-SESSION").click();
+    // the fixture parent has two "explorer" launchers (one linked, one missing);
+    // open cards until one expands to the OPEN SUB-SESSION navigation (NOT a
+    // fabricated transcript), since the linked sub-agent's kids are not inline.
+    const cards = page.locator(`[data-testid="sa-card"]`);
+    const n = await cards.count();
+    let open = page.locator(`[data-testid="sa-open-subsession"]`).first();
+    for (let i = 0; i < n; i++) {
+      await cards.nth(i).click();
+      if ((await page.locator(`[data-testid="sa-open-subsession"]`).count()) > 0) {
+        open = page.locator(`[data-testid="sa-open-subsession"]`).first();
+        break;
+      }
+      await cards.nth(i).click(); // close before trying the next
+    }
+    await expect(open).toBeVisible();
+    await open.click();
     await expect(page).toHaveURL(new RegExp(`session=${SUBAGENT_FIXTURE.childId}`));
     await expect(page.locator(`[data-testid="sessbar-title"]`)).toHaveText("Fixture linked sub-session");
   });
 
-  test("unlinked Codex sub-agent is explicit about missing internal steps", async ({
-    page,
-  }) => {
+  test("unlinked sub-agent with no inline kids is explicit about missing internal steps", async ({ page }) => {
     await page.goto(`/?session=${SUBAGENT_FIXTURE.parentId}&tab=subagents`);
-    const unlinked = page.locator(`[data-testid="sa-card"]`, { hasText: "Missing fixture subagent task" });
-    await expect(unlinked).toContainText("internal steps not captured");
+    // the unlinked launcher (agent_id → missing session, no kids) opens to a
+    // nested transcript that honestly states the steps were not captured.
+    const cards = page.locator(`[data-testid="sa-card"]`);
+    // open each card until one shows "internal steps not captured".
+    const n = await cards.count();
+    let found = false;
+    for (let i = 0; i < n; i++) {
+      await cards.nth(i).click();
+      const note = page.locator(`[data-testid="sa-nested"] [data-testid="empty"]`, { hasText: "internal steps not captured" });
+      if ((await note.count()) > 0) {
+        found = true;
+        break;
+      }
+      await cards.nth(i).click(); // close before trying the next
+    }
+    expect(found).toBeTruthy();
   });
 
   test("sub-sessions are hidden from the list until the toggle is enabled", async ({
@@ -251,110 +363,6 @@ test.describe("Sub-agent runs (Subagents tab)", () => {
     await page.getByRole("button", { name: "Filters" }).click();
     await page.getByLabel("show sub-sessions").check();
     await expect(childItem).toBeVisible();
-  });
-
-  test("overview lists one card per distinct run, not one flat list per name", async ({
-    page,
-  }) => {
-    await page.goto(`/?session=${SID}&tab=subagents`);
-    // a tab bar with Overview + one tab per run
-    await expect(page.locator(`[data-testid="sa-tab"]`).first()).toContainText(/Overview/);
-    const runTabs = page.locator(`[data-testid="sa-tab"]`).filter({ hasText: "general-purpose" });
-    expect(await runTabs.count()).toBeGreaterThan(1); // distinct runs, not merged
-    // overview shows a card per run with a step count
-    const cards = page.locator(`[data-testid="sa-card"]`);
-    expect(await cards.count()).toBe(await runTabs.count());
-    await expect(cards.first().locator(`[data-testid="sa-card-meta"]`)).toContainText(/steps/);
-  });
-
-  test("clicking a run opens its detail tab with the internal execution", async ({
-    page,
-  }) => {
-    await page.goto(`/?session=${SID}&tab=subagents`);
-    await page.locator(`[data-testid="sa-card"]`).first().click();
-    // the tabbar reflects the opened run + per-run execution rows appear
-    await expect(page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"][aria-selected="true"] [data-testid="sa-tab-idx"]`)).toHaveText("1");
-    await expect
-      .poll(async () => page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).count())
-      .toBeGreaterThan(0);
-    // selecting an internal step drives the right detail panel
-    await page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).first().click();
-    await expect(page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"][data-selected="true"]`)).toHaveCount(1);
-    await expect(page.locator(`[data-testid="detail"] [data-testid="detail-head"] [data-testid="dtitle"]`)).toBeVisible();
-  });
-
-  test("tabbar steps between runs", async ({ page }) => {
-    await page.goto(`/?session=${SID}&tab=subagents`);
-    await page.locator(`[data-testid="sa-card"]`).first().click();
-    await expect(page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"][aria-selected="true"] [data-testid="sa-tab-idx"]`)).toHaveText("1");
-    await page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"]`, { has: page.locator(`[data-testid="sa-tab-idx"]`, { hasText: "2" }) }).click();
-    await expect(page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"][aria-selected="true"] [data-testid="sa-tab-idx"]`)).toHaveText("2");
-    await expect.poll(async () => page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).count()).toBeGreaterThan(0);
-  });
-
-  test("a launcher row in the transcript jumps to its run detail", async ({ page }) => {
-    await page.goto(`/?session=${SID}`);
-    await expandAllTurns(page);
-    const jump = page.locator(`[data-testid="sa-jump"]`).first();
-    if ((await jump.count()) > 0) {
-      await jump.click();
-      await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Subagents/);
-      await expect(page.locator(`[data-testid="sa-tabbar"] [data-testid="sa-tab"][aria-selected="true"] [data-testid="sa-tab-idx"]`)).toBeVisible();
-    }
-  });
-
-  test("each run shows which model ran and its cost", async ({ page }) => {
-    await page.goto(`/?session=${SID}&tab=subagents`);
-    // overview cards carry a model chip + a $ cost
-    await expect(page.locator(`[data-testid="sa-card"] [data-testid="sa-model"]`).first()).toBeVisible();
-    await expect(page.locator(`[data-testid="sa-card"] [data-testid="sa-cost"]`).first()).toContainText("$");
-    // the detail view exposes Model + Cost stats
-    await page.locator(`[data-testid="sa-tab"]`, { hasText: "general-purpose" }).first().click();
-    await expect(
-      page.locator(`[data-testid="sa-detail-stats"] [data-testid="stat"]`, { hasText: "Model" })
-    ).toBeVisible();
-    await expect(
-      page.locator(`[data-testid="sa-detail-stats"] [data-testid="stat"]`, { hasText: "Cost" })
-    ).toBeVisible();
-  });
-
-  test("opening a run does NOT duplicate the run into the right aside; it asks for a step", async ({
-    page,
-  }) => {
-    await page.goto(`/?session=${SID}&tab=subagents`);
-    await page.locator(`[data-testid="sa-card"]`).first().click();
-    // run is open in the centre (stats strip is the canonical place)
-    await expect(page.locator(`[data-testid="sa-detail-stats"]`)).toBeVisible();
-    // the right aside is reserved for the selected EXECUTION step — until one is
-    // picked it shows a quiet placeholder, not a second copy of the run detail
-    await expect(
-      page.locator('[data-testid="aside"] [data-aside-placeholder="step-inspect"]')
-    ).toBeVisible();
-    await expect(page.locator(`[data-testid="aside"] [data-testid="detail-head"]`)).toHaveCount(0);
-    // picking a step swaps the aside to that step's detail (placeholder gone)
-    await expect
-      .poll(async () => page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).count())
-      .toBeGreaterThan(0);
-    await page.locator(`[data-testid="sa-detail"] [data-testid="event-row"][data-child-row="true"]`).first().click();
-    await expect(
-      page.locator('[data-testid="aside"] [data-aside-placeholder="step-inspect"]')
-    ).toHaveCount(0);
-    await expect(page.locator(`[data-testid="aside"] [data-testid="detail-head"] [data-testid="dtitle"]`)).toBeVisible();
-  });
-
-  test("Result = the run's own verdict; child-step failures are a separate count", async ({
-    page,
-  }) => {
-    await page.goto(`/?session=${SID}&tab=subagents`);
-    await page.locator(`[data-testid="sa-card"]`).first().click();
-    const result = page.locator(`[data-testid="sa-detail-stats"] [data-testid="stat"]`, { hasText: "Result" }).locator(`[data-testid="stat-v"]`);
-    await expect(result).toHaveText(/^(ok|error)$/);
-    // if any child step failed, that fact is surfaced under Steps (NOT folded
-    // into Result) — so "ok" + "N failed" can coexist without contradiction.
-    const note = page.locator(`[data-testid="sa-detail-stats"] [data-testid="stat-note"]`);
-    if ((await note.count()) > 0) {
-      await expect(note.first()).toContainText(/failed/);
-    }
   });
 });
 

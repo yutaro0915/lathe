@@ -9,6 +9,8 @@ import type { Finding, Session, SessionBundle, TranscriptEvent } from "@/lib/typ
 import { kindOf, type StepKind } from "@/lib/event-display";
 import { ALL_KINDS, type FilterMode, type Tab } from "@/components/session-viewer/types";
 import { useTurnRollups } from "@/components/session-viewer/useTurnRollups";
+import { useTurnJumps } from "@/components/session-viewer/useTurnJumps";
+import { useEventLookups } from "@/components/session-viewer/useEventLookups";
 import { useEvidenceResolver } from "@/components/session-viewer/useEvidenceResolver";
 import { MetricsBarTitle, MetricsBarMeta, MetricsBarActions } from "@/components/session-viewer/MetricsBar";
 import { SessionTabs } from "@/components/session-viewer/SessionTabs";
@@ -60,7 +62,9 @@ export default function SessionViewer({
   const [expandedToolTypes, setExpandedToolTypes] = useState<Set<string>>(() => new Set());
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(() => new Set());
   const [collapsedTurns, setCollapsedTurns] = useState<Set<string>>(() => new Set());
-  const [subAgentTab, setSubAgentTab] = useState<string>("overview");
+  // slice 9: the Subagents tab is a [By step | All] view; selecting a card/row
+  // expands its nested mini-session (single-select across the whole tab).
+  const [selectedLauncherId, setSelectedLauncherId] = useState<string | null>(null);
   const [gitFocusEvent, setGitFocusEvent] = useState<string | undefined>(undefined);
   const [gitFocusFileId, setGitFocusFileId] = useState<string | undefined>(undefined);
   const [gitFocusHunkId, setGitFocusHunkId] = useState<string | undefined>(undefined);
@@ -76,7 +80,7 @@ export default function SessionViewer({
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setFindings(initialFindings), [initialFindings]);
-  useEffect(() => setSubAgentTab("overview"), [primary.id]);
+  useEffect(() => setSelectedLauncherId(null), [primary.id]);
   useEffect(() => setExpandedToolTypes(new Set()), [primary.id]);
   useEffect(() => setExpandedSkills(new Set()), [primary.id]);
 
@@ -175,23 +179,7 @@ export default function SessionViewer({
 
   useEffect(() => setCollapsedTurns(new Set(turnNumberByEventId.keys())), [primary.id, turnNumberByEventId]);
 
-  const highestTurnJump = useMemo(() => {
-    let best: { headerId: string; turn: number; score: number; basis: "cost" | "duration" } | null = null;
-    const useCostBasis = primary.runner === "claude-code" && [...turnRollups.values()].some((r) => r.costUsd != null && Number.isFinite(r.costUsd));
-    for (const [headerId, r] of turnRollups.entries()) {
-      const basis: "cost" | "duration" = useCostBasis ? "cost" : "duration";
-      const score = basis === "cost" ? (r.costUsd ?? -1) : r.wallDurationMs > 0 ? r.wallDurationMs : r.durationMs;
-      if (score < 0) continue;
-      if (!best || score > best.score || (score === best.score && r.turn < best.turn)) best = { headerId, turn: r.turn, score, basis };
-    }
-    return best;
-  }, [primary.runner, turnRollups]);
-  const firstErrorTurnJump = useMemo(() => {
-    for (const [headerId, r] of [...turnRollups.entries()].sort((a, b) => a[1].turn - b[1].turn)) {
-      if (r.errors > 0) return { headerId, turn: r.turn, errors: r.errors };
-    }
-    return null;
-  }, [turnRollups]);
+  const { highestTurnJump, firstErrorTurnJump } = useTurnJumps(primary.runner, turnRollups);
 
   // --- transcript accordion model (D6/D7/D8) ---------------------------------
   // ordered turn headers + the top-level steps under each (everything between
@@ -232,15 +220,7 @@ export default function SessionViewer({
   const commitLabel = `${primary.commitCount} commit${primary.commitCount === 1 ? "" : "s"}`;
   const currentSessionFindings = useMemo(() => findings.filter((finding) => findingTouchesSession(finding, currentId)), [currentId, findings]);
   const currentSessionPendingFindings = useMemo(() => currentSessionFindings.filter((finding) => !finding.verdict), [currentSessionFindings]);
-  const eventById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
-  const eventBySeq = useMemo(() => {
-    const map = new Map<number, TranscriptEvent>();
-    for (const event of events) {
-      if (!event.parentId && !map.has(event.seq)) map.set(event.seq, event);
-      if (!map.has(event.seq)) map.set(event.seq, event);
-    }
-    return map;
-  }, [events]);
+  const { eventById, eventBySeq } = useEventLookups(events);
 
   useEffect(() => {
     if (initialSeq == null) return;
@@ -328,8 +308,11 @@ export default function SessionViewer({
     }
     router.push(`/?session=${encodeURIComponent(sessionId)}&tab=transcript${headSeq != null ? `&seq=${headSeq}` : ""}${findingId != null ? `&fromFinding=${findingId}` : ""}`);
   }
-  function openAgent(launcherId: string) {
-    setSubAgentTab(launcherId);
+  // slice 9: single-select toggle for a subagent card/row. Selecting a launcher
+  // expands its nested mini-session; selecting the same launcher (card click again
+  // / × close) collapses it. Also seeds the transcript selection to the launcher.
+  function selectLauncher(launcherId: string) {
+    setSelectedLauncherId((prev) => (prev === launcherId ? null : launcherId));
     setSelectedEventId(launcherId);
   }
   function openSubSession(id: string) {
@@ -342,6 +325,9 @@ export default function SessionViewer({
       else next.add(k);
       return next;
     });
+  }
+  function toggleAgent(eventId: string) {
+    setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; });
   }
   function toggleToolType(type: string) {
     setExpandedToolTypes((prev) => {
@@ -394,7 +380,6 @@ export default function SessionViewer({
     setGitFocusEvent,
   });
 
-  const asideIsLauncherDup = activeTab === "subagents" && subAgentTab !== "overview" && selectedEventId === subAgentTab;
   const setSelected = (eventId: string) => setSelectedEventId(eventId);
   const clearGitFocus = () => {
     setGitFocusEvent(undefined);
@@ -402,24 +387,26 @@ export default function SessionViewer({
     setGitFocusHunkId(undefined);
   };
 
-  // git / stats / findings / tools / skills fill the whole work area (no
-  // inspector pane). transcript is now an INLINE turn-accordion that fills the
+  // git / stats / findings / tools / skills / subagents fill the whole work area
+  // (no inspector pane). transcript is now an INLINE turn-accordion that fills the
   // whole work area too (D6 / ADR-detail-wider-than-list): turns collapsed by
   // default; expanding a turn reveals its steps inline; a step expands its
   // detail-block in place. Tools (slice 7) and Skills (slice 8) are
   // comparison-lists with inline expansion (D11/D12/D8): aggregated by tool type
   // / capability name, their detail is the inline invocation Steps, so they ALSO
-  // dropped the narrow inspector. There is NO side detail pane for these tabs
-  // (the wide SessionDetailWide was retired, supersedes commit cc8f349). The
-  // REMAINING tabs (subagents/annotations/raw) still get the narrow inspector via
-  // the Surface RightPanel (its sa-detail/step-inspect contract depends on the
-  // aside living there).
+  // dropped the narrow inspector. Subagents (slice 9, D16–D18) is a [By step |
+  // All] view whose selection expands an INLINE nested mini-session — so it too
+  // is full-width with no side inspector. There is NO side detail pane for these
+  // tabs (the wide SessionDetailWide was retired, supersedes commit cc8f349). The
+  // REMAINING tabs (annotations/raw) still get the narrow inspector via the
+  // Surface RightPanel.
   const isFullWidthTab =
     activeTab === "git" ||
     activeTab === "stats" ||
     activeTab === "findings" ||
     activeTab === "tools" ||
-    activeTab === "skills";
+    activeTab === "skills" ||
+    activeTab === "subagents";
   const isTranscriptTab = activeTab === "transcript";
 
   // The metrics feed the one shell-owned WorkareaHeader through the Surface
@@ -473,7 +460,7 @@ export default function SessionViewer({
           selectedEventId={selectedEventId}
           selectEvent={setSelected}
           expandedAgents={expandedAgents}
-          toggleAgent={(eventId) => setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; })}
+          toggleAgent={toggleAgent}
           editByEventId={editByEventId}
           childrenByParent={childrenByParent}
           flashEventId={flashEventId}
@@ -490,13 +477,38 @@ export default function SessionViewer({
           selectedEventId={selectedEventId}
           selectEvent={setSelected}
           expandedAgents={expandedAgents}
-          toggleAgent={(eventId) => setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; })}
+          toggleAgent={toggleAgent}
           editByEventId={editByEventId}
           childrenByParent={childrenByParent}
           flashEventId={flashEventId}
         />
       )}
       {activeTab === "findings" && <FindingsTab findings={findings} setFindings={setFindings} sessions={sessions} currentId={currentId} resolveEvidence={resolveEvidence} onJumpToSession={jumpToFindingSession} onJumpToTurn={jumpToFindingTurn} />}
+      {/* D16–D18 (slice 9): Subagents is a [By step | All] view whose selection
+          expands an inline nested mini-session (Transcript=Step list / Tools=
+          comparison-list / Git), scoped to the sub-agent's kids — full-width, no
+          side inspector. Reuses Step / ComparisonList / GitTab. */}
+      {activeTab === "subagents" && (
+        <SubagentsTab
+          invocations={invocations}
+          topEvents={topEvents}
+          turnNumberByEventId={turnNumberByEventId}
+          turnHeaderIds={turnHeaderIds}
+          childrenByParent={childrenByParent}
+          sessionById={sessionById}
+          bundle={bundle}
+          currentId={currentId}
+          selectedLauncherId={selectedLauncherId}
+          selectLauncher={selectLauncher}
+          selectedEventId={selectedEventId}
+          selectEvent={setSelected}
+          flashEventId={flashEventId}
+          editByEventId={editByEventId}
+          expandedAgents={expandedAgents}
+          toggleAgent={toggleAgent}
+          openSubSession={openSubSession}
+        />
+      )}
     </div>
   ) : isTranscriptTab ? (
     <div className="lds-sv-main" data-testid="main" data-tab={activeTab}>
@@ -525,7 +537,7 @@ export default function SessionViewer({
         selectedEventId={selectedEventId}
         flashEventId={flashEventId}
         expandedAgents={expandedAgents}
-        toggleAgent={(eventId) => setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; })}
+        toggleAgent={toggleAgent}
         selectStep={(eventId) => selectTimelineEvent(eventId)}
         editByEventId={editByEventId}
         matchesSearch={matchesSearch}
@@ -534,7 +546,6 @@ export default function SessionViewer({
   ) : (
     <div className="lds-sv-main" data-testid="main" data-tab={activeTab}>
       {banner}
-      {activeTab === "subagents" && <SubagentsTab invocations={invocations} subAgentTab={subAgentTab} setSubAgentTab={setSubAgentTab} childrenByParent={childrenByParent} sessionById={sessionById} selectedEventId={selectedEventId} setSelectedEventId={setSelected} copied={copied} copy={copy} openAgent={openAgent} openSubSession={openSubSession} />}
       {activeTab === "annotations" && <AnnotationsTab annotations={annotations} events={events} jumpToEvent={(id) => { setActiveTab("transcript"); selectTimelineEvent(id, true); }} />}
       {activeTab === "raw" && <RawTab selected={selected} events={events} copied={copied} copy={copy} />}
       {ribbon}
@@ -542,7 +553,7 @@ export default function SessionViewer({
   );
 
   // The narrow inspector (Surface RightPanel) — only for the list+inspector tabs.
-  const inspector = <SessionAside asideIsLauncherDup={asideIsLauncherDup} {...detailProps} />;
+  const inspector = <SessionAside {...detailProps} />;
 
   return (
     <Surface

@@ -30,6 +30,11 @@ export type ComparisonGroup = {
   count: number;
   costUsd: number | null;
   durationMs: number;
+  // optional override for the trailing metric column. When omitted the row shows
+  // the default `cost · duration` (the Tools/Skills contract, unchanged). The
+  // Subagents "All" view supplies its own `cost · N tools` string here (D18:
+  // columns count / cost / tools) without forking the component.
+  metric?: React.ReactNode;
   // the member events this peer aggregates, rendered inline when expanded.
   events: TranscriptEvent[];
 };
@@ -108,7 +113,7 @@ export function ComparisonList({
                   ×{fmtInt(g.count)}
                 </span>
                 <span className="lds-clist-metric" data-testid={`${testidPrefix}-metric`}>
-                  {fmtCost(g.costUsd)} · {humanizeDuration(g.durationMs > 0 ? g.durationMs : null)}
+                  {g.metric ?? <>{fmtCost(g.costUsd)} · {humanizeDuration(g.durationMs > 0 ? g.durationMs : null)}</>}
                 </span>
                 <span className="lds-clist-chevron" data-testid={`${testidPrefix}-chevron`} aria-hidden>
                   {open ? "▾" : "▸"}
