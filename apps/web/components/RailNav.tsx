@@ -3,7 +3,7 @@
 // components/RailNav.tsx — the ONE persistent global navigation, on every route.
 //
 // Lathe Design System v1 shell: navigation lives in a 264px LEFT RAIL (not a top
-// bar). The four axes are Sessions / Findings / PR / Overview, current location
+// bar). The axes are Sessions / Findings / Chat / PR / Overview, current location
 // always highlighted so "where am I / how do I get back" is always answerable
 // (design.md IA: every screen lives under this one bar).
 //
@@ -20,6 +20,7 @@ const NAV: { href: string; label: string; nav: string; icon: IconName; match: (p
   // screen in a different state, so the root match is exact-path only.
   { href: "/", label: "Sessions", nav: "sessions", icon: "list", match: (p) => p === "/" },
   { href: "/findings", label: "Findings", nav: "findings", icon: "findings", match: (p) => p.startsWith("/findings") },
+  { href: "/chat", label: "Chat", nav: "chat", icon: "messages", match: (p) => p.startsWith("/chat") },
   { href: "/pr", label: "PR", nav: "pr", icon: "pr", match: (p) => p.startsWith("/pr") },
   { href: "/overview", label: "Overview", nav: "overview", icon: "chart", match: (p) => p.startsWith("/overview") },
 ];

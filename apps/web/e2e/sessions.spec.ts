@@ -45,8 +45,8 @@ test.describe("Sessions surface + viewer (/)", () => {
   });
 
   test("clicking a step selects it (inline detail-block)", async ({ page }) => {
-    await gotoViewer(page);
-    await expandAllTurns(page);
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}`);
+    await page.locator(`[data-testid="event-row"][data-row-kind="turn-header"]`).first().click();
     const rows = page.locator(`[data-testid="event-row"][data-row-kind="step"]`);
     await expect(rows.first()).toBeVisible();
     await rows.first().click();
@@ -367,27 +367,22 @@ test.describe("Subagents tab (slice 9 — D18 [By step|All] + D17 geometry + D16
 });
 
 test.describe("Global nav & IA axes", () => {
-  for (const route of ["/", "/findings", "/pr", "/overview"]) {
+  for (const route of ["/", "/findings", "/chat", "/pr", "/overview"]) {
     test(`the persistent global bar is present on ${route}`, async ({ page }) => {
       await page.goto(route);
       const nav = page.locator(`[data-testid="globalnav"]`);
       await expect(nav).toBeVisible();
-      // the four axes are always there; chat is never a bar item.
+      // the axes are always there; Chat is surface A's full-page destination.
       await expect(nav.locator('[data-testid="globalnav-tab"][data-nav="sessions"]')).toBeVisible();
       await expect(nav.locator('[data-testid="globalnav-tab"][data-nav="findings"]')).toBeVisible();
+      await expect(nav.locator('[data-testid="globalnav-tab"][data-nav="chat"]')).toBeVisible();
       await expect(nav.locator('[data-testid="globalnav-tab"][data-nav="pr"]')).toBeVisible();
       await expect(nav.locator('[data-testid="globalnav-tab"][data-nav="overview"]')).toBeVisible();
-      await expect(nav.locator('[data-testid="globalnav-tab"]', { hasText: "Chat" })).toHaveCount(0);
     });
   }
 
   test("the current axis is highlighted on each route", async ({ page }) => {
-    const cases: [string, string][] = [
-      ["/", "sessions"],
-      ["/findings", "findings"],
-      ["/pr", "pr"],
-      ["/overview", "overview"],
-    ];
+    const cases: [string, string][] = [["/", "sessions"], ["/findings", "findings"], ["/chat", "chat"], ["/pr", "pr"], ["/overview", "overview"]];
     for (const [route, nav] of cases) {
       await page.goto(route);
       const active = page.locator(`[data-testid="globalnav-tab"][data-state="active"]`);
@@ -396,9 +391,9 @@ test.describe("Global nav & IA axes", () => {
     }
   });
 
-  test("no Chat entry point survives in the session viewer (chat removed)", async ({ page }) => {
+  test("the session viewer keeps chat out of its tabs and chips", async ({ page }) => {
     await gotoViewer(page);
-    // neither the old tab nor the sessbar Discuss chip exist anymore.
+    // Full-page chat lives at /chat; the old in-session tab and Discuss chip stay removed.
     await expect(page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Chat" })).toHaveCount(0);
     await expect(page.locator(`[data-testid="chat-session-chip"]`)).toHaveCount(0);
   });

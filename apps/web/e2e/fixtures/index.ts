@@ -10,19 +10,23 @@ export * from "./findings";
 export * from "./subagent";
 export * from "./cost";
 export * from "./pr";
+export * from "./chat";
 
 import { seedCostFallbackFixtures, cleanupCostFallbackFixtures } from "./cost";
 import { seedFindingFixtures, cleanupFindingFixtures } from "./findings";
 import { seedSubagentFixtures, cleanupSubagentFixtures } from "./subagent";
+import { seedChatFixtures, cleanupChatFixtures } from "./chat";
 
 export function registerFixtureHooks() {
   test.beforeAll(async () => {
     await seedCostFallbackFixtures();
     await seedFindingFixtures();
     await seedSubagentFixtures();
+    await seedChatFixtures();
   });
 
   test.afterAll(async () => {
+    await cleanupChatFixtures();
     await cleanupSubagentFixtures();
     await cleanupFindingFixtures();
     await cleanupCostFallbackFixtures();

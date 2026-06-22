@@ -9,6 +9,7 @@ type IconName =
   | "findings"
   | "pr"
   | "chart"
+  | "messages"
   | "settings"
   | "grid"
   | "stack"
@@ -18,6 +19,9 @@ type IconName =
   | "github"
   | "branch"
   | "link"
+  | "plus"
+  | "x"
+  | "send"
   | "check"
   | "alert"
   | "chevronDown"
@@ -57,6 +61,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <rect x="5" y="11" width="3" height="6.5" />
       <rect x="10.5" y="6" width="3" height="11.5" />
       <rect x="16" y="13.5" width="3" height="4" />
+    </>
+  ),
+  messages: (
+    <>
+      <path d="M4 5.5C4 4.7 4.7 4 5.5 4h13c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5H9l-5 4v-13.5z" />
+      <line x1="8" y1="8" x2="16" y2="8" />
+      <line x1="8" y1="11" x2="14" y2="11" />
     </>
   ),
   settings: (
@@ -114,6 +125,24 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M9.5 14.5 14.5 9.5" />
       <path d="M8.5 10.5 7.2 11.8a3.5 3.5 0 0 0 5 5l1.3-1.3" />
       <path d="M15.5 13.5 16.8 12.2a3.5 3.5 0 0 0-5-5l-1.3 1.3" />
+    </>
+  ),
+  plus: (
+    <>
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </>
+  ),
+  x: (
+    <>
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+    </>
+  ),
+  send: (
+    <>
+      <path d="M21 3 10 14" />
+      <path d="M21 3 14 21 10 14 3 10 21 3z" />
     </>
   ),
   check: <polyline points="5 12.5 10 17.5 19 6.5" />,
