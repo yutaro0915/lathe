@@ -11,6 +11,8 @@ type IconName =
   | "chart"
   | "settings"
   | "grid"
+  | "stack"
+  | "folder"
   | "chevronDown"
   | "chevronRight";
 
@@ -63,6 +65,15 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <rect x="3" y="14" width="7" height="7" rx="1" />
       <rect x="14" y="14" width="7" height="7" rx="1" />
     </>
+  ),
+  stack: (
+    <>
+      <polygon points="12 3 21 8 12 13 3 8 12 3" />
+      <polyline points="3 13 12 18 21 13" />
+    </>
+  ),
+  folder: (
+    <path d="M3 6.5C3 5.7 3.7 5 4.5 5H9l2 2h8.5c.8 0 1.5.7 1.5 1.5v8c0 .8-.7 1.5-1.5 1.5h-15C3.7 18 3 17.3 3 16.5v-10z" />
   ),
   chevronDown: <polyline points="6 9 12 15 18 9" />,
   chevronRight: <polyline points="9 6 15 12 9 18" />,

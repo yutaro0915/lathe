@@ -2,72 +2,113 @@ import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Clien
 
 registerFixtureHooks();
 
+// Slice 10 (ADR-git-single-column): the Git diff is a SINGLE-COLUMN ACCORDION —
+// a [By step | By file] segmented over the same diff data, unified-only
+// (side-by-side dropped), with inline ↗ Turn N · edit attribution (the le-jump,
+// D14) and the +/− coloring confined to the renderer (D13). The old three-pane
+// workspace (file tree + diff pane + attribution pane), the split toggle, the
+// folder tree, and the raw-JSON toggle are gone; these tests assert the new UI.
+// Every assertion is DETERMINISTIC and UNCONDITIONAL (no `if (count>0)` guards).
 test.describe("Diff viewer (/diff)", () => {
-  test("loads with changed files and a diff", async ({ page }) => {
+  test("loads with changed files; the first file is open and shows a unified hunk", async ({ page }) => {
     await page.goto("/diff");
-    await expect(page.locator(`[data-testid="file-row"]`).first()).toBeVisible();
+    // the single-column accordion renders a flat list of changed-file rows.
+    const firstFile = page.locator(`[data-testid="file-row"][data-row-kind="file"]`).first();
+    await expect(firstFile).toBeVisible();
+    // the first file is open by default, so its unified hunks render inline.
+    await expect(firstFile).toHaveAttribute("data-active", "true");
     expect(await page.locator(`[data-testid="diff-hunk"]`).count()).toBeGreaterThan(0);
+    expect(await page.locator(`[data-testid="diff-line"]`).count()).toBeGreaterThan(0);
   });
 
-  test("selecting a file updates the diff path", async ({ page }) => {
+  test("By file is the default axis; clicking a closed file toggles its hunks inline", async ({ page }) => {
     const sessionId = await findMultiFileDiffSession();
     await page.goto(`/diff?session=${encodeURIComponent(sessionId)}`);
-    const before = await page.locator(`[data-testid="fpath"]`).innerText();
-    const files = page.locator(`[data-testid="file-row"][data-row-kind="file"]`);
-    const count = await files.count();
-    for (let i = 0; i < count; i++) {
-      const f = files.nth(i);
-      const isActive = (await f.getAttribute("data-active")) === "true";
-      if (!isActive) {
-        await f.click();
-        break;
-      }
-    }
-    await expect(page.locator(`[data-testid="fpath"]`)).not.toHaveText(before);
+    // By file is the active axis by default (per the mockup).
+    const axis = page.locator(`[data-testid="diff-axis-switch"]`);
+    await expect(axis.locator(`[role="tab"][aria-selected="true"]`)).toHaveText(/By file/);
+    await expect(page.locator(`[data-testid="diff-acc-list"]`)).toHaveAttribute("data-axis", "by-file");
+    // pick a CLOSED file (the first file opens by default; a multi-file session
+    // guarantees a second, closed one) and toggle it open → its hunks appear.
+    await expect(page.locator(`[data-testid="file-row"][data-row-kind="file"]`).first()).toBeVisible();
+    const target = page.locator(`[data-testid="file-row"][data-row-kind="file"]:not([data-active="true"])`).first();
+    const fileId = await target.getAttribute("data-file-id");
+    const body = page.locator(`[data-testid="diff-acc-file"][data-file-id="${fileId}"] [data-testid="diff-acc-body"]`);
+    await expect(body).toHaveCount(0);
+    await target.click();
+    await expect(body).toHaveCount(1);
+    await expect(body.locator(`[data-testid="diff-hunk"]`).first()).toBeVisible();
   });
 
-  test("unified/split toggle changes the diff layout", async ({ page }) => {
-    await page.goto("/diff");
-    const diff = page.locator(`[data-testid="diff"]`);
-    const before = await diff.innerHTML();
-    // scope to the view-mode toggle (a separate step-filter segmented may exist)
-    const viewToggle = page.locator(`[data-testid="diff-toolbar"] [data-testid="segmented"]`);
-    await viewToggle.locator("button", { hasText: "Split" }).click();
-    await expect(viewToggle.locator(`[role="tab"][aria-selected="true"]`)).toHaveText(/Split/);
-    await expect.poll(async () => diff.innerHTML()).not.toBe(before);
+  test("the [By step | By file] axis switch flips the organization (same diff data)", async ({ page }) => {
+    await page.goto(`/diff?session=33a47290-fc24-47bc-b624-e7fbc4412ade`);
+    const axis = page.locator(`[data-testid="diff-axis-switch"]`);
+    // start on By file → flat file rows, no step groups.
+    await expect(page.locator(`[data-testid="diff-acc-list"]`)).toHaveAttribute("data-axis", "by-file");
+    expect(await page.locator(`[data-testid="file-row"][data-row-kind="file"]`).count()).toBeGreaterThan(0);
+    await expect(page.locator(`[data-testid="step-row"]`)).toHaveCount(0);
+    // flip to By step → step-group rows appear, the flat file rows are gone. This
+    // session attributes its diff to multiple producing steps, so there is more
+    // than one step group.
+    await axis.locator(`button[data-axis="by-step"]`).click();
+    await expect(axis.locator(`[role="tab"][aria-selected="true"]`)).toHaveText(/By step/);
+    await expect(page.locator(`[data-testid="diff-acc-list"]`)).toHaveAttribute("data-axis", "by-step");
+    expect(await page.locator(`[data-testid="step-row"]`).count()).toBeGreaterThan(1);
+    await expect(page.locator(`[data-testid="file-row"][data-row-kind="file"]`)).toHaveCount(0);
+    // flip back to By file → flat file rows return.
+    await axis.locator(`button[data-axis="by-file"]`).click();
+    await expect(page.locator(`[data-testid="diff-acc-list"]`)).toHaveAttribute("data-axis", "by-file");
+    expect(await page.locator(`[data-testid="file-row"][data-row-kind="file"]`).count()).toBeGreaterThan(0);
   });
 
-  test("folder twisty collapses its children", async ({ page }) => {
-    await page.goto("/diff");
-    const folders = page.locator(`[data-testid="file-row"][data-row-kind="folder"]`);
-    if ((await folders.count()) > 0) {
-      const before = await page.locator(`[data-testid="file-row"]`).count();
-      await folders.first().click();
-      await expect
-        .poll(async () => page.locator(`[data-testid="file-row"]`).count())
-        .toBeLessThan(before);
-    }
+  test("D13: added lines get the success bg, removed get danger — confined to the renderer", async ({ page }) => {
+    await page.goto(`/diff?session=144d8b23-cb28-4208-9b0c-98dfa585a741`);
+    // index.md is a MODIFIED file (it has both added AND removed lines), so its
+    // hunk body exercises both diff colors. Open it explicitly.
+    const indexRow = page
+      .locator(`[data-testid="file-row"][data-row-kind="file"]`)
+      .filter({ has: page.locator(`[data-testid="fpath"]`, { hasText: /\/index\.md$/ }) });
+    await expect(indexRow).toHaveCount(1);
+    const fileId = await indexRow.getAttribute("data-file-id");
+    await indexRow.click();
+    const indexFile = page.locator(`[data-testid="diff-acc-file"][data-file-id="${fileId}"]`);
+    // assert the +/− coloring lands on the diff LINES (the renderer), inside this
+    // file's own body. Added and removed lines each carry a tint (a real bg color,
+    // not transparent) and the two tints differ (green vs red, D13).
+    const added = indexFile.locator(`[data-testid="diff-line"][data-line-kind="add"]`).first();
+    const removed = indexFile.locator(`[data-testid="diff-line"][data-line-kind="del"]`).first();
+    await expect(added).toBeVisible();
+    await expect(removed).toBeVisible();
+    const transparent = "rgba(0, 0, 0, 0)";
+    const addBg = await added.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const delBg = await removed.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(addBg).not.toBe(transparent);
+    expect(delBg).not.toBe(transparent);
+    expect(addBg).not.toBe(delBg);
+    // …and the coloring does NOT leak onto the file ROW (D13: renderer-only). The
+    // row's own background must not be an add/del bg.
+    const rowBg = await indexRow.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(rowBg).not.toBe(addBg);
+    expect(rowBg).not.toBe(delBg);
   });
 
-  test("Raw JSON button reveals the event JSON", async ({ page }) => {
+  test("the diff body is a horizontal scroll pane for long code lines (data-scroll)", async ({ page }) => {
     await page.goto("/diff");
-    const btn = page.locator(`[data-testid="btn"]`, { hasText: /Raw JSON/i }).first();
-    if ((await btn.count()) > 0) {
-      const preBefore = await page.locator("pre").count();
-      await btn.click();
-      await expect.poll(async () => page.locator("pre").count()).toBeGreaterThan(preBefore);
-    }
+    // unified code lines can't wrap; the diff body keeps data-scroll so long lines
+    // pan inside the box (the no-overflow gate exempts data-scroll panes). React
+    // serializes the boolean prop as data-scroll="true"; the gate keys off its
+    // PRESENCE (dataset.scroll != null), so any value satisfies the exemption.
+    await expect(page.locator(`[data-testid="diff"]`).first()).toHaveAttribute("data-scroll", "true");
   });
 
-  test("linked events stack (meta below title, no le-right overlap)", async ({ page }) => {
-    await page.goto("/diff");
-    const le = page.locator(`[data-testid="linked-event"]`).first();
-    if ((await le.count()) > 0) {
-      await expect(le.locator(`[data-testid="le-turn"]`)).toHaveCount(1);
-      await expect(le.locator(`[data-testid="le-meta"]`)).toHaveCount(1);
-      // old overlapping layout used .le-right; it must be gone
-      await expect(le.locator(`[data-testid="le-right"]`)).toHaveCount(0);
-    }
+  test("the diffstat header reports files / +adds / −dels", async ({ page }) => {
+    const sessionId = await findMultiFileDiffSession();
+    await page.goto(`/diff?session=${encodeURIComponent(sessionId)}`);
+    const stat = page.locator(`[data-testid="diffstat"]`);
+    await expect(stat).toBeVisible();
+    await expect(stat.locator(`[data-testid="diffstat-files"]`)).toHaveText(/\d+ files/);
+    await expect(stat.locator(`[data-testid="diffstat-add"]`)).toHaveText(/^\+\d/);
+    await expect(stat.locator(`[data-testid="diffstat-del"]`)).toHaveText(/^−\d/);
   });
 
   test("the Git tab embeds the diff in the per-session workspace", async ({ page }) => {
@@ -80,34 +121,49 @@ test.describe("Diff viewer (/diff)", () => {
   });
 });
 
-test.describe("Changed-files tree (compact folders)", () => {
-  // session with files nested 8+ levels deep down single-child chains
-  const SID = "78a6e038-3829-43bb-98c8-404e8afa8ccc";
+test.describe("Diff viewer (By file — flat list + inline attribution)", () => {
+  // an edit-heavy Claude session: a flat list of changed files, several attributed.
+  const SID = "144d8b23-cb28-4208-9b0c-98dfa585a741";
 
-  test("single-child folder chains collapse; rows ≈ files, not a row per dir level", async ({
-    page,
-  }) => {
+  test("By file is a FLAT list of files (no folder tree rows)", async ({ page }) => {
     await page.goto(`/diff?session=${SID}`);
-    await expect(page.locator(`[data-testid="filetree-head"] [data-testid="sub"]`)).toHaveText(/5 files changed/);
-    // exactly the 5 real files appear as file rows...
-    await expect(page.locator(`[data-testid="file-row"][data-row-kind="file"]`)).toHaveCount(5);
-    // ...and the whole tree stays compact (no per-directory-level explosion)
-    expect(await page.locator(`[data-testid="file-row"]`).count()).toBeLessThanOrEqual(10);
-    // a deep chain is merged into ONE folder row whose name carries the "/"-joined path
-    const merged = page
-      .locator(`[data-testid="file-row"][data-row-kind="folder"] [data-testid="fname"]`)
-      .filter({ hasText: "/" });
-    expect(await merged.count()).toBeGreaterThan(0);
+    // every row in the By-file list is a FILE row — the folder hierarchy was
+    // dropped (the mockup shows a flat file list). The number of file rows equals
+    // the number of distinct changed files (one row per file, no per-dir rows).
+    const fileRows = page.locator(`[data-testid="file-row"][data-row-kind="file"]`);
+    await expect(fileRows.first()).toBeVisible();
+    expect(await fileRows.count()).toBeGreaterThan(1);
+    // there is exactly one file row per distinct file path: assert no row carries
+    // a folder kind (the old data-row-kind="folder" no longer exists).
+    await expect(page.locator(`[data-testid="file-row"][data-row-kind="folder"]`)).toHaveCount(0);
+    const distinctPaths = await withDb(async (client) =>
+      (
+        await client.query<{ n: string }>(
+          `SELECT COUNT(DISTINCT path) AS n FROM changed_files WHERE session_id = $1`,
+          [SID],
+        )
+      ).rows[0].n,
+    );
+    await expect(fileRows).toHaveCount(Number(distinctPaths));
   });
 
-  test("files and folders are visually distinct (status chip vs folder icon)", async ({
-    page,
-  }) => {
+  test("an attributed file shows its inline ↗ Turn N · edit attribution + diffstat", async ({ page }) => {
     await page.goto(`/diff?session=${SID}`);
-    // files carry a colored A/M/D status chip; folders carry a folder icon, no chip
-    await expect(page.locator(`[data-testid="file-row"][data-row-kind="file"] [data-testid="status-chip"]`).first()).toBeVisible();
-    expect(await page.locator(`[data-testid="file-row"][data-row-kind="folder"] [data-testid="ficon"][data-ficon-kind="folder"] svg`).count()).toBeGreaterThan(0);
-    expect(await page.locator(`[data-testid="file-row"][data-row-kind="folder"] [data-testid="status-chip"]`).count()).toBe(0);
+    // index.md is the most-heavily-attributed file in this fixture session, so its
+    // row carries the inline ↗ attribution (the le-jump) unconditionally. There is
+    // exactly one changed file whose full path ends in /index.md.
+    const indexRow = page
+      .locator(`[data-testid="file-row"][data-row-kind="file"]`)
+      .filter({ has: page.locator(`[data-testid="fpath"]`, { hasText: /\/index\.md$/ }) });
+    await expect(indexRow).toHaveCount(1);
+    // the inline attribution link (D14) is present on the row, pointing at a step.
+    const attr = indexRow.locator(`[data-testid="le-jump"]`);
+    await expect(attr).toBeVisible();
+    await expect(attr).toHaveText(/↗ Turn \d+ · /);
+    // …and the diffstat (+adds −dels) is present on the same row.
+    const stat = indexRow.locator(`[data-testid="fstats"]`);
+    await expect(stat.locator(`[data-testid="add"]`)).toHaveText(/^\+\d/);
+    await expect(stat.locator(`[data-testid="del"]`)).toHaveText(/^−\d/);
   });
 });
 
@@ -115,7 +171,7 @@ test.describe("Transcript ⇄ Git cross-links", () => {
   // an edit-heavy Claude session, so attributed hunks definitely exist
   const SID = "144d8b23-cb28-4208-9b0c-98dfa585a741";
 
-  test("an edit step shows its diff inline; Git jumps back to the producing step", async ({
+  test("an edit step shows its diff inline; Git's ↗ attribution jumps back to the producing step", async ({
     page,
   }) => {
     await page.goto(`/?session=${SID}`);
@@ -130,26 +186,22 @@ test.describe("Transcript ⇄ Git cross-links", () => {
     await editStep.click();
     await expect(page.locator(`[data-testid="step-detail"] [data-testid="step-diff"]`).first()).toBeVisible();
 
-    // the REVERSE link is still wired: from the Git tab, a linked-event back-link
-    // returns to the transcript and selects the producing step.
+    // the REVERSE link is still wired: from the Git tab, the file row's inline ↗
+    // attribution (the le-jump, D14) returns to the transcript and selects the
+    // producing step.
     await page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Git" }).click();
     await expect(page.locator(`[data-testid="diff-embed"]`)).toBeVisible();
-    // Deterministically select a changed file that HAS a linked (producing) event,
-    // so the reverse back-link is guaranteed to render. The Git tab's default
-    // active file need not carry an attribution; index.md does (it is the most
-    // heavily-attributed file in this fixture session — see the seeded
-    // attributions for 144d8b23…), so the le-jump back-link is unconditional once
-    // it is active. There is exactly one changed file whose basename is index.md.
+    // index.md is the most-heavily-attributed file in this fixture session, so its
+    // row's inline ↗ attribution is guaranteed to render. There is exactly one
+    // changed file whose full path ends in /index.md.
     const linkedFileRow = page
       .locator(`[data-testid="file-row"][data-row-kind="file"]`)
-      .filter({ has: page.locator(`[data-testid="fname"]`, { hasText: /^index\.md$/ }) });
+      .filter({ has: page.locator(`[data-testid="fpath"]`, { hasText: /\/index\.md$/ }) });
     await expect(linkedFileRow).toHaveCount(1);
-    await linkedFileRow.click();
-    await expect(linkedFileRow).toHaveAttribute("data-active", "true");
-    // the back-link is a KEPT feature: AttributionPane renders one le-jump per
-    // linked event whenever onJumpToEvent is wired (SessionViewer passes a real
+    // the back-link is a KEPT feature: DiffFileRow renders one le-jump per
+    // attributed file whenever onJumpToEvent is wired (SessionViewer passes a real
     // one). Assert it UNCONDITIONALLY — a regression that drops the link must fail.
-    const back = page.locator(`[data-testid="le-jump"]`).first();
+    const back = linkedFileRow.locator(`[data-testid="le-jump"]`);
     await expect(back).toBeVisible();
     await back.click();
     await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
@@ -157,23 +209,39 @@ test.describe("Transcript ⇄ Git cross-links", () => {
   });
 });
 
-test.describe("Git diff: step focus", () => {
-  // a session whose primary changed file has hunks from multiple turns
+test.describe("Git diff: By step axis", () => {
+  // a session whose diff is attributed across multiple producing steps
   const SID = "33a47290-fc24-47bc-b624-e7fbc4412ade";
 
-  test("other turns' hunks collapse; All changes expands; This step re-collapses", async ({
+  test("By step groups files by producing step; a step's ↗ jumps back to the transcript", async ({
     page,
   }) => {
     await page.goto(`/?session=${SID}&tab=git`);
-    // by default the selected step's hunk is expanded; other turns collapse
-    await expect(page.locator(`[data-testid="diff-hunk"][data-hunk-state="collapsed"]`).first()).toBeVisible();
-    expect(await page.locator(`[data-testid="diff-hunk"][data-hunk-state="collapsed"]`).count()).toBeGreaterThan(0);
-    await expect(page.locator(`[data-testid="step-filter"]`)).toBeVisible();
-    // "All changes" expands every hunk
-    await page.locator(`[data-testid="step-filter"] button`, { hasText: "All changes" }).click();
-    await expect.poll(async () => page.locator(`[data-testid="diff-hunk"][data-hunk-state="collapsed"]`).count()).toBe(0);
-    // "This step" collapses other turns again
-    await page.locator(`[data-testid="step-filter"] button`, { hasText: "This step" }).click();
-    await expect.poll(async () => page.locator(`[data-testid="diff-hunk"][data-hunk-state="collapsed"]`).count()).toBeGreaterThan(0);
+    await page.locator(`[data-testid="diff-axis-switch"] button[data-axis="by-step"]`).click();
+    // multiple producing steps → multiple step-group rows.
+    const groups = page.locator(`[data-testid="diff-step-group"]`);
+    await expect(groups.first()).toBeVisible();
+    expect(await groups.count()).toBeGreaterThan(1);
+    // one group opens by default (the first file's producing step). Pick a CLOSED
+    // group, PIN it by its step-key (so the locator stays stable after it opens),
+    // and expand it → it lists the file diffs that step produced, same hunks.
+    const stepKey = await page
+      .locator(`[data-testid="diff-step-group"]:not([data-open="true"])`)
+      .first()
+      .getAttribute("data-step-key");
+    const closedGroup = page.locator(`[data-testid="diff-step-group"][data-step-key="${stepKey}"]`);
+    await closedGroup.locator(`[data-testid="step-row"]`).click();
+    await expect(closedGroup).toHaveAttribute("data-open", "true");
+    const body = closedGroup.locator(`[data-testid="step-body"]`);
+    await expect(body).toBeVisible();
+    await expect(body.locator(`[data-testid="step-file"]`).first()).toBeVisible();
+    await expect(body.locator(`[data-testid="diff-hunk"]`).first()).toBeVisible();
+    // the step group's ↗ (le-jump, D14) returns to the transcript and selects the
+    // producing step. Assert it UNCONDITIONALLY (attributed step groups carry it).
+    const jump = closedGroup.locator(`[data-testid="step-row"] [data-testid="le-jump"]`);
+    await expect(jump).toBeVisible();
+    await jump.click();
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
+    await expect(page.locator(`[data-testid="event-row"][data-selected="true"]`)).toHaveCount(1);
   });
 });

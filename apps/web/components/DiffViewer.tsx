@@ -1,29 +1,36 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { DiffWorkspace } from "@/components/diff-viewer/DiffWorkspace";
-import {
-  HUNK_PAGE,
-  buildTree,
-  hunkAttributionMap,
-  rawEventJson,
-  type ViewMode,
-} from "@/components/diff-viewer/model";
-import type {
-  ChangedFile,
-  DiffHunk,
-  LinkedEvent,
-  SessionBundle,
-  TranscriptEvent,
-} from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import { fmtInt } from "@lathe/shared";
+import { Icon } from "@/components/ds/icons";
+import { DiffFileRow } from "@/components/diff-viewer/DiffFileRow";
+import { HunkList } from "@/components/diff-viewer/HunkList";
+import type { ChangedFile, DiffHunk, LinkedEvent, SessionBundle } from "@/lib/types";
 
-// DiffViewer renders the diff WORKSPACE only (file tree + hunks + attribution).
-// It is always EMBEDDED in the session viewer's Git tab — the shell-owned
-// WorkareaHeader (Surface, via SessionViewer) owns the session title/meta, the
-// tab nav, and the session switcher. The diff no longer draws its own header
-// chrome (the old standalone `.lds-session-bar` band + `.lds-session-tabs` are
-// gone); /diff redirects to /?session=<id>&tab=git, which composes this through
-// <Surface> like every other surface.
+// DiffViewer — the Git tab body, a SINGLE-COLUMN ACCORDION (slice 10 /
+// ADR-git-single-column). It supersedes the three-pane workspace (FileTree +
+// DiffPane + AttributionPane); those are retired. It renders unified-only diffs
+// (D15: side-by-side dropped) with a [By step | By file] segmented over the SAME
+// diff data, inline ↗ Turn N · edit attribution (D14, the le-jump back to the
+// transcript), and the +/− coloring confined to the hunk renderer (D13).
+//
+// LIGHTWEIGHT diff list (user's stance): this is for quick code-checking, NOT a
+// full Git client — deep review happens in IDE/GitHub. So it is lean: a flat file
+// list (no folder tree), no split view, no raw-JSON toggle, no separate
+// attribution chrome.
+//
+// Reused by BOTH hosts: the standalone /diff route (via GitTab) AND the slice-9
+// nested mini-session (GitTab scoped to a sub-agent's kids). The component takes
+// the same SessionBundle either way; the nested host passes a kid-scoped bundle.
+//
+// Axes (both carry file↔step attribution, D15):
+//   • By file (default, mockup-detailed): a flat list of changed files; each row
+//     expands its unified hunks inline. The ↗ link on a row jumps to its
+//     producing step.
+//   • By step (symmetric — the mockup doesn't detail it, built by the same
+//     accordion shape): files grouped by their PRODUCING step; each step row
+//     expands the file diffs it produced, same unified hunks. Files with no
+//     attribution collect under an "Unattributed" group.
 interface Props {
   bundle: SessionBundle;
   currentId: string;
@@ -31,6 +38,14 @@ interface Props {
   focusFileId?: string;
   focusHunkId?: string;
   onJumpToEvent?: (eventId: string) => void;
+}
+
+type Axis = "by-file" | "by-step";
+
+// the producing step for a file = its first attributed linked event (the same
+// attribution data DiffPane/AttributionPane consumed). null = unattributed.
+function producingEvent(bundle: SessionBundle, fileId: string): LinkedEvent | null {
+  return (bundle.linkedEvents[fileId] ?? [])[0] ?? null;
 }
 
 export default function DiffViewer({
@@ -43,202 +58,231 @@ export default function DiffViewer({
 }: Props) {
   const files = bundle.changedFiles;
 
-  const focusHit = useMemo(() => {
+  // Forward focus (Transcript → Git): when a focus target is passed, resolve the
+  // file it lands on so we can open it. focusFileId is direct; focusHunkId /
+  // focusEventId resolve through the hunk → file / attribution maps.
+  const focusFile = useMemo<ChangedFile | null>(() => {
+    if (focusFileId) return files.find((f) => f.id === focusFileId) ?? null;
     if (focusHunkId) {
-      for (const file of files) {
-        const hunks = bundle.hunks[file.id] ?? [];
-        const hunkIndex = hunks.findIndex((hunk) => hunk.id === focusHunkId);
-        if (hunkIndex >= 0) {
-          const eventId = (bundle.attributions[hunks[hunkIndex].id] ?? []).find((a) => a.eventId)?.eventId ?? null;
-          return { fileId: file.id, hunkIndex, hunkId: hunks[hunkIndex].id, eventId };
-        }
+      for (const f of files) {
+        if ((bundle.hunks[f.id] ?? []).some((h) => h.id === focusHunkId)) return f;
       }
     }
-    if (!focusEventId) return null;
-    for (const file of files) {
-      const hunks = bundle.hunks[file.id] ?? [];
-      const hunkIndex = hunks.findIndex((hunk) =>
-        (bundle.attributions[hunk.id] ?? []).some((a) => a.eventId === focusEventId),
-      );
-      if (hunkIndex >= 0) return { fileId: file.id, hunkIndex, hunkId: hunks[hunkIndex].id, eventId: focusEventId };
+    if (focusEventId) {
+      for (const f of files) {
+        if ((bundle.linkedEvents[f.id] ?? []).some((le) => le.event.id === focusEventId)) return f;
+      }
     }
     return null;
-  }, [focusEventId, focusHunkId, files, bundle.hunks, bundle.attributions]);
+  }, [files, focusFileId, focusHunkId, focusEventId, bundle.hunks, bundle.linkedEvents]);
 
-  const initialFileId = useMemo(() => {
-    if (focusHit) return focusHit.fileId;
-    if (focusFileId && files.some((file) => file.id === focusFileId)) return focusFileId;
-    const mixed = files.find((file) => file.path.endsWith("globals.css"));
-    return (mixed ?? files[0])?.id ?? "";
-  }, [files, focusFileId, focusHit]);
+  const [axis, setAxis] = useState<Axis>("by-file");
+  // which file rows are open (By-file axis) — keyed by file id.
+  const [openFiles, setOpenFiles] = useState<Set<string>>(() => new Set());
+  // which step groups are open (By-step axis) — keyed by event id / "__none__".
+  const [openSteps, setOpenSteps] = useState<Set<string>>(() => new Set());
 
-  const [activeFileId, setActiveFileId] = useState<string>(initialFileId);
-  const [viewMode, setViewMode] = useState<ViewMode>("unified");
-  const [hunkIndex, setHunkIndex] = useState<number>(focusHit?.hunkIndex ?? 0);
-  const [showAllHunks, setShowAllHunks] = useState<boolean>(false);
-  const [selectedLinkedEventId, setSelectedLinkedEventId] = useState<string | null>(focusHit?.eventId ?? focusEventId ?? null);
-  const [showRawJson, setShowRawJson] = useState<boolean>(false);
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
-  const [hunkWindow, setHunkWindow] = useState<number>(HUNK_PAGE);
-  const [expandedHunks, setExpandedHunks] = useState<Set<string>>(() => new Set());
-  const hunkRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const pendingScrollRef = useRef<number | null>(null);
-
+  // On mount / session change / focus change: default-open the focused file (or
+  // the first file when none is focused), so the diff lands populated.
   useEffect(() => {
-    setActiveFileId(initialFileId);
-    setHunkIndex(focusHit?.hunkIndex ?? 0);
-    setSelectedLinkedEventId(focusHit?.eventId ?? focusEventId ?? null);
-    setShowRawJson(false);
-    setShowAllHunks(!!focusHunkId);
-    setCollapsedFolders(new Set());
-  }, [currentId, initialFileId, focusHit, focusEventId, focusFileId, focusHunkId]);
+    const initial = focusFile ?? files[0];
+    setOpenFiles(initial ? new Set([initial.id]) : new Set());
+    const ev = initial ? producingEvent(bundle, initial.id) : null;
+    setOpenSteps(new Set([ev ? ev.event.id : "__none__"]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentId, focusFile?.id]);
 
-  const active: ChangedFile | undefined = useMemo(
-    () => files.find((file) => file.id === activeFileId) ?? files[0],
-    [files, activeFileId],
-  );
-  const hunks: DiffHunk[] = active ? bundle.hunks[active.id] ?? [] : [];
-  const renderedHunks = hunks.slice(0, hunkWindow);
-  const moreHunks = hunks.length - renderedHunks.length;
+  const toggleFile = (id: string) =>
+    setOpenFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-  useEffect(() => {
-    const focusIdx = focusHit && focusHit.fileId === active?.id ? focusHit.hunkIndex : 0;
-    setHunkWindow(Math.max(HUNK_PAGE, focusIdx + 1));
-    setExpandedHunks(new Set());
-    pendingScrollRef.current = focusIdx > 0 ? focusIdx : null;
-  }, [active?.id, focusHit]);
+  const toggleStep = (key: string) =>
+    setOpenSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
-  const hunkAttr = useMemo(
-    () => hunkAttributionMap(hunks, bundle.attributions),
-    [hunks, bundle.attributions],
-  );
-  const linkedEvents: LinkedEvent[] = active ? bundle.linkedEvents[active.id] ?? [] : [];
-  const touchedSteps = useMemo(() => {
-    const seen = new Set<string>();
-    const out: LinkedEvent[] = [];
-    for (const linkedEvent of linkedEvents) {
-      if (seen.has(linkedEvent.event.id)) continue;
-      seen.add(linkedEvent.event.id);
-      out.push(linkedEvent);
+  // diffstat: N files / +X / −Y across the whole (scoped) diff.
+  const totals = useMemo(() => {
+    let add = 0;
+    let del = 0;
+    for (const f of files) {
+      add += f.additions;
+      del += f.deletions;
     }
-    return out;
-  }, [linkedEvents]);
-  const selected: LinkedEvent | undefined = useMemo(() => {
-    if (selectedLinkedEventId) {
-      const hit = linkedEvents.find((linkedEvent) => linkedEvent.event.id === selectedLinkedEventId);
-      if (hit) return hit;
-    }
-    return linkedEvents[0];
-  }, [linkedEvents, selectedLinkedEventId]);
-  const selectedEvent: TranscriptEvent | undefined = selected?.event;
+    return { files: files.length, add, del };
+  }, [files]);
 
-  const coveredCount = hunks.filter((hunk) => {
-    const attr = hunkAttr.get(hunk.id);
-    return attr != null && attr.eventId != null;
-  }).length;
-  const showBanner = hunks.some((hunk) => {
-    const attr = hunkAttr.get(hunk.id);
-    return attr == null || attr.confidence !== "high";
-  });
-
-  const tree = useMemo(() => buildTree(files), [files]);
-  const visibleTree = useMemo(() => {
-    return tree.filter((row) => {
-      const ownerDir = row.kind === "folder" ? row.path : row.dir;
-      for (const collapsed of collapsedFolders) {
-        if (ownerDir === collapsed || ownerDir.startsWith(`${collapsed}/`)) {
-          if (row.kind === "folder" && row.path === collapsed) continue;
-          return false;
-        }
+  // By-step grouping: files keyed by their producing event. A single ordered list
+  // of { event | null, files[] } so each step row lists the files it produced.
+  const stepGroups = useMemo(() => {
+    type Group = { key: string; event: LinkedEvent["event"] | null; method: LinkedEvent["method"] | null; files: ChangedFile[] };
+    const byKey = new Map<string, Group>();
+    const order: string[] = [];
+    for (const f of files) {
+      const le = producingEvent(bundle, f.id);
+      const key = le ? le.event.id : "__none__";
+      let g = byKey.get(key);
+      if (!g) {
+        g = { key, event: le ? le.event : null, method: le ? le.method : null, files: [] };
+        byKey.set(key, g);
+        order.push(key);
       }
-      return true;
-    });
-  }, [tree, collapsedFolders]);
-
-  useEffect(() => {
-    setHunkIndex((index) => Math.min(Math.max(0, index), Math.max(0, hunks.length - 1)));
-  }, [hunks.length]);
-
-  useEffect(() => {
-    const index = pendingScrollRef.current;
-    if (index == null) return;
-    const element = hunkRefs.current[index];
-    if (element) {
-      element.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      pendingScrollRef.current = null;
+      g.files.push(f);
     }
-  }, [hunkWindow]);
-
-  function gotoHunk(next: number) {
-    if (hunks.length === 0) return;
-    const clamped = Math.min(Math.max(0, next), hunks.length - 1);
-    setHunkIndex(clamped);
-    if (clamped >= hunkWindow) {
-      setHunkWindow(clamped + 1);
-      pendingScrollRef.current = clamped;
-      return;
-    }
-    hunkRefs.current[clamped]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
-
-  function selectFile(id: string) {
-    setActiveFileId(id);
-    setHunkIndex(0);
-    setSelectedLinkedEventId(null);
-    setShowRawJson(false);
-  }
-
-  function toggleFolder(path: string) {
-    setCollapsedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }
-
-  function expandHunk(id: string) {
-    setExpandedHunks((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  }
+    // attributed steps first (by seq), unattributed last.
+    return order
+      .map((k) => byKey.get(k)!)
+      .sort((a, b) => {
+        if (!a.event) return 1;
+        if (!b.event) return -1;
+        return a.event.seq - b.event.seq;
+      });
+  }, [files, bundle.linkedEvents]);
 
   return (
-    <DiffWorkspace
-      active={active}
-      annotations={bundle.annotations}
-      collapsedFolders={collapsedFolders}
-      coveredCount={coveredCount}
-      expandedHunks={expandedHunks}
-      files={files}
-      hunkAttr={hunkAttr}
-      hunkIndex={hunkIndex}
-      hunkRefs={hunkRefs}
-      hunks={hunks}
-      linkedEvents={linkedEvents}
-      moreHunks={moreHunks}
-      rawJson={rawEventJson(selectedEvent, selected)}
-      renderedHunks={renderedHunks}
-      selected={selected}
-      selectedEvent={selectedEvent}
-      showAllHunks={showAllHunks}
-      showBanner={showBanner}
-      showRawJson={showRawJson}
-      touchedSteps={touchedSteps}
-      viewMode={viewMode}
-      visibleTree={visibleTree}
-      onExpandHunk={expandHunk}
-      onGotoHunk={gotoHunk}
-      onJumpToEvent={onJumpToEvent}
-      onSelectFile={selectFile}
-      onSetHunkWindow={setHunkWindow}
-      onSetSelectedLinkedEventId={setSelectedLinkedEventId}
-      onSetShowAllHunks={setShowAllHunks}
-      onSetShowRawJson={setShowRawJson}
-      onSetViewMode={setViewMode}
-      onToggleFolder={toggleFolder}
-    />
+    <div className="diff-acc" data-testid="diff-embed">
+      {/* axis switch + diffstat (D15). English labels, stack/folder icons; By file
+          active by default per the mockup. */}
+      <div className="diff-acc-head" data-testid="diff-acc-head">
+        <span className="lds-segmented diff-acc-axis" data-testid="diff-axis-switch" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={axis === "by-step"}
+            className={axis === "by-step" ? "is-active" : ""}
+            data-axis="by-step"
+            onClick={() => setAxis("by-step")}
+          >
+            <Icon name="stack" size={13} /> By step
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={axis === "by-file"}
+            className={axis === "by-file" ? "is-active" : ""}
+            data-axis="by-file"
+            onClick={() => setAxis("by-file")}
+          >
+            <Icon name="folder" size={13} /> By file
+          </button>
+        </span>
+        <span style={{ flex: "1 1 auto" }} />
+        <span className="diff-acc-diffstat" data-testid="diffstat">
+          <span className="files" data-testid="diffstat-files">{fmtInt(totals.files)} files</span>{" "}
+          <span className="add" data-testid="diffstat-add">+{fmtInt(totals.add)}</span>{" "}
+          <span className="del" data-testid="diffstat-del">−{fmtInt(totals.del)}</span>
+        </span>
+      </div>
+
+      {files.length === 0 ? (
+        <div className="empty" data-testid="empty" style={{ padding: 14 }}>
+          No changed files in this session.
+        </div>
+      ) : axis === "by-file" ? (
+        <div className="diff-acc-list" data-testid="diff-acc-list" data-axis="by-file">
+          {files.map((f) => (
+            <DiffFileRow
+              key={f.id}
+              file={f}
+              hunks={bundle.hunks[f.id] ?? []}
+              linkedEvent={producingEvent(bundle, f.id)}
+              open={openFiles.has(f.id)}
+              focusHunkId={focusFile?.id === f.id ? focusHunkId : undefined}
+              onToggle={() => toggleFile(f.id)}
+              onJumpToEvent={onJumpToEvent}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="diff-acc-list" data-testid="diff-acc-list" data-axis="by-step">
+          {stepGroups.map((g) => {
+            const open = openSteps.has(g.key);
+            return (
+              <div
+                key={g.key}
+                className={`diff-acc-step${open ? " open" : ""}`}
+                data-testid="diff-step-group"
+                data-step-key={g.key}
+                data-open={open ? "true" : undefined}
+              >
+                <div
+                  className="diff-acc-row diff-acc-step-row"
+                  data-testid="step-row"
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={open}
+                  onClick={() => toggleStep(g.key)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      toggleStep(g.key);
+                    }
+                  }}
+                >
+                  <span className="diff-acc-chevron" data-testid="diff-acc-chevron" aria-hidden>
+                    {open ? "▾" : "▸"}
+                  </span>
+                  <span className="diff-acc-step-label" data-testid="step-label" data-ellipsis-ok title={g.event ? g.event.title : "Unattributed changes"}>
+                    {g.event ? `Turn ${g.event.seq}: ${g.event.title}` : "Unattributed"}
+                  </span>
+                  {g.event && onJumpToEvent && (
+                    <button
+                      type="button"
+                      className="le-jump"
+                      data-testid="le-jump"
+                      data-event-id={g.event.id}
+                      title={`Jump to the transcript step that produced these changes (Turn ${g.event.seq})`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onJumpToEvent(g.event!.id);
+                      }}
+                    >
+                      ↗ step {g.event.seq}
+                    </button>
+                  )}
+                  <span className="diff-acc-step-count" data-testid="step-file-count">
+                    {fmtInt(g.files.length)} file{g.files.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {open && (
+                  <div className="diff-acc-step-body" data-testid="step-body">
+                    {g.files.map((f) => (
+                      <StepFile key={f.id} file={f} hunks={bundle.hunks[f.id] ?? []} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One file under a By-step group: a compact file header + its unified hunks (the
+// step already carries the attribution, so the per-file ↗ link is omitted here —
+// the symmetry is "step → its files", D15).
+function StepFile({ file, hunks }: { file: ChangedFile; hunks: DiffHunk[] }) {
+  return (
+    <div className="diff-acc-step-file" data-testid="step-file" data-file-id={file.id}>
+      <div className="diff-acc-step-fhead" data-testid="step-file-head">
+        <span className="diff-acc-path" data-testid="fpath" data-ellipsis-ok title={file.path}>
+          {file.path}
+        </span>
+        <span className="diff-acc-stat" data-testid="fstats">
+          <span className="add" data-testid="add">+{file.additions}</span>{" "}
+          <span className="del" data-testid="del">−{file.deletions}</span>
+        </span>
+      </div>
+      <HunkList hunks={hunks} />
+    </div>
   );
 }
