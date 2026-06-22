@@ -966,38 +966,40 @@ button.event-type-badge{height:auto;min-height:24px;}
 .lds-step-diff .diff-line{white-space:pre-wrap;word-break:break-word;}
 .lds-step-diff .diff-line .ltext{white-space:pre-wrap;word-break:break-word;}
 
-/* ---- Tools tab = type-aggregated comparison-list (D11/D12/D8, slice 7) -----
-   THIS session's tool invocations are aggregated BY tool type into one row per
-   type, sorted by invocation count. The list is the same comparison-list shape
-   as Sessions: a leading neutral type icon, a flexible mono type name, then
-   fixed trailing metric columns (count, cost · duration) and a chevron. Row
-   click expands the type IN PLACE (D12) to reveal its invocations as reused
-   Step components (D8, .lds-step-child handles the indent). Color is rationed
-   (D10): the type rows are neutral; the only privileged hue is the per-
-   invocation error STATE owned by Step (var(--c-error)). No gutter (D5). */
-.lds-tools-caption{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:14px 16px 8px;}
-.lds-tools-caption-eyebrow{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
-.lds-tools-caption-hint{font-size:10.5px;color:var(--muted-2);}
-.lds-tools-list{margin:0 16px 12px;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;background:var(--panel);}
-.lds-tool-group{border-bottom:1px solid var(--border-faint);}
-.lds-tool-group:last-child{border-bottom:0;}
-.lds-tool-group.open{background:var(--panel-2);}
+/* ---- comparison-list = aggregated peers + inline expansion (D11/D12/D8) -----
+   The SHARED comparison-list (ComparisonList.tsx), reused by BOTH the Tools tab
+   (peers = tool types, slice 7) and the Skills tab (peers = capability names,
+   slice 8 / D33). THIS session's invocations are aggregated into one row per
+   peer, sorted by invocation count. The list is the same comparison-list shape
+   as Sessions: a leading neutral icon, a flexible mono name, then fixed trailing
+   metric columns (count, cost · duration) and a chevron. Row click expands the
+   peer IN PLACE (D12) to reveal its invocations as reused Step components (D8,
+   .lds-step-child handles the indent). Color is rationed (D10): the rows are
+   neutral; the only privileged hue is the per-invocation error STATE owned by
+   Step (var(--c-error)). No gutter (D5). */
+.lds-clist-caption{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:14px 16px 8px;}
+.lds-clist-caption-eyebrow{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
+.lds-clist-caption-hint{font-size:10.5px;color:var(--muted-2);}
+.lds-clist{margin:0 16px 12px;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;background:var(--panel);}
+.lds-clist-group{border-bottom:1px solid var(--border-faint);}
+.lds-clist-group:last-child{border-bottom:0;}
+.lds-clist-group.open{background:var(--panel-2);}
 /* the comparison-list row: neutral by default; metric columns are fixed-width
    so they align into scannable columns (the Sessions list discipline). */
-.lds-tool-row{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;min-width:0;}
-.lds-tool-row:hover{background:var(--panel-hover);}
-.lds-tool-group.open > .lds-tool-row{background:var(--bg-sunken);border-bottom:1px solid var(--border-faint);}
-.lds-tool-ic{flex:0 0 auto;width:16px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--muted-2);}
-.lds-tool-name{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:12px;color:var(--text);
+.lds-clist-row{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;min-width:0;}
+.lds-clist-row:hover{background:var(--panel-hover);}
+.lds-clist-group.open > .lds-clist-row{background:var(--bg-sunken);border-bottom:1px solid var(--border-faint);}
+.lds-clist-ic{flex:0 0 auto;width:16px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--muted-2);}
+.lds-clist-name{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:12px;color:var(--text);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.lds-tool-count{flex:0 0 auto;min-width:38px;text-align:right;font-family:var(--mono);font-size:11px;
+.lds-clist-count{flex:0 0 auto;min-width:38px;text-align:right;font-family:var(--mono);font-size:11px;
   color:var(--text-soft);font-variant-numeric:tabular-nums;}
-.lds-tool-metric{flex:0 0 auto;min-width:96px;text-align:right;font-family:var(--mono);font-size:11px;
+.lds-clist-metric{flex:0 0 auto;min-width:96px;text-align:right;font-family:var(--mono);font-size:11px;
   color:var(--muted-2);font-variant-numeric:tabular-nums;white-space:nowrap;}
-.lds-tool-chevron{flex:0 0 auto;font-size:11px;color:var(--muted);width:12px;text-align:center;}
-.lds-tool-group.open > .lds-tool-row .lds-tool-chevron{color:var(--text-soft);}
+.lds-clist-chevron{flex:0 0 auto;font-size:11px;color:var(--muted);width:12px;text-align:center;}
+.lds-clist-group.open > .lds-clist-row .lds-clist-chevron{color:var(--text-soft);}
 /* the expanded body holds the invocation Step rows (no extra chrome). */
-.lds-tool-body{display:flex;flex-direction:column;background:var(--panel);}
+.lds-clist-body{display:flex;flex-direction:column;background:var(--panel);}
 
 /* transcript search toolbar (above the accordion scroller — stays put) */
 .transcript-toolbar{flex:0 0 auto;background:var(--panel);border-bottom:1px solid var(--border-faint);}

@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import { fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
 import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
 import type { ChangedFile, DiffHunk, EventType, SessionBundle, TranscriptEvent } from "@/lib/types";
 import { Step, type StepEdit } from "./Step";
+import { ComparisonList, type ComparisonGroup } from "./ComparisonList";
 
 // ToolsTab — D11 comparison-list + D12 inline expansion + D8 single Step.
 // THIS session's tool invocations are aggregated BY tool type into one row per
@@ -14,6 +14,12 @@ import { Step, type StepEdit } from "./Step";
 // rationed (D10): the type rows are neutral; the only privileged hue is the
 // per-invocation error STATE, carried by Step via var(--c-error). No timestamp
 // gutter (D5).
+//
+// The comparison-list SHELL (rows + expand/collapse + member rendering) is the
+// shared ComparisonList component, reused verbatim by SkillsTab (D11: reuse the
+// SAME component, do not duplicate). ToolsTab only supplies the aggregation (by
+// type) and the per-invocation Step; the `tool-*` data-testids are preserved
+// (the slice-7 e2e contract) via the testidPrefix.
 
 // The event types that count as "tools" (action/tool events) — bash / file_read
 // / file_edit / file_write / subagent / test / commit / memory / hook / skill.
@@ -33,14 +39,6 @@ const TOOL_AGG_TYPES: EventType[] = [
   "skill",
 ];
 const TOOL_AGG_SET = new Set<EventType>(TOOL_AGG_TYPES);
-
-type ToolTypeGroup = {
-  type: EventType;
-  invocations: TranscriptEvent[];
-  count: number;
-  costUsd: number | null;
-  durationMs: number;
-};
 
 // Per-event cost: a direct meta.costUsd when present, else this event's
 // token-proportional share of the session cost (the same derivation the turn
@@ -88,23 +86,36 @@ export function ToolsTab({
   const resolveEdit = (e: TranscriptEvent): StepEdit => editByEventId.get(e.id) ?? null;
 
   // Group this session's tool invocations by type, then sort the rows by
-  // invocation count (descending). Cost / duration are summed per type.
-  const groups = useMemo<ToolTypeGroup[]>(() => {
-    const byType = new Map<EventType, ToolTypeGroup>();
+  // invocation count (descending). Cost / duration are summed per type. The
+  // result feeds the shared ComparisonList as generic groups (key = the type).
+  const groups = useMemo<ComparisonGroup[]>(() => {
+    type Acc = { type: EventType; events: TranscriptEvent[]; count: number; costUsd: number | null; durationMs: number };
+    const byType = new Map<EventType, Acc>();
     for (const e of events) {
       if (!TOOL_AGG_SET.has(e.type)) continue;
       let g = byType.get(e.type);
       if (!g) {
-        g = { type: e.type, invocations: [], count: 0, costUsd: null, durationMs: 0 };
+        g = { type: e.type, events: [], count: 0, costUsd: null, durationMs: 0 };
         byType.set(e.type, g);
       }
-      g.invocations.push(e);
+      g.events.push(e);
       g.count += 1;
       g.durationMs += e.durationMs ?? 0;
       const cost = readEventCost(e, bundle);
       if (cost != null) g.costUsd = (g.costUsd ?? 0) + cost;
     }
-    return [...byType.values()].sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
+    return [...byType.values()]
+      .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type))
+      .map((g) => ({
+        key: g.type,
+        icon: TYPE_GLYPH[g.type] ?? "•",
+        label: g.type,
+        labelTitle: EVENT_LABEL[g.type],
+        count: g.count,
+        costUsd: g.costUsd,
+        durationMs: g.durationMs,
+        events: g.events,
+      }));
   }, [events, bundle]);
 
   if (groups.length === 0) {
@@ -118,81 +129,31 @@ export function ToolsTab({
   }
 
   return (
-    <div className="timeline" data-testid="timeline">
-      <div className="lds-tools-caption" data-testid="tools-caption">
-        <span className="lds-tools-caption-eyebrow">Tools · by invocation count</span>
-        <span className="lds-tools-caption-hint">Click a row to expand its invocations.</span>
-      </div>
-      {/* D11 comparison-list: tool = peer, shared dimension = invocation count.
-          Same list shape as Sessions. Row click = inline expand (D12). */}
-      <div className="lds-tools-list" data-testid="tools-list">
-        {groups.map((g) => {
-          const open = expandedTypes.has(g.type);
-          return (
-            <div
-              key={g.type}
-              className={`lds-tool-group${open ? " open" : ""}`}
-              data-testid="tool-group"
-              data-tool-type={g.type}
-              data-tool-open={open ? "true" : undefined}
-            >
-              <div
-                className="lds-tool-row"
-                data-testid="tool-row"
-                data-tool-type={g.type}
-                role="button"
-                tabIndex={0}
-                aria-expanded={open}
-                onClick={() => toggleType(g.type)}
-                onKeyDown={(ev) => {
-                  if (ev.key === "Enter" || ev.key === " ") {
-                    ev.preventDefault();
-                    toggleType(g.type);
-                  }
-                }}
-              >
-                {/* neutral type icon (D4/D10): the glyph, not the colored dot. */}
-                <span className="lds-tool-ic" data-testid="tool-ic" aria-hidden>
-                  {TYPE_GLYPH[g.type] ?? "•"}
-                </span>
-                <span className="lds-tool-name" data-testid="tool-name" data-ellipsis-ok title={EVENT_LABEL[g.type]}>
-                  {g.type}
-                </span>
-                <span className="lds-tool-count" data-testid="tool-count">×{fmtInt(g.count)}</span>
-                <span className="lds-tool-metric" data-testid="tool-metric">
-                  {fmtCost(g.costUsd)} · {humanizeDuration(g.durationMs > 0 ? g.durationMs : null)}
-                </span>
-                <span className="lds-tool-chevron" data-testid="tool-chevron" aria-hidden>
-                  {open ? "▾" : "▸"}
-                </span>
-              </div>
-
-              {open && (
-                <div className="lds-tool-body" data-testid="tool-body">
-                  {/* D8: each invocation is the reused single Step component
-                      (uniform frame; kind from event.type; error = clean-red
-                      state). Clicking a Step expands its detail-block inline. */}
-                  {g.invocations.map((inv) => (
-                    <Step
-                      key={inv.id}
-                      event={inv}
-                      depth={1}
-                      selectedEventId={selectedEventId}
-                      flashEventId={flashEventId}
-                      childSteps={childrenByParent.get(inv.id) ?? []}
-                      agentExpanded={expandedAgents.has(inv.id)}
-                      onToggleAgent={toggleAgent}
-                      edit={resolveEdit(inv)}
-                      resolveEdit={resolveEdit}
-                      onSelect={selectEvent}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <ComparisonList
+      groups={groups}
+      expandedKeys={expandedTypes}
+      toggleKey={toggleType}
+      eyebrow="Tools · by invocation count"
+      hint="Click a row to expand its invocations."
+      testidPrefix="tool"
+      groupAttr="data-tool-type"
+      renderMember={(inv) => (
+        // D8: each invocation is the reused single Step component (uniform frame;
+        // kind from event.type; error = clean-red state). Clicking a Step expands
+        // its detail-block inline.
+        <Step
+          event={inv}
+          depth={1}
+          selectedEventId={selectedEventId}
+          flashEventId={flashEventId}
+          childSteps={childrenByParent.get(inv.id) ?? []}
+          agentExpanded={expandedAgents.has(inv.id)}
+          onToggleAgent={toggleAgent}
+          edit={resolveEdit(inv)}
+          resolveEdit={resolveEdit}
+          onSelect={selectEvent}
+        />
+      )}
+    />
   );
 }

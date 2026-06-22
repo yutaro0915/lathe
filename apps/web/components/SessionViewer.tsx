@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Surface from "@/components/Surface";
 import TimeRibbon from "@/components/TimeRibbon";
 import { findingTouchesSession } from "@/components/FindingsExplorer";
-import type { ChangedFile, DiffHunk, Finding, Session, SessionBundle, TranscriptEvent } from "@/lib/types";
+import type { Finding, Session, SessionBundle, TranscriptEvent } from "@/lib/types";
 import { kindOf, type StepKind } from "@/lib/event-display";
 import { ALL_KINDS, type FilterMode, type Tab } from "@/components/session-viewer/types";
 import { useTurnRollups } from "@/components/session-viewer/useTurnRollups";
@@ -23,6 +23,7 @@ import { FindingsTab } from "@/components/session-viewer/FindingsTab";
 import { RawTab } from "@/components/session-viewer/RawTab";
 import { SessionAside } from "@/components/session-viewer/SessionAside";
 import { JumpLandingBanner } from "@/components/session-viewer/JumpLandingBanner";
+import { buildEditByEventId } from "@/components/session-viewer/edit-map";
 
 const LS_PINS = "lathe.pins";
 const LS_NOTES = "lathe.notes";
@@ -57,6 +58,7 @@ export default function SessionViewer({
   const [transcriptSearch, setTranscriptSearch] = useState("");
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(() => new Set());
   const [expandedToolTypes, setExpandedToolTypes] = useState<Set<string>>(() => new Set());
+  const [expandedSkills, setExpandedSkills] = useState<Set<string>>(() => new Set());
   const [collapsedTurns, setCollapsedTurns] = useState<Set<string>>(() => new Set());
   const [subAgentTab, setSubAgentTab] = useState<string>("overview");
   const [gitFocusEvent, setGitFocusEvent] = useState<string | undefined>(undefined);
@@ -76,6 +78,7 @@ export default function SessionViewer({
   useEffect(() => setFindings(initialFindings), [initialFindings]);
   useEffect(() => setSubAgentTab("overview"), [primary.id]);
   useEffect(() => setExpandedToolTypes(new Set()), [primary.id]);
+  useEffect(() => setExpandedSkills(new Set()), [primary.id]);
 
   const seedId = useMemo(() => {
     const first = events.find((e) => !e.parentId) ?? events[0];
@@ -215,43 +218,13 @@ export default function SessionViewer({
     return counts;
   }, [events]);
   // edit detail-block data: map an edit/write event → its changed file + hunks,
-  // so the inline edit step can show the file path, +N −M, and the diff.
-  const editByEventId = useMemo(() => {
-    const fileById = new Map<string, ChangedFile>();
-    for (const f of bundle.changedFiles) fileById.set(f.id, f);
-    // hunk → owning file (so an attribution's hunkId resolves to a file).
-    const fileByHunk = new Map<string, string>();
-    for (const [fileId, hunkList] of Object.entries(bundle.hunks)) {
-      for (const h of hunkList) fileByHunk.set(h.id, fileId);
-    }
-    // event → set of file ids it produced (via hunk attributions).
-    const filesByEvent = new Map<string, Set<string>>();
-    for (const [hunkId, attrs] of Object.entries(bundle.attributions)) {
-      const fileId = fileByHunk.get(hunkId);
-      if (!fileId) continue;
-      for (const a of attrs) {
-        if (!a.eventId) continue;
-        const set = filesByEvent.get(a.eventId) ?? new Set<string>();
-        set.add(fileId);
-        filesByEvent.set(a.eventId, set);
-      }
-    }
-    const out = new Map<string, { file: ChangedFile; hunks: DiffHunk[] }>();
-    for (const e of events) {
-      if (e.type !== "file_edit" && e.type !== "file_write") continue;
-      // prefer an attributed file; else match by the event's own filePath.
-      let fileId: string | undefined = [...(filesByEvent.get(e.id) ?? [])][0];
-      if (!fileId && e.filePath) {
-        const byPath = bundle.changedFiles.find((f) => f.path === e.filePath);
-        fileId = byPath?.id;
-      }
-      if (!fileId) continue;
-      const file = fileById.get(fileId);
-      if (!file) continue;
-      out.set(e.id, { file, hunks: bundle.hunks[fileId] ?? [] });
-    }
-    return out;
-  }, [bundle.attributions, bundle.changedFiles, bundle.hunks, events]);
+  // so the inline edit step can show the file path, +N −M, and the diff. The
+  // resolution lives in buildEditByEventId (session-viewer/edit-map); the
+  // component just memoizes it.
+  const editByEventId = useMemo(
+    () => buildEditByEventId(bundle, events),
+    [bundle.attributions, bundle.changedFiles, bundle.hunks, events, bundle],
+  );
 
   const selected = useMemo(() => events.find((e) => e.id === selectedEventId), [events, selectedEventId]);
   const selectedFiles = selected ? bundle.eventFiles[selected.id] ?? [] : [];
@@ -378,6 +351,14 @@ export default function SessionViewer({
       return next;
     });
   }
+  function toggleSkill(key: string) {
+    setExpandedSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
   function togglePin() {
     if (!selected) return;
     const next = new Set(pins);
@@ -421,18 +402,24 @@ export default function SessionViewer({
     setGitFocusHunkId(undefined);
   };
 
-  // git / stats / findings / tools fill the whole work area (no inspector pane).
-  // transcript is now an INLINE turn-accordion that fills the whole work area
-  // too (D6 / ADR-detail-wider-than-list): turns collapsed by default; expanding
-  // a turn reveals its steps inline; a step expands its detail-block in place.
-  // Tools is now a type-aggregated comparison-list with inline expansion (D11/
-  // D12/D8, slice 7): its detail is the inline invocation Steps, so it ALSO
+  // git / stats / findings / tools / skills fill the whole work area (no
+  // inspector pane). transcript is now an INLINE turn-accordion that fills the
+  // whole work area too (D6 / ADR-detail-wider-than-list): turns collapsed by
+  // default; expanding a turn reveals its steps inline; a step expands its
+  // detail-block in place. Tools (slice 7) and Skills (slice 8) are
+  // comparison-lists with inline expansion (D11/D12/D8): aggregated by tool type
+  // / capability name, their detail is the inline invocation Steps, so they ALSO
   // dropped the narrow inspector. There is NO side detail pane for these tabs
   // (the wide SessionDetailWide was retired, supersedes commit cc8f349). The
-  // REMAINING tabs (skills/subagents/annotations/raw) still get the narrow
-  // inspector via the Surface RightPanel (its sa-detail/step-inspect contract
-  // depends on the aside living there).
-  const isFullWidthTab = activeTab === "git" || activeTab === "stats" || activeTab === "findings" || activeTab === "tools";
+  // REMAINING tabs (subagents/annotations/raw) still get the narrow inspector via
+  // the Surface RightPanel (its sa-detail/step-inspect contract depends on the
+  // aside living there).
+  const isFullWidthTab =
+    activeTab === "git" ||
+    activeTab === "stats" ||
+    activeTab === "findings" ||
+    activeTab === "tools" ||
+    activeTab === "skills";
   const isTranscriptTab = activeTab === "transcript";
 
   // The metrics feed the one shell-owned WorkareaHeader through the Surface
@@ -492,6 +479,23 @@ export default function SessionViewer({
           flashEventId={flashEventId}
         />
       )}
+      {/* D33/D11/D12/D8 (slice 8): Skills is a capability-aggregated
+          comparison-list that expands its invocations inline (no side
+          inspector) — the SAME shared ComparisonList shape as Tools. */}
+      {activeTab === "skills" && (
+        <SkillsTab
+          bundle={bundle}
+          expandedSkills={expandedSkills}
+          toggleSkill={toggleSkill}
+          selectedEventId={selectedEventId}
+          selectEvent={setSelected}
+          expandedAgents={expandedAgents}
+          toggleAgent={(eventId) => setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; })}
+          editByEventId={editByEventId}
+          childrenByParent={childrenByParent}
+          flashEventId={flashEventId}
+        />
+      )}
       {activeTab === "findings" && <FindingsTab findings={findings} setFindings={setFindings} sessions={sessions} currentId={currentId} resolveEvidence={resolveEvidence} onJumpToSession={jumpToFindingSession} onJumpToTurn={jumpToFindingTurn} />}
     </div>
   ) : isTranscriptTab ? (
@@ -530,7 +534,6 @@ export default function SessionViewer({
   ) : (
     <div className="lds-sv-main" data-testid="main" data-tab={activeTab}>
       {banner}
-      {activeTab === "skills" && <SkillsTab events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelected} />}
       {activeTab === "subagents" && <SubagentsTab invocations={invocations} subAgentTab={subAgentTab} setSubAgentTab={setSubAgentTab} childrenByParent={childrenByParent} sessionById={sessionById} selectedEventId={selectedEventId} setSelectedEventId={setSelected} copied={copied} copy={copy} openAgent={openAgent} openSubSession={openSubSession} />}
       {activeTab === "annotations" && <AnnotationsTab annotations={annotations} events={events} jumpToEvent={(id) => { setActiveTab("transcript"); selectTimelineEvent(id, true); }} />}
       {activeTab === "raw" && <RawTab selected={selected} events={events} copied={copied} copy={copy} />}

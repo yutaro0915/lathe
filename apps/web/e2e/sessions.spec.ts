@@ -82,12 +82,12 @@ test.describe("Sessions surface + viewer (/)", () => {
 
   test("Pin persists to localStorage", async ({ page }) => {
     // Pin/Note were dropped from the transcript (its detail is the inline step
-    // detail-block) AND from Tools (slice 7: Tools is now a full-width
-    // comparison-list whose invocations expand inline — no inspector). They live
-    // on the Inspector for the REMAINING list+inspector tabs (skills/subagents/
-    // annotations/raw). Drive Pin from the Raw inspector: Raw always renders and
-    // the viewer auto-selects the seed event, so the inspector's Pin button is
-    // present + enabled for any session.
+    // detail-block) AND from Tools (slice 7) AND from Skills (slice 8: both are
+    // now full-width comparison-lists whose invocations expand inline — no
+    // inspector). They live on the Inspector for the REMAINING list+inspector
+    // tabs (subagents/annotations/raw). Drive Pin from the Raw inspector: Raw
+    // always renders and the viewer auto-selects the seed event, so the
+    // inspector's Pin button is present + enabled for any session.
     await gotoViewer(page, "tab=raw");
     const pinBtn = page.locator(`[data-testid="lds-rightpanel"] [data-testid="btn"]`, { hasText: /Pin/i }).first();
     await expect(pinBtn).toBeEnabled();
@@ -542,9 +542,19 @@ test.describe("Codex support", () => {
     // a Codex session that used the openai-docs skill by reading its SKILL.md.
     // Codex has no skill tool, so this is detected from the shell read — it must
     // still show up as a first-class skill (it was previously lost as a file_read).
+    // Skills is now a capability-aggregated comparison-list (slice 8 / D33): the
+    // skill name surfaces as a row, and the underlying skill event (the reused
+    // Step, data-event-kind="skill") appears when the row is expanded (D12).
     await page.goto("/?session=019e9d30-e0a9-7752-b11c-70aa8644e17f&tab=skills");
-    await expect(page.locator(`[data-testid="timeline"] [data-testid="event-icon"][data-event-kind="skill"]`).first()).toBeVisible();
-    await expect(page.locator(`[data-testid="timeline"]`)).toContainText(/openai-docs/);
+    const skillRow = page
+      .locator(`[data-testid="skills-list"] [data-testid="skill-row"]`)
+      .filter({ hasText: /openai-docs/ })
+      .first();
+    await expect(skillRow).toBeVisible();
+    await skillRow.click();
+    await expect(
+      page.locator(`[data-testid="skill-body"] [data-testid="event-icon"][data-event-kind="skill"]`).first()
+    ).toBeVisible();
   });
 });
 
