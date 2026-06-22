@@ -137,6 +137,42 @@ test.describe("Annotations tab", () => {
   });
 });
 
+test.describe("Tools tab = comparison-list + inline expansion (D11/D12/D8)", () => {
+  // session with a healthy spread of tool invocations across types
+  const SID = "da2ac032-a905-4267-8e5f-851456926a79";
+
+  test("Tools renders one row per tool type, sorted by invocation count (desc)", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=tools`);
+    const rows = page.locator(`[data-testid="tools-list"] [data-testid="tool-row"]`);
+    await expect(rows.first()).toBeVisible();
+    // counts are non-increasing down the list (D11 sort = count descending).
+    const counts = await page
+      .locator(`[data-testid="tools-list"] [data-testid="tool-count"]`)
+      .evaluateAll((els) => (els as HTMLElement[]).map((e) => Number((e.textContent ?? "").replace(/[^0-9]/g, ""))));
+    expect(counts.length).toBeGreaterThan(0);
+    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]);
+    // Tools is full-width now (D12: no side inspector for Tools).
+    await expect(page.locator(`[data-testid="lds-rightpanel"]`)).toHaveCount(0);
+  });
+
+  test("clicking a tool type row expands its invocations inline as Step rows", async ({ page }) => {
+    await page.goto(`/?session=${SID}&tab=tools`);
+    const firstRow = page.locator(`[data-testid="tools-list"] [data-testid="tool-row"]`).first();
+    await expect(firstRow).toBeVisible();
+    // collapsed by default: no invocation Steps inside the body yet.
+    await expect(page.locator(`[data-testid="tool-body"] [data-testid="event-row"][data-row-kind="step"]`)).toHaveCount(0);
+    await firstRow.click();
+    // expanded: the invocations appear inline as reused Step components (D8).
+    await expect
+      .poll(async () => page.locator(`[data-testid="tool-body"] [data-testid="event-row"][data-row-kind="step"]`).count())
+      .toBeGreaterThan(0);
+    await expect(firstRow).toHaveAttribute("aria-expanded", "true");
+    // clicking again collapses it in place (D12).
+    await firstRow.click();
+    await expect(page.locator(`[data-testid="tool-body"] [data-testid="event-row"][data-row-kind="step"]`)).toHaveCount(0);
+  });
+});
+
 test.describe("Turn accordion (D6)", () => {
   const SID = "33a47290-fc24-47bc-b624-e7fbc4412ade";
   const SUBAGENT_SID = "da2ac032-a905-4267-8e5f-851456926a79";
@@ -259,10 +295,11 @@ test.describe("Inspector (RightPanel) collapse/expand toggle", () => {
   // flow. The Inspector (Surface RightPanel) used to close with a header × and
   // reopen with a SEPARATE edge rail — two asymmetric controls. Now ONE edge
   // toggle (lds-rp-toggle) handles both directions. The transcript dropped the
-  // RightPanel (its detail is inline), so this still uses the tools tab — the
-  // non-transcript, non-full-width tab that renders the inspector.
+  // RightPanel (its detail is inline) and Tools dropped it too (slice 7: Tools
+  // is now a full-width comparison-list with inline expansion), so this uses the
+  // Raw tab — a non-transcript, non-full-width tab that still renders the inspector.
   test("the Inspector collapses and re-expands via one consistent edge toggle", async ({ page }) => {
-    await gotoViewer(page, "tab=tools");
+    await gotoViewer(page, "tab=raw");
 
     const rightpanel = page.locator(`[data-testid="lds-rightpanel"]`);
     const toggle = page.locator(`[data-testid="lds-rp-toggle"]`);

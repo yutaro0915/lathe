@@ -56,6 +56,7 @@ export default function SessionViewer({
   const [filterMode, setFilterMode] = useState<FilterMode>("hide");
   const [transcriptSearch, setTranscriptSearch] = useState("");
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(() => new Set());
+  const [expandedToolTypes, setExpandedToolTypes] = useState<Set<string>>(() => new Set());
   const [collapsedTurns, setCollapsedTurns] = useState<Set<string>>(() => new Set());
   const [subAgentTab, setSubAgentTab] = useState<string>("overview");
   const [gitFocusEvent, setGitFocusEvent] = useState<string | undefined>(undefined);
@@ -74,6 +75,7 @@ export default function SessionViewer({
 
   useEffect(() => setFindings(initialFindings), [initialFindings]);
   useEffect(() => setSubAgentTab("overview"), [primary.id]);
+  useEffect(() => setExpandedToolTypes(new Set()), [primary.id]);
 
   const seedId = useMemo(() => {
     const first = events.find((e) => !e.parentId) ?? events[0];
@@ -368,6 +370,14 @@ export default function SessionViewer({
       return next;
     });
   }
+  function toggleToolType(type: string) {
+    setExpandedToolTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }
   function togglePin() {
     if (!selected) return;
     const next = new Set(pins);
@@ -411,15 +421,18 @@ export default function SessionViewer({
     setGitFocusHunkId(undefined);
   };
 
-  // git / stats / findings fill the whole work area (no inspector pane).
+  // git / stats / findings / tools fill the whole work area (no inspector pane).
   // transcript is now an INLINE turn-accordion that fills the whole work area
   // too (D6 / ADR-detail-wider-than-list): turns collapsed by default; expanding
   // a turn reveals its steps inline; a step expands its detail-block in place.
-  // There is NO side detail pane (the wide SessionDetailWide was retired,
-  // supersedes commit cc8f349). Every OTHER tab (tools/skills/subagents/
-  // annotations/raw) still gets the narrow inspector via the Surface RightPanel
-  // (its sa-detail/step-inspect contract depends on the aside living there).
-  const isFullWidthTab = activeTab === "git" || activeTab === "stats" || activeTab === "findings";
+  // Tools is now a type-aggregated comparison-list with inline expansion (D11/
+  // D12/D8, slice 7): its detail is the inline invocation Steps, so it ALSO
+  // dropped the narrow inspector. There is NO side detail pane for these tabs
+  // (the wide SessionDetailWide was retired, supersedes commit cc8f349). The
+  // REMAINING tabs (skills/subagents/annotations/raw) still get the narrow
+  // inspector via the Surface RightPanel (its sa-detail/step-inspect contract
+  // depends on the aside living there).
+  const isFullWidthTab = activeTab === "git" || activeTab === "stats" || activeTab === "findings" || activeTab === "tools";
   const isTranscriptTab = activeTab === "transcript";
 
   // The metrics feed the one shell-owned WorkareaHeader through the Surface
@@ -463,6 +476,22 @@ export default function SessionViewer({
     <div className="lds-sv-fill" data-testid="main" data-tab={activeTab}>
       {activeTab === "git" && <GitTab bundle={bundle} currentId={currentId} focusEventId={gitFocusEvent} focusFileId={gitFocusFileId} focusHunkId={gitFocusHunkId} onJumpToEvent={(eid) => { setActiveTab("transcript"); selectTimelineEvent(eid, true); clearGitFocus(); }} />}
       {activeTab === "stats" && <StatsTab bundle={bundle} />}
+      {/* D11/D12/D8 (slice 7): Tools is a type-aggregated comparison-list that
+          expands its invocations inline (no side inspector). */}
+      {activeTab === "tools" && (
+        <ToolsTab
+          bundle={bundle}
+          expandedTypes={expandedToolTypes}
+          toggleType={toggleToolType}
+          selectedEventId={selectedEventId}
+          selectEvent={setSelected}
+          expandedAgents={expandedAgents}
+          toggleAgent={(eventId) => setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; })}
+          editByEventId={editByEventId}
+          childrenByParent={childrenByParent}
+          flashEventId={flashEventId}
+        />
+      )}
       {activeTab === "findings" && <FindingsTab findings={findings} setFindings={setFindings} sessions={sessions} currentId={currentId} resolveEvidence={resolveEvidence} onJumpToSession={jumpToFindingSession} onJumpToTurn={jumpToFindingTurn} />}
     </div>
   ) : isTranscriptTab ? (
@@ -501,7 +530,6 @@ export default function SessionViewer({
   ) : (
     <div className="lds-sv-main" data-testid="main" data-tab={activeTab}>
       {banner}
-      {activeTab === "tools" && <ToolsTab events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelected} />}
       {activeTab === "skills" && <SkillsTab events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelected} />}
       {activeTab === "subagents" && <SubagentsTab invocations={invocations} subAgentTab={subAgentTab} setSubAgentTab={setSubAgentTab} childrenByParent={childrenByParent} sessionById={sessionById} selectedEventId={selectedEventId} setSelectedEventId={setSelected} copied={copied} copy={copy} openAgent={openAgent} openSubSession={openSubSession} />}
       {activeTab === "annotations" && <AnnotationsTab annotations={annotations} events={events} jumpToEvent={(id) => { setActiveTab("transcript"); selectTimelineEvent(id, true); }} />}

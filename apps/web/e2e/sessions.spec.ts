@@ -82,11 +82,16 @@ test.describe("Sessions surface + viewer (/)", () => {
 
   test("Pin persists to localStorage", async ({ page }) => {
     // Pin/Note were dropped from the transcript (its detail is the inline step
-    // detail-block); they live on the Inspector for the list+inspector tabs
-    // (tools/skills/subagents/raw). Drive Pin from the tools inspector.
-    await gotoViewer(page, "tab=tools");
-    await page.locator(`[data-testid="event-row"]`).nth(0).click();
-    await page.locator(`[data-testid="btn"]`, { hasText: /Pin/i }).first().click();
+    // detail-block) AND from Tools (slice 7: Tools is now a full-width
+    // comparison-list whose invocations expand inline — no inspector). They live
+    // on the Inspector for the REMAINING list+inspector tabs (skills/subagents/
+    // annotations/raw). Drive Pin from the Raw inspector: Raw always renders and
+    // the viewer auto-selects the seed event, so the inspector's Pin button is
+    // present + enabled for any session.
+    await gotoViewer(page, "tab=raw");
+    const pinBtn = page.locator(`[data-testid="lds-rightpanel"] [data-testid="btn"]`, { hasText: /Pin/i }).first();
+    await expect(pinBtn).toBeEnabled();
+    await pinBtn.click();
     const pins = await page.evaluate(() => localStorage.getItem("lathe.pins"));
     expect(pins && pins.length).toBeTruthy();
   });
