@@ -76,6 +76,10 @@ export interface PullRequestSummary {
   state: PullRequestState;
   url: string;
   headRefName: string | null;
+  baseRefName?: string | null;
+  additions?: number;
+  deletions?: number;
+  changedFiles?: number;
   mergedAt: string | null;
   updatedAt: string;
   linkMethod?: 'sha' | 'branch';
@@ -97,11 +101,14 @@ export interface PullRequest extends PullRequestSummary {
 export interface PullRequestSessionLink {
   session: Session;
   linkMethod: 'sha' | 'branch';
+  matchedSha: string | null;
 }
 
 export interface PullRequestBundle {
   pullRequest: PullRequest;
   linkedSessions: PullRequestSessionLink[];
+  changedFiles: ChangedFile[];
+  hunks: Record<string, DiffHunk[]>;
 }
 
 export interface TranscriptEvent {

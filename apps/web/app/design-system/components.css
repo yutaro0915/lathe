@@ -221,42 +221,83 @@
 .ribbon-axis{position:relative;height:13px;margin-top:4px;}
 .ribbon-axis .tick{position:absolute;top:0;font-size:9.5px;color:var(--muted-2);white-space:nowrap;font-family:var(--mono);font-variant-numeric:tabular-nums;}
 
-/* ---- PR origin view -------------------------------------------------------
-   Bespoke master-detail surface for the /pr route (PullRequestView). No DS
-   primitive duplicates this layout; migrated out of globals.css verbatim
-   (DS v1 shrinks globals, grows here). ---- */
-.pr-shell{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:320px minmax(0,1fr);background:var(--bg);overflow:hidden;}
-/* Narrow widths: stack the PR list above the detail (one column) so the detail
-   pane keeps full width instead of being squeezed to a sliver by the fixed
-   320px list — same stacking pattern as the transcript / detail-wide grids. */
-@media (max-width:860px){
-  .pr-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,40%) minmax(0,1fr);}
-  .pr-sidebar{border-right:0;border-bottom:1px solid var(--border);}
+/* ---- PR navigate surfaces (D28/D29, ADR-pr-navigate) --------------------- */
+.pr-list-page{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px 16px;background:var(--bg);}
+.pr-comparison-list{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;background:var(--panel);}
+.pr-row{display:grid;grid-template-columns:20px minmax(220px,1fr) auto auto minmax(180px,.7fr) 92px 14px;align-items:center;gap:10px;
+  min-width:0;padding:10px 12px;border-bottom:1px solid var(--border-faint);color:var(--text);text-decoration:none;}
+.pr-row:last-child{border-bottom:0;}
+.pr-row:hover{background:var(--panel-hover);text-decoration:none;}
+.pr-row-icon{display:inline-flex;color:var(--muted);align-items:center;justify-content:center;}
+.pr-row-title,.pr-row-meta{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pr-row-title{font-weight:650;font-size:13px;}
+.pr-row-number,.pr-row-stat,.pr-detail-number,.pr-section-count,.pr-section-stat,.pr-session-metric,.pr-review-meta{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.pr-row-number{color:var(--muted);font-size:12px;}
+.pr-row-meta{font-family:var(--mono);font-size:11px;color:var(--muted-2);}
+.pr-row-stat{font-size:11px;color:var(--muted);}
+.pr-row-chevron{display:inline-flex;color:var(--muted-2);}
+.pr-state-badge{flex:0 0 auto;}
+
+.pr-detail{flex:1 1 auto;min-width:0;min-height:0;background:var(--panel);display:flex;flex-direction:column;}
+.pr-detail-head{flex:0 0 auto;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--panel);}
+.pr-detail-title-row{display:flex;align-items:center;gap:9px;min-width:0;}
+.pr-detail-title-row h1{flex:1 1 260px;min-width:0;margin:0;font-size:18px;line-height:1.3;font-weight:720;letter-spacing:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pr-back,.pr-github-link{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);
+  color:var(--text-soft);text-decoration:none;}
+.pr-back{width:26px;height:26px;justify-content:center;flex:0 0 auto;}
+.pr-back:hover,.pr-github-link:hover{background:var(--panel-hover);text-decoration:none;}
+.pr-github-link{height:26px;padding:0 9px;font-size:12px;white-space:nowrap;flex:0 0 auto;}
+.pr-detail-number{font-size:13px;color:var(--muted);}
+.pr-detail-spacer{flex:0 1 8px;}
+.pr-detail-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:7px;padding-left:35px;font-family:var(--mono);font-size:11px;color:var(--muted-2);}
+.pr-detail-meta span{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pr-detail-body{width:100%;max-width:1120px;box-sizing:border-box;padding:16px;display:flex;flex-direction:column;gap:20px;}
+.pr-section{min-width:0;display:flex;flex-direction:column;gap:8px;}
+.pr-section-head{display:flex;align-items:center;gap:8px;min-width:0;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
+.pr-section-count,.pr-section-stat{font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted-2);}
+.pr-section-stat{margin-left:2px;}
+.pr-section-link{margin-left:auto;display:inline-flex;align-items:center;gap:4px;color:var(--text-soft);text-decoration:none;font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;white-space:nowrap;}
+.pr-section-link:hover{text-decoration:underline;}
+.pr-section-note{margin:0;font-size:10.5px;color:var(--muted-2);line-height:1.45;}
+.pr-produced-list,.pr-review-list{display:flex;flex-direction:column;gap:6px;}
+.pr-session-row{display:grid;grid-template-columns:20px minmax(0,1fr) auto auto 14px;align-items:center;gap:10px;min-width:0;
+  padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);color:var(--text);text-decoration:none;}
+.pr-session-row:hover{background:var(--panel-hover);text-decoration:none;}
+.pr-session-title{min-width:0;font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pr-link-strength{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border:1px solid var(--border-strong);border-radius:var(--radius-xs);
+  font-family:var(--mono);font-size:11px;color:var(--text-soft);white-space:nowrap;}
+.pr-link-strength.branch{border-style:dashed;color:var(--muted);}
+.pr-session-metric{font-size:11px;color:var(--muted-2);}
+.pr-changed .diff-acc{flex:0 0 auto;overflow:visible;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);}
+.pr-changed .diff-acc-list{padding:6px;}
+.pr-review-row{display:grid;grid-template-columns:16px auto minmax(0,1fr) auto;align-items:center;gap:9px;min-width:0;
+  padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);}
+.pr-review-row svg{color:var(--muted);}
+.pr-review-state{font-size:12px;color:var(--text-soft);white-space:nowrap;}
+.pr-review-body{min-width:0;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pr-review-meta{font-size:11px;color:var(--muted-2);}
+@media (max-width:900px){
+  .pr-row{grid-template-columns:20px minmax(0,1fr) auto auto;gap:8px;}
+  .pr-row-meta{grid-column:2 / 4;}
+  .pr-row-stat{grid-column:4 / 5;text-align:right;}
+  .pr-row-chevron{display:none;}
+  .pr-detail-title-row{flex-wrap:wrap;}
+  .pr-detail-title-row h1{flex-basis:calc(100% - 35px);order:2;}
+  .pr-detail-number,.pr-state-badge{order:3;}
+  .pr-github-link{order:4;margin-left:auto;}
+  .pr-detail-meta{padding-left:0;}
 }
-.pr-sidebar{display:flex;flex-direction:column;min-height:0;background:var(--sidebar-bg);border-right:1px solid var(--border);}
-.pr-list{flex:1 1 auto;min-height:0;overflow-y:auto;padding:8px;}
-.pr-list-item{display:flex;flex-direction:column;gap:6px;padding:10px 11px;border:1px solid transparent;border-radius:var(--radius);color:var(--text);text-decoration:none;}
-.pr-list-item:hover{background:var(--panel-hover);text-decoration:none;}
-.pr-list-item.active{background:var(--accent-weak);border-color:var(--accent-ring);box-shadow:var(--shadow-sm);}
-.pr-list-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
-.pr-number{font-family:var(--mono);font-weight:700;color:var(--accent-strong);}
-.pr-list-title{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.pr-list-meta{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px;min-width:0;}
-.pr-main{min-width:0;overflow-y:auto;background:var(--panel);}
-.pr-hero{padding:18px 22px 14px;border-bottom:1px solid var(--border);background:var(--panel);}
-.pr-title-line{display:flex;align-items:center;gap:10px;min-width:0;}
-.pr-title-line h1{font-size:20px;line-height:1.25;margin:0;font-weight:750;letter-spacing:0;min-width:0;overflow-wrap:anywhere;}
-.pr-meta-row,.pr-stat-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;color:var(--muted);}
-.pr-section{padding:16px 22px;border-bottom:1px solid var(--border);}
-.pr-body{max-width:880px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text-soft);}
-.linked-session-list,.review-list{display:flex;flex-direction:column;gap:7px;}
-.linked-session{display:grid;grid-template-columns:16px minmax(0,1fr) auto auto;align-items:center;gap:9px;
-  padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);color:var(--text);text-decoration:none;}
-.linked-session:hover{background:var(--panel-hover);text-decoration:none;}
-.linked-session-title{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.review-row{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);}
-.review-author{font-weight:650;}
-.review-body{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-soft);}
+@media (max-width:760px){
+  .pr-list-page,.pr-detail-body{padding:10px;}
+  .pr-session-row{grid-template-columns:20px minmax(0,1fr) 14px;}
+  .pr-session-row .pr-link-strength{grid-column:2 / 3;justify-self:start;}
+  .pr-session-row .pr-session-metric{grid-column:2 / 4;}
+  .pr-review-row{grid-template-columns:16px auto minmax(0,1fr);}
+  .pr-review-meta{grid-column:2 / 4;}
+  .pr-section-head{flex-wrap:wrap;}
+  .pr-section-link{margin-left:0;}
+}
 
 /* ---- file status chip (A/M/D/R) ------------------------------------------
    A quiet outline status letter on each diff file row (DiffFileRow). The old
@@ -1104,7 +1145,7 @@ button.event-type-badge{height:auto;min-height:24px;}
 
 /* ============================================================================
    PR linkage chips (G1) — neutral base + status-only color (B discipline).
-   Bespoke link chips for the session header PR row + PullRequestView; no DS
+   Bespoke link chips for the session header PR row + PR detail; no DS
    primitive duplicates them. Migrated out of globals.css verbatim.
    ========================================================================== */
 .pr-chip-row{display:inline-flex;align-items:center;gap:5px;margin-left:8px;flex-wrap:wrap;}

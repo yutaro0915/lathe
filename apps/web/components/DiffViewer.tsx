@@ -5,7 +5,7 @@ import { fmtInt } from "@lathe/shared";
 import { Icon } from "@/components/ds/icons";
 import { DiffFileRow } from "@/components/diff-viewer/DiffFileRow";
 import { HunkList } from "@/components/diff-viewer/HunkList";
-import type { ChangedFile, DiffHunk, LinkedEvent, SessionBundle } from "@/lib/types";
+import type { ChangedFile, DiffHunk, LinkedEvent } from "@/lib/types";
 
 // DiffViewer — the Git tab body, a SINGLE-COLUMN ACCORDION (slice 10 /
 // ADR-git-single-column). It supersedes the three-pane workspace (FileTree +
@@ -32,19 +32,28 @@ import type { ChangedFile, DiffHunk, LinkedEvent, SessionBundle } from "@/lib/ty
 //     expands the file diffs it produced, same unified hunks. Files with no
 //     attribution collect under an "Unattributed" group.
 interface Props {
-  bundle: SessionBundle;
+  bundle: {
+    changedFiles: ChangedFile[];
+    hunks: Record<string, DiffHunk[]>;
+    linkedEvents: Record<string, LinkedEvent[]>;
+  };
   currentId: string;
   focusEventId?: string;
   focusFileId?: string;
   focusHunkId?: string;
   onJumpToEvent?: (eventId: string) => void;
+  showHead?: boolean;
+  showAxis?: boolean;
+  emptyMessage?: string;
+  fileRowTestId?: string;
 }
 
 type Axis = "by-file" | "by-step";
+type DiffBundle = Props["bundle"];
 
 // the producing step for a file = its first attributed linked event (the same
 // attribution data DiffPane/AttributionPane consumed). null = unattributed.
-function producingEvent(bundle: SessionBundle, fileId: string): LinkedEvent | null {
+function producingEvent(bundle: DiffBundle, fileId: string): LinkedEvent | null {
   return (bundle.linkedEvents[fileId] ?? [])[0] ?? null;
 }
 
@@ -55,6 +64,10 @@ export default function DiffViewer({
   focusFileId,
   focusHunkId,
   onJumpToEvent,
+  showHead = true,
+  showAxis = true,
+  emptyMessage = "No changed files in this session.",
+  fileRowTestId = "file-row",
 }: Props) {
   const files = bundle.changedFiles;
 
@@ -148,44 +161,46 @@ export default function DiffViewer({
 
   return (
     <div className="diff-acc" data-testid="diff-embed">
-      {/* axis switch + diffstat (D15). English labels, stack/folder icons; By file
-          active by default per the mockup. */}
-      <div className="diff-acc-head" data-testid="diff-acc-head">
-        <span className="lds-segmented diff-acc-axis" data-testid="diff-axis-switch" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={axis === "by-step"}
-            className={axis === "by-step" ? "is-active" : ""}
-            data-axis="by-step"
-            onClick={() => setAxis("by-step")}
-          >
-            <Icon name="stack" size={13} /> By step
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={axis === "by-file"}
-            className={axis === "by-file" ? "is-active" : ""}
-            data-axis="by-file"
-            onClick={() => setAxis("by-file")}
-          >
-            <Icon name="folder" size={13} /> By file
-          </button>
-        </span>
-        <span style={{ flex: "1 1 auto" }} />
-        <span className="diff-acc-diffstat" data-testid="diffstat">
-          <span className="files" data-testid="diffstat-files">{fmtInt(totals.files)} files</span>{" "}
-          <span className="add" data-testid="diffstat-add">+{fmtInt(totals.add)}</span>{" "}
-          <span className="del" data-testid="diffstat-del">−{fmtInt(totals.del)}</span>
-        </span>
-      </div>
+      {showHead ? (
+        <div className="diff-acc-head" data-testid="diff-acc-head">
+          {showAxis ? (
+            <span className="lds-segmented diff-acc-axis" data-testid="diff-axis-switch" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={axis === "by-step"}
+                className={axis === "by-step" ? "is-active" : ""}
+                data-axis="by-step"
+                onClick={() => setAxis("by-step")}
+              >
+                <Icon name="stack" size={13} /> By step
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={axis === "by-file"}
+                className={axis === "by-file" ? "is-active" : ""}
+                data-axis="by-file"
+                onClick={() => setAxis("by-file")}
+              >
+                <Icon name="folder" size={13} /> By file
+              </button>
+            </span>
+          ) : null}
+          <span style={{ flex: "1 1 auto" }} />
+          <span className="diff-acc-diffstat" data-testid="diffstat">
+            <span className="files" data-testid="diffstat-files">{fmtInt(totals.files)} files</span>{" "}
+            <span className="add" data-testid="diffstat-add">+{fmtInt(totals.add)}</span>{" "}
+            <span className="del" data-testid="diffstat-del">−{fmtInt(totals.del)}</span>
+          </span>
+        </div>
+      ) : null}
 
       {files.length === 0 ? (
         <div className="empty" data-testid="empty" style={{ padding: 14 }}>
-          No changed files in this session.
+          {emptyMessage}
         </div>
-      ) : axis === "by-file" ? (
+      ) : !showAxis || axis === "by-file" ? (
         <div className="diff-acc-list" data-testid="diff-acc-list" data-axis="by-file">
           {files.map((f) => (
             <DiffFileRow
@@ -195,6 +210,7 @@ export default function DiffViewer({
               linkedEvent={producingEvent(bundle, f.id)}
               open={openFiles.has(f.id)}
               focusHunkId={focusFile?.id === f.id ? focusHunkId : undefined}
+              rowTestId={fileRowTestId}
               onToggle={() => toggleFile(f.id)}
               onJumpToEvent={onJumpToEvent}
             />

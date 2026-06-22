@@ -229,6 +229,11 @@ interface LinkedEventRow extends TranscriptEventRow {
   __hunk_id: string;
 }
 
+interface PullRequestDiffBundle {
+  changedFiles: ChangedFile[];
+  hunks: Record<string, DiffHunk[]>;
+}
+
 // ---- row -> record mappers ------------------------------------------------
 
 function toSession(r: SessionRow): Session {
@@ -777,6 +782,10 @@ function toPullRequestSummary(r: PullRequestRow | SessionPrSummaryRow, linkMetho
     state: r.state as PullRequestState,
     url: r.url,
     headRefName: r.head_ref_name,
+    baseRefName: 'base_ref_name' in r ? r.base_ref_name : undefined,
+    additions: 'additions' in r ? r.additions : undefined,
+    deletions: 'deletions' in r ? r.deletions : undefined,
+    changedFiles: 'changed_files' in r ? r.changed_files : undefined,
     mergedAt: r.merged_at,
     updatedAt: r.updated_at,
     linkMethod: linkMethod ? (linkMethod as 'sha' | 'branch') : undefined,
@@ -927,24 +936,72 @@ export async function getSessionPrSummary(): Promise<Record<string, PullRequestS
 }
 
 export async function getSessionsForPullRequest(prId: string): Promise<PullRequestSessionLink[]> {
-  const rows = await queryRows<SessionRow & { link_method: string }>(
-    `SELECT s.*, spr.source AS link_method
+  const rows = await queryRows<SessionRow & { link_method: string; matched_sha: string | null }>(
+    `SELECT s.*, spr.source AS link_method,
+            (
+              SELECT pc.sha
+                FROM pr_commits pc
+                JOIN session_commits sc
+                  ON sc.session_id = s.id
+                 AND LENGTH(sc.sha) >= 7
+                 AND LOWER(pc.sha) LIKE LOWER(sc.sha) || '%'
+               WHERE pc.pr_id = spr.pr_id
+               ORDER BY LENGTH(sc.sha) DESC, pc.sha ASC
+               LIMIT 1
+            ) AS matched_sha
        FROM session_pull_requests spr
        JOIN sessions s ON s.id = spr.session_id
       WHERE spr.pr_id = $1
       ORDER BY spr.pr_updated_at DESC, s.seq ASC`,
     [prId],
   );
-  return rows.map((row) => ({ session: toSession(row), linkMethod: row.link_method as 'sha' | 'branch' }));
+  return rows.map((row) => ({
+    session: toSession(row),
+    linkMethod: row.link_method as 'sha' | 'branch',
+    matchedSha: row.matched_sha,
+  }));
 }
 
 export async function getPullRequestBundle(id: string): Promise<PullRequestBundle | undefined> {
   const pullRequest = await getPullRequest(id);
   if (!pullRequest) return undefined;
+  const linkedSessions = await getSessionsForPullRequest(id);
+  const diff = await getPullRequestLinkedDiff(linkedSessions.map((link) => link.session.id));
   return {
     pullRequest,
-    linkedSessions: await getSessionsForPullRequest(id),
+    linkedSessions,
+    changedFiles: diff.changedFiles,
+    hunks: diff.hunks,
   };
+}
+
+async function getPullRequestLinkedDiff(sessionIds: string[]): Promise<PullRequestDiffBundle> {
+  if (sessionIds.length === 0) return { changedFiles: [], hunks: {} };
+
+  const fileRows = await queryRows<ChangedFileRow>(
+    `SELECT *
+       FROM changed_files
+      WHERE session_id = ANY($1::text[])
+      ORDER BY session_id ASC, seq ASC`,
+    [sessionIds],
+  );
+  const changedFiles = fileRows.map(toChangedFile);
+  const fileIds = changedFiles.map((file) => file.id);
+  if (fileIds.length === 0) return { changedFiles, hunks: {} };
+
+  const hunkRows = await queryRows<DiffHunkRow>(
+    `SELECT *
+       FROM diff_hunks
+      WHERE file_id = ANY($1::text[])
+      ORDER BY file_id ASC, seq ASC`,
+    [fileIds],
+  );
+  const hunks: Record<string, DiffHunk[]> = {};
+  for (const row of hunkRows) {
+    const hunk = toHunk(row);
+    (hunks[hunk.fileId] ??= []).push(hunk);
+  }
+  return { changedFiles, hunks };
 }
 
 // ---- transcript event queries ---------------------------------------------

@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
 
 import { getPullRequestBundle, listPullRequests } from "@/lib/read";
-import PullRequestView from "@/components/PullRequestView";
+import PullRequestDetail from "@/components/PullRequestDetail";
+import PullRequestList from "@/components/PullRequestList";
 
 export default async function Page({
   searchParams,
@@ -9,13 +10,12 @@ export default async function Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const pullRequests = await listPullRequests();
   const requested = typeof sp.pr === "string" ? sp.pr : undefined;
-  const selectedId =
-    requested && pullRequests.some((pr) => pr.id === requested)
-      ? requested
-      : pullRequests[0]?.id;
-  const bundle = selectedId ? await getPullRequestBundle(selectedId) : undefined;
+  if (requested) {
+    const bundle = await getPullRequestBundle(requested);
+    return <PullRequestDetail bundle={bundle} />;
+  }
 
-  return <PullRequestView pullRequests={pullRequests} bundle={bundle} />;
+  const pullRequests = await listPullRequests();
+  return <PullRequestList pullRequests={pullRequests} />;
 }

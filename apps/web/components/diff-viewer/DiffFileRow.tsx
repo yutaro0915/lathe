@@ -23,6 +23,7 @@ export function DiffFileRow({
   linkedEvent,
   open,
   focusHunkId,
+  rowTestId = "file-row",
   onToggle,
   onJumpToEvent,
 }: {
@@ -34,6 +35,7 @@ export function DiffFileRow({
   // a specific hunk to focus (findings evidence / cross-link jump), when this
   // file is the jump target — highlighted + scrolled into view by HunkList.
   focusHunkId?: string;
+  rowTestId?: string;
   onToggle: () => void;
   onJumpToEvent?: (eventId: string) => void;
 }) {
@@ -46,7 +48,7 @@ export function DiffFileRow({
     >
       <div
         className="diff-acc-row"
-        data-testid="file-row"
+        data-testid={rowTestId}
         data-row-kind="file"
         data-file-id={file.id}
         data-active={open ? "true" : undefined}
