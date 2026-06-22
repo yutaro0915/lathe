@@ -1,6 +1,6 @@
-import * as path from 'node:path';
-import { latheMcpServer, runSession, type AdapterCommand, type McpServer, type PermissionRequest, type SessionUpdate } from '@lathe/acp-client';
+import type { SessionUpdate } from '@lathe/acp-client';
 import { stableJson, type FindingKind } from '@lathe/domain';
+import { runLatheAgentSession } from '../../lib/lathe-agent-harness';
 import { backfillFindingAnalysis, enrichDraftsWithAnalysis } from './analysis';
 import {
   BISECTION_ACCIDENT,
@@ -80,23 +80,21 @@ async function runAcpSession(input: {
   const preflight = acpPreflightResult(input.options, input.analyst);
   if (preflight) return preflight;
 
-  const submit = input.options.submit !== false;
   const before = await querySubmittedCandidateFindings(input.analyst, input.sessionIds);
   const beforeIds = new Set(before.map((row) => row.id));
   const updates: SessionUpdate[] = [];
   try {
-    const result = await runSession({
-      adapter: analystAcpAdapter(),
-      cwd: repoRoot(),
-      mcpServers: analystMcpServers(submit),
-      sessionMeta: { claudeCode: { emitRawSDKMessages: true, options: { tools: ['mcp__lathe__submit_finding'] } } },
+    const result = await runLatheAgentSession({
+      adapterEnvPrefix: 'LATHE_ANALYST_ACP',
+      adapterEnv: { LATHE_INTERNAL_ANALYST_TAG: INTERNAL_ANALYST_TAG },
+      mcpEnv: { LATHE_MCP_ONLY_SUBMIT_FINDING: '1' },
+      permissionPolicy: 'analyst-submit',
       prompt: input.prompt,
       timeoutMs: Number(process.env.LATHE_ANALYST_ACP_TIMEOUT_MS || 180_000),
       onUpdate: (update) => {
         updates.push(update);
         debugAcpUpdate(update);
       },
-      onPermission: (request) => allowPermission(request, submit),
     });
     return await acpResult(input, beforeIds, updates, result.sessionId, String(result.prompt.stopReason ?? ''));
   } catch (error) {
@@ -158,48 +156,6 @@ async function acpResult(
   return submittedRowsToResult(input.options, beforeIds, after, [
     `acp provider=claude-agent-acp analyst=${input.analyst} session=${acpSessionId} updates=${updates.length} stop=${stopReason}`,
   ]);
-}
-
-function repoRoot(): string {
-  return path.resolve(process.cwd(), '..', '..');
-}
-
-function analystAcpAdapter(): AdapterCommand {
-  const command = process.env.LATHE_ANALYST_ACP_COMMAND || 'npx';
-  const args = process.env.LATHE_ANALYST_ACP_ARGS
-    ? JSON.parse(process.env.LATHE_ANALYST_ACP_ARGS) as string[]
-    : ['-y', '@agentclientprotocol/claude-agent-acp@latest'];
-  return { command, args, env: { LATHE_INTERNAL_ANALYST_TAG: INTERNAL_ANALYST_TAG } };
-}
-
-function analystMcpServers(submit: boolean): McpServer[] {
-  const server = latheMcpServer({ repoRoot: repoRoot(), databaseUrl: process.env.DATABASE_URL });
-  if ('env' in server) {
-    server.env = [...server.env, { name: 'LATHE_MCP_ONLY_SUBMIT_FINDING', value: '1' }];
-    if (!submit) server.env = [...server.env, { name: 'LATHE_MCP_DISABLE_SUBMIT_FINDING', value: '1' }];
-  }
-  return [server];
-}
-
-function permissionToolName(request: PermissionRequest): string {
-  const raw = [
-    request.toolCall?.name,
-    request.toolCall?.toolName,
-    request.toolCall?._meta && typeof request.toolCall._meta === 'object' && !Array.isArray(request.toolCall._meta)
-      ? (request.toolCall._meta as Record<string, unknown>).toolName
-      : undefined,
-  ].find((item) => typeof item === 'string');
-  return typeof raw === 'string' ? raw : '';
-}
-
-function allowPermission(request: PermissionRequest, submit: boolean) {
-  const toolName = permissionToolName(request);
-  if (!submit && /submit_finding/.test(toolName)) {
-    const reject = request.options.find((option) => option.kind === 'reject_once' || option.kind === 'reject_always');
-    return reject ? { outcome: 'selected' as const, optionId: reject.optionId } : { outcome: 'cancelled' as const };
-  }
-  const allow = request.options.find((option) => option.kind === 'allow_once' || option.kind === 'allow_always') ?? request.options[0];
-  return allow ? { outcome: 'selected' as const, optionId: allow.optionId } : { outcome: 'cancelled' as const };
 }
 
 function debugAcpUpdate(update: SessionUpdate): void {

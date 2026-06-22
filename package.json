@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.18.1",
   "scripts": {
+    "setup:agent": "sh scripts/setup-lathe-agent.sh",
     "lint:deps": "depcruise --config .dependency-cruiser.js --output-type err-long apps/web/app apps/web/components apps/web/lib packages/mcp/src/server.ts packages/mcp/src/verify.ts packages/acp-client/src packages/shared/src packages/client/src",
     "lint:ox": "oxlint",
     "lint": "pnpm lint:deps && pnpm lint:ox"
