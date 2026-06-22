@@ -1,4 +1,9 @@
 import type { EventType } from "@/lib/types";
+import type { StepKind } from "@/lib/event-display";
+
+// The 5 step kinds (D7), in display order — the successor of the old event-type
+// filter. The transcript toolbar toggles steps by kind (highlight / hide).
+export const ALL_KINDS: StepKind[] = ["thinking", "investigate", "execute", "edit", "message"];
 
 export type Tab =
   | "transcript"

@@ -31,26 +31,27 @@ test.describe("Sessions surface + viewer (/)", () => {
     await expect(page.locator(`[data-testid="event-row"]`).first()).toBeVisible();
   });
 
-  test("event-type filter reduces the timeline", async ({ page }) => {
+  test("kind filter reduces the expanded steps", async ({ page }) => {
     await gotoViewer(page);
-    const before = await page.locator(`[data-testid="event-row"]`).count();
-    // the event-type filter moved from the (removed) left sidebar into the
-    // transcript toolbar; in the default "hide" mode, turning a type off drops
-    // its rows from the timeline.
-    await page.locator(`[data-testid="transcript-filters"] [data-testid="event-type-badge"]`).first().click();
+    await expandAllTurns(page);
+    const before = await page.locator(`[data-testid="event-row"][data-row-kind="step"]`).count();
+    expect(before).toBeGreaterThan(0);
+    // the kind filter (D7's 5 kinds) lives in the transcript toolbar; in the
+    // default "hide" mode, turning a kind off drops its steps from the accordion.
+    await page.locator(`[data-testid="transcript-filters"] [data-testid="kind-badge"]`).first().click();
     await expect
-      .poll(async () => page.locator(`[data-testid="event-row"]`).count())
+      .poll(async () => page.locator(`[data-testid="event-row"][data-row-kind="step"]`).count())
       .toBeLessThan(before);
   });
 
-  test("clicking an event selects it (detail panel)", async ({ page }) => {
+  test("clicking a step selects it (inline detail-block)", async ({ page }) => {
     await gotoViewer(page);
-    const rows = page.locator(`[data-testid="event-row"]`);
+    await expandAllTurns(page);
+    const rows = page.locator(`[data-testid="event-row"][data-row-kind="step"]`);
     await expect(rows.first()).toBeVisible();
-    const n = await rows.count();
-    expect(n).toBeGreaterThan(0);
     await rows.first().click();
-    await expect(page.locator(`[data-testid="event-row"][data-selected="true"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-testid="event-row"][data-row-kind="step"][data-selected="true"]`)).toHaveCount(1);
+    await expect(page.locator(`[data-testid="step-detail"]`).first()).toBeVisible();
   });
 
   test("the surface search filters the list and clears", async ({ page }) => {
@@ -80,7 +81,10 @@ test.describe("Sessions surface + viewer (/)", () => {
   });
 
   test("Pin persists to localStorage", async ({ page }) => {
-    await gotoViewer(page);
+    // Pin/Note were dropped from the transcript (its detail is the inline step
+    // detail-block); they live on the Inspector for the list+inspector tabs
+    // (tools/skills/subagents/raw). Drive Pin from the tools inspector.
+    await gotoViewer(page, "tab=tools");
     await page.locator(`[data-testid="event-row"]`).nth(0).click();
     await page.locator(`[data-testid="btn"]`, { hasText: /Pin/i }).first().click();
     const pins = await page.evaluate(() => localStorage.getItem("lathe.pins"));
@@ -484,12 +488,13 @@ test.describe("Harness signals", () => {
   }) => {
     await page.goto("/?session=da2ac032-a905-4267-8e5f-851456926a79");
     await expandAllTurns(page);
-    // event-type filter (now in the transcript toolbar) exposes Memory + Hook
+    // D7 groups memory → investigate and hook → execute; the kind filter (now in
+    // the transcript toolbar) exposes those kinds.
     await expect(
-      page.locator(`[data-testid="transcript-filters"] [data-testid="event-type-badge"]`, { hasText: "Memory" })
+      page.locator(`[data-testid="transcript-filters"] [data-testid="kind-badge"][data-step-kind="investigate"]`)
     ).toBeVisible();
     await expect(
-      page.locator(`[data-testid="transcript-filters"] [data-testid="event-type-badge"]`, { hasText: "Hook" })
+      page.locator(`[data-testid="transcript-filters"] [data-testid="kind-badge"][data-step-kind="execute"]`)
     ).toBeVisible();
     // and at least one memory event renders in the timeline with its own icon
     await expect(page.locator(`[data-testid="timeline"] [data-testid="event-icon"][data-event-kind="memory"]`).first()).toBeVisible();

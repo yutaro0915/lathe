@@ -155,21 +155,14 @@ test.describe("Findings tab and verdict oracle", () => {
   test("the Findings tab drops the right event inspector and hands it the full width", async ({
     page,
   }) => {
-    // On Transcript the event detail is now a WIDE master-detail in the body
-    // (annotation #6 / design row #6): a scannable event list on the LEFT and a
-    // dominant detail on the RIGHT — NOT the old narrow RightPanel. The detail
-    // (`aside`) is meaningfully WIDER than the list, so Input/Output + md preview
-    // + code get real width.
+    // On Transcript the detail is now the INLINE turn-accordion (D6 /
+    // ADR-detail-wider-than-list): there is NO side detail pane and NO narrow
+    // RightPanel inspector — a step's detail-block opens in place. So the
+    // transcript body fills the whole work area (no master-detail, no split).
     await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=transcript`);
-    await expect(page.locator(`[data-testid="lds-sv-tx-detail"] [data-testid="aside"]`)).toBeVisible();
-    const listWidth = await page
-      .locator(`[data-testid="lds-sv-tx-list"]`)
-      .evaluate((el) => Math.round(el.getBoundingClientRect().width));
-    const detailWidth = await page
-      .locator(`[data-testid="lds-sv-tx-detail"]`)
-      .evaluate((el) => Math.round(el.getBoundingClientRect().width));
-    // the wide detail dominates the list (the important info is not cramped).
-    expect(detailWidth).toBeGreaterThan(listWidth);
+    await expect(page.locator(`[data-testid="timeline"] [data-testid="event-row"][data-row-kind="turn-header"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="lds-sv-tx-detail"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="lds-rightpanel"]`)).toHaveCount(0);
     const surfaceBody = await page
       .locator(`[data-testid="lds-surface-body"]`)
       .evaluate((el) => Math.round(el.getBoundingClientRect().width));

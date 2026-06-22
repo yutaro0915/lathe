@@ -226,30 +226,14 @@
    are owned by .lds-rightpanel; this just lays the detail out as a block). */
 .lds-sv-aside{display:block;}
 
-/* ---- transcript master-detail (wide detail in the body) ------------------
-   The Transcript replaces the old timeline + narrow Inspector with a
-   master-detail laid out in the BODY (design row #6 / annotation #6): a
-   scannable event list on the LEFT and a WIDE, dominant detail on the RIGHT.
-   The detail is meaningfully wider than the list (the I/O, md preview and code
-   get real width). The list takes 40% (bounded 320-600px) so a step title stays
-   readable while the detail keeps the lion share at 60%; both tracks min-width:0
-   so each scrolls in its own box and the row never widens the page. The
-   TimeRibbon sits below this row (full width) inside .lds-sv-main. */
-.lds-sv-tx-md{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:row;overflow:hidden;}
-.lds-sv-tx-list{flex:0 0 40%;max-width:600px;min-width:320px;min-height:0;display:flex;flex-direction:column;
-  border-right:1px solid var(--border);overflow:hidden;}
-.lds-sv-tx-list .timeline{flex:1 1 auto;min-height:0;overflow-y:auto;}
-.lds-sv-tx-detail{flex:1 1 auto;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:var(--panel);}
-.lds-sv-tx-detail .lds-sv-detail-wide{flex:1 1 auto;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;display:block;}
-/* Narrow widths: a fixed 320px list beside the detail squeezes the detail below
-   the list (breaking the wide-detail rule). Stack them into one column — list on
-   top (bounded height), detail filling the rest full-width — mirroring the
-   detail-wide-grid stack at the same breakpoint. */
-@media (max-width:860px){
-  .lds-sv-tx-md{flex-direction:column;}
-  .lds-sv-tx-list{flex:0 0 auto;max-width:none;min-width:0;max-height:40%;border-right:0;border-bottom:1px solid var(--border);}
-  .lds-sv-tx-detail{flex:1 1 auto;}
-}
+/* ---- transcript = inline turn-accordion (D6) -----------------------------
+   The Transcript is now a SINGLE full-width column (the turn-accordion), not a
+   master-detail. It lives inside .lds-sv-main, where the inner .timeline scroll
+   pane holds the stack of turn cards; expanding a turn / step reveals content in
+   place (no side detail pane, no TimeRibbon). The old lds-sv-tx-md/list/detail
+   master-detail rules were retired here (ADR-detail-wider-than-list, supersedes
+   commit cc8f349). The accordion / step / detail-block styling lives in
+   components.css alongside the rest of the transcript surface CSS. */
 
 /* Overview header scope label. Project SCOPE moved to the shell TopBar selector
    (?project=); this is a read-only label of the active scope in the Overview

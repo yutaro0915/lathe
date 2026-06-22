@@ -865,14 +865,6 @@ button.finding-turn-event:focus-visible{outline:2px solid var(--accent-ring);out
 .event-meta .tok{color:var(--muted-2);min-width:64px;text-align:right;}
 .event-meta .dur{color:var(--muted);min-width:46px;text-align:right;}
 .event-meta .ok{color:var(--green);min-width:12px;text-align:center;} .event-meta .err{color:var(--red);min-width:12px;text-align:center;font-weight:700;}
-.event-row.filter-dimmed{opacity:.42;}
-.event-row.filter-dimmed:hover{opacity:.72;}
-/* step latency bar: a thin, unobtrusive inline signal under the title. It is
-   e2e-tested (data-duration-ms / data-width-pct, proportional widths), so it
-   stays — kept short so it never crowds the navigation title. */
-.step-timebar-track{position:relative;display:block;width:96px;height:3px;margin-top:3px;border-radius:999px;background:var(--bg-sunken);overflow:hidden;}
-.step-timebar{position:absolute;top:0;bottom:0;min-width:2px;border-radius:999px;background:var(--border-strong);}
-.event-row:hover .step-timebar,.event-row.selected .step-timebar{background:var(--accent);}
 /* type badge: neutral outline + category dot; error keeps red */
 .event-type-badge{display:inline-flex;align-items:center;gap:5px;height:16px;padding:0 6px;border-radius:3px;
   font-size:9px;font-weight:650;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;
@@ -896,42 +888,89 @@ button.event-type-badge{height:auto;min-height:24px;}
   0%{box-shadow:inset 2px 0 0 var(--accent),0 0 0 2px var(--accent-ring);}
   100%{box-shadow:none;}
 }
-.event-row.flash-jump{animation:lathe-flash-jump 2.2s ease-out 1;}
+.event-row.flash-jump,.lds-step.flash-jump,.lds-turn-card.flash-jump{animation:lathe-flash-jump 2.2s ease-out 1;}
 
 /* ---- expandable sub-agent steps in the transcript ---- */
 /* ≥24×24 hit target (WCAG 2.5.8): the ▸/▾ glyph stays small, the button box grows. */
 .tw-expand{display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;
   border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:10px;line-height:1;padding:0;border-radius:3px;}
 .tw-expand:hover{background:var(--panel-hover);color:var(--accent);}
-/* turn header: a user_message that starts a turn — a quiet divider band. The
-   leading turn-chip carries "Turn N"; the rollup is ONE tidy dot-separated line
-   under the title (.turn-rollup-line), not a wrapping grid of bordered chips, so
-   it stays compact in the narrow nav list. The dense per-event detail lives in
-   the wide detail pane on the right. */
-.event-row.turn-header{background:var(--bg-sunken);border-top:1px solid var(--border);box-shadow:inset 2px 0 0 var(--accent);}
-.event-row.turn-header.turn-has-error{background:var(--red-bg);box-shadow:inset 2px 0 0 var(--red);}
-.event-row.turn-header .event-title{font-weight:650;color:var(--text);}
+/* .chip.turn-chip is still used by the WorkareaHeader jump chips (MetricsBar). */
 .chip.turn-chip{flex:0 0 auto;background:var(--panel);color:var(--text-soft);border:1px solid var(--border-strong);font-weight:650;}
-.turn-rollup-line{display:flex;align-items:center;flex-wrap:wrap;gap:0 6px;row-gap:2px;margin-top:1px;
-  font-family:var(--mono);font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums;}
-.turn-rollup-line .trl-seg{white-space:nowrap;}
-.turn-rollup-line .trl-seg.err{color:var(--red-text);font-weight:650;}
-.turn-rollup-line .trl-seg.is-empty{color:var(--muted-2);}
-.turn-rollup-line .trl-sep{color:var(--muted-2);}
-/* interactive chip → ≥24px tall (WCAG 2.5.8), overriding .chip's 17px height. */
-.turn-files-chip{font:inherit;font-family:var(--mono);font-size:10.5px;height:auto;min-height:24px;padding:0 6px;background:var(--panel);
-  border:1px solid var(--border);color:var(--text-soft);cursor:pointer;}
-.turn-files-chip:hover{border-color:var(--accent-ring);background:var(--accent-weak);color:var(--accent);}
+/* .event-row.child-row is still used by SimpleEventRow (Tools / Skills /
+   Subagents tabs). The transcript's own nested steps use .lds-step-child. */
 .event-row.child-row{background:var(--panel-2);box-shadow:inset 2px 0 0 var(--border-strong);}
 .event-row.child-row .event-gutter{padding-left:14px;}
 .event-row.child-row .event-title{font-weight:450;}
 .event-meta .chip{font-size:10.5px;padding:1px 6px;}
 
-/* transcript search toolbar (above the timeline scroller — stays put) */
+/* ---- transcript = inline turn-accordion (D6/D7/D8) -----------------------
+   The transcript replaced the master-detail event list + wide detail with a
+   stack of bordered turn cards (.lds-turn-card). All turns collapsed by default
+   (whole-session overview); a card opens to show its steps inline as uniform
+   Step components (.lds-step). A step opens its own detail-block in place
+   (.lds-step-detail). Color is rationed (D10): neutral by default, clean red
+   (var(--c-error)) is the only privileged hue, carried by the error STATE. */
+.lds-tx-accordion{display:flex;flex-direction:column;gap:6px;padding:10px 14px;}
+.lds-turn-card{border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;background:var(--panel);}
+.lds-turn-card.open{border-color:var(--border-strong);}
+.lds-turn-card.turn-has-error{border-color:var(--red-chip);}
+.lds-turn-head{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;min-width:0;}
+.lds-turn-card.open > .lds-turn-head{background:var(--bg-sunken);border-bottom:1px solid var(--border);}
+.lds-turn-head:hover{background:var(--panel-hover);}
+.lds-turn-n{flex:0 0 auto;font-family:var(--mono);font-size:11px;font-weight:650;color:var(--text-soft);
+  background:var(--panel);border:1px solid var(--border-strong);border-radius:3px;padding:1px 6px;}
+.lds-turn-summary{flex:1 1 auto;min-width:0;font-size:12.5px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lds-turn-steps{flex:0 0 auto;font-family:var(--mono);font-size:10.5px;color:var(--muted-2);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.lds-turn-body{display:flex;flex-direction:column;}
+.lds-turn-body .empty{padding:10px 14px;font-size:11.5px;color:var(--muted);}
+
+/* a dimmed step (highlight filter mode, non-matching kind). */
+.lds-step-dim{opacity:.42;}
+.lds-step-dim:hover{opacity:.72;}
+
+/* ---- the single uniform Step (D8) ----------------------------------------
+   ONE invariant frame for every kind: [kind icon][optional error dot][kind
+   label][one-line detail, ellipsized][optional trailing signal]. Only the icon,
+   the signal, and the inline detail-block content vary by kind — the container
+   is identical, so there is no per-kind layout drift. */
+.lds-step-wrap{border-top:1px solid var(--border-faint);}
+.lds-step{display:flex;align-items:flex-start;gap:10px;padding:8px 12px 8px 14px;cursor:pointer;border-left:2px solid transparent;min-width:0;}
+.lds-step:hover{background:var(--panel-hover);}
+.lds-step.selected{background:var(--accent-weak);border-left-color:var(--accent);}
+.lds-step.lds-step-child{padding-left:30px;background:var(--panel-2);}
+.lds-step .event-icon{margin-top:1px;}
+.lds-step-head{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;}
+.lds-step-kind{flex:0 0 auto;font-size:10.5px;color:var(--muted);text-transform:lowercase;letter-spacing:.02em;}
+.lds-step-line{flex:1 1 auto;min-width:0;font-size:12.5px;color:var(--text-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lds-step-mono{font-family:var(--mono);}
+/* trailing signal: neutral by default; the error variant is the only red. */
+.lds-step-signal{flex:0 0 auto;font-size:10.5px;color:var(--muted-2);white-space:nowrap;}
+.lds-step-signal-error{color:var(--c-error);font-weight:650;}
+/* error STATE marker: a small clean-red dot before the kind label (D7/D10). It
+   does NOT change the frame shape — it is layered into the same head row. */
+.lds-step-errdot{flex:0 0 auto;width:6px;height:6px;border-radius:50%;background:var(--c-error);}
+
+/* the inline detail-block (below the frame when the step is selected). Same
+   container for every kind; the inner content (command/output, diff, body)
+   varies. Everything WRAPS — no horizontal overflow. */
+.lds-step-detail{padding:0 14px 10px 36px;display:flex;flex-direction:column;gap:8px;min-width:0;}
+.lds-step-detail .code-block{margin:0;max-height:46vh;overflow:auto;white-space:pre-wrap;word-break:break-word;}
+.lds-step-body{font-size:12.5px;color:var(--text-soft);min-width:0;max-height:46vh;overflow:auto;}
+.lds-step-empty{font-size:11.5px;color:var(--muted);font-family:var(--mono);word-break:break-all;}
+.lds-step-children{display:flex;flex-direction:column;}
+/* compact unified diff inside an edit step's detail-block (reuses .diff-line). */
+.lds-step-diff{border:1px solid var(--border);border-radius:var(--radius-sm);overflow:auto;max-height:46vh;background:var(--panel-2);}
+.lds-step-hunk-head{font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--bg-sunken);
+  padding:3px 8px;border-bottom:1px solid var(--border-faint);white-space:pre-wrap;word-break:break-word;}
+.lds-step-diff .diff-line{white-space:pre-wrap;word-break:break-word;}
+.lds-step-diff .diff-line .ltext{white-space:pre-wrap;word-break:break-word;}
+
+/* transcript search toolbar (above the accordion scroller — stays put) */
 .transcript-toolbar{flex:0 0 auto;background:var(--panel);border-bottom:1px solid var(--border-faint);}
-/* event-type filter, relocated from the removed left sidebar into the transcript
+/* kind filter (D7), relocated from the removed left sidebar into the transcript
    toolbar. Override the sidebar's vertical .filters layout to a single dense
-   horizontal row: label · type chips (wrap) · highlight/hide mode (pushed right). */
+   horizontal row: label · kind chips (wrap) · highlight/hide mode (pushed right). */
 .transcript-filters{padding:0 12px 8px;}
 .transcript-filters .filter-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:0;}
 .transcript-filters .filter-row .flabel{display:inline-block;margin-bottom:0;flex:0 0 auto;}
@@ -1000,45 +1039,14 @@ button.event-type-badge{height:auto;min-height:24px;}
 .code-block.output{margin:0;max-height:54vh;min-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
 
 /* ============================================================================
-   Transcript WIDE detail (master-detail right pane) — annotation #6: Input /
-   Output, markdown preview and code get REAL width instead of a narrow panel.
-   The detail head/actions/stat-strip/code-block primitives above are reused;
-   these rules add the two-column body (dominant I/O main + metadata sub-column),
-   the Pretty / Raw toggle, the in-house markdown styling, and the forward SCORES
-   placeholder. Lives in the DS bundle (not globals.css).
+   In-house markdown — the dependency-free renderer used by the transcript step
+   detail-block (thinking / message body) and the Findings evidence prose. The
+   transcript WIDE master-detail right pane (the two-column I/O grid + Pretty/Raw
+   toggle + SCORES placeholder) was RETIRED with SessionDetailWide
+   (ADR-detail-wider-than-list, supersedes commit cc8f349); the inline step
+   detail-block (.lds-step-detail above) replaces it.
    ========================================================================== */
-.detail.detail-wide{display:flex;flex-direction:column;min-width:0;}
-/* I/O main (left, dominant) + metadata sub-column (right). The grid collapses to
-   a single stacked column under ~860px so the metadata sits below the I/O. */
-.detail-wide-grid{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:14px;padding:6px 14px 16px;min-width:0;}
-.detail-wide-grid > *{min-width:0;}
-.detail-io-main{display:flex;flex-direction:column;gap:12px;min-width:0;}
-.detail-meta-col{display:flex;flex-direction:column;gap:10px;min-width:0;
-  border-left:1px solid var(--border);padding-left:14px;}
-@media (max-width:860px){
-  .detail-wide-grid{grid-template-columns:minmax(0,1fr);}
-  .detail-meta-col{border-left:0;padding-left:0;border-top:1px solid var(--border);padding-top:12px;}
-}
-/* the wide I/O blocks fill the column width; the output is the prominent block. */
-.detail-wide .io-block{padding:0;}
-.detail-wide .io-output .code-block.output,.detail-wide .io-output .io-pretty{max-height:60vh;}
-.detail-wide .stat-strip{padding:0 0 4px;}
-.detail-wide .detail-sub,.detail-wide .detail-path{padding-left:0;padding-right:0;}
-.detail-wide .linked-files{padding:10px 0;}
-/* Pretty / Raw toggle in the io-head (reuses .segmented look, sized down). */
-.io-head-tools{display:flex;align-items:center;gap:8px;}
-.io-toggle{height:20px;}
-.io-toggle button{font-size:10px;padding:0 7px;height:20px;text-transform:none;letter-spacing:0;}
-/* the Pretty (markdown) container mirrors .code-block.output box, but flows md. */
-.io-pretty{margin:0;padding:10px 12px;background:var(--panel-2);border:1px solid var(--border);
-  border-radius:var(--radius-sm);overflow:auto;min-height:130px;}
-/* SCORES forward placeholder — reserved slot, nothing wired yet. */
-.detail-scores{padding:10px 0 0;border-top:1px solid var(--border);}
-.detail-scores .scores-tag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
-  color:var(--muted-2);border:1px solid var(--border);border-radius:3px;padding:0 5px;margin-left:6px;}
-.scores-coming{font-size:11px;color:var(--muted-2);margin-top:6px;}
-
-/* ---- in-house markdown (Pretty view) ------------------------------------- */
+/* ---- in-house markdown ---------------------------------------------------- */
 .md{font-size:12.5px;line-height:1.55;color:var(--text-soft);min-width:0;}
 .md > :first-child{margin-top:0;}
 .md > :last-child{margin-bottom:0;}

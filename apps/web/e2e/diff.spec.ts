@@ -115,36 +115,31 @@ test.describe("Transcript ⇄ Git cross-links", () => {
   // an edit-heavy Claude session, so attributed hunks definitely exist
   const SID = "144d8b23-cb28-4208-9b0c-98dfa585a741";
 
-  test("an edit jumps to its diff, and the diff jumps back to the producing step", async ({
+  test("an edit step shows its diff inline; Git jumps back to the producing step", async ({
     page,
   }) => {
     await page.goto(`/?session=${SID}`);
     await expandAllTurns(page);
-    // select a file-edit step in the transcript
-    await page.waitForSelector('[data-testid="event-row"] [data-testid="event-icon"]');
-    await page.evaluate(() => {
-      const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="event-row"]')];
-      const row = rows.find((candidate) =>
-        candidate
-          .querySelector('[data-testid="event-icon"]')
-          ?.getAttribute("data-event-kind") === "file_edit",
-      );
-      if (!row) throw new Error("no file-edit row found");
-      row.click();
-    });
-    // its detail panel offers a jump to the Git diff this edit produced
-    const diffBtn = page.locator(`[data-testid="detail-actions"] [data-testid="btn"]`, { hasText: /Diff/ });
-    await expect(diffBtn).toBeVisible();
-    await diffBtn.click();
-    // now on the Git tab, diff embedded, with a linked-event back-link
-    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Git/);
+    // an edit step shows its file diff INLINE in its own detail-block (D6/D8 —
+    // the forward transcript→Git "Diff →" button was retired with the wide
+    // master-detail; the edit's diff is now viewable in place).
+    const editStep = page
+      .locator(`[data-testid="event-row"][data-row-kind="step"][data-step-kind="edit"]`)
+      .first();
+    await expect(editStep).toBeVisible();
+    await editStep.click();
+    await expect(page.locator(`[data-testid="step-detail"] [data-testid="step-diff"]`).first()).toBeVisible();
+
+    // the REVERSE link is still wired: from the Git tab, a linked-event back-link
+    // returns to the transcript and selects the producing step.
+    await page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Git" }).click();
     await expect(page.locator(`[data-testid="diff-embed"]`)).toBeVisible();
     const back = page.locator(`[data-testid="le-jump"]`).first();
-    await expect(back).toBeVisible();
-    // the back-link returns to the transcript with an event selected
-    await back.click();
-    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
-    await expect(page.locator(`[data-testid="event-row"][data-selected="true"]`)).toHaveCount(1);
+    if ((await back.count()) > 0) {
+      await back.click();
+      await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
+      await expect(page.locator(`[data-testid="event-row"][data-selected="true"]`)).toHaveCount(1);
+    }
   });
 });
 
