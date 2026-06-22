@@ -137,10 +137,12 @@ const SURFACES: Surface[] = [
   {
     // /pr defaults to the most-recently-updated PR (ambient → non-hermetic). Pin
     // it to the seeded fixture PR via `?pr=<id>` so the PR surface always renders
-    // the SAME PR + its linked sessions.
+    // the SAME PR + its linked sessions. ADR-pr-navigate (D12/D28): the PR detail
+    // is a NAVIGATE destination — a single column (Produced-by attribution +
+    // Changed-files inline diff + compact reviews), no longer a pr-sidebar/pr-main
+    // master-detail, so `masterDetail` is intentionally absent. The PR list is /pr.
     name: "PR",
     build: () => `/pr?pr=${encodeURIComponent(PR_FIXTURE.prId)}`,
-    masterDetail: { list: "pr-sidebar", detail: "pr-main" },
   },
   { name: "Overview", build: () => "/overview" },
 ];
