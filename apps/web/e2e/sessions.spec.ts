@@ -513,16 +513,13 @@ test.describe("Harness signals", () => {
     await expect(page.locator(`[data-testid="timeline"] [data-testid="event-icon"][data-event-kind="memory"]`).first()).toBeVisible();
   });
 
-  test("the overview charts break down where the actions went across sessions", async ({
+  test("the overview Trends include findings by kind", async ({
     page,
   }) => {
     await page.goto("/overview");
-    // memory loads / hook firings are first-class event types — they roll up into
-    // the cross-session event-composition chart (and stay filterable in transcripts).
-    await expect(
-      page.locator(`[data-testid="chart-card"]`, { hasText: "Where the actions went" })
-    ).toBeVisible();
-    await expect(page.locator(`[data-testid="chart-card"] [data-testid="hbar-row"]`).first()).toBeVisible();
+    const findingsCard = page.locator(`[data-testid="trend-card"][data-trend="findings-by-kind"]`);
+    await expect(findingsCard).toBeVisible();
+    await expect(findingsCard.locator(`[data-testid="finding-kind-row"][data-kind="failure_loop"]`)).toBeVisible();
   });
 });
 
@@ -536,12 +533,11 @@ test.describe("Codex support", () => {
     ).toBeVisible();
   });
 
-  test("the overview model chart includes Codex GPT models", async ({ page }) => {
+  test("the overview runner trend includes Codex sessions", async ({ page }) => {
     await page.goto("/overview");
-    // Codex GPT models land in the same per-model cost breakdown as Claude
-    const modelChart = page.locator(`[data-testid="chart-card"]`, { hasText: "Cost by model" });
-    await expect(modelChart).toBeVisible();
-    await expect(modelChart).toContainText(/gpt-5/i);
+    const runnerCard = page.locator(`[data-testid="trend-card"][data-trend="cost-by-runner"]`);
+    await expect(runnerCard).toBeVisible();
+    await expect(runnerCard.locator(`[data-testid="runner-cost-row"][data-runner="codex"]`)).toContainText("Codex");
   });
 
   test("Codex skill use (reading a SKILL.md) is surfaced as a skill event", async ({

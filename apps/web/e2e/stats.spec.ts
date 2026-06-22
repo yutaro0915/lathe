@@ -46,14 +46,17 @@ test.describe("Stats tab (in-session)", () => {
 });
 
 test.describe("Overview (/overview) — cross-session analytics", () => {
-  test("/overview renders the four cross-session charts", async ({ page }) => {
+  test("/overview renders the D31 three-card Trends", async ({ page }) => {
     await page.goto("/overview");
     await expect(page.locator(`[data-testid="sessbar-title"]`)).toHaveText(/Overview/);
-    await expect(page.locator(`[data-testid="stats-embed"]`)).toBeVisible();
-    // four charts: cost-over-time + cost-by-model + event composition + biggest
-    expect(await page.locator(`[data-testid="chart-card"]`).count()).toBeGreaterThanOrEqual(4);
-    expect(await page.locator(`[data-testid="chart-svg"] rect`).count()).toBeGreaterThan(0);
-    expect(await page.locator(`[data-testid="hbar-row"]`).count()).toBeGreaterThan(0);
+    await expect(page.locator(`[data-testid="overview-trends"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="trend-card"]`)).toHaveCount(3);
+    await expect(page.locator(`[data-testid="trend-card"][data-trend="cost-by-runner"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="trend-card"][data-trend="cost-over-time"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="trend-card"][data-trend="findings-by-kind"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="runner-cost-row"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="time-bar-link"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="finding-kind-row"][data-kind="failure_loop"]`)).toBeVisible();
   });
 
   test("legacy /stats redirects to /overview", async ({ page }) => {
@@ -62,7 +65,7 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     await expect(page.locator(`[data-testid="sessbar-title"]`)).toHaveText(/Overview/);
   });
 
-  test("the project selector scopes the cross-session charts", async ({ page }) => {
+  test("the project selector scopes the cross-session Trends", async ({ page }) => {
     await page.goto("/overview");
     // The TopBar project scope is a custom dropdown now (not a native <select>):
     // read its option values, then drive it by clicking the trigger + the option.
@@ -70,7 +73,7 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     expect(values.length).toBeGreaterThan(0);
     await pickProject(page, values[0]);
     await expect(page.locator(`[data-testid="sessbar-meta"]`)).not.toContainText("All projects");
-    await expect(page.locator(`[data-testid="chart-card"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-testid="trend-card"]`).first()).toBeVisible();
   });
 
   test("Overview v2 has NO session rail (it is a full-width canvas, not a 2nd Sessions list)", async ({
@@ -103,43 +106,17 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     await expect(page.locator(`[data-testid="globalnav-tab"][data-state="active"]`)).toHaveAttribute("data-nav", "sessions");
   });
 
-  test("biggest-sessions rows carry a status chip set and link to the session viewer", async ({
+  test("cost outlier and error attention signals use clean red token styling", async ({
     page,
   }) => {
     await page.goto("/overview");
-    const biggest = page.locator(`[data-testid="chart-card"]`, { hasText: "Biggest sessions by cost" });
-    await expect(biggest).toBeVisible();
-    const firstRow = biggest.locator(`[data-testid="big-row"]`).first();
-    await expect(firstRow).toBeVisible();
-    // the row is a link (href into the session viewer) and reserves a status slot.
-    await expect(firstRow).toHaveAttribute("href", /\?session=/);
-    await expect(firstRow.locator(`[data-testid="big-status"]`)).toHaveCount(1);
-    // at least one biggest row in the corpus carries an err / pending / cost flag.
-    await expect(biggest.locator(`[data-testid="big-status"] [data-testid="badge"]`).first()).toBeVisible();
-  });
-
-  test("a model row drills into the Sessions axis filtered to that model", async ({
-    page,
-  }) => {
-    await page.goto("/overview");
-    const modelChart = page.locator(`[data-testid="chart-card"]`, { hasText: "Cost by model" });
-    // pick a real (linkable) model row and read the model it deep-links to.
-    const modelRow = modelChart.locator(`[data-testid="hbar-link"]`).first();
-    await expect(modelRow).toBeVisible();
-    const model = await modelRow.getAttribute("data-model");
-    expect(model).toBeTruthy();
-    await modelRow.click();
-    await expect(page).toHaveURL(/[?&]model=/);
-    // landed on the Sessions axis with the MODEL filter applied (the Model
-    // <select> is the one whose options include "All models").
-    await expect(page.locator(`[data-testid="globalnav-tab"][data-state="active"]`)).toHaveAttribute("data-nav", "sessions");
-    // the list (and its Model filter) lives on the Sessions surface now; the
-    // drill-down seeds that filter. The Model <select> is the one whose options
-    // include "All models" (in the surface's auto-opened filter panel).
-    const modelSelect = page
-      .locator(`[data-testid="lds-sessions-filters"] select`)
-      .filter({ has: page.locator('option[value="all"]', { hasText: "All models" }) });
-    await expect(modelSelect).toHaveValue(model!);
+    await pickProject(page, "(no edits)");
+    const costRatio = page.locator(`[data-attn-group="cost"] [data-testid="attn-ratio"]`).first();
+    const errorBadge = page.locator(`[data-attn-group="errors"] [data-testid="badge"]`).first();
+    await expect(costRatio).toBeVisible();
+    await expect(errorBadge).toBeVisible();
+    await expect(costRatio).toHaveCSS("border-top-color", "rgb(214, 69, 69)");
+    await expect(errorBadge).toHaveCSS("border-top-color", "rgb(214, 69, 69)");
   });
 
   test("a cost-over-time bar drills into the Sessions axis scoped to that period", async ({

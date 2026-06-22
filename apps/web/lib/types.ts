@@ -365,6 +365,7 @@ export interface StatsBundle {
 // computing this server-side (one batched query, no N+1) keeps the client free
 // of the whole findings corpus.
 export type PendingFindingsBySession = Record<string, number>;
+export type FindingKindCounts = Record<FindingKind, number>;
 
 // Everything the client needs to render one session interactively, assembled
 // server-side and passed as serializable props (no db access on the client).

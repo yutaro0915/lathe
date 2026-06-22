@@ -1,9 +1,7 @@
 // app/overview/page.tsx — Home / project-level analytics screen.
 //
-// The cross-session "where did the work go?" view: per-scope cost & tokens over
-// time, model breakdown, event composition, biggest sessions. This is the right
-// place for project-/all-projects-level stats — picking a single session
-// shouldn't surface aggregates over every other session.
+// The cross-session attention funnel: cost / error / pending-finding priorities
+// first, then D31 trends (runner median cost, cost over time, findings by kind).
 //
 // In-session stats live on the Session viewer's Stats tab (see SessionStatsView).
 
@@ -12,17 +10,17 @@ export const dynamic = "force-dynamic";
 import {
   getStats,
   listSessions,
-  getSessionEventCounts,
   getPendingFindingsBySession,
+  getFindingKindCounts,
 } from "@/lib/read";
 import OverviewView from "@/components/OverviewView";
 
 export default async function Page() {
-  const [sessions, stats, eventCounts, pendingFindings] = await Promise.all([
+  const [sessions, stats, pendingFindings, findingKindCounts] = await Promise.all([
     listSessions(),
     getStats(),
-    getSessionEventCounts(),
     getPendingFindingsBySession(),
+    getFindingKindCounts(),
   ]);
   // session -> primary project, computed from stats so the overview's project
   // scope (the shell TopBar selector → ?project=) scopes a consistent session set
@@ -32,9 +30,9 @@ export default async function Page() {
   return (
     <OverviewView
       sessions={sessions}
-      eventCounts={eventCounts}
       sessionProject={sessionProject}
       pendingFindings={pendingFindings}
+      findingKindCounts={findingKindCounts}
     />
   );
 }

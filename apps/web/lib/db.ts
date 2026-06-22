@@ -36,6 +36,7 @@ import type {
   FindingEvidence,
   FindingEvidenceExcerpt,
   FindingEvidenceNarrative,
+  FindingKindCounts,
   FindingKind,
   FindingVerdict,
   FindingVerdictValue,
@@ -1772,6 +1773,24 @@ export async function getPendingFindingsBySession(): Promise<Record<string, numb
 
   const out: Record<string, number> = {};
   for (const [sessionId, set] of findingsBySession) out[sessionId] = set.size;
+  return out;
+}
+
+export async function getFindingKindCounts(): Promise<FindingKindCounts> {
+  const rows = await queryRows<{ kind: string; n: number }>(
+    `SELECT kind, COUNT(*)::int n
+       FROM findings
+      GROUP BY kind`,
+  );
+  const out: FindingKindCounts = {
+    failure_loop: 0,
+    unattributed_diff: 0,
+    excess_cost: 0,
+    risky_action: 0,
+  };
+  for (const row of rows) {
+    if (row.kind in out) out[row.kind as keyof FindingKindCounts] = row.n;
+  }
   return out;
 }
 

@@ -16,9 +16,7 @@
 //   1. Attention — THE point of the screen, placed first: G9 cost outliers,
 //      error-heavy sessions, and pending findings. Each row links to the session
 //      viewer / Findings axis. This is the "next places to dig" list.
-//   2. The cross-session charts, now drill-down entry points (a model row scopes
-//      the Sessions axis to that model; a time bar scopes it to that period;
-//      a biggest-session row opens that session, with a status chip inline).
+//   2. Trends — runner median cost, cost over time, and findings by kind.
 //
 // In-session analytics — what one specific run did — live on the SessionViewer
 // "Stats" tab (SessionStatsView). Cross-session aggregates do not belong there.
@@ -27,17 +25,14 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Surface from "@/components/Surface";
-import StatsView from "@/components/StatsView";
+import OverviewTrends from "@/components/OverviewTrends";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
-import type { Session } from "@/lib/types";
+import type { FindingKindCounts, Session } from "@/lib/types";
 
 // ---- Sessions-axis deep links (every drill-down is a plain link) -----------
 // The Sessions axis (app/page.tsx → SessionViewer) seeds its session-list
 // filters from these query params, so an Overview drill-down lands on the
 // Sessions axis already scoped. Built here so the contract is in one place.
-function sessionsHrefForModel(model: string): string {
-  return `/?model=${encodeURIComponent(model)}`;
-}
 function sessionsHrefForPeriod(fromDay: string, toDay: string): string {
   return `/?from=${encodeURIComponent(fromDay)}&to=${encodeURIComponent(toDay)}`;
 }
@@ -50,14 +45,14 @@ function findingsHrefForSession(id: string): string {
 
 export default function OverviewView({
   sessions,
-  eventCounts,
   sessionProject,
   pendingFindings,
+  findingKindCounts,
 }: {
   sessions: Session[];
-  eventCounts: Record<string, Record<string, number>>;
   sessionProject: Record<string, string>;
   pendingFindings: Record<string, number>;
+  findingKindCounts: FindingKindCounts;
 }) {
   // Project scope is the shell-owned control now (TopBar selector → ?project=);
   // Overview reads it to scope every panel, the same filtering its old in-header
@@ -378,17 +373,10 @@ export default function OverviewView({
           )}
         </section>
 
-        {/* ===================== cross-session charts ===================== */}
-        {/* Same four charts, scoped to the project, but every one is now a
-            drill-down entry point (links to the Sessions axis). */}
-        <StatsView
+        <OverviewTrends
           scopeSessions={scopeSessions}
-          eventCounts={eventCounts}
-          scopeLabel={scopeLabel}
-          pendingFindings={pendingFindings}
-          modelHref={sessionsHrefForModel}
+          findingKindCounts={findingKindCounts}
           periodHref={sessionsHrefForPeriod}
-          sessionHref={sessionHref}
         />
       </div>
       </div>

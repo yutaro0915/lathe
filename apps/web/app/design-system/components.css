@@ -171,6 +171,8 @@
    is hidden so a one-off long basis can never push the hairline out of line. */
 .attn-col-head{display:flex;align-items:flex-start;align-content:flex-start;justify-content:space-between;flex-wrap:wrap;gap:2px 8px;height:calc(var(--sp-10) + var(--sp-8));box-sizing:border-box;overflow:hidden;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:0 2px 5px;border-bottom:1px solid var(--border-faint);margin-bottom:3px;}
 .attn-count{color:var(--muted-2);}
+.attn-col[data-attn-group="cost"] .attn-col-head,
+.attn-col[data-attn-group="errors"] .attn-col-head{border-bottom-color:var(--c-error);}
 .attn-col-basis{flex:1 0 100%;order:3;font-size:9px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted-2);font-variant-numeric:tabular-nums;}
 .attn-count-link{color:var(--accent);text-decoration:none;font-weight:700;}
 .attn-count-link:hover{text-decoration:underline;}
@@ -188,6 +190,10 @@
   .attn-cols{grid-template-columns:minmax(0,1fr);}
 }
 .badge.neutral .attn-ratio,.badge.attn-ratio{font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.attn-col[data-attn-group="cost"] .attn-ratio,
+.attn-col[data-attn-group="errors"] .badge.err{border-color:var(--c-error);background:var(--panel);color:var(--text);}
+.attn-col[data-attn-group="cost"] .attn-ratio::before,
+.attn-col[data-attn-group="errors"] .badge.err::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--c-error);flex:0 0 auto;}
 /* head-right groups the (optional) restore control with the scope label */
 .attn-head-right{display:inline-flex;align-items:baseline;gap:10px;}
 /* restore-hidden: quiet text button, accent on hover; only shown when columns hidden */
@@ -547,16 +553,24 @@
    header through the shared Surface WorkareaHeader, not a self-drawn band. */
 .overview-page{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;background:var(--bg);}
 .overview-canvas{flex:1 1 auto;overflow-y:auto;padding:14px 18px 26px;min-width:0;}
+.overview-section-h{max-width:1320px;margin:0 auto 8px;font-size:11.5px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.05em;}
 
-/* chart rows become drill-down links (Overview only); biggest-session rows carry
-   an inline status chip set. Color stays rationed — only `err` is red. */
-.hbar-row.hbar-link{text-decoration:none;cursor:pointer;border-radius:var(--radius-sm);padding:1px 4px;margin:0 -4px;}
-.hbar-row.hbar-link:hover{background:var(--panel-hover);text-decoration:none;}
-.time-bar-link{cursor:pointer;}
-.time-bar-link:hover rect{opacity:1;}
-.big-ttl{display:inline-flex;align-items:center;gap:7px;min-width:0;}
-.big-status{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;}
-.big-status .badge{height:16px;font-size:9.5px;padding:0 5px;}
+/* Overview D31 trends: three scoped cards below the Attention funnel. */
+.overview-trends{max-width:1320px;margin:0 auto;}
+.overview-trends-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,1fr);gap:14px;}
+.overview-trends .trend-card{min-height:178px;}
+.overview-trends .trend-row{grid-template-columns:minmax(92px,126px) minmax(0,1fr) 64px;}
+.overview-trends .trend-neutral-fill{background:var(--muted-2);}
+.overview-trends .hbar-fill.is-zero{min-width:0;}
+.trend-note{font-size:10.5px;color:var(--muted-2);line-height:1.35;margin-top:10px;}
+.trend-time-bars{height:96px;display:flex;align-items:flex-end;gap:5px;padding-top:4px;}
+.trend-time-link{flex:1 1 0;min-width:7px;height:100%;display:flex;align-items:flex-end;text-decoration:none;border-radius:2px;}
+.trend-time-link:hover{text-decoration:none;}
+.trend-time-link:hover .trend-time-bar{opacity:1;}
+.trend-time-bar{display:block;width:100%;border-radius:2px 2px 0 0;opacity:.88;}
+@media (max-width:1100px){
+  .overview-trends-grid{grid-template-columns:minmax(0,1fr);}
+}
 
 /* Findings-axis session filter select (the TopBar project scope is a custom
    dropdown in shell.css now; this styles the remaining native select used by the
