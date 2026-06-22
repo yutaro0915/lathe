@@ -134,12 +134,26 @@ test.describe("Transcript ⇄ Git cross-links", () => {
     // returns to the transcript and selects the producing step.
     await page.locator(`[data-testid="tabs"] [data-testid="tab"]`, { hasText: "Git" }).click();
     await expect(page.locator(`[data-testid="diff-embed"]`)).toBeVisible();
+    // Deterministically select a changed file that HAS a linked (producing) event,
+    // so the reverse back-link is guaranteed to render. The Git tab's default
+    // active file need not carry an attribution; index.md does (it is the most
+    // heavily-attributed file in this fixture session — see the seeded
+    // attributions for 144d8b23…), so the le-jump back-link is unconditional once
+    // it is active. There is exactly one changed file whose basename is index.md.
+    const linkedFileRow = page
+      .locator(`[data-testid="file-row"][data-row-kind="file"]`)
+      .filter({ has: page.locator(`[data-testid="fname"]`, { hasText: /^index\.md$/ }) });
+    await expect(linkedFileRow).toHaveCount(1);
+    await linkedFileRow.click();
+    await expect(linkedFileRow).toHaveAttribute("data-active", "true");
+    // the back-link is a KEPT feature: AttributionPane renders one le-jump per
+    // linked event whenever onJumpToEvent is wired (SessionViewer passes a real
+    // one). Assert it UNCONDITIONALLY — a regression that drops the link must fail.
     const back = page.locator(`[data-testid="le-jump"]`).first();
-    if ((await back.count()) > 0) {
-      await back.click();
-      await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
-      await expect(page.locator(`[data-testid="event-row"][data-selected="true"]`)).toHaveCount(1);
-    }
+    await expect(back).toBeVisible();
+    await back.click();
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
+    await expect(page.locator(`[data-testid="event-row"][data-selected="true"]`)).toHaveCount(1);
   });
 });
 
