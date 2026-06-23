@@ -24,6 +24,8 @@ jobs:
         run: pnpm -F web exec tsc --noEmit
       - name: lint (dependency-cruiser + oxlint)
         run: pnpm lint
+      - name: rubric schema self-test
+        run: node rubrics/_schema.test.mjs
       - name: rubric gates (changed vs main)
         run: |
           git fetch origin main --depth=1 || true

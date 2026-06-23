@@ -1,0 +1,27 @@
+{
+  "schema_version": "2",
+  "id": "meta/rubric-schema",
+  "title": "rubric は schema v2 の必須要素を満たす（自己適用）",
+  "version": "1",
+  "scope": ["rubrics"],
+  "origin": "EDD 前線1 / ADR 0010 (2026-06-23)",
+  "checks": [
+    {
+      "id": "v2-required-fields",
+      "value": "正しさの SSOT である rubric 自身が必須要素(value/severity/verify.kind/expect/metric/version 等)を満たすこと。守ると rubric が理論の必須要素を機械保証し、欠落した曖昧な規範が gate に混入しない。v1(schema_version 無し)は漸進移行のため検証対象外。",
+      "severity": "blocker",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "node rubrics/_schema.mjs | grep -c '^VIOLATION' || true",
+        "expect": "eq:0",
+        "tolerance": "v2 rubric の必須要素欠落 = 0。v1 は対象外。"
+      },
+      "evidence": "_schema.mjs が出力する VIOLATION 行(rubric-id / check-id / 欠落理由)",
+      "examples": {
+        "pass": ["severity と version と verify.kind/metric を全て持つ v2 rubric"],
+        "fail": ["severity を欠く v2 rubric", "kind=judge なのに judge.input_cmd が無い", "id がディレクトリと不一致"]
+      }
+    }
+  ]
+}
