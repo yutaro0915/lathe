@@ -1,0 +1,17 @@
+{
+  "title": "diff の追加/削除色は diff renderer の中だけ (D13・色配給の semantic 例外を局所化)",
+  "scope": ["apps/web"],
+  "pass_to_task": "追加=green / 削除=red（--add-* / --del-*）は diff renderer (components/diff-viewer/**) の中だけで使う。stats の churn 一覧・行・バッジ等、diff renderer 外の .tsx で diff 色トークンを参照しない。D13 は『diff renderer の中だけ・行/バッジに漏らすな』と規定。漏れは D10/D34 の『赤＝問題信号だけ』を希釈する。",
+  "checks": [
+    {
+      "id": "diff-color-not-leaked",
+      "value": "D13: 追加/削除色は category color でなく semantic な機能色で、error-red と同じ特権枠。diff renderer の外（stats の files-touched 等）へ漏れると赤が散り『赤＝問題信号』の信号価値が消え、画面の統一感（オーナーの関心④）が崩れる。実際 SessionStatsView が churn の +N/−N を --add-text/--del-text で塗り『赤すぎ』を生んでいた。",
+      "verify": {
+        "cmd": "grep -rnE '(add|del|ins)-(text|bg|marker)' apps/web/components --include='*.tsx' 2>/dev/null | grep -v 'components/diff-viewer/' | wc -l | tr -d ' '",
+        "expect": "eq:0",
+        "means": "diff 色トークン(--add-*/--del-*/--ins-*)を .tsx で参照しているのが components/diff-viewer/ 配下だけ = 0 件。漏れ(例 SessionStatsView の churn)があれば非0で RED。限界: grep はトークン直書きを検出する。CSS クラス経由で diff 色を間接適用した漏れは拾えない(その場合は『diff 色を運ぶ class は diff-viewer 用 class だけ』を stylelint か render 検査で別途縛る)。生 hex 直書きは token-consistency(DS CSS のみ)の範囲外なので、必要なら本 cmd に diff hex を足す。"
+      }
+    }
+  ],
+  "origin": "color rationing(D10/D34/D13)の機械化。stats 赤すぎ(SessionStatsView の churn +N/−N が diff 色)を契機に diff 色の局所化を gate 化(2026-06-23)。token-consistency(色の値が token か)の補完=色の使用『場所』を pin する。"
+}

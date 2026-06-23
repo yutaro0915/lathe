@@ -11,7 +11,16 @@
         "expect": "eq:0",
         "means": "oxlint の file max-lines 違反 = 0。既存 god-file は grandfather で許容し、新規/悪化した >500 ファイルだけを違反にする（スライス外の god-file で落とさない）"
       }
+    },
+    {
+      "id": "grandfather-sunset-ratchet",
+      "value": "gf(file-size override)を『徐々に減らす』が口約束だと、誰かが上限を上げ/新 override を足せば元に戻る。baseline に対し『増えない』(本数増・max 増の禁止)を機械で固定し、減少(分割で撤去/上限低下)だけを許す。これで gf は単調減少しかしない（オーナー指示 2026-06-23『gf も徐々に減らす』の担保）。",
+      "verify": {
+        "cmd": "node rubrics/file-size/gf-ratchet.mjs",
+        "expect": "eq:0",
+        "means": "現 .oxlintrc の override を rubrics/file-size/gf-baseline.json と比較し、(a) baseline に無い新 override、(b) baseline より大きい max、の件数を出力。0=増えていない=GREEN。上限を下げる/override を消す(分割完了)は違反でない(=減少は歓迎)。限界: baseline 自体の緩い改ざんは meta/no-gate-tampering(監査役のみ・別 commit)で守る。"
+      }
     }
   ],
-  "origin": "神ファイル 6 本 (2026-06-18)"
+  "origin": "神ファイル 6 本 (2026-06-18)。gf 単調減少の ratchet を追加 (2026-06-23、gf-baseline.json + gf-ratchet.mjs)"
 }

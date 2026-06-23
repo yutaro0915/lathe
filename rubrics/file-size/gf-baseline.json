@@ -1,0 +1,12 @@
+{
+  "_note": "grandfather sunset baseline. Auditor-only. gf-ratchet.mjs fails if any override max INCREASES or a NEW override is added vs this snapshot. Lowering a max or REMOVING an entry (file split below 500) is allowed and is the intended reduction. Update this file ONLY when intentionally adding a grandfather (separate auditor commit, meta/no-gate-tampering).",
+  "overrides": {
+    "apps/web/e2e/**/*.spec.ts": 550,
+    "apps/web/lib/db.ts": 1564,
+    "apps/web/components/FindingsExplorer.tsx": 963,
+    "apps/web/scripts/verify-phase2.ts": 694,
+    "apps/web/scripts/ingest/providers/claude.ts": 563,
+    "packages/mcp/src/service.ts": 883,
+    "packages/mcp/src/verify.ts": 632
+  }
+}
