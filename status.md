@@ -1,23 +1,26 @@
 ---
-updated: 2026-06-12T20:00+0900
+updated: 2026-06-23T01:00+0900
 current_owner: none
-current_stage: Phase 2 close 待ち（M3 機構実証済み） → 次は UI rebase
+current_stage: DS-replacement + agent harness 基盤 を main へ merge 済み（76eb3ab）
 ---
 
 ## Current
 
-- **Phase 2 実装完了 + UX 改修ラウンド + issue 消化まで完了（2026-06-12、HEAD `a616f3c`）**。M3 機構は実証済み（finding #110 に accept verdict が durable 層に記録）。**Phase 2 close はユーザー GO 待ち**（ROADMAP 更新・振り返り・hub 記録を締める）
-- **issue 消化完了**: chip 経由で #6/#8/#10/#11、PR #17 で #9 を全 merge（各々 独立レビュー + ローカル実データ監査）。chat は撤去（#7 解消）。残 open issue は #16（getPool 潜在・保留）/ #4（認証・サービス化時）のみ
-- **決定（2026-06-12）**: 全実装に sub-agent/codex の独立レビュー必須（audit-protocol 原則 7）/ 委譲配分 = UI:Opus / 重い:Codex / 他:Sonnet / chat はコード撤去（再開時ゼロから、論点 #16）/ **UI rebase を chip+P2 後に実施（論点 #18）**
-- dev server: tmux `lathe-dev`（port 3000）。agent: none（全 loop / worktree 撤収済み）
+- **DS-replacement（UI 全面刷新）+ agent harness 基盤 を `main` へ merge 済み（2026-06-23、`76eb3ab`、135 commit を clean FF）**。loop/ds-replacement の全スライス（Sessions / Findings / PR / Overview / Chat surface A + DS tokens / rubrics）が main に着地。
+- **agent harness 基盤**（ADR 0010）: `agent/`（版管理の正本: prompt + skills + settings）/ `~/.lathe`（runtime config home、`CLAUDE_CONFIG_DIR`、`agent/` への symlink）/ 共有 ACP harness module（`apps/web/lib/lathe-agent-harness.ts` — chat/analyst を集約、`CLAUDE_CONFIG_DIR` を単一注入 + `settingSources:['user']`）。初期 content = **Lathe Analyst persona + cost-outlier-triage skill**。
+- **LIVE 検証済み**（実 ACP・実 DB・認証エラー無し）: chat が MCP tool を実呼び出し（最高コスト $1,341.13 を実取得）/ prompt injection 確認（自己同定「Lathe Analyst」+ 末尾「次の一手」+ session ID/runner）/ analyst が submit_finding 実行（finding #3350/#3351 作成）。全 e2e **125** / rubrics **5/5** GREEN。
+- agent: none（worktree `lathe-ds-wt`、loop/ds-replacement = main 同期）。push/merge はユーザー明示指示で実施。
+- 既知 follow-up（スコープ外）: markdown GFM table 描画 / `packages/acp-client/scripts/claude-smoke.ts` の旧 `options.tools` パターン。
 
 ## 次の一手
 
-1. **Phase 2 close**（ユーザー GO で）— ROADMAP の Phase 2「完了の定義」3 点に照合、status/log/hot/memory 記録、wiki/concepts へ学び extract
-2. **UI rebase**（論点 #18）— SessionViewer 肥大分割 / layout3・grid-column 結合の整理 / UX backlog #17（PR の project グルーピング・上部スペース・rail フィルタ過密・Annotations・error 意味論）回収
-3. **Phase 3 入口ゲート** — G4 fixture スコープ / sandbox 選定 ADR
+1. **harness content 整備の継続** — `agent/CLAUDE.md` の人格深化 / lathe skill を増やす（`agent/skills/`）。家（`~/.lathe` 基盤）は完成済みなので「足すだけ」
+2. **プラグイン化（任意）** — `agent/` を正式な Claude Code プラグイン形（`.claude-plugin/plugin.json` + `.mcp.json`）へ + MCP サーバの単体パッケージ化（→ 普段使いの Claude Code に `claude plugin install` で配布可能に）
+3. **follow-up 回収** — markdown GFM table 描画 / claude-smoke.ts の旧 options.tools パターン
+4. **Phase 3 入口ゲート** — G4 fixture スコープ / sandbox 選定 ADR（コンテナ隔離が要る時は agent を compose 内へ＝ADR 0010 の切替トリガー）
 
 ## Last completed
+- 2026-06-23 **DS-replacement + agent harness 基盤 を main へ merge（`76eb3ab`、clean FF 135 commit）** — ① harness 基盤（ADR 0010）: `~/.lathe` config home（`CLAUDE_CONFIG_DIR`、版管理正本 `agent/` への symlink）/ 共有 ACP harness `lathe-agent-harness.ts`（chat+analyst 集約、`CLAUDE_CONFIG_DIR` 単一注入 + `settingSources:['user']` で `settingSources:[]` band-aid 撤去・analyst の個人 skill 漏れ + `options.tools` MCP 抑止バグを同時解消）。② 初期 content: Lathe Analyst persona + cost-outlier-triage skill。Claude 独立監査 = gate 自前再実行（tsc 0 / rubrics 5/5 / e2e 125）+ **LIVE 実証**（実 ACP で chat MCP 実データ $1,341 / prompt injection / analyst submit_finding #3350-3351）。実装 Codex（基盤）/ content Claude / 監査 Claude (codex+claude)
 - 2026-06-14 [22] agent core モジュール（packages/agent、6 層）完成 + Tier A 監査(Codex xhigh) + merge（`a4e5d92`）— provider 非依存(claude-cli/anthropic-api/codex-exec が同一 LanguageModel)/ MCP host 中立(公式 SDK、Claude Code ハードコードなし、実 stdio で 5 tools)/ tool registry(local+MCP 同型)/ loop(final・maxSteps 停止)/ runAgent(非対話)・streamAgent(対話)が同一 core / analyst-lite・chat-lite サンプル。監査で MCP error surface 不一致 1 件検出→修正(isError 検査して throw、local と同 surface)。fake provider で決定的、web 不変。**ADR 0009 = agent を core、analyst/chat を consumer に**。disciplined-research で実在 7 実装の共通 6 層を一次情報確認した上で設計 (codex high impl + codex xhigh audit + claude orchestrate)
 
 - 2026-06-12 chip 6 実装の Opus 再レビュー（先行 Sonnet レビューのやり直し、ユーザー訂正「レビューに Sonnet 使うな・最新 Opus/Codex xhigh+」を受け）— **全 6 件「健全」、hotfix・新規 issue 不要**。#6 verify:cost（判定路無改変・偽 RED 経路封鎖）/ #9 e2e port（3 経路一貫・全フォールバック安全側）/ chat 撤去（MCP `analyst: String(input.analyst ?? '')` は schema 必須化で R4 退行なし＝先行 Sonnet の退行疑いは誤検出）/ #10 relink（捏造防止がクエリ構造に内蔵・実 DB で linked 126/孤立 0/自己参照 0、先行の ORDER BY/child-first 2 指摘は重大度引き下げ）/ #8 perf（N+1→バッチが per-key 順序まで同値・回帰 0）/ #11 scratch（共有 DB 不汚染・#16 は当該呼び出し順では非顕在）。レビュー = 最新 Opus 固定を audit-protocol 原則 7 に明記 (claude/opus review)
