@@ -2,35 +2,35 @@
   "schema_version": "2",
   "id": "meta/tests-accompany-changes",
   "title": "挙動を変える変更にはテストを伴わせる（機能の追加・変更・コア編集は test case とセット）",
-  "version": "1",
+  "version": "2",
   "scope": ["apps/web", "packages"],
   "origin": "オーナー指示(2026-06-23): 今後 test は必ず実装する。コア機能の編集・機能の変更/追加で test case が伴っていないものを judge で弾く。今セッションで unit を 7→64 に育てた基盤を腐らせず成長させ続けるための恒久 gate。判定は『テストを書いたか』の意味解釈なので軽量 judge で十分（将来 haiku 化を検討）。",
   "checks": [
     {
       "id": "behavior-change-without-tests",
-      "value": "テストと実装を同時に育てるための恒久 gate（① 何を縛るか）。apps/web・packages の挙動（計算・分岐・出力・データ整形・パース・API/MCP の振る舞い）を追加/変更したら、同じ変更セットに対応する *.test.ts の追加/変更を伴わせる。② なぜ重要か: gate が無ければ新機能がテスト無しで入り、苦労して直したテストピラミッドが再び逆さ(e2e 偏重)に戻る。『挙動を変えたらテストも書く』を機械の merge 条件にすると、コードとテストが同じ PR で育つ。挙動変更とリファクタ/設定/型変更の区別は意味解釈が要るため、決定的 cmd でなく judge を採る。",
+      "value": "テストと実装を同時に育てるための恒久 gate（① 何を縛るか）。apps/web・packages の挙動（計算・分岐・出力・データ整形・パース・API/MCP の振る舞い・UI の操作挙動）を追加/変更したら、同じ変更セットに対応するテスト（pure ロジックなら `*.test.ts`、UI 操作なら e2e `*.spec.ts`）の追加/変更を伴わせる。② なぜ重要か: gate が無ければ新機能がテスト無しで入り、苦労して直したテストピラミッドが再び崩れる。『挙動を変えたらテストも書く』を機械の merge 条件にすると、コードとテストが同じ PR で育つ。挙動変更とリファクタ/設定/型変更の区別は意味解釈が要るため、決定的 cmd でなく judge を採る。",
       "severity": "major",
       "verify": {
         "kind": "judge",
         "metric": "count",
         "judge": {
-          "prompt": "あなたは『挙動変更にテストが伴っているか』を見る、厳密だが寛容なジャッジ。入力は 1 つの変更セット（### FILES ### に変更ファイルの A/M/D 一覧、### DIFF ### に差分本体）。タスク: apps/web か packages の【非テスト】ソースに、ランタイム/機能の挙動を追加・変更する変更があり、かつ同じ変更セット内に【テストの追加・変更 (*.test.ts) が一切伴っていない】ものの数を数えよ。\n\n違反として数える: 新しい関数・分岐・機能ロジックの追加、または既存の挙動（計算・分岐・出力・データ整形・パース・API/MCP の振る舞い・状態遷移）の変更で、対応する *.test.ts の追加/変更がゼロのもの。\n\n違反として数えない（迷ったら必ずこちら＝false RED でユーザーの時間を奪わない）: (a) *.test.ts 自体の変更、(b) 純粋リファクタ（抽出・rename・移動で外部挙動が不変）、(c) 設定・依存・package.json・CI・docs・コメント・CSS/styling・型注釈のみの変更、(d) コードの削除のみ、(e) 自明に挙動を持たない変更、(f) この変更セットのどこかに関連する *.test.ts の追加/変更が既にあるもの（=テストは伴っている）。テストが『十分か/良いか』は判定しない（存在＝伴っているか だけ）。判断に迷う場合は通す。\n\n最終行に必ず VERDICT:<整数>（テストを伴わない挙動変更の数。0 = OK）。",
+          "prompt": "あなたは『挙動変更にテストが伴っているか』を見る、厳密だが寛容なジャッジ。入力は 1 つの変更セット（### FILES ### に変更ファイルの A/M/D 一覧、### DIFF ### に差分本体）。タスク: apps/web か packages の【非テスト】ソースに、ランタイム/機能の挙動を追加・変更する変更があり、かつ同じ変更セット内に【テストの追加・変更が一切伴っていない】ものの数を数えよ。テストとは pure ロジックの `*.test.ts` と、UI 操作・E2E 挙動の `*.spec.ts`（playwright e2e）の双方を指す（UI の挙動変更は e2e で担保するのが正しいので *.spec.ts も『テスト有り』と数える）。\n\n違反として数える: 新しい関数・分岐・機能ロジックの追加、または既存の挙動（計算・分岐・出力・データ整形・パース・API/MCP の振る舞い・状態遷移・UI の操作挙動）の変更で、対応する *.test.ts も *.spec.ts も追加/変更がゼロのもの。\n\n違反として数えない（迷ったら必ずこちら＝false RED でユーザーの時間を奪わない）: (a) *.test.ts / *.spec.ts 自体の変更、(b) 純粋リファクタ（抽出・rename・移動で外部挙動が不変）、(c) 設定・依存・package.json・CI・docs・コメント・CSS/styling・型注釈のみの変更、(d) コードの削除のみ、(e) 自明に挙動を持たない変更、(f) この変更セットのどこかに関連する *.test.ts か *.spec.ts の追加/変更が既にあるもの（=テストは伴っている）。テストが『十分か/良いか』は判定しない（存在＝伴っているか だけ）。判断に迷う場合は通す。\n\n最終行に必ず VERDICT:<整数>（テストを伴わない挙動変更の数。0 = OK）。",
           "input_cmd": "if git rev-parse --verify origin/main >/dev/null 2>&1 && [ -n \"$(git rev-list origin/main..HEAD 2>/dev/null)\" ]; then R='git diff origin/main...HEAD'; elif ! git diff --quiet HEAD 2>/dev/null; then R='git diff HEAD'; else R='git show --format= HEAD'; fi; echo '### FILES ###'; $R --name-status -- apps/web packages 2>/dev/null; echo '### DIFF ###'; $R -- apps/web packages 2>/dev/null | head -1600"
         },
         "expect": "le:0",
-        "tolerance": "judge は非決定的。③ 仕組みと限界: 『テストが存在するか』だけを見て『十分か/良いか』は見ない（薄いテストは通り得る）。挙動変更とリファクタ/設定/型のみの境界は文脈依存で完全な機械判定は不可 → 迷ったら通す(false RED を出さない)設計。実行は agent runtime のある場所＝ローカル(codex)。CI(ubuntu) には agent runtime が無く judge は走らない＝e2e と同じくローカル関所(lathe-loop の pre-push で `node rubrics/run.mjs --changed <paths>`)で回す。決定的な下支えは unit テスト本体＋dep-cruiser＋オーサリング規律。"
+        "tolerance": "judge は非決定的。③ 仕組みと限界: 『テスト(*.test.ts か e2e *.spec.ts)が存在するか』だけを見て『十分か/良いか』は見ない（薄いテストは通り得る）。挙動変更とリファクタ/設定/型のみの境界は文脈依存で完全な機械判定は不可 → 迷ったら通す(false RED を出さない)設計。実行は agent runtime のある場所＝ローカル(codex)。CI(ubuntu) には agent runtime が無く judge は走らない＝e2e と同じくローカル関所(lathe-loop の pre-push で `node rubrics/run.mjs --changed <paths>`)で回す。決定的な下支えは unit テスト本体＋dep-cruiser＋オーサリング規律。"
       },
       "evidence": "judge が最終行に出力する VERDICT:<int>（テストを伴わない挙動変更の数。0=OK、1+ で当該変更にテストが無い）。input_cmd は origin/main が取れれば PR 全範囲(origin/main...HEAD)、無ければ working diff / 直近コミットを対象に FILES と DIFF を渡す。",
       "examples": {
         "pass": [
-          "新しいパース分岐を claude-parse.ts に追加し claude.test.ts にケースを足した",
+          "新しいパース分岐を claude-parse.ts に追加し claude.test.ts にケースを足した（unit）",
+          "UI の展開/スクロール挙動を変え session-viewer.spec.ts に e2e を足した（e2e で担保）",
           "純粋リファクタ（db.ts を barrel に分割、挙動不変）",
-          "package.json / ci.yml / *.css / docs のみの変更",
-          "コード削除のみ、または *.test.ts のみの変更"
+          "package.json / ci.yml / *.css / docs のみの変更、コード削除のみ、テストのみの変更"
         ],
         "fail": [
           "lib/db/overview-stats.ts に新しい集計ロジックを足したが *.test.ts を一切触っていない",
-          "mcp service のフィルタ挙動を変えたのに対応テストが無い"
+          "UI のクリック挙動を変えたのに *.test.ts も *.spec.ts も無い"
         ]
       }
     }
