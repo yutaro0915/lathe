@@ -19,12 +19,6 @@
       }
     },
     {
-      "files": ["apps/web/components/DiffViewer.tsx"],
-      "rules": {
-        "max-lines": ["warn", { "max": 1280, "skipBlankLines": true, "skipComments": true }]
-      }
-    },
-    {
       "files": ["apps/web/components/FindingsExplorer.tsx"],
       "rules": {
         "max-lines": ["warn", { "max": 1030, "skipBlankLines": true, "skipComments": true }]
@@ -52,12 +46,6 @@
       "files": ["packages/mcp/src/verify.ts"],
       "rules": {
         "max-lines": ["warn", { "max": 632, "skipBlankLines": true, "skipComments": true }]
-      }
-    },
-    {
-      "files": ["apps/web/e2e/helpers.ts"],
-      "rules": {
-        "max-lines": ["warn", { "max": 1013, "skipBlankLines": true, "skipComments": true }]
       }
     }
   ]
