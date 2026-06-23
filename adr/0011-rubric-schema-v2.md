@@ -1,4 +1,4 @@
-# ADR 0010: rubric schema v2 — 正しさの記録要素を構造化し rubric を自己検証する
+# ADR 0011: rubric schema v2 — 正しさの記録要素を構造化し rubric を自己検証する
 
 - status: accepted（2026-06-23、大枠承認済み。詳細仕様は [design/rubric-schema-v2.md](../design/rubric-schema-v2.md)、実装前にユーザーレビュー）
 - date: 2026-06-23
