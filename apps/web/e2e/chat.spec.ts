@@ -34,15 +34,15 @@ test.describe("Chat surface A (/chat)", () => {
     await expect(page.locator(`[data-testid="composer-send"]`)).toBeVisible();
   });
 
-  test("New chat creates a selectable thread", async ({ page }) => {
+  test("new chat creates a selectable thread", async ({ page }) => {
     await page.goto(`/chat?thread=${CHAT_FIXTURE.threadId}`);
     await page.locator(`[data-testid="chat-new"]`).click();
 
     await expect(page).toHaveURL(/\/chat\?thread=chat-/);
     const threadId = new URL(page.url()).searchParams.get("thread");
     expect(threadId).toMatch(/^chat-/);
-    await expect(page.locator(`[data-testid="chat-thread"][data-thread-id="${threadId}"]`)).toContainText("New chat");
-    await expect(page.locator(`[data-testid="chat-conversation"]`)).toContainText("No messages yet.");
+    await expect(page.locator(`[data-testid="chat-thread"][data-thread-id="${threadId}"]`)).toContainText("新しいチャット");
+    await expect(page.locator(`[data-testid="chat-conversation"]`)).toContainText("まだメッセージはありません。");
   });
 
   test("sending persists the user message and renders the fake streamed assistant reply", async ({ page }) => {

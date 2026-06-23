@@ -8,6 +8,7 @@ import { Icon } from "@/components/ds/icons";
 import { Markdown } from "@/components/session-viewer/Markdown";
 import Composer from "./Composer";
 import type { ChatContextAttachment, ChatMessage, ChatThread } from "@/lib/chat";
+import { t } from "@/lib/i18n";
 
 interface ChatSurfaceProps {
   initialThreads: ChatThread[];
@@ -19,13 +20,13 @@ type StreamEvent = { event: string; data: unknown };
 const STREAM_ID = "streaming-assistant";
 
 function groupLabel(updatedAt: string, now: number | null): string {
-  if (!now) return "Recent";
+  if (!now) return t("chat.thread.group.recent");
   const then = new Date(updatedAt).getTime();
   const days = Math.floor((now - then) / 86_400_000);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return "This week";
-  return "Earlier";
+  if (days <= 0) return t("chat.thread.group.today");
+  if (days === 1) return t("chat.thread.group.yesterday");
+  if (days < 7) return t("chat.thread.group.thisWeek");
+  return t("chat.thread.group.earlier");
 }
 
 function relativeTime(updatedAt: string, now: number | null): string {
@@ -75,6 +76,10 @@ function toContextInput(context: ChatContextAttachment) {
     : context.kind === "finding" ? context.id.replace(/^finding:/, "")
       : context.id;
   return { kind: context.kind, id, label: context.label, value: context.value };
+}
+
+function threadTitle(thread: ChatThread): string {
+  return thread.title === "New chat" ? t("chat.thread.defaultTitle") : thread.title;
 }
 
 export default function ChatSurface({ initialThreads, selectedThread, initialMessages }: ChatSurfaceProps) {
@@ -148,7 +153,7 @@ export default function ChatSurface({ initialThreads, selectedThread, initialMes
         id: `chat-error-${Date.now()}`,
         threadId: selectedThread?.id ?? "",
         role: "assistant",
-        body: `Chat agent failed: ${String(payload.error ?? "unknown error")}`,
+        body: `${t("chat.error.agentFailedPrefix")}${String(payload.error ?? t("chat.error.unknown"))}`,
         seq: 999_998,
         meta: null,
         createdAt: new Date().toISOString(),
@@ -176,9 +181,9 @@ export default function ChatSurface({ initialThreads, selectedThread, initialMes
     <div className="chat-surface" data-testid="chat-surface">
       <aside className="chat-thread-list" data-testid="chat-thread-list">
         <div className="chat-thread-head">
-          <span className="chat-thread-title">Threads</span>
+          <span className="chat-thread-title">{t("chat.thread.listTitle")}</span>
           <Button size="sm" icon={<Icon name="plus" size={13} />} data-testid="chat-new" onClick={() => void createThread()}>
-            New chat
+            {t("chat.thread.new")}
           </Button>
         </div>
         <div className="chat-thread-scroll">
@@ -194,7 +199,7 @@ export default function ChatSurface({ initialThreads, selectedThread, initialMes
                   data-thread-id={thread.id}
                   data-state={thread.id === selectedThread?.id ? "active" : "inactive"}
                 >
-                  <span className="chat-thread-name" title={thread.title}>{thread.title}</span>
+                  <span className="chat-thread-name" title={threadTitle(thread)}>{threadTitle(thread)}</span>
                   <span className="chat-thread-time">{relativeTime(thread.updatedAt, now)}</span>
                 </Link>
               ))}
@@ -211,8 +216,8 @@ export default function ChatSurface({ initialThreads, selectedThread, initialMes
                   {message.role === "assistant" ? <Markdown text={message.body} /> : <p>{message.body}</p>}
                 </article>
               </div>
-            )) : <div className="chat-empty">No messages yet.</div>
-          ) : <div className="chat-empty">Create a new chat to start.</div>}
+            )) : <div className="chat-empty">{t("chat.empty.noMessages")}</div>
+          ) : <div className="chat-empty">{t("chat.empty.noThread")}</div>}
         </div>
         <div className="chat-composer-wrap">
           <Composer

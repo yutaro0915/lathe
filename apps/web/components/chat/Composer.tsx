@@ -4,6 +4,7 @@ import * as React from "react";
 import { Button, IconButton } from "@/components/ds";
 import { Icon } from "@/components/ds/icons";
 import type { ChatContextAttachment } from "@/lib/chat";
+import { t } from "@/lib/i18n";
 
 export interface ComposerProps {
   contexts: ChatContextAttachment[];
@@ -33,7 +34,7 @@ export default function Composer({ contexts, disabled = false, onContextsChange,
     }
     onContextsChange([
       ...contexts,
-      { id: `text:${Date.now()}`, kind: "text", label: `Text: ${textLabel(value)}`, value },
+      { id: `text:${Date.now()}`, kind: "text", label: `${t("chat.composer.context.textPrefix")}: ${textLabel(value)}`, value },
     ]);
     setContextText("");
     setAdding(false);
@@ -55,14 +56,14 @@ export default function Composer({ contexts, disabled = false, onContextsChange,
         void submit();
       }}
     >
-      <div className="chat-composer-context" data-testid="composer-context" aria-label="Attached context">
+      <div className="chat-composer-context" data-testid="composer-context" aria-label={t("chat.composer.context.attachedLabel")}>
         {contexts.map((context) => (
           <span className="chat-context-chip" data-context-kind={context.kind} key={context.id}>
             <span className="chat-context-main">
               <span className="chat-context-label">{context.label}</span>
               {context.detail ? <span className="chat-context-detail">{context.detail}</span> : null}
             </span>
-            <IconButton label={`Remove ${context.label}`} className="chat-context-remove" onClick={() => removeContext(context.id)}>
+            <IconButton label={`${context.label}${t("chat.composer.context.removeSuffix")}`} className="chat-context-remove" onClick={() => removeContext(context.id)}>
               <Icon name="x" size={13} />
             </IconButton>
           </span>
@@ -78,10 +79,10 @@ export default function Composer({ contexts, disabled = false, onContextsChange,
                   addTextContext();
                 }
               }}
-              placeholder="Free-form context"
-              aria-label="Free-form context"
+              placeholder={t("chat.composer.context.freeForm")}
+              aria-label={t("chat.composer.context.freeForm")}
             />
-            <Button size="sm" onClick={addTextContext}>Attach</Button>
+            <Button size="sm" onClick={addTextContext}>{t("chat.composer.context.attach")}</Button>
           </span>
         ) : null}
         <Button
@@ -91,7 +92,7 @@ export default function Composer({ contexts, disabled = false, onContextsChange,
           data-testid="composer-add-context"
           onClick={() => setAdding((open) => !open)}
         >
-          Add context
+          {t("chat.composer.addContext")}
         </Button>
       </div>
       <div className="chat-composer-inputrow">
@@ -99,7 +100,7 @@ export default function Composer({ contexts, disabled = false, onContextsChange,
           data-testid="composer-input"
           value={body}
           disabled={disabled}
-          placeholder="Message Lathe"
+          placeholder={t("chat.composer.placeholder")}
           rows={2}
           onChange={(event) => setBody(event.target.value)}
           onKeyDown={(event) => {
@@ -109,7 +110,7 @@ export default function Composer({ contexts, disabled = false, onContextsChange,
             }
           }}
         />
-        <IconButton label="Send message" data-testid="composer-send" className="chat-send" disabled={disabled || !body.trim()} onClick={() => void submit()}>
+        <IconButton label={t("chat.composer.send")} data-testid="composer-send" className="chat-send" disabled={disabled || !body.trim()} onClick={() => void submit()}>
           <Icon name="send" size={15} />
         </IconButton>
       </div>

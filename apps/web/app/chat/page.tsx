@@ -1,6 +1,7 @@
 import Surface from "@/components/Surface";
 import ChatSurface from "@/components/chat/ChatSurface";
 import { getChatMessages, listChatThreads } from "@/lib/chat";
+import { t } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +18,8 @@ export default async function ChatPage({
 
   return (
     <Surface
-      title={<span data-testid="sessbar-title">Chat</span>}
-      meta="Normal chat"
+      title={<span data-testid="sessbar-title">{t("chat.header.title")}</span>}
+      meta={t("chat.header.subtitle")}
       surface="chat"
       headerTestId="sessbar"
     >
