@@ -1,32 +1,33 @@
 {
   "schema_version": "2",
   "id": "apps/web/styling/spacing-from-token",
-  "title": "spacing は DS 4px グリッド token から取る — 生 px を増やさない (T2, 統一感の機械半分の残り)",
-  "version": "2",
+  "title": "spacing は DS 4px グリッド token から取る — 生 px ゼロ (T2, 統一感の機械半分の残り)",
+  "version": "3",
   "scope": ["apps/web/app/design-system"],
-  "origin": "オーナー指示(2026-06-24): CSS のベストプラクティスを rubric 化。色は stylelint declaration-strict-value で token 強制(T1)だが spacing は漏れていた。スケールを 4px グリッド(--sp-0/4/8/.../48)に再定義し、色と対称に spacing も token から取らせる。",
+  "origin": "オーナー指示(2026-06-24): CSS のベストプラクティスを rubric 化。色は stylelint declaration-strict-value で token 強制(T1)だが spacing は漏れていた。スケールを 4px グリッド(--sp-0/4/8/.../48)へ再定義し、Phase1(on-grid 174)+Phase2(off-grid snap 詰め寄せ)で生 px を 521→0 へ。色と対称に spacing も token 限定にした。",
   "checks": [
     {
       "id": "spacing-value-from-token",
-      "value": "① 何を縛るか: spacing 値（padding / margin / gap / inset / top・right・bottom・left）を DS の 4px グリッド token（`var(--sp-4..48)` / `var(--pad-*)`）から取り、生 px を増やさない。色 token と対称の規律。② なぜ重要か: 単一ソースが無いと rhythm が崩れ同じ値がリテラルで散る（`12px 14px` を 4 箇所手書き→1 箇所直せない事故）。また旧スケールは 2px 梯子で実使用の 66% が 4 倍数外＝事実上スケール無しだった。③ 仕組み: 全部一度に直せない（当初 521）ので ratchet（現状を上限に固定し増加を RED・減少で締める）。Phase1 で on-grid 174 を 4px グリッド token 化し 521→347、スケール自体も 4px グリッドへ再定義済み。",
+      "value": "① 何を縛るか: spacing 値（padding / margin / gap / inset / positioning の top・right・bottom・left）は DS の 4px グリッド token（`var(--sp-4..48)` / `var(--pad-*)`）からのみ。生 px を一切使わない。色 token と対称の規律。② なぜ重要か: 単一ソースが無いと rhythm が崩れ同じ値がリテラルで散る（`12px 14px` 4 箇所手書き事故）。旧スケールは 2px 梯子で実使用の 66% が 4 倍数外＝事実上スケール無しだった。③ 仕組み: 4px グリッドへ全 snap 済みで現在 0。よって ratchet でなく **ハード le:0**（新たな生 spacing px は即 RED）。",
       "severity": "major",
       "verify": {
         "kind": "cmd",
         "metric": "count",
-        "cmd": "grep -rhoE '(padding|margin|gap|inset|top|right|bottom|left)[a-z-]*:[^;{}]*' apps/web/app/design-system/components.css apps/web/app/design-system/shell.css apps/web/app/design-system/chat.css 2>/dev/null | grep -oE '[0-9]+px' | grep -vxE '(0px|1px)' | wc -l | tr -d ' '",
-        "expect": "le:347",
-        "tolerance": "ratchet 上限 347（Phase1 後。当初 521 → on-grid 174 を 4px グリッド token 化、2026-06-24）。生 px を 1 つでも増やすと 348 で RED。さらに token 化で減ったら監査役が上限を下げて締める（grandfather-sunset と同じ手動 ratchet）。限界: (a) grep ヒューリスティック＝『px ゼロに』でなく『増やさない+減らす』gate、0px/1px(none・hairline/border) は除外。(b) グローバル件数なので別ファイルの add/remove 相殺は未検知（v1 割り切り）。(c) 正しい token 選択までは見ない。(d) 対象は DS component css 3 本(tokens.css 除外)＋tsx inline は対象外。残債務(Phase2): off-grid 値 6/10/14/5/7/9/2/11/18 等を 4px グリッドへ snap（見た目が動くので要目視）。end-state: ~0 で spacing を stylelint declaration-strict-value に昇格し色と同じ hard 0 へ、本 ratchet 撤去。"
+        "cmd": "grep -rhoE '(^|[;{ ])(padding|margin|gap|row-gap|column-gap|inset|top|right|bottom|left)[a-z-]*:[^;{}]*[0-9]+px' apps/web/app/design-system/components.css apps/web/app/design-system/shell.css apps/web/app/design-system/chat.css 2>/dev/null | grep -oE '[0-9]+px' | grep -vxE '(0px|1px)' | wc -l | tr -d ' '",
+        "expect": "le:0",
+        "tolerance": "ハード 0（2026-06-24 達成、521→0）。生 spacing px を 1 つでも足すと RED。限界: (a) grep は『プロパティ境界 `(^|[;{ ])`』で `border-top/right/bottom/left`(枠幅) と `border-radius` を除外し、padding/margin/gap/inset/positioning の spacing だけを数える。0px/1px(none・hairline) も除外。(b) tsx inline style は対象外。(c) 値の妥当さ(正しい段を選んだか)までは見ない＝『生 px を使わない』のみ強制。end-state 候補: spacing を stylelint declaration-strict-value に統合し色と同じ rule で 1 本化（任意・将来）。",
+        "tolerance_note": "border 幅・border-radius は spacing ではないので意図的に除外（旧版の grep が border-bottom 等を誤検出していたのを修正）。"
       },
-      "evidence": "cmd が出力する『spacing プロパティ中の生 px 値（0/1px 除く）の数』。347 以下で GREEN、超過で RED。token 参照(var(--sp/--pad)) は対象外＝grid token 化が唯一の減らし方。",
+      "evidence": "cmd が出力する『spacing/positioning プロパティ中の生 px 値（border-*・0/1px 除く）の数』。0 で GREEN、1+ で RED。token 参照(var(--sp/--pad)) は対象外＝grid token 化が唯一の書き方。",
       "examples": {
         "pass": [
-          "padding: var(--sp-8) var(--sp-16) で書く（生 px を使わない）",
-          "off-grid の padding:6px を最寄りグリッド var(--sp-8) へ snap して件数が減る",
-          "border:1px / inset:0 など除外対象のみ"
+          "padding: var(--sp-8) var(--sp-16) / gap: var(--sp-12) で書く",
+          "border-bottom:2px / border-radius:4px（枠幅は spacing でない＝対象外）",
+          "inset:0 / left:1px（除外対象）"
         ],
         "fail": [
-          "新しいルールに gap:18px のような生 px を足して 347 を超える",
-          "コンポーネント追加で margin:10px 6px をリテラルで書く"
+          "新しいルールに gap:18px や padding:10px 6px のような生 px を足す",
+          "top:14px（positioning も grid token を使う）"
         ]
       }
     }
