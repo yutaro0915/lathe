@@ -395,7 +395,7 @@
 .lds-sa-nested-stepbody .lds-step-wrap{border-top:0;}
 
 /* linkedChild branch: honest OPEN SUB-SESSION navigation (kids are not inline). */
-.lds-sa-nested-linked{display:flex;flex-direction:column;gap:8px;padding:12px 14px;}
+.lds-sa-nested-linked{display:flex;flex-direction:column;gap:8px;padding:var(--pad-panel) var(--pad-cell);}
 .lds-sa-nested-linked-title{font-size:var(--fs-md);font-weight:650;color:var(--text);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .lds-sa-nested-linked-hint{font-size:var(--fs-sm);color:var(--muted-2);}
@@ -619,7 +619,7 @@
    the session viewer the tab mounts inside .timeline (overflow-y:auto), so we
    pin it to the full height and hide its own overflow — the list and detail
    panes scroll internally, NOT the whole tab. */
-.findings-tab{padding:12px 14px;gap:0;display:flex;flex-direction:column;
+.findings-tab{padding:var(--pad-panel) var(--pad-cell) 0;gap:0;display:flex;flex-direction:column;
   flex:1 1 auto;min-height:0;height:100%;overflow:hidden;}
 .timeline.findings-tab{overflow:hidden;}
 .findings-tab-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
@@ -1096,7 +1096,7 @@ button.event-type-badge{height:auto;min-height:24px;}
 /* ---- detail aside (screen A) ---------------------------------------------*/
 /* Block flow (not a shrinking flex column): the aside itself scrolls. */
 .detail{display:block;}
-.detail-head{display:flex;align-items:center;gap:8px;padding:12px 14px 8px;}
+.detail-head{display:flex;align-items:center;gap:8px;padding:var(--pad-panel) var(--pad-cell) 8px;}
 .detail-head .dtitle{font-size:13px;font-weight:650;color:var(--text);} .detail-head .spacer{flex:1 1 auto;}
 .detail-actions{display:flex;gap:6px;padding:0 14px 10px;}
 .kv{display:grid;grid-template-columns:88px minmax(0,1fr);row-gap:6px;column-gap:10px;padding:10px 14px;border-top:1px solid var(--border);font-size:12px;}
@@ -1246,7 +1246,7 @@ button.event-type-badge{height:auto;min-height:24px;}
 .annotation .atxt{font-size:11px;color:var(--text-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);flex:1 1 auto;min-width:0;}
 .annotation .ajump{font-size:11px;color:var(--muted-2);flex:0 0 auto;margin-left:auto;}
 /* Annotations tab (session-wide, moved out of the right aside) */
-.annotations-tab{padding:12px 14px;}
+.annotations-tab{padding:var(--pad-panel) var(--pad-cell) 0;}
 .annotations-tab-head{display:flex;align-items:center;gap:8px;}
 .annotations-tab-head .ann-tab-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
 .annotations-tab-head .count{color:var(--muted-2);font-weight:500;font-size:11px;font-variant-numeric:tabular-nums;}
