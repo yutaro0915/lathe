@@ -188,19 +188,17 @@
   --r-codex:  #0d8668;  /* Codex — OpenAI teal-green (was #10a37f)          */
   --r-cursor: #4969f2;  /* Cursor — indigo-blue (was #4f6ef2)               */
 
-  /* ---- spacing scale (4px base, compact — spacing.css) ---- */
-  --sp-0:  0;
-  --sp-1:  2px;
-  --sp-2:  4px;
-  --sp-3:  6px;
-  --sp-4:  8px;
-  --sp-5:  10px;
-  --sp-6:  12px;
-  --sp-7:  14px;
-  --sp-8:  16px;
-  --sp-9:  18px;
-  --sp-10: 22px;
-  --sp-12: 24px;
+  /* ---- spacing scale (4px grid, value-named) ---- */
+  --sp-0: 0;
+  --sp-4: 4px;
+  --sp-8: 8px;
+  --sp-12: 12px;
+  --sp-16: 16px;
+  --sp-20: 20px;
+  --sp-24: 24px;
+  --sp-32: 32px;
+  --sp-40: 40px;
+  --sp-48: 48px;
 
   /* ---- corner radii (small, technical) ---- */
   --radius:    6px;
@@ -234,9 +232,9 @@
   --row-h:        24px;
 
   /* ---- spacing semantic aliases ---- */
-  --gap-row:    var(--sp-3);
-  --pad-panel:  var(--sp-6);
-  --pad-cell:   var(--sp-7);
+  --gap-row:    var(--sp-8);
+  --pad-panel:  var(--sp-12);
+  --pad-cell:   var(--sp-16);
 }
 
 @media (max-width:1200px){

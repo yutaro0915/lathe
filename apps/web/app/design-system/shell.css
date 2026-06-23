@@ -26,7 +26,7 @@
    Reset, no boxed control (topbar-scope-only). */
 .lds-topbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;height:var(--appbar-h);padding:0 14px;
   background:var(--panel);border-bottom:1px solid var(--border);}
-.lds-topbar .lds-tb-brand{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px;
+.lds-topbar .lds-tb-brand{display:inline-flex;align-items:center;gap:var(--sp-8);font-weight:700;font-size:13.5px;
   color:var(--text);letter-spacing:.01em;text-decoration:none;cursor:pointer;flex:0 0 auto;}
 .lds-topbar .lds-tb-brand:hover{text-decoration:none;}
 .lds-topbar .lds-tb-logo{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
@@ -54,7 +54,7 @@
 /* the custom menu: a floating panel below the trigger, DS-styled (panel bg,
    hairline border, soft shadow). Options are quiet rows with a panel-hover
    highlight; the active (keyboard / hover) row and the current scope are marked. */
-.lds-topbar .lds-tb-scope-menu{position:absolute;top:calc(100% + 4px);left:0;z-index:40;margin:0;padding:4px;
+.lds-topbar .lds-tb-scope-menu{position:absolute;top:calc(100% + var(--sp-4));left:0;z-index:40;margin:0;padding:var(--sp-4);
   list-style:none;min-width:220px;max-width:340px;max-height:60vh;overflow-y:auto;background:var(--panel);
   border:1px solid var(--border-strong);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);}
 .lds-topbar .lds-tb-scope-opt{display:block;width:100%;height:auto;padding:5px 9px;border:0;border-radius:var(--radius-xs);
@@ -73,7 +73,7 @@
    starts directly with its nav items. */
 .lds-railnav{flex:0 0 var(--rail-w);width:var(--rail-w);display:flex;flex-direction:column;min-height:0;
   background:var(--sidebar-bg);border-right:1px solid var(--border);overflow:hidden;}
-.lds-rail-nav{flex:0 0 auto;display:flex;flex-direction:column;gap:2px;padding:8px;border-bottom:1px solid var(--border);}
+.lds-rail-nav{flex:0 0 auto;display:flex;flex-direction:column;gap:2px;padding:var(--sp-8);border-bottom:1px solid var(--border);}
 .lds-rail-nav-item{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border:1px solid transparent;
   border-radius:var(--radius-sm);background:transparent;color:var(--muted);font-family:var(--sans);font-size:12.5px;
   font-weight:550;cursor:pointer;text-align:left;text-decoration:none;}
@@ -82,7 +82,7 @@
 .lds-rail-nav-item.active{background:var(--accent-weak);color:var(--text);font-weight:650;box-shadow:inset 3px 0 0 var(--accent);}
 .lds-rail-nav-item.active .lds-rail-ic{color:var(--accent);}
 .lds-rail-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;}
-.lds-rail-user{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 12px;border-top:1px solid var(--border);
+.lds-rail-user{flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-8);padding:9px var(--sp-12);border-top:1px solid var(--border);
   background:var(--sidebar-bg);}
 .lds-rail-user .lds-avatar{width:24px;height:24px;border-radius:50%;background:var(--text-soft);color:var(--on-accent);
   display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex:0 0 auto;}
@@ -113,7 +113,7 @@
 .lds-surface{flex:1 1 auto;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
 /* WorkareaHeader band — shares --appbar-h with the rail brand + top bar so
    their bottom hairlines line up into one unbroken line across the shell. */
-.lds-wh{flex:0 0 auto;display:flex;align-items:center;gap:14px;height:var(--appbar-h);padding:0 20px;
+.lds-wh{flex:0 0 auto;display:flex;align-items:center;gap:14px;height:var(--appbar-h);padding:0 var(--sp-20);
   background:var(--panel);border-bottom:1px solid var(--border);}
 .lds-wh .lds-wh-titles{display:flex;align-items:baseline;gap:10px;min-width:0;flex:0 1 auto;}
 .lds-wh .lds-wh-title{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;flex:0 0 auto;}
@@ -147,7 +147,7 @@
 /* Surface row that hosts a sub-component (filters etc.) below the header. */
 .lds-surface-row{flex:0 0 auto;}
 /* tabs row (optional), directly under the WorkareaHeader. */
-.lds-wh-tabs{flex:0 0 auto;display:flex;align-items:center;gap:0;height:var(--tabs-h);padding:0 12px;
+.lds-wh-tabs{flex:0 0 auto;display:flex;align-items:center;gap:0;height:var(--tabs-h);padding:0 var(--sp-12);
   background:var(--panel);border-bottom:1px solid var(--border);}
 /* Narrow widths: the session tab strip (up to 9 tabs) scrolls horizontally
    instead of overflowing the band. */
@@ -164,18 +164,18 @@
 /* ---- collapsible RightPanel (shell-owned inspector frame) ---------------- */
 .lds-rightpanel{flex:0 0 var(--aside-w);width:var(--aside-w);min-height:0;display:flex;flex-direction:column;
   background:var(--panel);border-left:1px solid var(--border);overflow:hidden;}
-.lds-rightpanel .lds-rp-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;height:var(--tabs-h);
-  padding:0 12px;border-bottom:1px solid var(--border);}
+.lds-rightpanel .lds-rp-head{flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-8);height:var(--tabs-h);
+  padding:0 var(--sp-12);border-bottom:1px solid var(--border);}
 .lds-rightpanel .lds-rp-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
   letter-spacing:.06em;flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.lds-rightpanel .lds-rp-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;}
+.lds-rightpanel .lds-rp-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--sp-12);}
 /* ONE collapse/expand affordance: a slim full-height right-edge vertical tab,
    ALWAYS pinned to the right edge of the split, in BOTH states (VS Code /
    Langfuse side-panel collapse). It replaced the asymmetric pair (header × to
    close + a separate reopen rail). It flips by [data-rp-open]: open shows just
    the "›" collapse chevron (slim); closed widens to show "‹" + the vertical
    "Inspector" label so the user sees WHAT expands. Always in the DOM. */
-.lds-rp-toggle{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;
+.lds-rp-toggle{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:var(--sp-8);
   width:24px;min-height:0;padding:10px 0;border:0;border-left:1px solid var(--border);
   background:var(--panel);color:var(--muted-2);cursor:pointer;font-family:var(--sans);}
 .lds-rp-toggle[data-rp-open="false"]{width:var(--tabs-h);color:var(--muted);}
@@ -194,12 +194,12 @@
    title shrink + ellipsize so a long name yields room to the right actions. */
 .lds-wh[data-testid="sessbar"] .lds-wh-titles{flex:0 1 auto;min-width:0;}
 .lds-wh[data-testid="sessbar"] .lds-wh-title{min-width:0;}
-.lds-sv-id{display:flex;align-items:center;gap:8px;min-width:0;}
+.lds-sv-id{display:flex;align-items:center;gap:var(--sp-8);min-width:0;}
 .lds-sv-id .runner-dot{flex:0 0 auto;}
 .lds-sv-title{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;}
 .lds-sv-meta{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-family:var(--mono);font-variant-numeric:tabular-nums;}
 .lds-sv-jumps{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;}
-.lds-sv-stats{display:flex;align-items:center;gap:20px;flex:0 0 auto;}
+.lds-sv-stats{display:flex;align-items:center;gap:var(--sp-20);flex:0 0 auto;}
 
 /* tabs strip in the Surface tabs slot. The Surface .lds-wh-tabs frame owns the
    band height + hairline; these style the buttons (matching the old strip). */
@@ -208,7 +208,7 @@
   border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--sans);}
 .lds-sv-tab:hover{color:var(--text-soft);}
 .lds-sv-tab.active{color:var(--text);font-weight:650;border-bottom-color:var(--accent);}
-.lds-sv-tabs-spacer{flex:1 1 auto;} .lds-sv-tabs-tool{display:inline-flex;align-items:center;padding-right:4px;}
+.lds-sv-tabs-spacer{flex:1 1 auto;} .lds-sv-tabs-tool{display:inline-flex;align-items:center;padding-right:var(--sp-4);}
 .lds-sv-tab .lds-sv-tab-count{margin-left:6px;font-family:var(--mono);font-size:10px;font-variant-numeric:tabular-nums;
   color:var(--muted-2);background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;padding:0 5px;line-height:15px;}
 .lds-sv-tab.active .lds-sv-tab-count{color:var(--text-soft);}
@@ -244,11 +244,11 @@
 .lds-meta-sep{color:var(--muted-2);flex:0 0 auto;}
 
 /* ---- collapsible filters (Sessions surface) ------------------------------ */
-.lds-sessions-filters{flex:0 0 auto;display:flex;flex-direction:column;gap:10px;padding:12px 20px;
+.lds-sessions-filters{flex:0 0 auto;display:flex;flex-direction:column;gap:10px;padding:var(--sp-12) var(--sp-20);
   background:var(--panel);border-bottom:1px solid var(--border);}
 .lds-sessions-filters .lds-sf-row{display:flex;align-items:flex-start;gap:14px;}
 .lds-sessions-filters .lds-sf-row .lds-flabel{margin-top:3px;flex:0 0 auto;}
-.lds-sessions-filters .lds-sf-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.lds-sessions-filters .lds-sf-controls{display:flex;align-items:center;gap:var(--sp-12);flex-wrap:wrap;}
 .lds-flabel{display:block;font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.05em;}
 .lds-chip-filters{display:flex;flex-wrap:wrap;gap:5px;}
 .lds-fchip{display:inline-flex;align-items:center;gap:5px;height:18px;padding:0 6px;border:1px solid var(--border);
@@ -260,7 +260,7 @@
 /* ---- sessions grid: full-width, lives directly in MAIN ------------------- */
 .lds-sessions-grid{display:flex;flex-direction:column;gap:0;padding:0;}
 .lds-sg-head,.lds-sg-row{display:grid;grid-template-columns:minmax(0,1fr) 84px 86px 92px 64px 72px 84px;
-  align-items:center;column-gap:14px;padding:0 20px;}
+  align-items:center;column-gap:14px;padding:0 var(--sp-20);}
 .lds-sg-head{height:34px;flex:0 0 auto;position:sticky;top:0;z-index:1;background:var(--bg-sunken);
   border-bottom:1px solid var(--border);font-size:10px;font-weight:700;text-transform:uppercase;
   letter-spacing:.06em;color:var(--muted-2);}
@@ -283,7 +283,7 @@
 .lds-sg-cost.muted{color:var(--muted-2);font-weight:400;}
 .lds-sg-zero{font-family:var(--mono);font-size:12px;color:var(--muted-2);}
 .lds-sg-flags{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;}
-.lds-sg-empty{color:var(--muted-2);font-size:12px;padding:14px 20px;}
+.lds-sg-empty{color:var(--muted-2);font-size:12px;padding:14px var(--sp-20);}
 /* Narrow widths: the fixed tracks (Runner 84 + Model 86 + Tokens 92 + Turns 64
    + Errors 72 + Cost 84 + gaps ≈ 566px) plus the title's 1fr exceed a ~700px
    work area, so the 1fr title track resolves to 0 and the most important column
