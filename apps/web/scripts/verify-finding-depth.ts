@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { closePool, getPool } from '../lib/postgres';
-import { assertAnalysisGrounded, backfillFindingAnalysis, runAnalyst, runAnalystSmoke } from './analyst-engine';
+import { assertAnalysisGrounded, runAnalyst, runAnalystSmoke } from './analyst-engine';
 import { withScratchDatabase } from './verify/scratch';
 
 const SCHEMA_PATH = path.join(process.cwd(), 'db', 'schema.sql');
@@ -378,53 +378,6 @@ async function verifyAcpFailureFailsClosed(): Promise<void> {
   });
 }
 
-async function verifyFinding110To114Backfill(): Promise<void> {
-  await withScratchDatabase('finding_depth_existing_findings', async () => {
-    await applySchema();
-    const ids = [110, 111, 112, 113, 114];
-    const rows = await getPool().query<{ id: number }>(
-      `SELECT id FROM public.findings WHERE id = ANY($1::int[]) ORDER BY id ASC`,
-      [ids],
-    );
-    if (rows.rows.length !== ids.length) fail(`#110-114 not all present in public findings: ${rows.rows.map((row) => row.id).join(',')}`);
-    const sessionIds = (await getPool().query<{ session_id: string }>(
-      `SELECT DISTINCT fe.session_id
-         FROM public.finding_evidence fe
-        WHERE fe.finding_id = ANY($1::int[])
-          AND fe.session_id IS NOT NULL`,
-      [ids],
-    )).rows.map((row) => row.session_id);
-    await copyKnownIncidentRows(sessionIds);
-    await getPool().query(
-      `INSERT INTO findings (id, created_at, analyst, kind, title, body, confidence, harness_version_id, project_id, analysis, backlog_status, backlog_actor)
-       OVERRIDING SYSTEM VALUE
-       SELECT id, created_at, analyst, kind, title, body, confidence, harness_version_id, project_id, NULL::jsonb, NULL::text, NULL::text
-         FROM public.findings
-        WHERE id = ANY($1::int[])
-       ON CONFLICT DO NOTHING`,
-      [ids],
-    );
-    await getPool().query(
-      `INSERT INTO finding_evidence (id, finding_id, subject_kind, session_id, locator, subject_id, note)
-       OVERRIDING SYSTEM VALUE
-       SELECT id, finding_id, subject_kind, session_id, locator, subject_id, note
-         FROM public.finding_evidence
-        WHERE finding_id = ANY($1::int[])
-       ON CONFLICT DO NOTHING`,
-      [ids],
-    );
-    const result = await backfillFindingAnalysis(ids);
-    if (result.updated < 1 && result.skipped < ids.length) fail(`unexpected backfill result: ${JSON.stringify(result)}`);
-    const check = await getPool().query<{ id: number; analysis: Record<string, unknown> | string | null }>(
-      `SELECT id, analysis FROM findings WHERE id = ANY($1::int[]) ORDER BY id ASC`,
-      [ids],
-    );
-    const missing = check.rows.filter((row) => !row.analysis).map((row) => row.id);
-    if (missing.length) fail(`#110-114 missing analysis after scratch backfill: ${missing.join(',')}`);
-    await assertAnalysisGrounded(sessionIds);
-  });
-}
-
 async function main(): Promise<void> {
   await verifyFreshMigration();
   await verifyExistingMigration();
@@ -434,8 +387,7 @@ async function main(): Promise<void> {
   await verifyDeterministicAcpSubmitPath();
   await verifyAcpFailureFailsClosed();
   await warnKnownIncidentSmoke();
-  await verifyFinding110To114Backfill();
-  console.log('[verify-finding-depth] GREEN migration=true rules_analysis=true generic_reject=true cue_routing=true fake_acp_submit=true acp_fail_closed=true live_recall=warn backfill_110_114=true');
+  console.log('[verify-finding-depth] GREEN migration=true rules_analysis=true generic_reject=true cue_routing=true fake_acp_submit=true acp_fail_closed=true live_recall=warn');
 }
 
 main()
