@@ -7,7 +7,7 @@
     "lint:deps": "depcruise --config .dependency-cruiser.js --output-type err-long apps/web/app apps/web/components apps/web/lib packages/mcp/src/server.ts packages/mcp/src/verify.ts packages/acp-client/src packages/shared/src packages/client/src",
     "lint:ox": "oxlint",
     "lint": "pnpm lint:deps && pnpm lint:ox",
-    "test": "node --import tsx --test \"packages/*/src/**/*.test.ts\" \"apps/web/scripts/**/*.test.ts\""
+    "test": "node --import tsx --test \"packages/*/src/**/*.test.ts\" \"apps/web/lib/**/*.test.ts\" \"apps/web/scripts/**/*.test.ts\""
   },
   "devDependencies": {
     "dependency-cruiser": "^16.10.4",
