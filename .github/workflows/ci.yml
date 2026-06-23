@@ -29,6 +29,8 @@ jobs:
           git fetch origin main --depth=1 || true
           CHANGED=$(git diff --name-only origin/main...HEAD | tr '\n' ' ')
           if [ -n "$CHANGED" ]; then node rubrics/run.mjs --changed $CHANGED; fi
+      - name: unit tests (node:test + tsx)
+        run: pnpm test
 
   verify:
     runs-on: ubuntu-latest

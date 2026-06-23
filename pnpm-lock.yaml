@@ -14,6 +14,9 @@ importers:
       oxlint:
         specifier: ^0.16.12
         version: 0.16.12
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
 
   apps/web:
     dependencies:
