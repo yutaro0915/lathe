@@ -283,8 +283,8 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                     />
                   </span>
                   <span className="hbar-val" data-testid="hbar-val">
-                    <span style={{ color: "var(--add-text)" }}>+{f.additions}</span>{" "}
-                    <span style={{ color: "var(--del-text)" }}>−{f.deletions}</span>
+                    <span style={{ color: "var(--muted)" }}>+{f.additions}</span>{" "}
+                    <span style={{ color: "var(--muted)" }}>−{f.deletions}</span>
                   </span>
                 </div>
               ))}
