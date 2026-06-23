@@ -23,6 +23,7 @@ type Props = {
   depth: number;
   turn?: number; // the 1-based turn this step belongs to (for cross-tab jumps)
   selectedEventId?: string;
+  expanded?: boolean;
   flashEventId?: string | null;
   // sub-agent nesting: child steps + expand wiring (only when this step launched
   // a sub-agent). `null` when the step has no children.
@@ -36,6 +37,18 @@ type Props = {
   resolveEdit?: (e: TranscriptEvent) => StepEdit;
   onSelect: (eventId: string) => void;
 };
+
+const StepExpansionContext = React.createContext<Set<string> | null>(null);
+
+export function StepExpansionProvider({
+  expandedEventIds,
+  children,
+}: {
+  expandedEventIds: Set<string>;
+  children: React.ReactNode;
+}) {
+  return <StepExpansionContext.Provider value={expandedEventIds}>{children}</StepExpansionContext.Provider>;
+}
 
 // The one-line detail shown on the frame (right of the kind label), ellipsized.
 // Varies by kind but is always a single line in the SAME slot.
@@ -143,6 +156,7 @@ export function Step({
   depth,
   turn,
   selectedEventId,
+  expanded,
   flashEventId,
   childSteps,
   agentExpanded,
@@ -157,6 +171,8 @@ export function Step({
   const hasChildren = (childSteps?.length ?? 0) > 0;
   const isAgent = event.type === "subagent" && hasChildren;
   const selected = selectedEventId === event.id;
+  const expandedEventIds = React.useContext(StepExpansionContext);
+  const open = expanded ?? expandedEventIds?.has(event.id) ?? false;
   const flash = flashEventId === event.id;
 
   return (
@@ -170,6 +186,7 @@ export function Step({
         data-step-error={isError ? "true" : undefined}
         data-turn={turn}
         data-selected={selected ? "true" : undefined}
+        data-expanded={open ? "true" : undefined}
         data-flash={flash ? "true" : undefined}
         data-child-row={depth > 0 ? "true" : undefined}
         className={`lds-step${selected ? " selected" : ""}${flash ? " flash-jump" : ""}${depth > 0 ? " lds-step-child" : ""}`}
@@ -209,7 +226,7 @@ export function Step({
           )}
         </div>
       </div>
-      {selected && <StepDetail event={event} edit={edit} />}
+      {open && <StepDetail event={event} edit={edit} />}
       {isAgent && agentExpanded && (
         <div className="lds-step-children" data-testid="step-children">
           {childSteps!.map((child) => (
@@ -218,6 +235,7 @@ export function Step({
               event={child}
               depth={depth + 1}
               selectedEventId={selectedEventId}
+              expanded={expandedEventIds?.has(child.id) ?? false}
               flashEventId={flashEventId}
               edit={resolveEdit ? resolveEdit(child) : null}
               resolveEdit={resolveEdit}

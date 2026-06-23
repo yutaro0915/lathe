@@ -1,6 +1,11 @@
-import { expandAllTurns, expect, getTurnExpectations, gotoViewer, registerFixtureHooks, test } from "./helpers";
+import type { Locator } from "@playwright/test";
+import { expandAllTurns, expect, FINDING_FIXTURE, getTurnExpectations, gotoViewer, registerFixtureHooks, test } from "./helpers";
 
 registerFixtureHooks();
+
+function stepDetailFor(row: Locator): Locator {
+  return row.locator(`xpath=following-sibling::*[@data-testid="step-detail"]`);
+}
 
 test.describe("Cross-screen navigation", () => {
   test("Git is an in-page tab: diff shows in place, no navigation", async ({
@@ -69,6 +74,50 @@ test.describe("Step detail-block (inline)", () => {
       const text = (await body.innerText()).trim();
       expect(text.length).toBeGreaterThan(0);
     }
+  });
+
+  test("step expansion is independent, not an accordion", async ({ page }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}`);
+    await expandAllTurns(page);
+
+    const steps = page.locator(`[data-testid="timeline"] [data-testid="event-row"][data-row-kind="step"]`);
+    const a = steps.nth(0);
+    const b = steps.nth(1);
+    await expect(a).toBeVisible();
+    await expect(b).toBeVisible();
+
+    await a.click();
+    await expect(a).toHaveAttribute("data-expanded", "true");
+    await expect(stepDetailFor(a)).toBeVisible();
+
+    await b.click();
+    await expect(a).toHaveAttribute("data-expanded", "true");
+    await expect(b).toHaveAttribute("data-expanded", "true");
+    await expect(stepDetailFor(a)).toBeVisible();
+    await expect(stepDetailFor(b)).toBeVisible();
+
+    await a.click();
+    await expect(a).not.toHaveAttribute("data-expanded", "true");
+    await expect(stepDetailFor(a)).toHaveCount(0);
+    await expect(b).toHaveAttribute("data-expanded", "true");
+    await expect(stepDetailFor(b)).toBeVisible();
+  });
+
+  test("finding evidence jump opens, highlights, and scrolls the target step", async ({ page }) => {
+    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}&tab=findings`);
+    await page.locator(`[data-testid="finding-row"]`, { hasText: FINDING_FIXTURE.titles.jump }).click();
+
+    await page
+      .locator(`[data-testid="finding-evidence"][data-evidence-kind="event"][data-resolved="true"]`)
+      .first()
+      .click();
+
+    await expect(page.locator(`[data-testid="tabs"] [role="tab"][aria-selected="true"]`)).toHaveText(/Transcript/);
+    const target = page.locator(`[data-testid="event-row"][data-eid="${FINDING_FIXTURE.eventId}"]`);
+    await expect(target).toHaveAttribute("data-selected", "true");
+    await expect(target).toHaveAttribute("data-expanded", "true");
+    await expect(stepDetailFor(target)).toBeVisible();
+    await expect(target).toBeInViewport();
   });
 });
 

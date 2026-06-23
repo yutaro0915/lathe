@@ -26,6 +26,8 @@ import { RawTab } from "@/components/session-viewer/RawTab";
 import { SessionAside } from "@/components/session-viewer/SessionAside";
 import { JumpLandingBanner } from "@/components/session-viewer/JumpLandingBanner";
 import { buildEditByEventId } from "@/components/session-viewer/edit-map";
+import { StepExpansionProvider } from "@/components/session-viewer/Step";
+import { addToSet, toggleInSet } from "@/components/session-viewer/expand-set";
 
 const LS_PINS = "lathe.pins";
 const LS_NOTES = "lathe.notes";
@@ -59,6 +61,7 @@ export default function SessionViewer({
   const [filterMode, setFilterMode] = useState<FilterMode>("hide");
   const [transcriptSearch, setTranscriptSearch] = useState("");
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(() => new Set());
+  const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(() => new Set());
   const [expandedToolTypes, setExpandedToolTypes] = useState<Set<string>>(() => new Set());
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(() => new Set());
   const [collapsedTurns, setCollapsedTurns] = useState<Set<string>>(() => new Set());
@@ -81,6 +84,7 @@ export default function SessionViewer({
 
   useEffect(() => setFindings(initialFindings), [initialFindings]);
   useEffect(() => setSelectedLauncherId(null), [primary.id]);
+  useEffect(() => setExpandedEventIds(new Set()), [primary.id]);
   useEffect(() => setExpandedToolTypes(new Set()), [primary.id]);
   useEffect(() => setExpandedSkills(new Set()), [primary.id]);
 
@@ -89,7 +93,7 @@ export default function SessionViewer({
     return first?.id;
   }, [events]);
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>(seedId);
-  useEffect(() => setSelectedEventId(seedId), [seedId]);
+  useEffect(() => { setSelectedEventId(seedId); if (seedId) setExpandedEventIds((prev) => addToSet(prev, seedId)); }, [primary.id, seedId]);
 
   useEffect(() => {
     if (!selectedEventId || typeof document === "undefined") return;
@@ -228,7 +232,7 @@ export default function SessionViewer({
     if (!target) return;
     setActiveTab("transcript");
     expandTurnForEvent(target.id);
-    setSelectedEventId(target.id);
+    setSelected(target.id);
     flashStep(target.id);
     if (typeof document !== "undefined") {
       requestAnimationFrame(() => {
@@ -280,15 +284,17 @@ export default function SessionViewer({
     if (flashTimer.current) clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setFlashEventId(null), 2200);
   }
+  function setSelected(eventId: string, expansion: "open" | "toggle" = "open") { setSelectedEventId(eventId); setExpandedEventIds((prev) => (expansion === "toggle" ? toggleInSet(prev, eventId) : addToSet(prev, eventId))); }
+  function selectStep(eventId: string) { setSelected(eventId, "toggle"); }
   function selectTimelineEvent(eventId: string, expandTurn = false) {
     if (expandTurn) expandTurnForEvent(eventId);
-    setSelectedEventId(eventId);
+    setSelected(eventId);
     flashStep(eventId);
   }
   function jumpToTurn(headerId: string) {
     setActiveTab("transcript");
     expandTurnForEvent(headerId);
-    setSelectedEventId(headerId);
+    setSelected(headerId);
   }
   function jumpToFindingSession(sessionId: string, findingId?: number) {
     if (sessionId === currentId) {
@@ -313,7 +319,7 @@ export default function SessionViewer({
   // / × close) collapses it. Also seeds the transcript selection to the launcher.
   function selectLauncher(launcherId: string) {
     setSelectedLauncherId((prev) => (prev === launcherId ? null : launcherId));
-    setSelectedEventId(launcherId);
+    setSelected(launcherId);
   }
   function openSubSession(id: string) {
     router.push(`/?session=${encodeURIComponent(id)}&tab=transcript`);
@@ -380,7 +386,6 @@ export default function SessionViewer({
     setGitFocusEvent,
   });
 
-  const setSelected = (eventId: string) => setSelectedEventId(eventId);
   const clearGitFocus = () => {
     setGitFocusEvent(undefined);
     setGitFocusFileId(undefined);
@@ -457,8 +462,7 @@ export default function SessionViewer({
           bundle={bundle}
           expandedTypes={expandedToolTypes}
           toggleType={toggleToolType}
-          selectedEventId={selectedEventId}
-          selectEvent={setSelected}
+          selectedEventId={selectedEventId} selectEvent={selectStep}
           expandedAgents={expandedAgents}
           toggleAgent={toggleAgent}
           editByEventId={editByEventId}
@@ -474,8 +478,7 @@ export default function SessionViewer({
           bundle={bundle}
           expandedSkills={expandedSkills}
           toggleSkill={toggleSkill}
-          selectedEventId={selectedEventId}
-          selectEvent={setSelected}
+          selectedEventId={selectedEventId} selectEvent={selectStep}
           expandedAgents={expandedAgents}
           toggleAgent={toggleAgent}
           editByEventId={editByEventId}
@@ -500,8 +503,7 @@ export default function SessionViewer({
           currentId={currentId}
           selectedLauncherId={selectedLauncherId}
           selectLauncher={selectLauncher}
-          selectedEventId={selectedEventId}
-          selectEvent={setSelected}
+          selectedEventId={selectedEventId} selectEvent={selectStep}
           flashEventId={flashEventId}
           editByEventId={editByEventId}
           expandedAgents={expandedAgents}
@@ -534,11 +536,10 @@ export default function SessionViewer({
         kindCounts={kindCounts}
         filterMode={filterMode}
         setFilterMode={setFilterMode}
-        selectedEventId={selectedEventId}
-        flashEventId={flashEventId}
+        selectedEventId={selectedEventId} flashEventId={flashEventId}
         expandedAgents={expandedAgents}
         toggleAgent={toggleAgent}
-        selectStep={(eventId) => selectTimelineEvent(eventId)}
+        selectStep={selectStep}
         editByEventId={editByEventId}
         matchesSearch={matchesSearch}
       />
@@ -565,7 +566,7 @@ export default function SessionViewer({
       tabs={tabs}
       rightPanel={isFullWidthTab || isTranscriptTab ? undefined : { title: "Inspector", children: inspector }}
     >
-      {body}
+      <StepExpansionProvider expandedEventIds={expandedEventIds}>{body}</StepExpansionProvider>
     </Surface>
   );
 }

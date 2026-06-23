@@ -1010,10 +1010,10 @@ button.event-type-badge{height:auto;min-height:24px;}
    does NOT change the frame shape — it is layered into the same head row. */
 .lds-step-errdot{flex:0 0 auto;width:6px;height:6px;border-radius:50%;background:var(--c-error);}
 
-/* the inline detail-block (below the frame when the step is selected). Same
+/* the inline detail-block (below the frame when the step is expanded). Same
    container for every kind; the inner content (command/output, diff, body)
    varies. Everything WRAPS — no horizontal overflow. */
-.lds-step-detail{padding:0 14px 10px 36px;display:flex;flex-direction:column;gap:8px;min-width:0;}
+.lds-step-detail{padding:0 14px 18px 36px;display:flex;flex-direction:column;gap:8px;min-width:0;}
 .lds-step-detail .code-block{margin:0;max-height:46vh;overflow:auto;white-space:pre-wrap;word-break:break-word;}
 .lds-step-body{font-size:12.5px;color:var(--text-soft);min-width:0;max-height:46vh;overflow:auto;}
 .lds-step-empty{font-size:11.5px;color:var(--muted);font-family:var(--mono);word-break:break-all;}
