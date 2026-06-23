@@ -13,12 +13,6 @@
       }
     },
     {
-      "files": ["apps/web/lib/db.ts"],
-      "rules": {
-        "max-lines": ["warn", { "max": 1564, "skipBlankLines": true, "skipComments": true }]
-      }
-    },
-    {
       "files": ["apps/web/components/FindingsExplorer.tsx"],
       "rules": {
         "max-lines": ["warn", { "max": 963, "skipBlankLines": true, "skipComments": true }]
