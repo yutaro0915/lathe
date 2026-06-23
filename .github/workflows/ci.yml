@@ -65,38 +65,10 @@ jobs:
           pnpm -F @lathe/mcp verify
           pnpm -F web exec tsx scripts/verify-finding-depth.ts
 
-  e2e:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: lathe
-          POSTGRES_PASSWORD: lathe
-          POSTGRES_DB: lathe
-        ports:
-          - 55432:5432
-        options: >-
-          --health-cmd "pg_isready -U lathe"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-    env:
-      DATABASE_URL: postgres://lathe:lathe@localhost:55432/lathe
-      E2E_PORT: 3211
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: apply schema
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
-          psql "$DATABASE_URL" -f apps/web/db/schema.sql
-      - name: playwright browsers
-        run: pnpm -F web exec playwright install --with-deps chromium
-      - name: e2e
-        run: pnpm -F web e2e
+  # e2e は CI で動かさない（2026-06-23 決定）。
+  #   理由: e2e の webServer は「Postgres は ingest 済み」前提で、session 詳細テスト
+  #   (diff / session-viewer / sessions / stats) が取り込み済みの実データに依存する。
+  #   CI のまっさら DB ではそのデータが無く、全テスト分の合成 fixture を作るのは現時点で
+  #   過剰投資 (YAGNI)。また実データ検証の代わりにもならない。
+  #   → e2e は「ローカルの関所」として、ingest 済み DB に対し `pnpm -F web e2e` で回す。
+  #   CI は高速・自己充足・再現可能なチェック (static / verify) だけを管理する。
