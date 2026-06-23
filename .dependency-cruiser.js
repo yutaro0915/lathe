@@ -52,6 +52,52 @@ module.exports = {
         path: '^apps/web/',
       },
     },
+    {
+      /**
+       * pure-core-no-io:
+       * Pure core 層は PostgreSQL / Node I/O / Web DB adapter を import しない。
+       *
+       * TODO: packages/shared/src/harness.ts は既存の harness 実行支援として
+       * node:fs と node:child_process を import しているため、I/O 分離後に例外を外す。
+       */
+      name: 'pure-core-no-io',
+      severity: 'error',
+      comment:
+        'pure core が I/O（pg / fs / net / child_process / lib/postgres）を import している',
+      from: {
+        path: '(^apps/web/lib/db/rows\\.ts$|^packages/shared/src/|^packages/domain/src/)',
+        pathNot: [
+          '^packages/shared/src/harness\\.ts$',
+        ],
+      },
+      to: {
+        path:
+          '(^node_modules/\\.pnpm/[^/]+/node_modules/pg/|^node_modules/pg/|^(node:)?(fs|net|child_process)$|^apps/web/lib/postgres|@/lib/postgres)',
+      },
+    },
+    {
+      /**
+       * lib-db-internals:
+       * apps/web/lib/db/* の内部モジュールは db.ts / read.ts facade 経由で利用する。
+       * depcruise は @/ alias を未解決のまま残すことがあるため、
+       * 実パスと alias の両方を捕捉する。
+       */
+      name: 'lib-db-internals',
+      severity: 'error',
+      comment:
+        'lib/db の内部モジュールを deep import している — apps/web/lib/db または lib/read を経由する',
+      from: {
+        path: '^apps/web/(app|components|lib)/',
+        pathNot: [
+          '^apps/web/lib/db/',
+          '^apps/web/lib/db\\.ts$',
+          '^apps/web/lib/read\\.ts$',
+        ],
+      },
+      to: {
+        path: '(^apps/web/lib/db/|@/lib/db/)',
+      },
+    },
     /**
      * I6-no-orphans:
      * 孤立モジュール（どこからも import されない・何も import しない）を warn。
