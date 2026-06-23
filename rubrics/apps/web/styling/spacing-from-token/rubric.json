@@ -1,0 +1,34 @@
+{
+  "schema_version": "2",
+  "id": "apps/web/styling/spacing-from-token",
+  "title": "spacing は DS スケール token から取る — 生 px を増やさない (T2, 統一感の機械半分の残り)",
+  "version": "1",
+  "scope": ["apps/web/app/design-system"],
+  "origin": "オーナー指示(2026-06-24): CSS のベストプラクティスを rubric 化。色は既に stylelint declaration-strict-value で token 強制(token-consistency T1)だが spacing は同じ仕組みから漏れ、生 px が 521 件・token 参照わずか 10。先の `12px 14px` 重複事故もこの片肺が原因。色と対称に spacing も token から取らせる。",
+  "checks": [
+    {
+      "id": "spacing-value-from-token",
+      "value": "① 何を縛るか: spacing 値（padding / margin / gap / inset / top・right・bottom・left）を DS スケール（`var(--sp-*)` / `var(--pad-*)`）から取り、生 px を増やさない。色 token と対称の規律。② なぜ重要か: 単一ソースが無いと rhythm が不揃いになり、同じ値が各所にリテラルで散る（`12px 14px` を 4 箇所に手書き→1 箇所直せない、という今回の事故そのもの）。tokens.css に 12 段スケール（--sp-0..12）と --pad-* があるのに spacing の生 px は 521・token 参照は 10＝ほぼ未使用。③ 仕組み: 全部を一度に直せない（521）ので ratchet（現状を上限に固定し増加を RED・減少で締める）で新規 magic number を止めつつ債務を逓減させる。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "grep -rhoE '(padding|margin|gap|inset|top|right|bottom|left)[a-z-]*:[^;{}]*' apps/web/app/design-system/components.css apps/web/app/design-system/shell.css apps/web/app/design-system/chat.css 2>/dev/null | grep -oE '[0-9]+px' | grep -vxE '(0px|1px)' | wc -l | tr -d ' '",
+        "expect": "le:521",
+        "tolerance": "ratchet 上限 521（2026-06-24 計測のベースライン）。生 px を 1 つでも増やすと 522 で RED。token 化して減ったら監査役が上限を下げて締める（grandfather-sunset と同じ手動 ratchet）。限界: (a) grep ヒューリスティックで scale 外の意図的な px(サブピクセル等)も数える＝『px をゼロに』でなく『増やさない＋減らす』gate、0px/1px(none・hairline/border) は除外済み。(b) グローバル件数なので別ファイルでの add/remove 相殺は検知しない（v1 の割り切り。厳密化するなら per-file ratchet 化）。(c) 正しい token を選んだかまでは見ない。(d) 対象は DS の component css 3 本（tokens.css は定義元なので除外）＋ tsx inline style は対象外。end-state: 債務が ~0 になったら spacing プロパティを stylelint `declaration-strict-value` に追加し色と同じ hard 0 へ昇格、本 ratchet は撤去。"
+      },
+      "evidence": "cmd が出力する『spacing プロパティ中の生 px 値（0/1px 除く）の数』。521 以下で GREEN、超過で RED。token 参照(var(--sp/--pad)) はカウント対象外＝token 化が唯一の減らし方。",
+      "examples": {
+        "pass": [
+          "padding: var(--sp-4) var(--sp-7) で書く（生 px を使わない）",
+          "既存の padding:8px を var(--sp-4) に置換して件数が減る",
+          "border:1px / inset:0 など除外対象のみ"
+        ],
+        "fail": [
+          "新しいルールに gap:18px のような生 px を足して 521 を超える",
+          "コンポーネント追加で margin:10px 6px をリテラルで書く"
+        ]
+      }
+    }
+  ]
+}
