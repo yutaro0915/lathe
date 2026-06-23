@@ -9,31 +9,31 @@
     {
       "files": ["apps/web/e2e/**/*.spec.ts"],
       "rules": {
-        "max-lines": ["warn", { "max": 800, "skipBlankLines": true, "skipComments": true }]
+        "max-lines": ["warn", { "max": 550, "skipBlankLines": true, "skipComments": true }]
       }
     },
     {
       "files": ["apps/web/lib/db.ts"],
       "rules": {
-        "max-lines": ["warn", { "max": 1612, "skipBlankLines": true, "skipComments": true }]
+        "max-lines": ["warn", { "max": 1564, "skipBlankLines": true, "skipComments": true }]
       }
     },
     {
       "files": ["apps/web/components/FindingsExplorer.tsx"],
       "rules": {
-        "max-lines": ["warn", { "max": 1030, "skipBlankLines": true, "skipComments": true }]
+        "max-lines": ["warn", { "max": 963, "skipBlankLines": true, "skipComments": true }]
       }
     },
     {
       "files": ["apps/web/scripts/verify-phase2.ts"],
       "rules": {
-        "max-lines": ["warn", { "max": 704, "skipBlankLines": true, "skipComments": true }]
+        "max-lines": ["warn", { "max": 694, "skipBlankLines": true, "skipComments": true }]
       }
     },
     {
       "files": ["apps/web/scripts/ingest/providers/claude.ts"],
       "rules": {
-        "max-lines": ["warn", { "max": 609, "skipBlankLines": true, "skipComments": true }]
+        "max-lines": ["warn", { "max": 563, "skipBlankLines": true, "skipComments": true }]
       }
     },
     {
