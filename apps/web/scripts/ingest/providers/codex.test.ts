@@ -109,7 +109,7 @@ test('Codex visible message previews normalize whitespace and cap titles determi
 
 test('Codex rollout timestamps normalize valid ISO values and drop malformed values', () => {
   const cases = [
-    { input: '2026-06-23T12:34:56.000Z', expected: '21:34:56' },
+    { input: '2026-06-23T12:34:56.000Z', expected: '12:34:56' },
     { input: '2026-06-23 12:34:56', expected: '12:34:56' },
     { input: 'not-a-date', expected: '' },
     { input: undefined, expected: '' },

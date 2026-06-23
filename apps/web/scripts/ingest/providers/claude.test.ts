@@ -115,13 +115,13 @@ test('Claude timestamp and tool-result duration derivation tolerates malformed o
     {
       startedAt: '2026-06-23T12:34:56.000Z',
       endedAt: '2026-06-23T12:35:01.500Z',
-      ts: '21:34:56',
+      ts: '12:34:56',
       durationMs: 5500,
     },
     {
       startedAt: '2026-06-23T12:35:01.500Z',
       endedAt: '2026-06-23T12:34:56.000Z',
-      ts: '21:35:01',
+      ts: '12:35:01',
       durationMs: 0,
     },
     {
