@@ -1,10 +1,24 @@
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expandAllTurns, expect, FINDING_FIXTURE, getTurnExpectations, gotoViewer, registerFixtureHooks, test } from "./helpers";
 
 registerFixtureHooks();
 
 function stepDetailFor(row: Locator): Locator {
   return row.locator(`xpath=following-sibling::*[@data-testid="step-detail"]`);
+}
+
+async function openSessionWithVisibleSteps(page: Page, minSteps: number): Promise<Locator> {
+  await page.goto("/");
+  const sessions = page.locator(`[data-testid="session-list"] [data-testid="session-item"]`);
+  const ids = await sessions.evaluateAll((rows) => rows.map((row) => row.getAttribute("data-session-id")).filter((id): id is string => !!id));
+  for (const id of ids) {
+    await page.goto(`/?session=${encodeURIComponent(id)}`);
+    await expandAllTurns(page);
+    const steps = page.locator(`[data-testid="timeline"] [data-testid="event-row"][data-row-kind="step"]`);
+    const visibleSteps = steps.filter({ visible: true });
+    if ((await visibleSteps.count()) >= minSteps) return visibleSteps;
+  }
+  throw new Error(`No session with at least ${minSteps} visible steps`);
 }
 
 test.describe("Cross-screen navigation", () => {
@@ -77,10 +91,7 @@ test.describe("Step detail-block (inline)", () => {
   });
 
   test("step expansion is independent, not an accordion", async ({ page }) => {
-    await page.goto(`/?session=${FINDING_FIXTURE.sessionId}`);
-    await expandAllTurns(page);
-
-    const steps = page.locator(`[data-testid="timeline"] [data-testid="event-row"][data-row-kind="step"]`);
+    const steps = await openSessionWithVisibleSteps(page, 2);
     const a = steps.nth(0);
     const b = steps.nth(1);
     await expect(a).toBeVisible();
@@ -101,6 +112,24 @@ test.describe("Step detail-block (inline)", () => {
     await expect(stepDetailFor(a)).toHaveCount(0);
     await expect(b).toHaveAttribute("data-expanded", "true");
     await expect(stepDetailFor(b)).toBeVisible();
+  });
+
+  test("clicking a visible step expands in place without recentering", async ({ page }) => {
+    const steps = await openSessionWithVisibleSteps(page, 9);
+    const step = steps.nth(6);
+    await step.evaluate((el) => {
+      window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 120);
+    });
+    await expect(step).toBeVisible();
+
+    const beforeTop = await step.evaluate((el) => el.getBoundingClientRect().top);
+    await step.click();
+
+    await expect(step).toHaveAttribute("data-selected", "true");
+    await expect(step).toHaveAttribute("data-expanded", "true");
+    await expect(stepDetailFor(step)).toBeVisible();
+    const afterTop = await step.evaluate((el) => el.getBoundingClientRect().top);
+    expect(Math.abs(afterTop - beforeTop)).toBeLessThanOrEqual(8);
   });
 
   test("finding evidence jump opens, highlights, and scrolls the target step", async ({ page }) => {

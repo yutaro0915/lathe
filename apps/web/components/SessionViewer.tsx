@@ -83,24 +83,38 @@ export default function SessionViewer({
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setFindings(initialFindings), [initialFindings]);
-  useEffect(() => setSelectedLauncherId(null), [primary.id]);
-  useEffect(() => setExpandedEventIds(new Set()), [primary.id]);
-  useEffect(() => setExpandedToolTypes(new Set()), [primary.id]);
-  useEffect(() => setExpandedSkills(new Set()), [primary.id]);
+  useEffect(() => { setSelectedLauncherId(null); setExpandedEventIds(new Set()); setExpandedToolTypes(new Set()); setExpandedSkills(new Set()); }, [primary.id]);
 
   const seedId = useMemo(() => {
     const first = events.find((e) => !e.parentId) ?? events[0];
     return first?.id;
   }, [events]);
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>(seedId);
-  useEffect(() => { setSelectedEventId(seedId); if (seedId) setExpandedEventIds((prev) => addToSet(prev, seedId)); }, [primary.id, seedId]);
+  const [scrollRequestId, setScrollRequestId] = useState(0);
+  const scrollTarget = useRef<string | null>(null);
+  const previousActiveTab = useRef(activeTab);
+
+  function requestScrollToEvent(eventId: string) { scrollTarget.current = eventId; setScrollRequestId((id) => id + 1); }
 
   useEffect(() => {
-    if (!selectedEventId || typeof document === "undefined") return;
-    const sel = typeof CSS !== "undefined" && CSS.escape ? `[data-eid="${CSS.escape(selectedEventId)}"]` : null;
-    const el = sel ? document.querySelector(sel) : null;
-    if (el) el.scrollIntoView({ block: "center" });
-  }, [selectedEventId, activeTab]);
+    setSelectedEventId(seedId);
+    if (seedId) {
+      setExpandedEventIds((prev) => addToSet(prev, seedId));
+      requestScrollToEvent(seedId);
+    }
+  }, [primary.id, seedId]);
+
+  useEffect(() => {
+    const eventId = scrollTarget.current;
+    if (!eventId || typeof document === "undefined" || typeof CSS === "undefined" || !CSS.escape) return;
+    const raf = requestAnimationFrame(() => document.querySelector(`[data-eid="${CSS.escape(eventId)}"]`)?.scrollIntoView({ block: "center" }));
+    return () => cancelAnimationFrame(raf);
+  }, [scrollRequestId]);
+
+  useEffect(() => {
+    if (previousActiveTab.current !== activeTab && selectedEventId) requestScrollToEvent(selectedEventId);
+    previousActiveTab.current = activeTab;
+  }, [activeTab, selectedEventId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -234,13 +248,7 @@ export default function SessionViewer({
     expandTurnForEvent(target.id);
     setSelected(target.id);
     flashStep(target.id);
-    if (typeof document !== "undefined") {
-      requestAnimationFrame(() => {
-        const sel = typeof CSS !== "undefined" && CSS.escape ? `[data-eid="${CSS.escape(target.id)}"]` : null;
-        const el = sel ? document.querySelector(sel) : null;
-        if (el) el.scrollIntoView({ block: "center" });
-      });
-    }
+    requestScrollToEvent(target.id);
   }, [primary.id, initialSeq, eventBySeq]);
 
   useEffect(() => {
@@ -290,11 +298,13 @@ export default function SessionViewer({
     if (expandTurn) expandTurnForEvent(eventId);
     setSelected(eventId);
     flashStep(eventId);
+    requestScrollToEvent(eventId);
   }
   function jumpToTurn(headerId: string) {
     setActiveTab("transcript");
     expandTurnForEvent(headerId);
     setSelected(headerId);
+    requestScrollToEvent(headerId);
   }
   function jumpToFindingSession(sessionId: string, findingId?: number) {
     if (sessionId === currentId) {
@@ -354,13 +364,10 @@ export default function SessionViewer({
   function togglePin() {
     if (!selected) return;
     const next = new Set(pins);
-    if (next.has(selected.id)) next.delete(selected.id);
-    else next.add(selected.id);
+    next.has(selected.id) ? next.delete(selected.id) : next.add(selected.id);
     persistPins(next);
   }
-  function openNoteEditor() {
-    if (selected) setNoteDraft(notes[selected.id] ?? "");
-  }
+  function openNoteEditor() { if (selected) setNoteDraft(notes[selected.id] ?? ""); }
   function saveNote() {
     if (!selected || noteDraft == null) return;
     const next = { ...notes };
@@ -386,11 +393,7 @@ export default function SessionViewer({
     setGitFocusEvent,
   });
 
-  const clearGitFocus = () => {
-    setGitFocusEvent(undefined);
-    setGitFocusFileId(undefined);
-    setGitFocusHunkId(undefined);
-  };
+  const clearGitFocus = () => { setGitFocusEvent(undefined); setGitFocusFileId(undefined); setGitFocusHunkId(undefined); };
 
   // git / stats / findings / tools / skills / subagents fill the whole work area
   // (no inspector pane). transcript is now an INLINE turn-accordion that fills the
