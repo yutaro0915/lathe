@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { costForUsage } from '../../../lib/cost';
 import type { Built } from '../built';
 import { collectSessionCommits } from '../commit-sha';
-import { resolveProjectIdentity } from '../project';
+import { resolveProjectIdentity, type ProjectIdentity } from '../project';
 import {
   clampLines,
   hhmmss,
@@ -12,6 +12,7 @@ import {
   isTest,
   langOf,
   lineCount,
+  parseJsonlRecords,
   preview,
   type LooseRecord,
 } from '../shared';
@@ -110,9 +111,28 @@ function parseSpawnAgentOutput(outText: string): { agentId: string | null; nickn
 }
 
 export function buildCodexSession(file: string, titles: Map<string, string>, opts: ProviderBuildOptions): Built | null {
+  const recs = parseJsonlRecords(fs.readFileSync(file, 'utf8'));
+  if (!recs.length) return null;
+  const meta = recs.find((r) => r.type === 'session_meta')?.payload;
+  if (!meta) return null;
+  const cwd = meta?.cwd || '';
+  return parseCodexSessionRecords(
+    recs,
+    file,
+    titles,
+    opts,
+    resolveProjectIdentity(cwd, cwd ? path.basename(cwd) : 'LLMWiki'),
+  );
+}
+
+export function parseCodexSessionRecords(
+  recs: LooseRecord[],
+  file: string,
+  titles: Map<string, string>,
+  opts: ProviderBuildOptions,
+  project: ProjectIdentity,
+): Built | null {
   const { maxFiles, maxHunkLines } = opts;
-  const recs: LooseRecord[] = [];
-  for (const l of fs.readFileSync(file, 'utf8').split('\n')) { if (!l) continue; try { recs.push(JSON.parse(l)); } catch { /* skip */ } }
   if (!recs.length) return null;
   const meta = recs.find((r) => r.type === 'session_meta')?.payload;
   if (!meta) return null;
@@ -257,7 +277,6 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
   // cost from real GPT pricing: fresh input + cached (at cache-read rate) + output.
   // null for unpriceable models (e.g. codex-auto-review) -> shown as "—".
   const costUsd = costForUsage(model, { input: tokenIn, output: tokenOut, cacheWrite: 0, cacheRead: cachedInput });
-  const project = resolveProjectIdentity(cwd, cwd ? path.basename(cwd) : 'LLMWiki');
 
   const session: Built['session'] = {
     id: sessionId,

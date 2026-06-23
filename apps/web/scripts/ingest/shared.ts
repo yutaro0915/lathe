@@ -4,6 +4,19 @@ import * as path from 'node:path';
 
 export type LooseRecord = Record<string, any>;
 
+export function parseJsonlRecords(raw: string): LooseRecord[] {
+  const recs: LooseRecord[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    try {
+      recs.push(JSON.parse(line));
+    } catch {
+      /* skip malformed line */
+    }
+  }
+  return recs;
+}
+
 function textFromClaudeContent(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -85,10 +98,14 @@ export function repoBasenameOf(transcriptsDir: string): string {
 
 export function hhmmss(iso: string | undefined): string {
   if (!iso) return '';
-  const d = new Date(iso);
+  const trimmed = iso.trim();
+  if (!trimmed) return '';
+  const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+  const hasExplicitZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  const d = new Date(hasExplicitZone ? normalized : `${normalized}Z`);
   if (isNaN(d.getTime())) return '';
   const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
 }
 
 export function lineCount(s: string): number {
