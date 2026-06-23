@@ -76,3 +76,13 @@ skill = provider 非依存の playbook。lathe 側で「session に渡す instru
 - Claude Agent SDK: code.claude.com/docs/en/agent-sdk/typescript（逃げ道用）
 - Anthropic Managed Agents: anthropics/skills `claude-api/shared/managed-agents-overview.md`
 - OpenAI Codex SDK: developers.openai.com/codex/sdk / Cursor CLI: cursor.com/docs/cli/acp
+
+## 追補（2026-06-23）: agent config home（~/.lathe）＋ 共有 ACP harness
+
+本 ADR の「ACP client + 既存 MCP server を渡す配線」を、chat と analyst で**重複させず単一化**する具体決定（旧 ADR 0010 を本 ADR に統合）。
+
+- **config home**: lathe agent は host 子プロセスとして動き、runtime config home = `CLAUDE_CONFIG_DIR=~/.lathe`（可動状態・認証は `$HOME` に置き git 外）。版管理の正本は `agent/`（prompt + skills + settings skeleton）。`scripts/setup-lathe-agent.sh` が `~/.lathe` を `agent/` への symlink で構成。
+- **harness 集約**: ACP 駆動配線（adapter 選択 / MCP server 構築 / permission / Claude settings）を 1 つの共有 module（`apps/web/lib/lathe-agent-harness.ts`）に集約。`CLAUDE_CONFIG_DIR` と `settingSources:['user']` を単一注入 → user tier が個人 `~/.claude` でなく `~/.lathe` に解決（project tier は含めない＝repo の `.claude/` を避ける）。これで chat の `settingSources:[]` band-aid 撤去・analyst の個人 skill 漏れ + `options.tools` MCP 抑止バグを同時解消。permission 解析は `toolCall.title`（claude-agent-acp が MCP tool 名に使う）を含む。
+- **permission**: chat/analyst とも deny-by-default。chat=read-only lathe tools のみ、analyst=`mcp__lathe__submit_finding` のみ許可。
+- **compose 内実行への切替トリガー**（それまでは host 子プロセス維持）: (1) Phase 3 の未信頼コード実行で OS レベル sandbox が要るとき / (2) multi-user・hosted deploy で per-user auth が要るとき（この時は filesystem-local transcript 読みが崩れるので保留中の jsonl-push 変種も必要）。
+- ADR 0004（host 実行分離）と本 ADR の ACP local subprocess / local credential を適用するもので、いずれにも矛盾しない。
