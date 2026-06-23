@@ -699,7 +699,7 @@ button.finding-evidence:hover{background:var(--panel-hover);border-color:var(--b
 .findings-md-grid > *{min-width:0;min-height:0;}
 .findings-list{min-width:0;border-right:1px solid var(--border);overflow-y:auto;overflow-x:hidden;}
 .findings-list .finding-row:first-child{border-top:0;}
-.finding-detail{min-width:0;padding:14px 16px;display:flex;flex-direction:column;gap:14px;
+.finding-detail{min-width:0;padding:14px 16px 0;display:flex;flex-direction:column;gap:14px;
   overflow-y:auto;overflow-x:hidden;position:relative;}
 /* Narrow widths: stack the findings list above the detail (one column) so the
    detail keeps full width — same stacking pattern as the PR / transcript grids. */
@@ -811,11 +811,13 @@ button.finding-evidence-jump:hover{color:var(--text-soft);border-color:var(--bor
 
 /* ---- triage: sticky verdict bar (requirement C) -------------------------- */
 /* The Accept/Reject bar pins to the detail panel's bottom edge so it is always
-   reachable while the evidence scrolls beneath it. The negative margins + pad
-   let it span the panel's full width and sit flush against the bottom, with a
-   hairline + panel background hiding the evidence as it scrolls under. */
+   reachable while the evidence scrolls beneath it. The negative side margins
+   span the panel's full width; the scroll container (.finding-detail) drops its
+   bottom padding so sticky bottom:0 pins the bar flush to the panel's bottom edge.
+   (A negative bottom margin can't push a sticky element into the container's
+   bottom padding — that left a 14px slit revealing the evidence beneath.) */
 .finding-verdict-sticky{position:sticky;bottom:0;z-index:2;background:var(--panel);
-  margin:auto -16px -14px;padding:8px 16px 12px;border-top:1px solid var(--border);}
+  margin:auto -16px 0;padding:8px 16px 12px;border-top:1px solid var(--border);}
 
 /* ---- triage: SESSION header as a jump button (requirement A) -------------- */
 button.finding-evidence-session-jump{width:100%;text-align:left;background:transparent;
