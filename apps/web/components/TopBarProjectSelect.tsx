@@ -28,6 +28,7 @@
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
+import { Pressable } from "@/design-system/components";
 import { Icon } from "@/design-system/components/icons";
 
 export interface TopBarProject {
@@ -151,7 +152,7 @@ export default function TopBarProjectSelect({
         /
       </span>
       {/* project segment: a custom dropdown trigger (button) + styled menu. */}
-      <button
+      <Pressable
         type="button"
         className="lds-tb-scope-trigger"
         data-testid="project-picker"
@@ -170,7 +171,7 @@ export default function TopBarProjectSelect({
         <span className="lds-tb-scope-ic" aria-hidden>
           <Icon name="chevronDown" size={13} />
         </span>
-      </button>
+      </Pressable>
       {open ? (
         <ul
           className="lds-tb-scope-menu"
@@ -181,7 +182,7 @@ export default function TopBarProjectSelect({
         >
           {options.map((o, i) => (
             <li key={o.value} role="presentation">
-              <button
+              <Pressable
                 type="button"
                 role="option"
                 aria-selected={o.value === current}
@@ -196,7 +197,7 @@ export default function TopBarProjectSelect({
                 onMouseEnter={() => setActiveIndex(i)}
               >
                 {o.label}
-              </button>
+              </Pressable>
             </li>
           ))}
         </ul>

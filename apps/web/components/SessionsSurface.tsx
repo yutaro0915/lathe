@@ -31,6 +31,7 @@ import {
   Badge,
   Button,
   Checkbox,
+  Pressable,
   RunnerIcon,
   SearchInput,
   Segmented,
@@ -239,7 +240,7 @@ export default function SessionsSurface({
                   {dateFrom ?? "…"}
                   {dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ""}
                 </span>
-                <button
+                <Pressable
                   type="button"
                   className="clear" data-testid="clear"
                   onClick={() => {
@@ -248,7 +249,7 @@ export default function SessionsSurface({
                   }}
                 >
                   Clear
-                </button>
+                </Pressable>
               </span>
             )}
           </div>
@@ -269,7 +270,7 @@ export default function SessionsSurface({
         </div>
         {visible.map((s) => {
           return (
-            <button
+            <Pressable
               key={s.id}
               type="button"
               data-session-id={s.id}
@@ -312,7 +313,7 @@ export default function SessionsSurface({
               <span className={`lds-sg-cost chip cost r${s.costUsd == null ? " muted" : ""}`} data-testid="chip" data-cell="cost">
                 {fmtCost(s.costUsd)}
               </span>
-            </button>
+            </Pressable>
           );
         })}
         {visible.length === 0 ? <div className="lds-sg-empty" data-testid="lds-sg-empty">No sessions match.</div> : null}

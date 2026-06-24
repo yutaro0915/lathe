@@ -24,7 +24,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Surface } from "@/design-system/components";
+import { Pressable, Surface } from "@/design-system/components";
 import OverviewTrends from "@/components/OverviewTrends";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
 import type { FindingKindCounts, Session } from "@/lib/types";
@@ -230,14 +230,14 @@ export default function OverviewView({
             <span className="attn-title" data-testid="attn-title">NEEDS ATTENTION</span>
             <span className="attn-head-right">
               {dismissed.size > 0 && (
-                <button
+                <Pressable
                   type="button"
                   className="attn-restore" data-testid="attn-restore"
                   onClick={restoreDismissed}
                   title="Show the columns you hid"
                 >
                   restore hidden ({dismissed.size})
-                </button>
+                </Pressable>
               )}
               <span className="muted small" data-testid="muted">{scopeLabel}</span>
             </span>
@@ -259,12 +259,12 @@ export default function OverviewView({
                   <span>COST OUTLIERS</span>
                   <span className="attn-col-basis mono" data-testid="attn-col-basis">&gt;5× runner median, min $50 (G9)</span>
                   <span className="attn-count mono" data-testid="attn-count">{costAlerts.length}</span>
-                  <button
+                  <Pressable
                     type="button"
                     className="attn-col-close" data-testid="attn-col-close" data-col="cost"
                     onClick={() => dismissGroup("cost")}
                     title="Hide this column" aria-label="Hide cost outliers column"
-                  >×</button>
+                  >×</Pressable>
                 </div>
                 {costAlerts.length === 0 ? (
                   <div className="attn-none" data-testid="attn-none">none</div>
@@ -301,12 +301,12 @@ export default function OverviewView({
                   <span>MOST ERRORS</span>
                   <span className="attn-col-basis mono" data-testid="attn-col-basis">by failed tool calls</span>
                   <span className="attn-count mono" data-testid="attn-count">{errorSessions.length}</span>
-                  <button
+                  <Pressable
                     type="button"
                     className="attn-col-close" data-testid="attn-col-close" data-col="errors"
                     onClick={() => dismissGroup("errors")}
                     title="Hide this column" aria-label="Hide most errors column"
-                  >×</button>
+                  >×</Pressable>
                 </div>
                 {errorSessions.length === 0 ? (
                   <div className="attn-none" data-testid="attn-none">none</div>
@@ -343,12 +343,12 @@ export default function OverviewView({
                   >
                     {pendingTotal} →
                   </Link>
-                  <button
+                  <Pressable
                     type="button"
                     className="attn-col-close" data-testid="attn-col-close" data-col="findings"
                     onClick={() => dismissGroup("findings")}
                     title="Hide this column" aria-label="Hide pending findings column"
-                  >×</button>
+                  >×</Pressable>
                 </div>
                 {pendingSessions.length === 0 ? (
                   <div className="attn-none" data-testid="attn-none">none</div>

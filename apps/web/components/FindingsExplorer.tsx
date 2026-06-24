@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { parseStamp, shortModel } from "@lathe/shared";
+import { Button, Pressable } from "@/design-system/components";
 import {
   FINDING_KIND_LABEL,
   TurnEventRow,
@@ -347,14 +348,14 @@ export default function FindingsExplorer({
               ["all", "All"],
             ] as const
           ).map(([key, label]) => (
-            <button
+            <Pressable
               key={key}
               type="button"
               className={statusFilter === key ? "active" : ""}
               onClick={() => setStatusFilter(key)}
             >
               {label}
-            </button>
+            </Pressable>
           ))}
         </span>
         {mode === "axis" && (
@@ -386,9 +387,9 @@ export default function FindingsExplorer({
           <span>
             {findingVerdictLabel(recentVerdict.verdict)} · {recentVerdict.title}
           </span>
-          <button type="button" className="btn btn-sm" data-testid="btn" onClick={undoVerdict}>
+          <Button size="sm" data-testid="btn" onClick={undoVerdict}>
             Undo
-          </button>
+          </Button>
         </div>
       )}
       {error && <div className="finding-error" data-testid="finding-error">{error}</div>}
@@ -406,7 +407,7 @@ export default function FindingsExplorer({
               const verdict = finding.verdict?.verdict ?? "pending";
               const isActive = selectedFinding?.id === finding.id;
               return (
-                <button
+                <Pressable
                   key={finding.id}
                   type="button"
                   role="listitem"
@@ -436,7 +437,7 @@ export default function FindingsExplorer({
                     <span className="mono" data-testid="mono">{findingConfidenceLabel(finding.confidence)}</span>
                     <span className="mono" data-testid="mono">{finding.evidence.length} evidence</span>
                   </div>
-                </button>
+                </Pressable>
               );
             })}
           </div>
@@ -568,7 +569,7 @@ export default function FindingsExplorer({
                             data-resolved={anyResolved ? "true" : "false"}
                           >
                             {showSessionHeader && narrative && (
-                              <button
+                              <Pressable
                                 type="button"
                                 className="finding-evidence-session finding-evidence-session-jump" data-testid="finding-evidence-session"
                                 data-session-id={narrative.sessionId}
@@ -595,7 +596,7 @@ export default function FindingsExplorer({
                                     parseStamp(narrative.startedAt).time
                                   }`}
                                 </span>
-                              </button>
+                              </Pressable>
                             )}
                             {/* group header: turn position label (once) + repeat
                                 count, then TWO always-visible primary actions —
@@ -629,7 +630,7 @@ export default function FindingsExplorer({
                                 <span className="finding-evidence-grouphead-spacer" data-testid="finding-evidence-grouphead-spacer" />
                                 <div className="finding-evidence-actions" data-testid="finding-evidence-actions">
                                   {canTurnJump && (
-                                    <button
+                                    <Pressable
                                       type="button"
                                       className="finding-evidence-action finding-evidence-action-turn" data-testid="finding-evidence-action-turn"
                                       data-turn={turnNumber ?? undefined}
@@ -645,10 +646,10 @@ export default function FindingsExplorer({
                                     >
                                       <span>VIEW TURN</span>
                                       <span aria-hidden>→</span>
-                                    </button>
+                                    </Pressable>
                                   )}
                                   {narrative?.sessionId && (
-                                    <button
+                                    <Pressable
                                       type="button"
                                       className="finding-evidence-action finding-evidence-action-session" data-testid="finding-evidence-action-session"
                                       data-session-id={narrative.sessionId}
@@ -659,11 +660,11 @@ export default function FindingsExplorer({
                                     >
                                       <span>VIEW SESSION</span>
                                       <span aria-hidden>→</span>
-                                    </button>
+                                    </Pressable>
                                   )}
                                 </div>
                                 {canTurnJump && (
-                                  <button
+                                  <Pressable
                                     type="button"
                                     className="finding-evidence-turn-toggle mono" data-testid="finding-evidence-turn-toggle"
                                     data-turn={turnNumber ?? undefined}
@@ -675,7 +676,7 @@ export default function FindingsExplorer({
                                   >
                                     <span aria-hidden>{turnExpanded ? "▾" : "▸"}</span>
                                     {turnExpanded ? "hide transcript" : "inline transcript"}
-                                  </button>
+                                  </Pressable>
                                 )}
                               </div>
                             )}
@@ -733,7 +734,7 @@ export default function FindingsExplorer({
                                       )}
                                       <span className="finding-evidence-stepspacer" data-testid="finding-evidence-stepspacer" />
                                       {target.resolved ? (
-                                        <button
+                                        <Pressable
                                           type="button"
                                           className="finding-evidence finding-evidence-jump" data-testid="finding-evidence"
                                           data-evidence-kind={evidence.subjectKind}
@@ -744,7 +745,7 @@ export default function FindingsExplorer({
                                         >
                                           <span className="mono" data-testid="mono">{target.label}</span>
                                           <span aria-hidden>→</span>
-                                        </button>
+                                        </Pressable>
                                       ) : (
                                         <span
                                           className="finding-evidence stale" data-testid="finding-evidence"
@@ -958,7 +959,7 @@ export default function FindingsExplorer({
                           placeholder="reason"
                           aria-label={`Reason for ${finding.title}`}
                         />
-                        <button
+                        <Pressable
                           type="button"
                           className="finding-verdict-btn accept" data-testid="finding-verdict-btn"
                           data-verdict="accept"
@@ -966,8 +967,8 @@ export default function FindingsExplorer({
                           onClick={() => void submitVerdict(finding, "accept")}
                         >
                           Accept
-                        </button>
-                        <button
+                        </Pressable>
+                        <Pressable
                           type="button"
                           className="finding-verdict-btn reject" data-testid="finding-verdict-btn"
                           data-verdict="reject"
@@ -975,7 +976,7 @@ export default function FindingsExplorer({
                           onClick={() => void submitVerdict(finding, "reject")}
                         >
                           Reject
-                        </button>
+                        </Pressable>
                       </div>
                     )}
                   </div>

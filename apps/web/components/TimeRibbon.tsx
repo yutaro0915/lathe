@@ -16,6 +16,7 @@
 
 import { useMemo, useState } from "react";
 import { fmtDurationSec } from "@lathe/shared";
+import { IconButton } from "@/design-system/components";
 import type { TranscriptEvent } from "@/lib/types";
 
 function tsToSec(ts: string): number | null {
@@ -177,18 +178,18 @@ export default function TimeRibbon({
           ))}
         </span>
         <div className="minimap-zoom" data-testid="minimap-zoom" role="group" aria-label="Zoom time ribbon">
-          <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(1, +(z - 0.5).toFixed(2)))}>
+          <IconButton label="Zoom out" onClick={() => setZoom((z) => Math.max(1, +(z - 0.5).toFixed(2)))}>
             −
-          </button>
+          </IconButton>
           <span className="mono small" data-testid="mono" style={{ minWidth: 38, textAlign: "center" }}>
             {zoom.toFixed(1)}×
           </span>
-          <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(16, +(z + 0.5).toFixed(2)))}>
+          <IconButton label="Zoom in" onClick={() => setZoom((z) => Math.min(16, +(z + 0.5).toFixed(2)))}>
             +
-          </button>
-          <button type="button" aria-label="Fit" onClick={() => setZoom(1)}>
+          </IconButton>
+          <IconButton label="Fit" onClick={() => setZoom(1)}>
             ⤢
-          </button>
+          </IconButton>
         </div>
       </div>
 

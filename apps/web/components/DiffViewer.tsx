@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { fmtInt } from "@lathe/shared";
+import { Pressable } from "@/design-system/components";
 import { Icon } from "@/design-system/components/icons";
 import { DiffFileRow } from "@/components/diff-viewer/DiffFileRow";
 import { HunkList } from "@/components/diff-viewer/HunkList";
@@ -165,7 +166,7 @@ export default function DiffViewer({
         <div className="diff-acc-head" data-testid="diff-acc-head">
           {showAxis ? (
             <span className="lds-segmented diff-acc-axis" data-testid="diff-axis-switch" role="tablist">
-              <button
+              <Pressable
                 type="button"
                 role="tab"
                 aria-selected={axis === "by-step"}
@@ -174,8 +175,8 @@ export default function DiffViewer({
                 onClick={() => setAxis("by-step")}
               >
                 <Icon name="stack" size={13} /> By step
-              </button>
-              <button
+              </Pressable>
+              <Pressable
                 type="button"
                 role="tab"
                 aria-selected={axis === "by-file"}
@@ -184,7 +185,7 @@ export default function DiffViewer({
                 onClick={() => setAxis("by-file")}
               >
                 <Icon name="folder" size={13} /> By file
-              </button>
+              </Pressable>
             </span>
           ) : null}
           <span style={{ flex: "1 1 auto" }} />
@@ -249,7 +250,7 @@ export default function DiffViewer({
                     {g.event ? `Turn ${g.event.seq}: ${g.event.title}` : "Unattributed"}
                   </span>
                   {g.event && onJumpToEvent && (
-                    <button
+                    <Pressable
                       type="button"
                       className="le-jump"
                       data-testid="le-jump"
@@ -261,7 +262,7 @@ export default function DiffViewer({
                       }}
                     >
                       ↗ step {g.event.seq}
-                    </button>
+                    </Pressable>
                   )}
                   <span className="diff-acc-step-count" data-testid="step-file-count">
                     {fmtInt(g.files.length)} file{g.files.length === 1 ? "" : "s"}
