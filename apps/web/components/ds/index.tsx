@@ -8,6 +8,9 @@
 
 import * as React from "react";
 
+export { default as Surface } from "./Surface";
+export type { SurfaceProps } from "./Surface";
+
 /* ---- Button -------------------------------------------------------------- */
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "default" | "primary" | "ghost" | "danger";

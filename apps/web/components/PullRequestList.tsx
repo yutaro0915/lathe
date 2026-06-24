@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { fmtInt, parseStamp } from "@lathe/shared";
-import Surface from "@/components/Surface";
-import { Badge } from "@/components/ds";
+import { Badge, Surface } from "@/components/ds";
 import { Icon } from "@/components/ds/icons";
 import type { PullRequestSummary } from "@/lib/types";
 

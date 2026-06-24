@@ -26,7 +26,6 @@ import { fmtCost, fmtTok, humanizeDuration, shortModel } from "@lathe/shared";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { EVENT_LABEL } from "@/lib/event-display";
 import CostAnomalyChip from "@/components/CostAnomalyChip";
-import Surface from "@/components/Surface";
 import { Icon } from "@/components/ds/icons";
 import {
   Badge,
@@ -36,6 +35,7 @@ import {
   SearchInput,
   Segmented,
   Select,
+  Surface,
 } from "@/components/ds";
 import type { EventType, Session } from "@/lib/types";
 

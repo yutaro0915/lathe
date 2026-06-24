@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { fmtCost, fmtInt, parseStamp } from "@lathe/shared";
 import DiffViewer from "@/components/DiffViewer";
-import Surface from "@/components/Surface";
-import { Badge, RunnerIcon } from "@/components/ds";
+import { Badge, RunnerIcon, Surface } from "@/components/ds";
 import { Icon } from "@/components/ds/icons";
 import type { PullRequest, PullRequestBundle, PullRequestSessionLink } from "@/lib/types";
 

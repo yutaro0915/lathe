@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Surface from "@/components/Surface";
 import TimeRibbon from "@/components/TimeRibbon";
+import { Surface } from "@/components/ds";
 import { findingTouchesSession } from "@/components/FindingsExplorer";
 import type { Finding, Session, SessionBundle, TranscriptEvent } from "@/lib/types";
 import { kindOf, type StepKind } from "@/lib/event-display";
