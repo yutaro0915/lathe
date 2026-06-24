@@ -1,6 +1,6 @@
 import { KIND_GLYPH, KIND_LABEL, kindOf, type StepKind } from "@/lib/event-display";
 import type { ChangedFile, DiffHunk, TranscriptEvent } from "@/lib/types";
-import { Pressable } from "@/design-system/components";
+import { Pressable, SearchInput } from "@/design-system/components";
 import type { FilterMode, TurnRollup } from "./types";
 import { ALL_KINDS } from "./types";
 import { Step, type StepEdit } from "./Step";
@@ -82,9 +82,14 @@ export function TranscriptTab({
     <>
       <div className="transcript-toolbar" data-testid="transcript-toolbar">
         <div className="transcript-toolbar-row" data-testid="transcript-toolbar-row" style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 12px 6px" }}>
-          <div className="search" data-testid="search" style={{ flex: "1 1 auto" }}>
-            <span aria-hidden>⌕</span>
-            <input placeholder="Filter timeline…" value={transcriptSearch} onChange={(e) => setTranscriptSearch(e.target.value)} />
+          <div data-testid="search" style={{ flex: "1 1 auto", minWidth: 0 }}>
+            <SearchInput
+              className="search"
+              placeholder="Filter timeline…"
+              value={transcriptSearch}
+              onChange={(e) => setTranscriptSearch(e.target.value)}
+              aria-label="Filter timeline"
+            />
           </div>
           {turnCount > 1 && (
             <span className="segmented turn-filter" data-testid="turn-filter" title="Expand or collapse every turn in this session">

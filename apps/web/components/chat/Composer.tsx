@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Button, IconButton } from "@/design-system/components";
+import { Button, IconButton, SearchInput } from "@/design-system/components";
 import { Icon } from "@/design-system/components/icons";
 import type { ChatContextAttachment } from "@/lib/chat";
 import { t } from "@/lib/i18n";
@@ -70,18 +70,22 @@ export default function Composer({ contexts, disabled = false, onContextsChange,
         ))}
         {adding ? (
           <span className="chat-context-add">
-            <input
-              value={contextText}
-              onChange={(event) => setContextText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addTextContext();
-                }
-              }}
-              placeholder={t("chat.composer.context.freeForm")}
-              aria-label={t("chat.composer.context.freeForm")}
-            />
+            <span style={{ flex: "1 1 auto", minWidth: 0 }}>
+              <SearchInput
+                icon={null}
+                className="chat-context-add"
+                value={contextText}
+                onChange={(event) => setContextText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addTextContext();
+                  }
+                }}
+                placeholder={t("chat.composer.context.freeForm")}
+                aria-label={t("chat.composer.context.freeForm")}
+              />
+            </span>
             <Button size="sm" onClick={addTextContext}>{t("chat.composer.context.attach")}</Button>
           </span>
         ) : null}

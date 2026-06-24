@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { parseStamp, shortModel } from "@lathe/shared";
-import { Button, Pressable } from "@/design-system/components";
+import { Button, Pressable, SearchInput, Select } from "@/design-system/components";
 import {
   FINDING_KIND_LABEL,
   TurnEventRow,
@@ -47,6 +47,11 @@ const BACKLOG_LABEL: Record<FindingBacklogStatus, string> = {
   addressed: "addressed",
   dismissed: "dismissed",
 };
+
+const BACKLOG_OPTIONS = [
+  { value: "", label: "no status" },
+  ...Object.entries(BACKLOG_LABEL).map(([value, label]) => ({ value, label })),
+];
 
 export default function FindingsExplorer({
   findings,
@@ -223,6 +228,14 @@ export default function FindingsExplorer({
     return sessions.filter((session) => ids.has(session.id));
   }, [findings, mode, sessions]);
 
+  const sessionFilterOptions = useMemo(
+    () => [
+      { value: "all", label: `All sessions · ${scopedFindings.length} findings` },
+      ...sessionsWithFindings.map((session) => ({ value: session.id, label: session.title })),
+    ],
+    [scopedFindings.length, sessionsWithFindings],
+  );
+
   async function submitVerdict(finding: Finding, verdict: FindingVerdictValue) {
     if (busy[finding.id]) return;
     setError(null);
@@ -361,18 +374,12 @@ export default function FindingsExplorer({
         {mode === "axis" && (
           <label className="findings-session-select" data-testid="findings-session-select" title="Session filter">
             <span className="finding-section-label" data-testid="finding-section-label">Session</span>
-            <select
+            <Select
               className="project-picker" data-testid="project-picker"
               value={sessionFilter}
               onChange={(event) => setSessionFilter(event.target.value)}
-            >
-              <option value="all">All sessions · {scopedFindings.length} findings</option>
-              {sessionsWithFindings.map((session) => (
-                <option key={session.id} value={session.id}>
-                  {session.title}
-                </option>
-              ))}
-            </select>
+              options={sessionFilterOptions}
+            />
           </label>
         )}
       </div>
@@ -907,31 +914,19 @@ export default function FindingsExplorer({
                               data-backlog-status={finding.backlogStatus ?? "none"}
                             >
                               <span>Backlog</span>
-                              <select
+                              <Select
                                 data-testid="finding-backlog-select"
                                 value={finding.backlogStatus ?? ""}
                                 disabled={!!busy[finding.id]}
-                                onChange={(event) =>
+                                onChange={(event) => {
+                                  if (!event.target.value) return;
                                   void updateBacklogStatus(
                                     finding,
                                     event.target.value as FindingBacklogStatus,
-                                  )
-                                }
-                              >
-                                <option value="" disabled>
-                                  no status
-                                </option>
-                                {(
-                                  Object.entries(BACKLOG_LABEL) as [
-                                    FindingBacklogStatus,
-                                    string,
-                                  ][]
-                                ).map(([value, label]) => (
-                                  <option key={value} value={value}>
-                                    {label}
-                                  </option>
-                                ))}
-                              </select>
+                                  );
+                                }}
+                                options={BACKLOG_OPTIONS}
+                              />
                             </label>
                             <div className="finding-boundary-note" data-testid="finding-boundary-note">
                               Harness edits are manual (P2 boundary)
@@ -941,7 +936,8 @@ export default function FindingsExplorer({
                       </div>
                     ) : (
                       <div className="finding-verdict-controls" data-testid="finding-verdict-controls">
-                        <input
+                        <SearchInput
+                          icon={null}
                           className="finding-verdict-reason" data-testid="finding-verdict-reason"
                           value={reasonDrafts[finding.id] ?? ""}
                           onChange={(event) =>
