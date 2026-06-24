@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import * as React from "react";
+import { expect, userEvent, within } from "@storybook/test";
 
 import { Button } from "@/design-system/components";
 import { Icon } from "@/design-system/components/icons";
@@ -14,6 +16,16 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+
+function InteractiveButton() {
+  const [clicked, setClicked] = React.useState(false);
+
+  return (
+    <Button variant="primary" onClick={() => setClicked(true)}>
+      {clicked ? "Clicked" : "Run analysis"}
+    </Button>
+  );
+}
 
 export const Variants: Story = {
   render: () => (
@@ -41,4 +53,13 @@ export const SizesAndStates: Story = {
       </Button>
     </div>
   ),
+};
+
+export const Interactive: Story = {
+  render: () => <InteractiveButton />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Run analysis" }));
+    await expect(canvas.getByRole("button", { name: "Clicked" })).toBeInTheDocument();
+  },
 };

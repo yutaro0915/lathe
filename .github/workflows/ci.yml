@@ -67,6 +67,21 @@ jobs:
           pnpm -F @lathe/mcp verify
           pnpm -F web exec tsx scripts/verify-finding-depth.ts
 
+  storybook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: install chromium
+        run: pnpm -F web exec playwright install chromium
+      - name: storybook a11y and interaction tests
+        run: pnpm -F web test-storybook
+
   # e2e は CI で動かさない（2026-06-23 決定）。
   #   理由: e2e の webServer は「Postgres は ingest 済み」前提で、session 詳細テスト
   #   (diff / session-viewer / sessions / stats) が取り込み済みの実データに依存する。
