@@ -1,8 +1,11 @@
 import { KIND_GLYPH, KIND_LABEL, kindOf, type StepKind } from "@/lib/event-display";
 import type { ChangedFile, DiffHunk, TranscriptEvent } from "@/lib/types";
+import { Pressable } from "@/design-system/components";
 import type { FilterMode, TurnRollup } from "./types";
 import { ALL_KINDS } from "./types";
 import { Step, type StepEdit } from "./Step";
+
+// Pressable is DS Pressable for bespoke controls; feature classes keep their visuals.
 
 // TranscriptTab — D6 inline turn-accordion. The whole transcript is a stack of
 // bordered turn cards (all collapsed by default = whole-session overview).
@@ -85,12 +88,12 @@ export function TranscriptTab({
           </div>
           {turnCount > 1 && (
             <span className="segmented turn-filter" data-testid="turn-filter" title="Expand or collapse every turn in this session">
-              <button type="button" className={collapsedTurns.size === 0 ? "active" : ""} onClick={expandAllTurns}>
+              <Pressable type="button" className={collapsedTurns.size === 0 ? "active" : ""} onClick={expandAllTurns}>
                 Expand turns
-              </button>
-              <button type="button" className={collapsedTurns.size === turnCount ? "active" : ""} onClick={collapseAllTurns}>
+              </Pressable>
+              <Pressable type="button" className={collapsedTurns.size === turnCount ? "active" : ""} onClick={collapseAllTurns}>
                 Collapse turns
-              </button>
+              </Pressable>
             </span>
           )}
         </div>
@@ -101,7 +104,7 @@ export function TranscriptTab({
               {ALL_KINDS.map((k) => {
                 const on = kindFilter.has(k);
                 return (
-                  <button
+                  <Pressable
                     key={k}
                     type="button"
                     className="event-type-badge"
@@ -116,17 +119,17 @@ export function TranscriptTab({
                     <span className="mono" data-testid="mono" style={{ marginLeft: "auto", color: "var(--muted-2)" }}>
                       {kindCounts[k] ?? 0}
                     </span>
-                  </button>
+                  </Pressable>
                 );
               })}
             </div>
             <span className="segmented filter-mode" data-testid="filter-mode" style={{ marginLeft: "auto" }} title="Choose whether non-matching step kinds stay visible (dimmed) or are hidden">
-              <button type="button" className={filterMode === "highlight" ? "active" : ""} onClick={() => setFilterMode("highlight")}>
+              <Pressable type="button" className={filterMode === "highlight" ? "active" : ""} onClick={() => setFilterMode("highlight")}>
                 Highlight
-              </button>
-              <button type="button" className={filterMode === "hide" ? "active" : ""} onClick={() => setFilterMode("hide")}>
+              </Pressable>
+              <Pressable type="button" className={filterMode === "hide" ? "active" : ""} onClick={() => setFilterMode("hide")}>
                 Hide
-              </button>
+              </Pressable>
             </span>
           </div>
         </div>
@@ -168,7 +171,7 @@ export function TranscriptTab({
                   }
                 }}
               >
-                <button
+                <Pressable
                   type="button"
                   className="tw-expand"
                   data-testid="tw-expand"
@@ -180,7 +183,7 @@ export function TranscriptTab({
                   }}
                 >
                   {collapsed ? "▸" : "▾"}
-                </button>
+                </Pressable>
                 <span className="lds-turn-n" data-testid="chip" data-chip-kind="turn" title={`Turn ${turn} of ${turnCount}`}>
                   Turn {turn}
                 </span>

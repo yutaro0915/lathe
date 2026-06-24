@@ -3,11 +3,13 @@ import { useMemo, useState } from "react";
 import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
 import type { ChangedFile, DiffHunk, EventType, SessionBundle, TranscriptEvent } from "@/lib/types";
 import { fmtCost, fmtInt } from "@lathe/shared";
-import { RunnerIcon } from "@/design-system/components";
+import { Pressable, RunnerIcon } from "@/design-system/components";
 import { Step, type StepEdit } from "./Step";
 import { ComparisonList, type ComparisonGroup } from "./ComparisonList";
 import { GitTab } from "./GitTab";
 import { launcherStats, subagentName, type InvocationSummary } from "./subagents";
+
+// Pressable is DS Pressable for bespoke controls; feature classes keep their visuals.
 
 // NestedMiniSession — D16: a sub-agent IS a nested session, inspected with the
 // SAME 3 facets as the parent (Transcript / Tools / Git). When a By-step card or
@@ -179,7 +181,7 @@ export function NestedMiniSession({
             error
           </span>
         )}
-        <button
+        <Pressable
           type="button"
           className="lds-sa-nested-close"
           data-testid="sa-nested-close"
@@ -188,7 +190,7 @@ export function NestedMiniSession({
           title="Close"
         >
           ×
-        </button>
+        </Pressable>
       </div>
 
       {linkedChild ? (
@@ -202,20 +204,20 @@ export function NestedMiniSession({
           <div className="lds-sa-nested-linked-hint">
             This sub-agent ran as a separate linked session. Open it to inspect its captured transcript.
           </div>
-          <button
+          <Pressable
             type="button"
             className="lds-sa-open-subsession"
             data-testid="sa-open-subsession"
             onClick={() => openSubSession(linkedChild.id)}
           >
             OPEN SUB-SESSION →
-          </button>
+          </Pressable>
         </div>
       ) : (
         <>
           <div className="lds-sa-nested-tabs" data-testid="sa-nested-tabs" role="tablist" aria-label="Nested session facets">
             {(["transcript", "tools", "git"] as NestedTab[]).map((t) => (
-              <button
+              <Pressable
                 key={t}
                 type="button"
                 role="tab"
@@ -226,7 +228,7 @@ export function NestedMiniSession({
                 onClick={() => setTab(t)}
               >
                 {t === "transcript" ? "Transcript" : t === "tools" ? "Tools" : "Git"}
-              </button>
+              </Pressable>
             ))}
           </div>
 

@@ -1,7 +1,10 @@
 import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
 import { fmtInt, humanizeDuration, parseStamp } from "@lathe/shared";
 import type { EventFile, EventType, Session, TranscriptEvent } from "@/lib/types";
+import { Button, Pressable } from "@/design-system/components";
 import { JsonView } from "./JsonView";
+
+// Pressable is DS Pressable for bespoke controls; feature classes keep their visuals.
 
 type Props = {
   selected?: TranscriptEvent;
@@ -74,16 +77,16 @@ export function SessionAside({
           </div>
 
           <div className="detail-actions" data-testid="detail-actions">
-            <button type="button" className={`btn${selPinned ? " btn-primary" : ""}`} data-testid="btn" onClick={togglePin} disabled={!selected}>
+            <Button type="button" variant={selPinned ? "primary" : "default"} data-testid="btn" onClick={togglePin} disabled={!selected}>
               📌 {selPinned ? "Pinned" : "Pin"}
-            </button>
-            <button type="button" className="btn" data-testid="btn" onClick={openNoteEditor} disabled={!selected}>
+            </Button>
+            <Button type="button" data-testid="btn" onClick={openNoteEditor} disabled={!selected}>
               🗒 {selNote ? "Edit Note" : "Add Note"}
-            </button>
+            </Button>
             {selected && eventsWithDiff.has(selected.id) && (
-              <button type="button" className="btn" data-testid="btn" onClick={openSelectedDiff} title="See the Git diff this edit produced (jump to the Git tab)">
+              <Button type="button" data-testid="btn" onClick={openSelectedDiff} title="See the Git diff this edit produced (jump to the Git tab)">
                 ⎇ Diff →
-              </button>
+              </Button>
             )}
           </div>
 
@@ -108,8 +111,8 @@ export function SessionAside({
                 }}
               />
               <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
-                <button type="button" className="btn btn-sm btn-primary" data-testid="btn" onClick={saveNote}>Save</button>
-                <button type="button" className="btn btn-sm" data-testid="btn" onClick={() => setNoteDraft(null)}>Cancel</button>
+                <Button type="button" size="sm" variant="primary" data-testid="btn" onClick={saveNote}>Save</Button>
+                <Button type="button" size="sm" data-testid="btn" onClick={() => setNoteDraft(null)}>Cancel</Button>
               </div>
             </div>
           )}
@@ -140,9 +143,9 @@ export function SessionAside({
             <div className="io-block" data-testid="io-block">
               <div className="io-head" data-testid="io-head">
                 <span>Command</span>
-                <button type="button" className="io-copy" data-testid="io-copy" onClick={() => copy("cmd", selected.command ?? "")}>
+                <Pressable type="button" className="io-copy" data-testid="io-copy" onClick={() => copy("cmd", selected.command ?? "")}>
                   {copied === "cmd" ? "✓ copied" : "⧉ copy"}
-                </button>
+                </Pressable>
               </div>
               <pre className="lds-codebox code-block cmd" data-testid="code-block">{selected.command}</pre>
             </div>
@@ -151,9 +154,9 @@ export function SessionAside({
             <div className="io-head" data-testid="io-head">
               <span>{outputLabel(selType)}</span>
               {selected?.body && (
-                <button type="button" className="io-copy" data-testid="io-copy" onClick={() => copy("out", selected.body ?? "")}>
+                <Pressable type="button" className="io-copy" data-testid="io-copy" onClick={() => copy("out", selected.body ?? "")}>
                   {copied === "out" ? "✓ copied" : "⧉ copy"}
-                </button>
+                </Pressable>
               )}
             </div>
             <pre className="lds-codebox code-block output" data-testid="code-block" data-block-kind="output">
@@ -176,9 +179,9 @@ export function SessionAside({
           <div className="linked-files" data-testid="linked-files" style={{ borderBottom: 0, paddingBottom: 0 }}>
             <div className="panel-title" data-testid="panel-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span>Run JSON</span>
-              <button type="button" className="btn btn-sm" data-testid="btn" onClick={() => copy("runjson", JSON.stringify(runJson, null, 2))} disabled={!selected}>
+              <Button type="button" size="sm" data-testid="btn" onClick={() => copy("runjson", JSON.stringify(runJson, null, 2))} disabled={!selected}>
                 {copied === "runjson" ? "Copied ✓" : "⧉ Copy"}
-              </button>
+              </Button>
             </div>
           </div>
           <pre className="lds-codebox run-json" data-testid="run-json">

@@ -2,6 +2,9 @@ import Link from "next/link";
 import CostAnomalyChip from "@/components/CostAnomalyChip";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration, parseStamp } from "@lathe/shared";
 import type { PullRequestSummary, Session } from "@/lib/types";
+import { Pressable } from "@/design-system/components";
+
+// Pressable is DS Pressable for bespoke controls; feature classes keep their visuals.
 
 // MetricsBar feeds the SESSION metrics into the one shell-owned WorkareaHeader
 // (Layout v2, design/layout-architecture.md) via the Surface contract. There is
@@ -68,7 +71,7 @@ export function MetricsBarActions({
     <>
       <CostAnomalyChip session={primary} />
       {currentSessionFindingsCount > 0 && (
-        <button
+        <Pressable
           type="button"
           className="chip jump-chip findings-session-chip"
           data-testid="chip"
@@ -79,11 +82,11 @@ export function MetricsBarActions({
         >
           {currentSessionFindingsCount} finding{currentSessionFindingsCount === 1 ? "" : "s"}
           {currentSessionPendingFindingsCount > 0 && <span className="chip-sub mono" data-testid="chip-sub">{currentSessionPendingFindingsCount} pending</span>}
-        </button>
+        </Pressable>
       )}
       <span className="lds-sv-jumps" data-testid="sessbar-jumps">
         {highestTurnJump && (
-          <button
+          <Pressable
             type="button"
             className="chip jump-chip high-turn-chip"
             data-testid="chip"
@@ -94,10 +97,10 @@ export function MetricsBarActions({
             onClick={() => jumpToTurn(highestTurnJump.headerId)}
           >
             {highestTurnJump.basis === "cost" ? "COSTLIEST TURN" : "LONGEST TURN"}
-          </button>
+          </Pressable>
         )}
         {firstErrorTurnJump && (
-          <button
+          <Pressable
             type="button"
             className="chip jump-chip error-turn-chip"
             data-testid="chip"
@@ -107,7 +110,7 @@ export function MetricsBarActions({
             onClick={() => jumpToTurn(firstErrorTurnJump.headerId)}
           >
             FIRST ERROR TURN
-          </button>
+          </Pressable>
         )}
       </span>
       {primaryPrs.length > 0 && (
