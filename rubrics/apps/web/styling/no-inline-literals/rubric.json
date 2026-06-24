@@ -14,10 +14,10 @@
         "kind": "cmd",
         "metric": "count",
         "cmd": "find apps/web/components apps/web/app -name '*.tsx' ! -path '*design-system*' -print0 2>/dev/null | xargs -0 grep -hoE 'style=\\{\\{[^}]*[0-9]+px' 2>/dev/null | wc -l | tr -d ' '",
-        "expect": "le:20",
-        "tolerance": "ratchet baseline 20（2026-06-24 実測）。1 つでも増えたら RED。置換で baseline を 0 へ駆動（減らしたら本 expect を下げて締める）。限界: grep ベース。`style={{ width: pct+'%' }}` のような非リテラル動的値は px リテラルが無ければ対象外。className=DS class への移行が本筋で、本 gate はその過程の増殖を止める。"
+        "expect": "le:0",
+        "tolerance": "ratchet baseline 0（2026-06-25 達成、20→0）。1 つでも増えたら RED。置換で baseline を 0 へ駆動（減らしたら本 expect を下げて締める）。限界: grep ベース。`style={{ width: pct+'%' }}` のような非リテラル動的値は px リテラルが無ければ対象外。className=DS class への移行が本筋で、本 gate はその過程の増殖を止める。"
       },
-      "evidence": "inline style 中の生 px の数。20 以下で GREEN、21+ で RED。",
+      "evidence": "inline style 中の生 px の数。0 以下で GREEN、1+ で RED。",
       "examples": {
         "pass": ["spacing は className で DS class（`var(--sp-*)` 使用）を当てる", "既存の inline px を token/class へ置換し count を下げる"],
         "fail": ["feature tsx に `style={{ padding: '10px' }}` を新規追加 → 21 → RED"]
