@@ -3,7 +3,7 @@
   "id": "apps/web/styling/spacing-from-token",
   "title": "spacing は DS 4px グリッド token から取る — 生 px ゼロ (T2, 統一感の機械半分の残り)",
   "version": "3",
-  "scope": ["apps/web/app/design-system"],
+  "scope": ["apps/web/design-system"],
   "origin": "オーナー指示(2026-06-24): CSS のベストプラクティスを rubric 化。色は stylelint declaration-strict-value で token 強制(T1)だが spacing は漏れていた。スケールを 4px グリッド(--sp-0/4/8/.../48)へ再定義し、Phase1(on-grid 174)+Phase2(off-grid snap 詰め寄せ)で生 px を 521→0 へ。色と対称に spacing も token 限定にした。",
   "checks": [
     {
@@ -13,7 +13,7 @@
       "verify": {
         "kind": "cmd",
         "metric": "count",
-        "cmd": "grep -rhoE '(^|[;{ ])(padding|margin|gap|row-gap|column-gap|inset|top|right|bottom|left)[a-z-]*:[^;{}]*[0-9]+px' apps/web/app/design-system/components.css apps/web/app/design-system/shell.css apps/web/app/design-system/chat.css 2>/dev/null | grep -oE '[0-9]+px' | grep -vxE '(0px|1px)' | wc -l | tr -d ' '",
+        "cmd": "grep -rhoE '(^|[;{ ])(padding|margin|gap|row-gap|column-gap|inset|top|right|bottom|left)[a-z-]*:[^;{}]*[0-9]+px' apps/web/design-system/components.css apps/web/design-system/shell.css apps/web/design-system/chat.css 2>/dev/null | grep -oE '[0-9]+px' | grep -vxE '(0px|1px)' | wc -l | tr -d ' '",
         "expect": "le:0",
         "tolerance": "ハード 0（2026-06-24 達成、521→0）。生 spacing px を 1 つでも足すと RED。限界: (a) grep は『プロパティ境界 `(^|[;{ ])`』で `border-top/right/bottom/left`(枠幅) と `border-radius` を除外し、padding/margin/gap/inset/positioning の spacing だけを数える。0px/1px(none・hairline) も除外。(b) tsx inline style は対象外。(c) 値の妥当さ(正しい段を選んだか)までは見ない＝『生 px を使わない』のみ強制。end-state 候補: spacing を stylelint declaration-strict-value に統合し色と同じ rule で 1 本化（任意・将来）。",
         "tolerance_note": "border 幅・border-radius は spacing ではないので意図的に除外（旧版の grep が border-bottom 等を誤検出していたのを修正）。"

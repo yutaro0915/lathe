@@ -1,13 +1,13 @@
 {
   "title": "色の値は token から取る — 生リテラル禁止 (T1, 統一感の機械半分)",
-  "scope": ["apps/web/app"],
-  "pass_to_task": "DS CSS(app/design-system/*.css + globals.css)で色系プロパティ(color 系/background/fill/stroke)の値は var(--token) かキーワードから取る。生の hex(#fff 等)や色リテラルを直書きしない(第二スタイル系・token ドリフトの源)。token の定義場所 tokens.css は対象外。currentColor/transparent/inherit/0 と rgba() 等の関数は許可。",
+  "scope": ["apps/web/app", "apps/web/design-system"],
+  "pass_to_task": "DS CSS(design-system/*.css + globals.css)で色系プロパティ(color 系/background/fill/stroke)の値は var(--token) かキーワードから取る。生の hex(#fff 等)や色リテラルを直書きしない(第二スタイル系・token ドリフトの源)。token の定義場所 tokens.css は対象外。currentColor/transparent/inherit/0 と rgba() 等の関数は許可。",
   "checks": [
     {
       "id": "color-value-from-token",
       "value": "ds-v1-single は『globals.css を 0 へ＝単一 CSS 系』までで、『値が token か』は見ない=生 hex がすり抜け、surface ごとに色がドリフトして全体の統一感が崩れる(ユーザーの関心④)。stylelint declaration-strict-value で色系の値を var(--token)/キーワード必須にすると、第二スタイル系・token ドリフトが構造的に不可能になる。知覚的な統一感(雰囲気)は別層(T3 vibe judge)が見るが、機械的に決まる『値の出所』はここで決定的に固定する。",
       "verify": {
-        "cmd": "pnpm -C apps/web exec stylelint \"app/design-system/*.css\" \"app/globals.css\"",
+        "cmd": "pnpm -C apps/web exec stylelint \"design-system/*.css\" \"app/globals.css\"",
         "expect": "exit0",
         "means": "DS CSS の色系プロパティが全て var(--token)/許可キーワード/関数から取られている。生の色リテラルを書くと stylelint が非0 で RED(検証済み: #abc123 注入で exit 2)。font-size のスケール準拠は別概念(211 件・--fs スケール未整備)で本 gate の対象外。"
       }

@@ -8,13 +8,13 @@
   "checks": [
     {
       "id": "no-reimplemented-ui",
-      "value": "① 何を縛るか: apps/web/components の変更で、共有モジュールが既に提供している UI を feature 内に手書き（再実装）しない。primitive は `components/ds`（Button / IconButton / Badge / Chip / Segmented / SearchInput / Select / Checkbox / Panel / TabBar / ConfidenceChip / RunnerIcon / MetricStat / MiniBar / Icon）、枠付きスクロール箱は共有 surface `.lds-codebox`、その他既存の共有 component（Surface / DiffViewer / TimeRibbon / Step 等）を使う。② なぜ重要か: 再実装＝場当たりが N 箇所に増殖し、cramping・padding drift・1 fix が全タブに効かない原因になった（subagents の重複等）。『再利用しないと通らない』を merge 条件にする。③ 仕組み: 意味判定なので cmd でなく judge。",
+      "value": "① 何を縛るか: apps/web/components の変更で、共有モジュールが既に提供している UI を feature 内に手書き（再実装）しない。primitive は `design-system/components`（Button / IconButton / Badge / Chip / Segmented / SearchInput / Select / Checkbox / Panel / TabBar / ConfidenceChip / RunnerIcon / MetricStat / MiniBar / Icon）、枠付きスクロール箱は共有 surface `.lds-codebox`、その他既存の共有 component（Surface / DiffViewer / TimeRibbon / Step 等）を使う。② なぜ重要か: 再実装＝場当たりが N 箇所に増殖し、cramping・padding drift・1 fix が全タブに効かない原因になった（subagents の重複等）。『再利用しないと通らない』を merge 条件にする。③ 仕組み: 意味判定なので cmd でなく judge。",
       "severity": "major",
       "verify": {
         "kind": "judge",
         "metric": "count",
         "judge": {
-          "prompt": "あなたは『UI 再実装』を見る、厳密だが寛容なジャッジ。入力は 1 変更セット（### FILES ### 変更ファイル一覧、### DIFF ### 差分）。タスク: apps/web/components の ADD/変更で、共有モジュールが既に提供している UI を feature 内で手書き（再実装）している箇所の数を数えよ。\n\n共有モジュール（これらの再実装は違反）:\n- ds primitives `@/components/ds`: Button / IconButton / Badge / Chip / Segmented / SearchInput / Select / Checkbox / Panel / TabBar / ConfidenceChip / RunnerIcon / MetricStat / MiniBar / Icon\n- 枠付きスクロール箱の共有 surface: CSS class `.lds-codebox`（border + radius + bg + overflow + 内側 padding）\n- 既存の共有 component: Surface / DiffViewer / TimeRibbon / Step\n\n違反として数える例: (a) ds に等価があるのに生 `<button>`/`<input>`/`<select>` をスタイル付きで新規に書く、(b) `border + overflow:auto` の箱を `.lds-codebox` を使わず手書きする、(c) badge/chip/pill 風の小片や Panel 風カードを ds を使わず再定義する、(d) 既存共有 component と機能が重複する component を新規に作る。\n\n違反として数えない（迷ったら必ずこちら＝false RED を出さない）: (i) 既に ds / .lds-codebox / 共有 component を使っている、(ii) 共有モジュール側（components/ds, .lds-codebox 定義, Surface 等）自体の変更・拡張、(iii) ds に等価が無い真に新規の UI（新しい種類の表示）、(iv) 構造的な div/レイアウト・テキスト・リスト等の素の markup、(v) スタイルを持たない要素、(vi) リファクタ/削除のみ。判断に迷う場合は通す。\n\n最終行に必ず VERDICT:<整数>（再実装の数。0 = OK）。",
+          "prompt": "あなたは『UI 再実装』を見る、厳密だが寛容なジャッジ。入力は 1 変更セット（### FILES ### 変更ファイル一覧、### DIFF ### 差分）。タスク: apps/web/components の ADD/変更で、共有モジュールが既に提供している UI を feature 内で手書き（再実装）している箇所の数を数えよ。\n\n共有モジュール（これらの再実装は違反）:\n- ds primitives `@/design-system/components`: Button / IconButton / Badge / Chip / Segmented / SearchInput / Select / Checkbox / Panel / TabBar / ConfidenceChip / RunnerIcon / MetricStat / MiniBar / Icon\n- 枠付きスクロール箱の共有 surface: CSS class `.lds-codebox`（border + radius + bg + overflow + 内側 padding）\n- 既存の共有 component: Surface / DiffViewer / TimeRibbon / Step\n\n違反として数える例: (a) ds に等価があるのに生 `<button>`/`<input>`/`<select>` をスタイル付きで新規に書く、(b) `border + overflow:auto` の箱を `.lds-codebox` を使わず手書きする、(c) badge/chip/pill 風の小片や Panel 風カードを ds を使わず再定義する、(d) 既存共有 component と機能が重複する component を新規に作る。\n\n違反として数えない（迷ったら必ずこちら＝false RED を出さない）: (i) 既に ds / .lds-codebox / 共有 component を使っている、(ii) 共有モジュール側（design-system/components, .lds-codebox 定義, Surface 等）自体の変更・拡張、(iii) ds に等価が無い真に新規の UI（新しい種類の表示）、(iv) 構造的な div/レイアウト・テキスト・リスト等の素の markup、(v) スタイルを持たない要素、(vi) リファクタ/削除のみ。判断に迷う場合は通す。\n\n最終行に必ず VERDICT:<整数>（再実装の数。0 = OK）。",
           "input_cmd": "if git rev-parse --verify origin/main >/dev/null 2>&1 && [ -n \"$(git rev-list origin/main..HEAD 2>/dev/null)\" ]; then R='git diff origin/main...HEAD'; elif ! git diff --quiet HEAD 2>/dev/null; then R='git diff HEAD'; else R='git show --format= HEAD'; fi; echo '### FILES ###'; $R --name-status -- apps/web/components 2>/dev/null; echo '### DIFF ###'; $R -- apps/web/components 2>/dev/null | head -1600"
         },
         "expect": "le:0",
@@ -23,10 +23,10 @@
       "evidence": "judge が出力する VERDICT:<int>（共有モジュールの再実装数。0=OK、1+ で再実装あり＝ds/.lds-codebox/共有 component に寄せる）。",
       "examples": {
         "pass": [
-          "@/components/ds の Button / Chip を import して使う",
+          "@/design-system/components の Button / Chip を import して使う",
           "差分ボックスに .lds-codebox を付ける（手書きの border+overflow を作らない）",
           "ds に無い真に新しい種類の表示を素の markup で作る",
-          "components/ds 自体や .lds-codebox 定義の拡張"
+          "design-system/components 自体や .lds-codebox 定義の拡張"
         ],
         "fail": [
           "feature 内に <button class=...> をスタイル付きで新規追加（ds Button の再実装）",
