@@ -1,6 +1,6 @@
 # DS Governance & 移行計画（SSOT フレーム導入・配置 A）
 
-> status: planned / 2026-06-24 / 配置決定 = **A（apps/web 内集約）**
+> status: planned / 2026-06-24 / 配置 = **A（apps/web 内集約）** ＋ レイアウト是正 = **`apps/web/design-system/` に token＋部品を統合**（旧 `components/ds` は廃止＝DS=factory が両方を出力、2026-06-24）
 > 方針: Design System を SSOT に、`design.md`/Storybook/Preview/lint/test はその伝達 I/O・観測・検査の子要素として扱う（ユーザー提供フレーム、2026-06-24）。
 > 関連: `design/ds-migration-plan.md`（globals.css→0 の旧 DS-replacement、並走トラック）/ `.claude/skills/lathe-ui`（手順正本）/ `memory/feedback_systemic_enforcement`。
 
@@ -8,7 +8,7 @@
 
 ```
 Design System (SSOT)
-├─ Canonical    : tokens(app/design-system/tokens.css) + components/ds(部品) + contracts(新)
+├─ Canonical    : apps/web/design-system/ ＝ tokens(css) ＋ components/(部品) ＋ contracts/（DS=factory が token と部品を出力）
 ├─ Communicable : design/DESIGN.md(生成I/O、DS 仕様の人間/AI 向け説明)
 ├─ Observable   : Storybook(新) + Preview UI(:3210)
 └─ Enforcement  : lint / tsc / Storybook tests / visual regression / a11y（逸脱検査）
@@ -19,17 +19,29 @@ Dev harness（DS とは別軸・.claude/ に集約）
 ├─ skills   : lathe-ui（UI 手順の正本）
 └─ settings : hook 配線
 ```
-実行される値=tokens、実行される部品=components/ds、仕様の説明=DESIGN.md、状態確認=Storybook、逸脱検査=lint/test。**design.md 単体を SSOT にしない**（第二 SSOT 化を避ける）。
+実行される値=tokens、実行される部品=design-system/components、仕様の説明=DESIGN.md、状態確認=Storybook、逸脱検査=lint/test。**design.md 単体を SSOT にしない**（第二 SSOT 化を避ける）。
 **skill/hook は DS の一部ではない** ── DS を「使わせ・守らせる」**運用層（dev harness）**であり、`.claude/` に skill・hook・agents・settings としてまとめる（DS の Communicable/Enforcement とは別軸）。
 
-## 配置 = A（apps/web 内集約）の根拠（確定）
-UI consumer は apps/web の 1 つ（agent は headless、OSS でも UI 1 app）＝packages 化の再利用 payoff が無い。最小 churn・フレームの既存パス（design-system/＋components/ui の 2 dir）と一致。**昇格トリガー**: 2 つ目の UI consumer か OSS で DS 単独配布が要る時 → packages/ へ spin-out（機械的・1 回）。
+## 配置 = A（apps/web 内集約）＋ レイアウト是正（確定）
+UI consumer は apps/web の 1 つ（agent は headless、OSS でも UI 1 app）＝packages 化の再利用 payoff が無い。最小 churn で apps/web 内に置く。**昇格トリガー**: 2 つ目の UI consumer か OSS で DS 単独配布が要る時 → packages/ へ spin-out（機械的・1 回）。
+
+**レイアウト是正（2026-06-24）**: DS は token と components を**出力する factory**。よって両方を 1 つの `apps/web/design-system/` に内包する。旧構成 ── tokens を `app/design-system/*.css`、部品を汎用 `components/` 配下に `components/ds` として間借り ── は **逆さま**（DS が部品を「持つ」のでなく、汎用 components/ に間借りしていた）＝統合する。`app/` の外へ出すのは `app/` が Next routing dir であり DS の住所として不適切なため。
+
+```
+apps/web/design-system/          # DS = factory（SSOT、app/ の外）
+├─ index.css / tokens.css / components.css / shell.css / chat.css   ← app/design-system/ から移動
+├─ components/                   ← components/ds/ から移動（index.tsx・icons.tsx・Surface.tsx …）
+├─ contracts/                    （P2）
+└─ DESIGN.md                     （P4）
+```
+import: `@/components/ds` → `@/design-system/components`（`@/`=apps/web で clean。`app/` 配下を避ける）。
 
 ## 現状（done / gap）
 | 層 | 要素 | 状態 |
 |---|---|---|
-| Canonical | tokens(4px grid・色・明暗) | ✅ |
-| | components/ds(primitive 15) | 🟡 Surface/Step/DiffViewer/TimeRibbon が ds 外＝要集約 |
+| Canonical | tokens(4px grid・色・明暗) | ✅ 値は確定（住所は design-system/ へ移動予定） |
+| | **design-system/ へ token＋部品を統合** | ❌ 現状 app/design-system(css)＋components/ds に分散＝P1① で統合 |
+| | components(primitive 15) | 🟡 Surface 集約済(P1a)。Step/DiffViewer/TimeRibbon は分類済＝feature/shared 維持 |
 | | contracts | ❌ |
 | Communicable | DESIGN.md(生成I/O) | ❌ |
 | Observable | Storybook | ❌ |
@@ -45,20 +57,25 @@ UI consumer は apps/web の 1 つ（agent は headless、OSS でも UI 1 app）
 
 ## フェーズ計画
 
-### P1 — Canonical 完成（部品 SSOT の確立）  ★最優先
-- **deliverable**: Surface/Step/DiffViewer/TimeRibbon を `components/ds` へ集約・import 張り直し（9+ 箇所）。生 `<button>/<input>/<select>` を lint 禁止（ds 強制、既存多ければ ratchet）。dep-cruiser 「feature は primitive を ds からのみ／feature 同士の内部 deep-import 禁止」。
-- **owner**: 集約・lint・dep-cruiser 編集 = Codex / dep-cruiser ルール設計・rubric = Claude
-- **gate**: tsc / dep-cruiser / lint / ds-reuse judge / spacing hard-0 / pr-split / 視覚等価(preview)
+### P1 — Canonical 確立（design-system/ 統合＋部品 SSOT）  ★最優先
+- **deliverable**:
+  - ① **restructure**: `app/design-system/*.css` ＋ `components/ds/*` → `apps/web/design-system/`（tokens＋components 同居）。import 張り直し（`@/components/ds`→`@/design-system/components` 13、CSS @import、rubric/stylelint の path）。
+  - ② 汎用 primitive 集約: Surface=済（P1a）。Step/DiffViewer/TimeRibbon は分類済＝feature/shared 維持（再掲）。
+  - ③ 生 `<button>/<input>/<select>` を lint 禁止（ds 強制、既存多ければ ratchet）。
+  - ④ dep-cruiser 「feature は primitive を `design-system/components` からのみ／feature 同士の内部 deep-import 禁止」。
+- **slice**: ① restructure → ③ lint → ④ dep-cruiser を各 単一 concern（pr-split）。① が他の土台。
+- **owner**: restructure(move/import)・lint・dep-cruiser 編集 = Codex / rubric・stylelint path・dep-cruiser ルール設計 = Claude
+- **gate**: tsc / dep-cruiser / lint / ds-reuse judge / spacing hard-0 / pr-split / 視覚等価(preview) / `@/components/ds` 残存 0
 - **dep**: なし（直ちに着手可）
 
 ### P2 — Contracts
-- **deliverable**: `components/ds/<C>/<C>.contract.json`（variants・allowed props・状態）をコア primitive（Button/Input/Select/Badge/Chip/Panel/Surface/Step）に付与。
+- **deliverable**: `design-system/components/<C>/<C>.contract.json`（variants・allowed props・状態）をコア primitive（Button/Input/Select/Badge/Chip/Panel/Surface/Step）に付与。
 - **owner**: contract schema・規約 = Claude / 各 contract 記入 = Codex
 - **gate**: schema 検証（contract が実 props と一致するかの軽い検査）
 - **dep**: P1（部品が ds に集約済み）
 
 ### P3 — Observable（Storybook 導入）
-- **deliverable**: apps/web に Storybook 導入。各 ds primitive に story（variant/state/edge）。依存方向 Storybook→components/ds→tokens（逆禁止）。
+- **deliverable**: apps/web に Storybook 導入。各 ds primitive に story（variant/state/edge）。依存方向 Storybook→design-system/components→tokens（逆禁止）。
 - **owner**: Storybook setup・stories = Codex
 - **gate**: storybook build 成功・stories 描画
 - **dep**: P1（集約後のクリーンな ds を反映）。P2 と並走可。
