@@ -28,7 +28,7 @@
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
-import { Icon } from "@/components/ds/icons";
+import { Icon } from "@/design-system/components/icons";
 
 export interface TopBarProject {
   project: string;

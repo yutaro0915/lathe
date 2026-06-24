@@ -1,6 +1,6 @@
 import { fmtCost, fmtInt } from "@lathe/shared";
 import type { ChangedFile, DiffHunk, Session, SessionBundle, TranscriptEvent } from "@/lib/types";
-import { RunnerIcon } from "@/components/ds";
+import { RunnerIcon } from "@/design-system/components";
 import { NestedMiniSession } from "./NestedMiniSession";
 import {
   launcherStats,

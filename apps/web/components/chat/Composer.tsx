@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Button, IconButton } from "@/components/ds";
-import { Icon } from "@/components/ds/icons";
+import { Button, IconButton } from "@/design-system/components";
+import { Icon } from "@/design-system/components/icons";
 import type { ChatContextAttachment } from "@/lib/chat";
 import { t } from "@/lib/i18n";
 

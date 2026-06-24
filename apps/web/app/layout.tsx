@@ -1,9 +1,9 @@
 import './globals.css';
-import './design-system/index.css';
+import '../design-system/index.css';
 import Link from 'next/link';
 import RailNav from '@/components/RailNav';
 import TopBarProjectSelect from '@/components/TopBarProjectSelect';
-import { Badge } from '@/components/ds';
+import { Badge } from '@/design-system/components';
 import { getProjectStats, listSessions } from '@/lib/read';
 
 export const dynamic = 'force-dynamic';

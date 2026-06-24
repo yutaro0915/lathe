@@ -24,7 +24,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Surface } from "@/components/ds";
+import { Surface } from "@/design-system/components";
 import OverviewTrends from "@/components/OverviewTrends";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
 import type { FindingKindCounts, Session } from "@/lib/types";

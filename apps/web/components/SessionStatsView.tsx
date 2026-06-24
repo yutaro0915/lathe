@@ -16,7 +16,7 @@
 import { useMemo } from "react";
 import { EVENT_COLOR, EVENT_LABEL } from "@/lib/event-display";
 import { basename, fmtCompact, fmtCost, fmtDuration, fmtInt, shortModel } from "@lathe/shared";
-import { RunnerIcon } from "@/components/ds";
+import { RunnerIcon } from "@/design-system/components";
 import type { EventType, SessionBundle } from "@/lib/types";
 
 export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) {

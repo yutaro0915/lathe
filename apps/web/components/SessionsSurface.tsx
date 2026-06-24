@@ -9,7 +9,7 @@
 // renders.
 //
 // Built from Lathe Design System v1 primitives + the sessions-grid layout
-// classes (app/design-system/shell.css). Columns: Session 1fr / Runner 84px /
+// classes (design-system/shell.css). Columns: Session 1fr / Runner 84px /
 // Model 86px (D3, mono) / Tokens 92px / Turns 64px / Errors 72px / Cost 84px —
 // head sticky, 54px rows, hover. Numbers are mono + tabular. Per D5 a session is
 // a span, so no timestamp is shown — the meta line carries only the duration.
@@ -26,7 +26,7 @@ import { fmtCost, fmtTok, humanizeDuration, shortModel } from "@lathe/shared";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { EVENT_LABEL } from "@/lib/event-display";
 import CostAnomalyChip from "@/components/CostAnomalyChip";
-import { Icon } from "@/components/ds/icons";
+import { Icon } from "@/design-system/components/icons";
 import {
   Badge,
   Button,
@@ -36,7 +36,7 @@ import {
   Segmented,
   Select,
   Surface,
-} from "@/components/ds";
+} from "@/design-system/components";
 import type { EventType, Session } from "@/lib/types";
 
 type SortKey = "recent" | "oldest" | "tokens" | "cost" | "errors";

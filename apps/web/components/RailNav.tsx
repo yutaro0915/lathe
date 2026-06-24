@@ -13,7 +13,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Icon, type IconName } from "@/components/ds/icons";
+import { Icon, type IconName } from "@/design-system/components/icons";
 
 const NAV: { href: string; label: string; nav: string; icon: IconName; match: (path: string) => boolean }[] = [
   // Sessions is the root "/"; deep links like /?session=…&tab=… are the SAME

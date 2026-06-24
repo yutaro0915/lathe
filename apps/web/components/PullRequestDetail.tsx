@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { fmtCost, fmtInt, parseStamp } from "@lathe/shared";
 import DiffViewer from "@/components/DiffViewer";
-import { Badge, RunnerIcon, Surface } from "@/components/ds";
-import { Icon } from "@/components/ds/icons";
+import { Badge, RunnerIcon, Surface } from "@/design-system/components";
+import { Icon } from "@/design-system/components/icons";
 import type { PullRequest, PullRequestBundle, PullRequestSessionLink } from "@/lib/types";
 
 type ReviewRow = { state: string; author: string; submittedAt: string; body: string };

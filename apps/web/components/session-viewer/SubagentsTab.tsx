@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { fmtCost, fmtInt } from "@lathe/shared";
 import type { ChangedFile, DiffHunk, Session, SessionBundle, TranscriptEvent } from "@/lib/types";
-import { Segmented } from "@/components/ds";
+import { Segmented } from "@/design-system/components";
 import { ComparisonList, type ComparisonGroup } from "./ComparisonList";
 import { NestedMiniSession } from "./NestedMiniSession";
 import { SubagentByStep } from "./SubagentByStep";

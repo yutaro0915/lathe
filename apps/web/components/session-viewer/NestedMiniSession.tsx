@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { EVENT_LABEL, TYPE_GLYPH } from "@/lib/event-display";
 import type { ChangedFile, DiffHunk, EventType, SessionBundle, TranscriptEvent } from "@/lib/types";
 import { fmtCost, fmtInt } from "@lathe/shared";
-import { RunnerIcon } from "@/components/ds";
+import { RunnerIcon } from "@/design-system/components";
 import { Step, type StepEdit } from "./Step";
 import { ComparisonList, type ComparisonGroup } from "./ComparisonList";
 import { GitTab } from "./GitTab";

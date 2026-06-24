@@ -3,8 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ds";
-import { Icon } from "@/components/ds/icons";
+import { Button } from "@/design-system/components";
+import { Icon } from "@/design-system/components/icons";
 import { Markdown } from "@/components/session-viewer/Markdown";
 import Composer from "./Composer";
 import type { ChatContextAttachment, ChatMessage, ChatThread } from "@/lib/chat";

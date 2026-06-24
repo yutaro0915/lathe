@@ -12,7 +12,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Surface } from "@/components/ds";
+import { Surface } from "@/design-system/components";
 import FindingsExplorer, {
   evidenceSessionId,
   type ResolvedEvidence,

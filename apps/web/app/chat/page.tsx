@@ -1,5 +1,5 @@
 import ChatSurface from "@/components/chat/ChatSurface";
-import { Surface } from "@/components/ds";
+import { Surface } from "@/design-system/components";
 import { getChatMessages, listChatThreads } from "@/lib/chat";
 import { t } from "@/lib/i18n";
 

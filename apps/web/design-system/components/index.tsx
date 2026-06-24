@@ -1,8 +1,8 @@
-// components/ds/index.tsx — Lathe Design System v1 React primitives (TypeScript).
+// design-system/components/index.tsx — Lathe Design System v1 React primitives (TypeScript).
 //
 // Faithful ports of the DS v1 bundle components (core / data / forms / layout),
 // typed to each component's .d.ts contract. They apply the shipped `lds-*`
-// classes from app/design-system/components.css — no inline colors/px, tokens
+// classes from design-system/components.css — no inline colors/px, tokens
 // only. Color stays rationed (neutral by default; semantic families only signal
 // state). Import primitives from this barrel, never the individual files.
 

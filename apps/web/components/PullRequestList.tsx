@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { fmtInt, parseStamp } from "@lathe/shared";
-import { Badge, Surface } from "@/components/ds";
-import { Icon } from "@/components/ds/icons";
+import { Badge, Surface } from "@/design-system/components";
+import { Icon } from "@/design-system/components/icons";
 import type { PullRequestSummary } from "@/lib/types";
 
 function stateLabel(pr: PullRequestSummary): string {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { fmtInt } from "@lathe/shared";
-import { Icon } from "@/components/ds/icons";
+import { Icon } from "@/design-system/components/icons";
 import { DiffFileRow } from "@/components/diff-viewer/DiffFileRow";
 import { HunkList } from "@/components/diff-viewer/HunkList";
 import type { ChangedFile, DiffHunk, LinkedEvent } from "@/lib/types";

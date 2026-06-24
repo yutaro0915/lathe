@@ -1,4 +1,4 @@
-// components/ds/icons.tsx — thin-stroke line icons for the DS v1 shell.
+// design-system/components/icons.tsx — thin-stroke line icons for the DS v1 shell.
 // No icon font, no emoji. currentColor + tabular sizing (DS rule: no emoji,
 // neutral micro-affordances). Ported from the bundle ui_kit Icon set.
 
