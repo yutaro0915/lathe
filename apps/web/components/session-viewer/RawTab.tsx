@@ -20,7 +20,7 @@ export function RawTab({
           {copied === "raw-main" ? "Copied ✓" : "⧉ Copy"}
         </button>
       </div>
-      <pre className="run-json" data-testid="run-json" style={{ whiteSpace: "pre-wrap" }}>
+      <pre className="lds-codebox run-json" data-testid="run-json" style={{ whiteSpace: "pre-wrap" }}>
         <JsonView value={selected ?? events} />
       </pre>
     </div>

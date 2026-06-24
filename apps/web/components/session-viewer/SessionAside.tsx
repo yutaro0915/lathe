@@ -144,7 +144,7 @@ export function SessionAside({
                   {copied === "cmd" ? "✓ copied" : "⧉ copy"}
                 </button>
               </div>
-              <pre className="code-block cmd" data-testid="code-block">{selected.command}</pre>
+              <pre className="lds-codebox code-block cmd" data-testid="code-block">{selected.command}</pre>
             </div>
           )}
           <div className="io-block io-output" data-testid="io-block">
@@ -156,7 +156,7 @@ export function SessionAside({
                 </button>
               )}
             </div>
-            <pre className="code-block output" data-testid="code-block" data-block-kind="output">
+            <pre className="lds-codebox code-block output" data-testid="code-block" data-block-kind="output">
               {selected?.body ? selected.body : <span className="muted" data-testid="muted">(no output captured)</span>}
             </pre>
           </div>
@@ -181,7 +181,7 @@ export function SessionAside({
               </button>
             </div>
           </div>
-          <pre className="run-json" data-testid="run-json">
+          <pre className="lds-codebox run-json" data-testid="run-json">
             <JsonView value={runJson} />
           </pre>
       </div>

@@ -225,7 +225,7 @@ export function Markdown({ text }: { text: string }) {
           }
           case "code":
             return (
-              <pre key={key} className="md-pre" data-md-lang={b.lang || undefined}>
+              <pre key={key} className="lds-codebox md-pre" data-md-lang={b.lang || undefined}>
                 <code className="md-codeblock">{b.text}</code>
               </pre>
             );

@@ -771,12 +771,12 @@ export default function FindingsExplorer({
                                             no-overflow gate — they absorb the width in their
                                             own box, never widening the grid/page. */}
                                         {excerpt.command && (
-                                          <pre className="code-block cmd finding-excerpt-pre" data-testid="finding-excerpt-pre" data-scroll>
+                                          <pre className="lds-codebox code-block cmd finding-excerpt-pre" data-testid="finding-excerpt-pre" data-scroll>
                                             {excerpt.command}
                                           </pre>
                                         )}
                                         {excerpt.output ? (
-                                          <pre className="code-block output finding-excerpt-pre" data-testid="finding-excerpt-pre" data-scroll>
+                                          <pre className="lds-codebox code-block output finding-excerpt-pre" data-testid="finding-excerpt-pre" data-scroll>
                                             {excerpt.output}
                                           </pre>
                                         ) : (

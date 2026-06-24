@@ -92,7 +92,7 @@ function frameSignal(event: TranscriptEvent, edit: StepEdit, isError: boolean): 
 // primitive (same markup the Git tab uses). Lines wrap (no horizontal spill).
 function StepDiff({ hunks }: { hunks: DiffHunk[] }) {
   return (
-    <div className="lds-step-diff" data-testid="step-diff" data-scroll>
+    <div className="lds-codebox lds-step-diff" data-testid="step-diff" data-scroll>
       {hunks.map((h) => {
         const lines = h.content.split("\n");
         return (
@@ -126,7 +126,7 @@ function StepDetail({ event, edit }: { event: TranscriptEvent; edit: StepEdit })
   return (
     <div className="lds-step-detail" data-testid="step-detail">
       {event.command && (
-        <pre className="code-block cmd" data-testid="code-block" data-block-kind="cmd" data-scroll>{event.command}</pre>
+        <pre className="lds-codebox code-block cmd" data-testid="code-block" data-block-kind="cmd" data-scroll>{event.command}</pre>
       )}
       {kind === "edit" && edit && edit.hunks.length > 0 ? (
         <StepDiff hunks={edit.hunks} />
@@ -138,12 +138,12 @@ function StepDetail({ event, edit }: { event: TranscriptEvent; edit: StepEdit })
         event.body ? (
           <div className="lds-step-body" data-testid="step-detail-body"><Markdown text={event.body} /></div>
         ) : (
-          <pre className="code-block output" data-testid="code-block" data-block-kind="output" data-scroll>
+          <pre className="lds-codebox code-block output" data-testid="code-block" data-block-kind="output" data-scroll>
             <span className="muted" data-testid="muted">(no content captured)</span>
           </pre>
         )
       ) : (
-        <pre className="code-block output" data-testid="code-block" data-block-kind="output" data-scroll>
+        <pre className="lds-codebox code-block output" data-testid="code-block" data-block-kind="output" data-scroll>
           {event.body ? event.body : <span className="muted" data-testid="muted">(no output captured)</span>}
         </pre>
       )}

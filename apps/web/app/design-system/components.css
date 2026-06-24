@@ -109,6 +109,9 @@
 .lds-panel__sub{color:var(--muted-2);font-family:var(--mono);font-size:var(--fs-xs);font-weight:400;text-transform:none;letter-spacing:0;}
 .lds-panel__body{padding:0 var(--sp-12) var(--sp-12);}
 
+/* ---- Codebox ------------------------------------------------------------- */
+.lds-codebox{border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-2);overflow:auto;min-width:0;padding:var(--sp-8) var(--sp-12);}
+
 /* ---- 3-col working area ----------------------------------------------------
    Load-bearing layout scaffold, shared by the SessionViewer host grid AND the
    embedded DiffViewer grid. Migrated out of globals.css verbatim (DS v1 shrinks
@@ -768,11 +771,9 @@ button.finding-evidence-jump:hover{color:var(--text-soft);border-color:var(--bor
 .finding-excerpt-meta .err{color:var(--text-soft);font-weight:700;}
 /* evidence command/output: bounded box that scrolls in BOTH axes inside the
    detail pane (design rule: long lines get per-pane horizontal scroll, no wrap,
-   no silent truncation). The selector is intentionally specific enough to beat
-   .code-block.cmd / .code-block.output below — white-space:pre + overflow:auto
-   make a long one-liner scroll horizontally instead of wrapping; the pane's
-   min-width:0 keeps the scroll inside the box so it can never widen the page. */
-.finding-excerpt pre.finding-excerpt-pre{overflow:auto;white-space:pre;word-break:normal;}
+   no silent truncation). .lds-codebox supplies the scroll surface; this selector
+   keeps long one-liners unwrapped so they scroll inside the box. */
+.finding-excerpt pre.finding-excerpt-pre{white-space:pre;word-break:normal;}
 .finding-excerpt-empty{font-size:11px;color:var(--muted-2);}
 /* grouped evidence: one card per (session, turn). The group header carries the
    turn position once and a mono ×N repeats count (neutral — no saturation, per
@@ -1013,17 +1014,17 @@ button.event-type-badge{height:auto;min-height:24px;}
 /* the inline detail-block (below the frame when the step is expanded). Same
    container for every kind; the inner content (command/output, diff, body)
    varies. Everything WRAPS — no horizontal overflow. */
-.lds-step-detail{padding:0 var(--sp-12) var(--sp-16) var(--sp-32);display:flex;flex-direction:column;gap:var(--sp-8);min-width:0;}
-.lds-step-detail .code-block{margin:0;max-height:46vh;overflow:auto;white-space:pre-wrap;word-break:break-word;}
+.lds-step-detail{padding:var(--sp-8) var(--sp-12) var(--sp-16) var(--sp-32);display:flex;flex-direction:column;gap:var(--sp-8);min-width:0;}
+.lds-step-detail .code-block{margin:0;max-height:46vh;white-space:pre-wrap;word-break:break-word;}
 .lds-step-body{font-size:12.5px;color:var(--text-soft);min-width:0;max-height:46vh;overflow:auto;}
 .lds-step-empty{font-size:11.5px;color:var(--muted);font-family:var(--mono);word-break:break-all;}
 .lds-step-children{display:flex;flex-direction:column;}
 /* compact unified diff inside an edit step's detail-block (reuses .diff-line). */
-.lds-step-diff{border:1px solid var(--border);border-radius:var(--radius-sm);overflow:auto;max-height:46vh;background:var(--panel-2);}
+.lds-step-diff{max-height:46vh;}
 .lds-step-hunk-head{font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--bg-sunken);
-  padding:var(--sp-4) var(--sp-8);border-bottom:1px solid var(--border-faint);white-space:pre-wrap;word-break:break-word;}
+  padding:var(--sp-4) 0;border-bottom:1px solid var(--border-faint);white-space:pre-wrap;word-break:break-word;}
 .lds-step-diff .diff-line{white-space:pre-wrap;word-break:break-word;}
-.lds-step-diff .diff-line .ltext{white-space:pre-wrap;word-break:break-word;}
+.lds-step-diff .diff-line .ltext{padding:0;white-space:pre-wrap;word-break:break-word;}
 
 /* ---- comparison-list = aggregated peers + inline expansion (D11/D12/D8) -----
    The SHARED comparison-list (ComparisonList.tsx), reused by BOTH the Tools tab
@@ -1107,11 +1108,11 @@ button.event-type-badge{height:auto;min-height:24px;}
 .linked-file .role{font-size:9px;padding:0 var(--sp-4);height:14px;border-radius:3px;display:inline-flex;align-items:center;font-family:var(--sans);font-weight:650;
   text-transform:uppercase;letter-spacing:.04em;border:1px solid var(--border);background:var(--panel);color:var(--muted);}
 .linked-file .role.read{color:var(--muted);} .linked-file .role.edit{color:var(--amber-text);border-color:var(--amber-chip);} .linked-file .role.write{color:var(--green-text);border-color:var(--green-chip);}
-.code-block{margin:var(--sp-8) var(--sp-12) var(--sp-12);padding:var(--sp-8) var(--sp-12);background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius-sm);
-  font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--text-soft);white-space:pre;overflow-x:auto;position:relative;}
+.code-block{margin:var(--sp-8) var(--sp-12) var(--sp-12);
+  font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--text-soft);white-space:pre;position:relative;}
 .code-block .copy{position:absolute;top:var(--sp-4);right:var(--sp-4);color:var(--muted-2);cursor:pointer;}
-.run-json{margin:var(--sp-8) var(--sp-12) var(--sp-12);padding:var(--sp-8) var(--sp-12);background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius-sm);
-  font-family:var(--mono);font-size:10.5px;line-height:1.55;color:var(--text-soft);white-space:pre;overflow:auto;max-height:220px;}
+.run-json{margin:var(--sp-8) var(--sp-12) var(--sp-12);
+  font-family:var(--mono);font-size:10.5px;line-height:1.55;color:var(--text-soft);white-space:pre;max-height:220px;}
 .json-key{color:var(--json-key);} .json-str{color:var(--json-str);} .json-num{color:var(--json-num);} .json-punct{color:var(--muted-2);}
 
 /* ---- right-aside placeholder (run open, no step picked) ------------------*/
@@ -1129,8 +1130,8 @@ button.event-type-badge{height:auto;min-height:24px;}
 .io-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-4);font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
 .io-copy{border:1px solid var(--border);background:var(--panel);color:var(--muted);font-size:10.5px;padding:var(--sp-4) var(--sp-4);border-radius:4px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;font-family:var(--mono);}
 .io-copy:hover{color:var(--accent);border-color:var(--accent-ring);}
-.code-block.cmd{margin:0;max-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
-.code-block.output{margin:0;max-height:54vh;min-height:130px;overflow:auto;white-space:pre-wrap;word-break:break-word;}
+.code-block.cmd{margin:0;max-height:130px;white-space:pre-wrap;word-break:break-word;}
+.code-block.output{margin:0;max-height:54vh;min-height:130px;white-space:pre-wrap;word-break:break-word;}
 
 /* ============================================================================
    In-house markdown — the dependency-free renderer used by the transcript step
@@ -1154,8 +1155,7 @@ button.event-type-badge{height:auto;min-height:24px;}
 .md .md-em{font-style:italic;}
 .md .md-code{font-family:var(--mono);font-size:11.5px;background:var(--panel-hover);border:1px solid var(--border);
   border-radius:3px;padding:0 var(--sp-4);word-break:break-word;}
-.md .md-pre{margin:0 0 var(--sp-8);padding:var(--sp-8) var(--sp-12);background:var(--panel);border:1px solid var(--border);
-  border-radius:var(--radius-sm);overflow-x:auto;}
+.md .md-pre{margin:0 0 var(--sp-8);}
 .md .md-pre .md-codeblock{font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--text-soft);
   white-space:pre;word-break:normal;}
 .md .md-quote{margin:0 0 var(--sp-8);padding:var(--sp-4) 0 var(--sp-4) var(--sp-8);border-left:2px solid var(--border-strong);color:var(--muted);}
