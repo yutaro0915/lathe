@@ -39,16 +39,18 @@ import: `@/components/ds` → `@/design-system/components`（`@/`=apps/web で c
 ## 現状（done / gap）
 | 層 | 要素 | 状態 |
 |---|---|---|
-| Canonical | tokens(4px grid・色・明暗) | ✅ 値は確定（住所は design-system/ へ移動予定） |
-| | **design-system/ へ token＋部品を統合** | ❌ 現状 app/design-system(css)＋components/ds に分散＝P1① で統合 |
-| | components(primitive 15) | 🟡 Surface 集約済(P1a)。Step/DiffViewer/TimeRibbon は分類済＝feature/shared 維持 |
-| | contracts | ❌ |
+| Canonical | tokens(4px grid・色・明暗) | ✅ design-system/ へ移動済（P1①） |
+| | design-system/ へ token＋部品を統合 | ✅ **P1① 完了**（apps/web/design-system/、import `@/design-system/components`） |
+| | components(primitive 15) | ✅ ds に集約（Surface 移動済・Step/DiffViewer/TimeRibbon は feature/shared 維持） |
+| | contracts | 🟡 **P2 進行中**（design-system/contracts/<C>.contract.json） |
+| | dep-cruiser @/ 解決（境界 gate の前提） | ✅ tsConfig+tsPreCompilationDeps:true（P1④ で発見・修正）＋guard rubric `meta/dep-alias-resolution` |
 | Communicable | DESIGN.md(生成I/O) | ❌ |
 | Observable | Storybook | ❌ |
 | | Preview UI | 🟡 :3210 ツールあり・未形式化 |
 | Enforcement | lint(spacing hard-0/色 strict-value/ds-reuse judge/tests-accompany)・tsc・boundaries | ✅ |
-| | Storybook tests / visual regression / a11y | ❌ |
-| | 生 `<button>` 等 forbid lint | ❌ |
+| | 生 `<button>` 等 forbid lint | ✅ no-raw-primitives ratchet 58（P1③） |
+| | feature 同士の内部 deep-import 禁止 | ✅ dep-cruiser feature-internals-private（P1④、@/ 解決後に稼働） |
+| | Storybook tests / visual regression / a11y | ❌（P5） |
 | **Dev harness**（DS と別軸） | .claude/agents・hooks・settings | ✅ |
 | | .claude/skills/lathe-ui | ✅（`.claude/skills/` へ移設済み） |
 | | skill 強制 hook（.claude/settings.json） | ❌ |
@@ -57,21 +59,22 @@ import: `@/components/ds` → `@/design-system/components`（`@/`=apps/web で c
 
 ## フェーズ計画
 
-### P1 — Canonical 確立（design-system/ 統合＋部品 SSOT）  ★最優先
+### P1 — Canonical 確立（design-system/ 統合＋部品 SSOT）  ✅ 完了（2026-06-24）
 - **deliverable**:
   - ① **restructure**: `app/design-system/*.css` ＋ `components/ds/*` → `apps/web/design-system/`（tokens＋components 同居）。import 張り直し（`@/components/ds`→`@/design-system/components` 13、CSS @import、rubric/stylelint の path）。
   - ② 汎用 primitive 集約: Surface=済（P1a）。Step/DiffViewer/TimeRibbon は分類済＝feature/shared 維持（再掲）。
   - ③ 生 `<button>/<input>/<select>` を lint 禁止（ds 強制、既存多ければ ratchet）。
-  - ④ dep-cruiser 「feature は primitive を `design-system/components` からのみ／feature 同士の内部 deep-import 禁止」。
-- **slice**: ① restructure → ③ lint → ④ dep-cruiser を各 単一 concern（pr-split）。① が他の土台。
+  - ④ dep-cruiser 「feature 同士の内部 deep-import 禁止」（`feature-internals-private`、稼働中）。
+  - ⑤【実行中に発見された前提】dep-cruiser が `@/` を解決しておらず、境界 gate（I1/lib-db/pure-core/④）が `@/` import を素通り＝装飾化していた。`tsConfig` + `tsPreCompilationDeps:true`（root `tsconfig.depcruise.json`）で解決し、guard rubric `meta/dep-alias-resolution` で固定。④ と既存境界 gate はこれの上で初めて本物化（commit e6ebdd9 / 25ff009）。
+- **slice**: ① restructure → ③ lint → ④ dep-cruiser → ⑤ @/ 解決＋guard を各 単一 concern（pr-split）。① が他の土台。
 - **owner**: restructure(move/import)・lint・dep-cruiser 編集 = Codex / rubric・stylelint path・dep-cruiser ルール設計 = Claude
 - **gate**: tsc / dep-cruiser / lint / ds-reuse judge / spacing hard-0 / pr-split / 視覚等価(preview) / `@/components/ds` 残存 0
 - **dep**: なし（直ちに着手可）
 
-### P2 — Contracts
-- **deliverable**: `design-system/components/<C>/<C>.contract.json`（variants・allowed props・状態）をコア primitive（Button/Input/Select/Badge/Chip/Panel/Surface/Step）に付与。
-- **owner**: contract schema・規約 = Claude / 各 contract 記入 = Codex
-- **gate**: schema 検証（contract が実 props と一致するかの軽い検査）
+### P2 — Contracts  🟡 進行中
+- **deliverable**: `design-system/contracts/<C>.contract.json`（component/exportedFrom/summary/axes/props/states/notes）を**全 ds primitive**（Button/IconButton/Badge/Chip/ConfidenceChip/Checkbox/SearchInput/Select/Segmented/Panel/TabBar/MetricStat/MiniBar/Surface/Icon）に付与。各 contract は実 TS から抽出（推測しない）。Step は feature component なので対象外。
+- **owner**: contract schema・規約・検証 rubric = Claude / 各 contract 記入（抽出）= Codex
+- **gate**: contract が schema 妥当（必須 field）＋ `component` が実 export ＋ 全 primitive 網羅（正本リスト ⇄ contracts 機械照合）
 - **dep**: P1（部品が ds に集約済み）
 
 ### P3 — Observable（Storybook 導入）
