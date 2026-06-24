@@ -12,6 +12,8 @@ export { default as Surface } from "./Surface";
 export type { SurfaceProps } from "./Surface";
 export { SideNav } from "./SideNav";
 export type { SideNavProps, SideNavItem, SideNavUser } from "./SideNav";
+export { Header } from "./Header";
+export type { HeaderProps } from "./Header";
 
 /* ---- Pressable ----------------------------------------------------------- */
 export interface PressableProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

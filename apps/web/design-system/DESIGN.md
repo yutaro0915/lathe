@@ -92,6 +92,7 @@ Source files: `apps/web/design-system/tokens.css` and `apps/web/design-system/co
 | `Checkbox` | Labeled checkbox row with optional trailing content. | none | `default`, `checked`, `disabled` |
 | `Chip` | Mono inline chip for hashes, cost, token, and compact metadata values. | `kind`: `default`, `hash`, `cost`, `token` | `default` |
 | `ConfidenceChip` | Small confidence label for high, medium, or unattributed evidence confidence. | `level`: `high`, `medium`, `unattributed` | `default` |
+| `Header` | App topbar chrome for brand identity and a project-scope slot. | `projectSelector`: `provided`, `omitted` | `default` |
 | `Icon` | Thin-stroke line icon rendered from the DS IconName set. | `name`: `list`, `findings`, `pr`, `chart`, `messages`, `settings`, `grid`, `stack`, `folder`, `arrowLeft`, `external`, `github`, `branch`, `link`, `plus`, `x`, `send`, `check`, `alert`, `chevronDown`, `chevronRight` | `default` |
 | `IconButton` | Icon-only button with a required accessible label. | none | `default`, `hover`, `disabled` |
 | `Inline` | Inline wrapping layout frame that owns gap and min-width:0 containment for itself and direct children. | `align`: `start`, `center`, `end`, `baseline`<br>`as`: `div`, `span`, `ul`<br>`gap`: `0`, `4`, `8`, `12`, `16`, `20`, `24`, `32` | `default` |

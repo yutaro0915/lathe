@@ -7,6 +7,16 @@ test.describe("PR linkage", () => {
     await seedPrFixture();
     await page.goto("/pr");
 
+    const topbar = page.getByTestId("topbar");
+    await expect(topbar).toBeVisible();
+    const brand = topbar.getByTestId("topbar-brand");
+    await expect(brand).toContainText("Lathe");
+    await expect(topbar.getByTestId("topbar-logo")).toHaveText("L");
+    await expect(topbar.getByTestId("topbar-ph")).toHaveText("Phase 1");
+    await expect(topbar.getByTestId("topbar-scope")).toBeVisible();
+    await expect(topbar.getByTestId("project-picker")).toBeVisible();
+    await expect(topbar.getByTestId("topbar-scope-name")).toContainText("All projects");
+
     await expect(page.locator(`[data-testid="pr-list"]`)).toBeVisible();
     await expect(page.locator(`[data-testid="pr-detail"]`)).toHaveCount(0);
 

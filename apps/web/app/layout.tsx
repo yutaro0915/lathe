@@ -1,9 +1,8 @@
 import './globals.css';
 import '../design-system/index.css';
-import Link from 'next/link';
 import RailNav from '@/components/RailNav';
 import TopBarProjectSelect from '@/components/TopBarProjectSelect';
-import { Badge } from '@/design-system/components';
+import { Header } from '@/design-system/components';
 import { getProjectStats, listSessions } from '@/lib/read';
 
 export const dynamic = 'force-dynamic';
@@ -45,18 +44,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               breadcrumb project selector (`Lathe / <project> v`); the selector
               writes the scope to ?project= and every section reads it. No search,
               no command affordance, no boxed control. */}
-          <header className="lds-topbar" data-testid="topbar">
-            <Link href="/" className="lds-tb-brand" data-testid="topbar-brand" title="Lathe — session observability">
-              <span className="lds-tb-logo" data-testid="topbar-logo" aria-hidden>L</span>
-              <span>Lathe</span>
-              <Badge tone="neutral" className="lds-tb-ph" data-testid="topbar-ph">Phase 1</Badge>
-            </Link>
-            <TopBarProjectSelect
-              projects={projects}
-              totalSessions={sessions.length}
-              sessionTitles={sessionTitles}
-            />
-          </header>
+          <Header
+            projectSelector={(
+              <TopBarProjectSelect
+                projects={projects}
+                totalSessions={sessions.length}
+                sessionTitles={sessionTitles}
+              />
+            )}
+          />
           <div className="lds-shell-body" data-testid="lds-shell-body">
             <RailNav />
             <div className="lds-workarea" data-testid="lds-workarea">{children}</div>

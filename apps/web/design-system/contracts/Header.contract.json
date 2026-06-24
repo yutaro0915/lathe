@@ -1,0 +1,23 @@
+{
+  "component": "Header",
+  "exportedFrom": "@/design-system/components",
+  "summary": "App topbar chrome for brand identity and a project-scope slot.",
+  "axes": {
+    "projectSelector": ["provided", "omitted"]
+  },
+  "props": [
+    {
+      "name": "projectSelector",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "brandHref",
+      "type": "string",
+      "required": false,
+      "default": "/"
+    }
+  ],
+  "states": ["default"],
+  "notes": "scope+identity only。project selector は routing 結合なので shell が slot で渡す。全 topbar testid は e2e 契約。"
+}
