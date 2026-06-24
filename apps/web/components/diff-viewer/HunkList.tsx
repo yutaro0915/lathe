@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtInt } from "@lathe/shared";
+import { Button } from "@/design-system/components";
 import type { DiffHunk } from "@/lib/types";
 import { HUNK_LINE_CAP, HUNK_PAGE, hunkStart, lineClass } from "./model";
 
@@ -65,22 +66,21 @@ export function HunkList({ hunks, focusHunkId }: { hunks: DiffHunk[]; focusHunkI
             Showing {fmtInt(rendered.length)} of {fmtInt(hunks.length)} hunks
           </span>
           <span style={{ flex: "1 1 auto" }} />
-          <button
-            type="button"
-            className="btn btn-sm"
+          <Button
+            size="sm"
             data-testid="btn"
             onClick={() => setWindow((w) => Math.min(hunks.length, w + HUNK_PAGE))}
           >
             Show {Math.min(HUNK_PAGE, more)} more hunks
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             data-testid="btn"
             onClick={() => setWindow(hunks.length)}
           >
             Show all ({fmtInt(hunks.length)})
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -109,9 +109,9 @@ function HunkView({ hunk, focused, focusRef }: { hunk: DiffHunk; focused: boolea
       <UnifiedLines hunkId={hunk.id} lines={lines} oldStart={oldStart} newStart={newStart} />
       {moreLines > 0 && (
         <div className="diff-more-lines" data-testid="diff-more-lines">
-          <button type="button" className="btn btn-sm btn-ghost" data-testid="btn" onClick={() => setExpanded(true)}>
+          <Button size="sm" variant="ghost" data-testid="btn" onClick={() => setExpanded(true)}>
             Show {fmtInt(moreLines)} more line{moreLines === 1 ? "" : "s"} in this hunk
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import { Pressable } from "@/design-system/components";
 import type { Tab } from "./types";
 
 const TABS = [
@@ -35,7 +36,7 @@ export function SessionTabs({
   return (
     <div className="lds-sv-tabs" data-testid="tabs" role="tablist">
       {TABS.map(([key, label]) => (
-        <button
+        <Pressable
           key={key}
           type="button"
           role="tab"
@@ -51,7 +52,7 @@ export function SessionTabs({
           {label}
           {key === "annotations" && annotationsCount > 0 && <span className="lds-sv-tab-count" data-testid="tab-count">{annotationsCount}</span>}
           {key === "findings" && pendingFindingsCount > 0 && <span className="lds-sv-tab-count" data-testid="tab-count">{pendingFindingsCount}</span>}
-        </button>
+        </Pressable>
       ))}
       <span className="lds-sv-tabs-spacer" data-testid="tabs-spacer" />
       <span className="lds-sv-tabs-tool" data-testid="tabs-tool">

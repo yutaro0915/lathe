@@ -1,6 +1,6 @@
 import { fmtCost, fmtInt } from "@lathe/shared";
 import type { ChangedFile, DiffHunk, Session, SessionBundle, TranscriptEvent } from "@/lib/types";
-import { RunnerIcon } from "@/design-system/components";
+import { Pressable, RunnerIcon } from "@/design-system/components";
 import { NestedMiniSession } from "./NestedMiniSession";
 import {
   launcherStats,
@@ -82,7 +82,7 @@ export function SubagentByStep({
                 const runner = summary.linkedChild?.runner ?? "";
                 const name = subagentName(launcher);
                 return (
-                  <button
+                  <Pressable
                     type="button"
                     key={launcher.id}
                     className={`lds-sa-card${active ? " is-active" : ""}`}
@@ -105,7 +105,7 @@ export function SubagentByStep({
                     <span className="lds-sa-card-meta" data-testid="sa-card-meta">
                       {stats.cost != null ? fmtCost(stats.cost) : "—"} · {fmtInt(stats.tools)} tools
                     </span>
-                  </button>
+                  </Pressable>
                 );
               })}
               {block.parallel && block.launchers.length >= 3 && (

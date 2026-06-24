@@ -1,6 +1,7 @@
 import * as React from "react";
 import { KIND_GLYPH, KIND_LABEL, kindOf, hasErrorState } from "@/lib/event-display";
 import { fmtInt } from "@lathe/shared";
+import { Pressable } from "@/design-system/components";
 import type { ChangedFile, DiffHunk, TranscriptEvent } from "@/lib/types";
 import { Markdown } from "@/components/Markdown";
 import { firstNonEmptyLine } from "./types";
@@ -211,7 +212,7 @@ export function Step({
           <span className="lds-step-line" data-testid="step-line" data-ellipsis-ok>{frameDetail(event, edit)}</span>
           {frameSignal(event, edit, isError)}
           {isAgent && (
-            <button
+            <Pressable
               type="button"
               className="tw-expand"
               data-testid="tw-expand"
@@ -222,7 +223,7 @@ export function Step({
               }}
             >
               {agentExpanded ? "▾" : "▸"}
-            </button>
+            </Pressable>
           )}
         </div>
       </div>

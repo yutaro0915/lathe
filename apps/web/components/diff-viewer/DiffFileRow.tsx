@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChangedFile, DiffHunk, LinkedEvent } from "@/lib/types";
+import { Pressable } from "@/design-system/components";
 import { HunkList } from "./HunkList";
 import { methodLabel, statusGlyph } from "./model";
 
@@ -79,7 +80,7 @@ export function DiffFileRow({
           {file.path}
         </span>
         {linkedEvent && onJumpToEvent && (
-          <button
+          <Pressable
             type="button"
             className="le-jump"
             data-testid="le-jump"
@@ -91,7 +92,7 @@ export function DiffFileRow({
             }}
           >
             ↗ Turn {linkedEvent.event.seq} · {methodLabel(linkedEvent.method)}
-          </button>
+          </Pressable>
         )}
         <span className="diff-acc-stat" data-testid="fstats">
           <span className="add" data-testid="add">+{file.additions}</span>{" "}

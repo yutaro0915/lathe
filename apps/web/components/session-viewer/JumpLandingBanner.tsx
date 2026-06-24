@@ -3,6 +3,8 @@
 // or a ?seq deep link. Extracted so SessionViewer renders it once (it appears in
 // both the transcript master-detail body and the list+inspector body).
 
+import { Pressable } from "@/design-system/components";
+
 type Landing = { seq: number | null; fromFinding: number | null };
 
 export function JumpLandingBanner({ landing, onDismiss }: { landing: Landing | null; onDismiss: () => void }) {
@@ -14,7 +16,7 @@ export function JumpLandingBanner({ landing, onDismiss }: { landing: Landing | n
         {landing.seq != null ? `JUMPED TO STEP ${landing.seq}` : "JUMPED TO THIS SESSION"}
         {landing.fromFinding != null ? ` — from finding #${landing.fromFinding}` : ""}
       </span>
-      <button type="button" className="jump-landing-dismiss" data-testid="jump-landing-dismiss" title="Dismiss" aria-label="Dismiss landing banner" onClick={onDismiss}>✕</button>
+      <Pressable type="button" className="jump-landing-dismiss" data-testid="jump-landing-dismiss" title="Dismiss" aria-label="Dismiss landing banner" onClick={onDismiss}>✕</Pressable>
     </div>
   );
 }
