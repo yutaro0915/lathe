@@ -1,0 +1,33 @@
+{
+  "component": "Pressable",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Bare interactive button base for bespoke-styled feature controls.",
+  "axes": {},
+  "props": [
+    {
+      "name": "type",
+      "type": "enum",
+      "values": ["button", "submit", "reset"],
+      "required": false,
+      "default": "button"
+    },
+    {
+      "name": "className",
+      "type": "string",
+      "required": false,
+      "default": ""
+    },
+    {
+      "name": "disabled",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": false
+    }
+  ],
+  "states": ["default", "hover", "focus", "disabled"],
+  "notes": "className passes through so bespoke feature button classes retain their visual treatment; Pressable only adds pointer cursor and a tokenized focus-visible outline."
+}

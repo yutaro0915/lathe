@@ -6,6 +6,10 @@
    semantic family.
    ========================================================================== */
 
+/* ---- Pressable ------------------------------------------------------------ */
+.lds-pressable{cursor:pointer;}
+.lds-pressable:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
+
 /* ---- Button --------------------------------------------------------------- */
 .lds-btn{display:inline-flex;align-items:center;gap:var(--sp-4);height:var(--control-h);padding:0 var(--sp-8);
   border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--panel);

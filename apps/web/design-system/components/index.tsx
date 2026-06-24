@@ -11,6 +11,21 @@ import * as React from "react";
 export { default as Surface } from "./Surface";
 export type { SurfaceProps } from "./Surface";
 
+/* ---- Pressable ----------------------------------------------------------- */
+export interface PressableProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  children?: React.ReactNode;
+  className?: string;
+  [ariaAttribute: `aria-${string}`]: string | number | boolean | undefined;
+  [dataAttribute: `data-${string}`]: string | number | boolean | undefined;
+}
+export function Pressable({ className = "", children, ...rest }: PressableProps) {
+  return (
+    <button type="button" className={`lds-pressable ${className}`.trim()} {...rest}>
+      {children}
+    </button>
+  );
+}
+
 /* ---- Button -------------------------------------------------------------- */
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "default" | "primary" | "ghost" | "danger";
