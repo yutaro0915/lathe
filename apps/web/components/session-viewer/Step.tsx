@@ -2,7 +2,7 @@ import * as React from "react";
 import { KIND_GLYPH, KIND_LABEL, kindOf, hasErrorState } from "@/lib/event-display";
 import { fmtInt } from "@lathe/shared";
 import type { ChangedFile, DiffHunk, TranscriptEvent } from "@/lib/types";
-import { Markdown } from "./Markdown";
+import { Markdown } from "@/components/Markdown";
 import { firstNonEmptyLine } from "./types";
 
 // Step.tsx — the SINGLE uniform step component (D8). Its FRAME is invariant

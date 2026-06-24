@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/design-system/components";
 import { Icon } from "@/design-system/components/icons";
-import { Markdown } from "@/components/session-viewer/Markdown";
+import { Markdown } from "@/components/Markdown";
 import Composer from "./Composer";
 import type { ChatContextAttachment, ChatMessage, ChatThread } from "@/lib/chat";
 import { t } from "@/lib/i18n";
