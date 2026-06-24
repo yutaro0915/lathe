@@ -9,11 +9,18 @@
 ```
 Design System (SSOT)
 ├─ Canonical    : tokens(app/design-system/tokens.css) + components/ds(部品) + contracts(新)
-├─ Communicable : design/DESIGN.md(生成I/O) + AGENTS / skill lathe-ui
+├─ Communicable : design/DESIGN.md(生成I/O、DS 仕様の人間/AI 向け説明)
 ├─ Observable   : Storybook(新) + Preview UI(:3210)
-└─ Enforcement  : lint / tsc / Storybook tests / visual regression / a11y
+└─ Enforcement  : lint / tsc / Storybook tests / visual regression / a11y（逸脱検査）
+
+Dev harness（DS とは別軸・.claude/ に集約）
+├─ agents   : implementer / planner / researcher
+├─ hooks    : file-size-guard / write-retro /（P5）skill 強制
+├─ skills   : lathe-ui（UI 手順の正本）
+└─ settings : hook 配線
 ```
 実行される値=tokens、実行される部品=components/ds、仕様の説明=DESIGN.md、状態確認=Storybook、逸脱検査=lint/test。**design.md 単体を SSOT にしない**（第二 SSOT 化を避ける）。
+**skill/hook は DS の一部ではない** ── DS を「使わせ・守らせる」**運用層（dev harness）**であり、`.claude/` に skill・hook・agents・settings としてまとめる（DS の Communicable/Enforcement とは別軸）。
 
 ## 配置 = A（apps/web 内集約）の根拠（確定）
 UI consumer は apps/web の 1 つ（agent は headless、OSS でも UI 1 app）＝packages 化の再利用 payoff が無い。最小 churn・フレームの既存パス（design-system/＋components/ui の 2 dir）と一致。**昇格トリガー**: 2 つ目の UI consumer か OSS で DS 単独配布が要る時 → packages/ へ spin-out（機械的・1 回）。
@@ -24,15 +31,17 @@ UI consumer は apps/web の 1 つ（agent は headless、OSS でも UI 1 app）
 | Canonical | tokens(4px grid・色・明暗) | ✅ |
 | | components/ds(primitive 15) | 🟡 Surface/Step/DiffViewer/TimeRibbon が ds 外＝要集約 |
 | | contracts | ❌ |
-| Communicable | DESIGN.md(生成I/O) | ❌（skill lathe-ui はあり） |
+| Communicable | DESIGN.md(生成I/O) | ❌ |
 | Observable | Storybook | ❌ |
 | | Preview UI | 🟡 :3210 ツールあり・未形式化 |
 | Enforcement | lint(spacing hard-0/色 strict-value/ds-reuse judge/tests-accompany)・tsc・boundaries | ✅ |
 | | Storybook tests / visual regression / a11y | ❌ |
 | | 生 `<button>` 等 forbid lint | ❌ |
-| | skill 強制 hook | ❌ |
+| **Dev harness**（DS と別軸） | .claude/agents・hooks・settings | ✅ |
+| | .claude/skills/lathe-ui | ✅（`.claude/skills/` へ移設済み） |
+| | skill 強制 hook（.claude/settings.json） | ❌ |
 
-→ **enforcement 側が先行、observe/communicate 側が空白**のいびつな状態。移行はこの GAP を埋める順に組む。
+→ **enforcement 側が先行、observe/communicate 側が空白**のいびつな状態。移行はこの GAP を埋める順に組む。dev harness は `.claude/` に集約済み（skill 強制 hook だけ未）。
 
 ## フェーズ計画
 
