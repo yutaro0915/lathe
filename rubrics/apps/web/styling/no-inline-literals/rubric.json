@@ -25,19 +25,19 @@
     },
     {
       "id": "no-new-raw-hex",
-      "value": "① 何を縛るか: apps/web/components + apps/web/app の tsx で、生 hex 色（`#rrggbb`）を増やさない。色は token（`var(--…)`）か DS class 経由。② なぜ重要か: token-consistency は DS css/globals のみ＝feature tsx の hex は gate 外＝色ドリフトの盲点。③ 仕組み: tsx 中の `#rrggbb` を grep して数え、現状 6 を baseline にした ratchet。",
+      "value": "① 何を縛るか: apps/web/components + apps/web/app の tsx で、bare な生 hex 色（`#rrggbb`）を増やさない。色は token（`var(--…)`）経由。② なぜ重要か: token-consistency は DS css/globals のみ＝feature tsx の hex は gate 外＝色ドリフトの盲点。③ 仕組み: `var(...)` を除去してから bare hex を数える＝bare hex は禁止だが `var(--token,#fallback)` の安全 fallback は許容（pre-CSS で token 未ロードでも崩れない正当用途）。0。",
       "severity": "major",
       "verify": {
         "kind": "cmd",
         "metric": "count",
-        "cmd": "find apps/web/components apps/web/app -name '*.tsx' ! -path '*design-system*' -print0 2>/dev/null | xargs -0 grep -hoE '#[0-9a-fA-F]{6}' 2>/dev/null | wc -l | tr -d ' '",
-        "expect": "le:6",
-        "tolerance": "ratchet baseline 6（2026-06-24 実測、現状すべて app/loading.tsx）。増えたら RED、token 化で baseline を 0 へ駆動。限界: grep は 6 桁 hex のみ（3 桁 #fff は別途）。色の正本は tokens.css。"
+        "cmd": "find apps/web/components apps/web/app -name '*.tsx' ! -path '*design-system*' -print0 2>/dev/null | xargs -0 sed 's/var([^)]*)//g' 2>/dev/null | grep -oE '#[0-9a-fA-F]{6}' | wc -l | tr -d ' '",
+        "expect": "le:0",
+        "tolerance": "bare hex 0（2026-06-25 達成）。`var(--token,#fallback)` は許容（token 未ロードでも崩れない安全 fallback。app/loading.tsx の 6 件が該当＝正当）。bare hex を 1 つでも足すと RED。限界: var() 除去は単純置換（ネスト var は近似）、6 桁 hex のみ（3 桁 #fff は別途）。色の正本は tokens.css。"
       },
-      "evidence": "feature/app tsx 中の生 hex の数。6 以下で GREEN、7+ で RED。",
+      "evidence": "var() を除いた bare hex の数。0 で GREEN、1+ で RED（var-fallback は除外）。",
       "examples": {
-        "pass": ["色は `var(--accent)` 等 token を className 経由で当てる"],
-        "fail": ["feature tsx に `color: '#3b6fd4'` を新規追加 → 7 → RED"]
+        "pass": ["色は `var(--accent)` を使う", "loading skeleton で `var(--border,#e4e7ec)` の安全 fallback（bare でない）"],
+        "fail": ["feature tsx に bare hex `color: '#3b6fd4'` を新規追加 → RED（`var(--accent,#3b6fd4)` なら可）"]
       }
     }
   ]
