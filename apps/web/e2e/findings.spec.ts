@@ -147,6 +147,7 @@ test.describe("Findings tab and verdict oracle", () => {
     const control = detail.locator(`[data-testid="finding-backlog-control"]`);
     await expect(control).toHaveAttribute("data-backlog-status", "open");
     const select = detail.locator(`[data-testid="finding-backlog-select"]`);
+    await expect(control.locator(`[data-testid="lds-caret"]`)).toBeVisible();
     await expect(select).toHaveValue("open");
 
     await select.selectOption("addressed");
@@ -287,6 +288,34 @@ test.describe("Findings tab and verdict oracle", () => {
       "Fixture findings session"
     );
     await expect(session.locator(`[data-testid="finding-evidence-session-meta"]`)).toContainText("Codex");
+  });
+
+  test("cross-session axis session select scopes the findings list", async ({
+    page,
+  }) => {
+    await page.goto("/findings");
+    await page.locator(`[data-testid="findings-filter"] button`, { hasText: "All" }).click();
+
+    const sessionSelect = page.locator(
+      `[data-testid="findings-session-select"] [data-testid="project-picker"]`,
+    );
+    await expect(sessionSelect).toBeVisible();
+    await expect(sessionSelect).toHaveValue("all");
+    await expect(
+      page.locator(`[data-testid="findings-session-select"] [data-testid="lds-caret"]`),
+    ).toBeVisible();
+    await expect(page.locator(`[data-testid="finding-row"]`, { hasText: FINDING_FIXTURE.titles.turnSeq })).toBeVisible();
+    await expect(page.locator(`[data-testid="finding-row"]`, { hasText: "Fixture other session pending" })).toBeVisible();
+
+    await sessionSelect.selectOption(FINDING_FIXTURE.sessionId);
+    await expect(sessionSelect).toHaveValue(FINDING_FIXTURE.sessionId);
+    await expect(page.locator(`[data-testid="finding-row"]`, { hasText: FINDING_FIXTURE.titles.turnSeq })).toBeVisible();
+    await expect(page.locator(`[data-testid="finding-row"]`, { hasText: "Fixture other session pending" })).toHaveCount(0);
+
+    await sessionSelect.selectOption(FINDING_FIXTURE.otherSessionId);
+    await expect(sessionSelect).toHaveValue(FINDING_FIXTURE.otherSessionId);
+    await expect(page.locator(`[data-testid="finding-row"]`, { hasText: "Fixture other session pending" })).toBeVisible();
+    await expect(page.locator(`[data-testid="finding-row"]`, { hasText: FINDING_FIXTURE.titles.turnSeq })).toHaveCount(0);
   });
 
   test("evidence in the same (session, turn) collapses into ONE group with one row per step", async ({

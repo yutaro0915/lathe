@@ -45,6 +45,24 @@ test.describe("Chat surface A (/chat)", () => {
     await expect(page.locator(`[data-testid="chat-conversation"]`)).toContainText("まだメッセージはありません。");
   });
 
+  test("composer context search input adds a free-form context chip", async ({ page }) => {
+    await page.goto(`/chat?thread=${CHAT_FIXTURE.threadId}`);
+
+    const context = page.locator(`[data-testid="composer-context"]`);
+    await page.locator(`[data-testid="composer-add-context"]`).click();
+    const contextInput = context.locator(`input[type="search"][aria-label="自由入力のコンテキスト"]`);
+    await expect(contextInput).toBeVisible();
+    await expect(contextInput).toHaveAttribute("placeholder", "自由入力のコンテキスト");
+
+    await contextInput.fill("release blocker notes");
+    await contextInput.press("Enter");
+
+    await expect(context.locator(`[data-context-kind="text"]`)).toContainText(
+      "テキスト: release blocker notes",
+    );
+    await expect(contextInput).toHaveCount(0);
+  });
+
   test("sending persists the user message and renders the fake streamed assistant reply", async ({ page }) => {
     await page.goto(`/chat?thread=${CHAT_FIXTURE.threadId}`);
     await page.locator(`[data-testid="composer-input"]`).fill(CHAT_FIXTURE.sendBody);
