@@ -99,11 +99,13 @@ import: `@/components/ds` → `@/design-system/components`（`@/`=apps/web で c
 - **gate**: a11y/interaction = test-storybook（CI job、独立再現済）/ hook = pipe-test 検証済 / visual regression = 方式決定後
 - **dep**: P3（Storybook）
 
-### P6 — Preview UI 形式化（任意・後回し）
-- **deliverable**: 主要導線を View / Container / Preview＋fixtures に分割（UI 先行をコードで再現）。
-- **owner**: Codex（feature 改修）
-- **gate**: preview で画面遷移確認
-- **dep**: P1。優先度低（既存 preview ツールで当面代替）。
+### P6 — Preview UI 形式化＋shell/layout の DS 化  → **`design/shell-layout-plan.md` で具体化（2026-06-25）**
+- **deliverable**: 主要導線（特に shell: Header/SideNav/AppShell）を View / Container / Preview＋fixtures に分割し、
+  layout primitive（Stack/Box/Inline＝枠＝空間の所有者）を ds に追加。shell も DS＋Storybook で presentational 管理。
+- **動機**: header/panel/sidebar の構成を established DS から借りたい・現 header 不満・はみ出し/余白の偏りを構造的に防ぐ。
+- **owner**: layout primitive API/contract・パターン調査・header 再設計判断=Claude / 実装=Codex / gate=Claude
+- **gate**: contract/story coverage・layout-integrity・a11y・e2e（data-testid 維持）。詳細フェーズ S1–S4 は別計画。
+- **dep**: P1。Surface で「shell を DS+SB 管理」は実証済（既存）＝拡張。
 
 ## 順序と並走
 ```
