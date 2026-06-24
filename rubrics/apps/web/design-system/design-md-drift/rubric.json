@@ -1,0 +1,27 @@
+{
+  "schema_version": "2",
+  "id": "apps/web/design-system/design-md-drift",
+  "title": "DESIGN.md の generated 節は tokens + contracts と同期 — drift 検査",
+  "version": "1",
+  "scope": ["apps/web/design-system/tokens.css", "apps/web/design-system/contracts", "apps/web/design-system/DESIGN.md", "scripts/gen-design.mjs"],
+  "origin": "DS governance P4(2026-06-24): DESIGN.md は説明 I/O で、generated 節(spacing/color token 要約＋component contract カタログ)は tokens.css + contracts から scripts/gen-design.mjs が冪等生成する。token/contract を変えて DESIGN.md を再生成し忘れる drift を防ぐ。human 節は手書きで対象外。",
+  "checks": [
+    {
+      "id": "design-md-in-sync",
+      "value": "① 何を縛るか: `node scripts/gen-design.mjs` を実行しても DESIGN.md が変化しない＝generated 節が今の tokens.css + contracts と一致している。② なぜ重要か: token や contract を変えたのに DESIGN.md を再生成しないと、説明が実体からズレ SSOT の信頼が崩れる。生成物の drift を機械で禁じる。③ 仕組み: DESIGN.md を退避→再生成→退避版と diff→復元。差があれば 1(=drift)。generated 節は手編集禁止で常に生成器が正本。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "B=$(mktemp); cp apps/web/design-system/DESIGN.md \"$B\"; node scripts/gen-design.mjs >/dev/null 2>&1; if diff -q apps/web/design-system/DESIGN.md \"$B\" >/dev/null 2>&1; then r=0; else r=1; fi; cp \"$B\" apps/web/design-system/DESIGN.md; rm -f \"$B\"; echo $r",
+        "expect": "eq:0",
+        "tolerance": "ハード 0。token/contract を変えて DESIGN.md を再生成しないと再生成で差が出て 1=RED。`pnpm gen:design` で解消。限界: (a) generated 節のみ対象(human 節は生成器が触らないので影響しない)。(b) 生成器が冪等である前提(P4 で検証済)。(c) 検査は DESIGN.md を一時再生成→復元するので作業ツリーは元のまま。"
+      },
+      "evidence": "再生成で DESIGN.md が変化したか。0=GREEN(同期)、1=RED(drift＝再生成が必要)。",
+      "examples": {
+        "pass": ["contract や token を変えたら `pnpm gen:design` で DESIGN.md を再生成してコミット"],
+        "fail": ["token を足す/contract を変えるが DESIGN.md を再生成しない → drift 1 → RED", "generated 節を手編集する → 再生成で戻り drift → RED"]
+      }
+    }
+  ]
+}
