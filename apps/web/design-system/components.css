@@ -1273,3 +1273,33 @@ button.event-type-badge{height:auto;min-height:24px;}
    ========================================================================== */
 .chip-sub{margin-left:var(--sp-4);color:var(--muted-2);font-size:10px;font-weight:500;font-variant-numeric:tabular-nums;}
 .findings-session-chip{gap:var(--sp-4);}
+
+/* ---- Layout primitives (Stack / Box / Inline) ---------------------------- */
+/* Frames that OWN spacing + containment: gap/padding from --sp-* tokens (via a
+   CSS custom property), and min-width:0 on the frame + its direct children so
+   content cannot blow the frame out. */
+.lds-stack{display:flex;flex-direction:column;gap:var(--lds-stack-gap,0);min-width:0;margin:0;padding:0;list-style:none;}
+.lds-stack>*{min-width:0;}
+.lds-stack--row{flex-direction:row;}
+.lds-stack--wrap{flex-wrap:wrap;}
+.lds-stack--align-start{align-items:flex-start;}
+.lds-stack--align-center{align-items:center;}
+.lds-stack--align-end{align-items:flex-end;}
+.lds-stack--align-stretch{align-items:stretch;}
+.lds-stack--justify-start{justify-content:flex-start;}
+.lds-stack--justify-center{justify-content:center;}
+.lds-stack--justify-end{justify-content:flex-end;}
+.lds-stack--justify-between{justify-content:space-between;}
+
+.lds-box{box-sizing:border-box;min-width:0;padding:var(--lds-box-pad,0);}
+.lds-box--ovf-visible{overflow:visible;}
+.lds-box--ovf-hidden{overflow:hidden;}
+.lds-box--ovf-auto{overflow:auto;}
+.lds-box--surface{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);}
+
+.lds-inline{display:flex;flex-wrap:wrap;align-items:center;gap:var(--lds-inline-gap,var(--sp-8));min-width:0;margin:0;padding:0;list-style:none;}
+.lds-inline>*{min-width:0;}
+.lds-inline--align-start{align-items:flex-start;}
+.lds-inline--align-center{align-items:center;}
+.lds-inline--align-end{align-items:flex-end;}
+.lds-inline--align-baseline{align-items:baseline;}

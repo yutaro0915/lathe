@@ -87,12 +87,14 @@ Source files: `apps/web/design-system/tokens.css` and `apps/web/design-system/co
 | Component | Summary | Axes | States |
 |---|---|---|---|
 | `Badge` | Compact status or count label with optional semantic tone and dot. | `tone`: `default`, `ok`, `warn`, `err`, `neutral`, `accent` | `default` |
+| `Box` | Layout frame that owns padding, overflow and min-width:0 (containment). Optional hairline surface. | `overflow`: `visible`, `hidden`, `auto` | `default` |
 | `Button` | Command button for neutral, primary, ghost, and destructive actions. | `size`: `md`, `sm`<br>`variant`: `default`, `primary`, `ghost`, `danger` | `default`, `hover`, `focus`, `disabled` |
 | `Checkbox` | Labeled checkbox row with optional trailing content. | none | `default`, `checked`, `disabled` |
 | `Chip` | Mono inline chip for hashes, cost, token, and compact metadata values. | `kind`: `default`, `hash`, `cost`, `token` | `default` |
 | `ConfidenceChip` | Small confidence label for high, medium, or unattributed evidence confidence. | `level`: `high`, `medium`, `unattributed` | `default` |
 | `Icon` | Thin-stroke line icon rendered from the DS IconName set. | `name`: `list`, `findings`, `pr`, `chart`, `messages`, `settings`, `grid`, `stack`, `folder`, `arrowLeft`, `external`, `github`, `branch`, `link`, `plus`, `x`, `send`, `check`, `alert`, `chevronDown`, `chevronRight` | `default` |
 | `IconButton` | Icon-only button with a required accessible label. | none | `default`, `hover`, `disabled` |
+| `Inline` | Inline wrapping layout frame that owns gap and min-width:0 containment for itself and direct children. | `align`: `start`, `center`, `end`, `baseline`<br>`as`: `div`, `span`, `ul`<br>`gap`: `0`, `4`, `8`, `12`, `16`, `20`, `24`, `32` | `default` |
 | `MetricStat` | Compact metric value and label pair for dense headers and stat bands. | `layout`: `stack`, `inline` | `default` |
 | `MiniBar` | Compact horizontal magnitude bar with label, track, fill, and value. | none | `default` |
 | `Panel` | Bordered content panel with optional header metadata and action slot. | none | `default` |
@@ -101,6 +103,7 @@ Source files: `apps/web/design-system/tokens.css` and `apps/web/design-system/co
 | `SearchInput` | Search field wrapper with built-in glyph and optional keyboard hint. | none | `default`, `focus`, `disabled` |
 | `Segmented` | Tablist-style segmented control for small mutually exclusive modes. | none | `default`, `hover`, `selected` |
 | `Select` | Native select wrapped in DS chrome with a decorative caret. | none | `default`, `disabled` |
+| `Stack` | Layout frame that owns vertical or horizontal gap and min-width:0 containment for itself and direct children. | `align`: `start`, `center`, `end`, `stretch`<br>`as`: `div`, `section`, `ul`, `nav`, `header`, `footer`, `aside`, `main`<br>`direction`: `col`, `row`<br>`gap`: `0`, `4`, `8`, `12`, `16`, `20`, `24`, `32`<br>`justify`: `start`, `center`, `end`, `between`<br>`wrap`: `false`, `true` | `default` |
 | `Surface` | Work-area surface with standard header, optional tabs, and collapsible right panel. | none | `default`, `hover`, `expanded`, `collapsed` |
 | `TabBar` | Horizontal tab bar for switching named views. | none | `default`, `hover`, `selected` |
 <!-- generated:end -->

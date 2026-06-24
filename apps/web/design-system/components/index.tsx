@@ -358,3 +358,68 @@ export function TabBar({ tabs = [], value, onChange, className = "", ...rest }: 
     </div>
   );
 }
+
+/* ---- Layout primitives (Stack / Box / Inline) ---------------------------- */
+// Frames that OWN spacing + containment. Each sets gap/padding from --sp-* tokens
+// (passed via a CSS custom property, like MiniBar's --label-w) and forces
+// min-width:0 on itself and its direct children, so content cannot blow the frame
+// out — the structural fix for overflow / uneven internal spacing. Children just
+// fill the frame; they do not set their own margins. `as` lets a shell use a
+// semantic element (nav / header / aside / ul) while keeping the same containment.
+type SpaceToken = 0 | 4 | 8 | 12 | 16 | 20 | 24 | 32;
+
+type StackEl = "div" | "section" | "ul" | "nav" | "header" | "footer" | "aside" | "main";
+export interface StackProps extends React.HTMLAttributes<HTMLElement> {
+  direction?: "col" | "row";
+  gap?: SpaceToken;
+  align?: "start" | "center" | "end" | "stretch";
+  justify?: "start" | "center" | "end" | "between";
+  wrap?: boolean;
+  as?: StackEl;
+}
+export function Stack({ direction = "col", gap, align, justify, wrap = false, as = "div", className = "", style, children, ...rest }: StackProps) {
+  const cls = [
+    "lds-stack",
+    direction === "row" ? "lds-stack--row" : "",
+    align ? `lds-stack--align-${align}` : "",
+    justify ? `lds-stack--justify-${justify}` : "",
+    wrap ? "lds-stack--wrap" : "",
+    className,
+  ].filter(Boolean).join(" ");
+  const st = gap != null ? ({ "--lds-stack-gap": `var(--sp-${gap})`, ...style } as React.CSSProperties) : style;
+  return React.createElement(as, { className: cls, style: st, ...rest }, children);
+}
+
+type BoxEl = "div" | "section" | "article" | "aside" | "main";
+export interface BoxProps extends React.HTMLAttributes<HTMLElement> {
+  pad?: SpaceToken;
+  overflow?: "visible" | "hidden" | "auto";
+  surface?: boolean;
+  as?: BoxEl;
+}
+export function Box({ pad, overflow, surface = false, as = "div", className = "", style, children, ...rest }: BoxProps) {
+  const cls = [
+    "lds-box",
+    overflow ? `lds-box--ovf-${overflow}` : "",
+    surface ? "lds-box--surface" : "",
+    className,
+  ].filter(Boolean).join(" ");
+  const st = pad != null ? ({ "--lds-box-pad": `var(--sp-${pad})`, ...style } as React.CSSProperties) : style;
+  return React.createElement(as, { className: cls, style: st, ...rest }, children);
+}
+
+type InlineEl = "div" | "span" | "ul";
+export interface InlineProps extends React.HTMLAttributes<HTMLElement> {
+  gap?: SpaceToken;
+  align?: "start" | "center" | "end" | "baseline";
+  as?: InlineEl;
+}
+export function Inline({ gap, align, as = "div", className = "", style, children, ...rest }: InlineProps) {
+  const cls = [
+    "lds-inline",
+    align ? `lds-inline--align-${align}` : "",
+    className,
+  ].filter(Boolean).join(" ");
+  const st = gap != null ? ({ "--lds-inline-gap": `var(--sp-${gap})`, ...style } as React.CSSProperties) : style;
+  return React.createElement(as, { className: cls, style: st, ...rest }, children);
+}

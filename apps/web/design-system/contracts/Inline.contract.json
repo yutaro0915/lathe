@@ -1,0 +1,39 @@
+{
+  "component": "Inline",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Inline wrapping layout frame that owns gap and min-width:0 containment for itself and direct children.",
+  "axes": {
+    "gap": [0, 4, 8, 12, 16, 20, 24, 32],
+    "align": ["start", "center", "end", "baseline"],
+    "as": ["div", "span", "ul"]
+  },
+  "props": [
+    {
+      "name": "gap",
+      "type": "enum",
+      "required": false,
+      "default": "8",
+      "values": [0, 4, 8, 12, 16, 20, 24, 32]
+    },
+    {
+      "name": "align",
+      "type": "enum",
+      "required": false,
+      "values": ["start", "center", "end", "baseline"]
+    },
+    {
+      "name": "as",
+      "type": "enum",
+      "required": false,
+      "default": "div",
+      "values": ["div", "span", "ul"]
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": false
+    }
+  ],
+  "states": ["default"],
+  "notes": "Spacing comes from --sp-* tokens via the --lds-inline-gap custom property; min-width:0 is always applied to the frame and direct children so content cannot overflow the frame."
+}

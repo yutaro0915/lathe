@@ -1,0 +1,61 @@
+{
+  "component": "Stack",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Layout frame that owns vertical or horizontal gap and min-width:0 containment for itself and direct children.",
+  "axes": {
+    "direction": ["col", "row"],
+    "gap": [0, 4, 8, 12, 16, 20, 24, 32],
+    "align": ["start", "center", "end", "stretch"],
+    "justify": ["start", "center", "end", "between"],
+    "wrap": [false, true],
+    "as": ["div", "section", "ul", "nav", "header", "footer", "aside", "main"]
+  },
+  "props": [
+    {
+      "name": "direction",
+      "type": "enum",
+      "required": false,
+      "default": "col",
+      "values": ["col", "row"]
+    },
+    {
+      "name": "gap",
+      "type": "enum",
+      "required": false,
+      "default": "0",
+      "values": [0, 4, 8, 12, 16, 20, 24, 32]
+    },
+    {
+      "name": "align",
+      "type": "enum",
+      "required": false,
+      "values": ["start", "center", "end", "stretch"]
+    },
+    {
+      "name": "justify",
+      "type": "enum",
+      "required": false,
+      "values": ["start", "center", "end", "between"]
+    },
+    {
+      "name": "wrap",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "name": "as",
+      "type": "enum",
+      "required": false,
+      "default": "div",
+      "values": ["div", "section", "ul", "nav", "header", "footer", "aside", "main"]
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": false
+    }
+  ],
+  "states": ["default"],
+  "notes": "Spacing comes from --sp-* tokens via the --lds-stack-gap custom property; min-width:0 is always applied to the frame and direct children so content cannot overflow the frame."
+}

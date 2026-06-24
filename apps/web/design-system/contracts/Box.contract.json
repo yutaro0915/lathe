@@ -1,0 +1,15 @@
+{
+  "component": "Box",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Layout frame that owns padding, overflow and min-width:0 (containment). Optional hairline surface.",
+  "axes": { "overflow": ["visible", "hidden", "auto"] },
+  "props": [
+    { "name": "pad", "type": "enum", "required": false, "default": "0", "values": [0, 4, 8, 12, 16, 20, 24, 32] },
+    { "name": "overflow", "type": "enum", "required": false, "values": ["visible", "hidden", "auto"] },
+    { "name": "surface", "type": "boolean", "required": false, "default": "false" },
+    { "name": "as", "type": "enum", "required": false, "default": "div", "values": ["div", "section", "article", "aside", "main"] },
+    { "name": "children", "type": "node", "required": false }
+  ],
+  "states": ["default"],
+  "notes": "Spacing comes from --sp-* tokens via the --lds-box-pad custom property; min-width:0 is always applied so content cannot overflow the frame. overflow='auto'|'scroll' creates a scrollable region; when its contents are not focusable, add tabIndex={0} and an aria-label for keyboard a11y (axe scrollable-region-focusable)."
+}
