@@ -103,6 +103,7 @@ Source files: `apps/web/design-system/tokens.css` and `apps/web/design-system/co
 | `SearchInput` | Search field wrapper with built-in glyph and optional keyboard hint. | none | `default`, `focus`, `disabled` |
 | `Segmented` | Tablist-style segmented control for small mutually exclusive modes. | none | `default`, `hover`, `selected` |
 | `Select` | Native select wrapped in DS chrome with a decorative caret. | none | `default`, `disabled` |
+| `SideNav` | Persistent left navigation rail with axis links and user footer. | `activeItem`: `sessions`, `findings`, `chat`, `pr`, `overview`, `none` | `default`, `hover`, `active`, `inactive` |
 | `Stack` | Layout frame that owns vertical or horizontal gap and min-width:0 containment for itself and direct children. | `align`: `start`, `center`, `end`, `stretch`<br>`as`: `div`, `section`, `ul`, `nav`, `header`, `footer`, `aside`, `main`<br>`direction`: `col`, `row`<br>`gap`: `0`, `4`, `8`, `12`, `16`, `20`, `24`, `32`<br>`justify`: `start`, `center`, `end`, `between`<br>`wrap`: `false`, `true` | `default` |
 | `Surface` | Work-area surface with standard header, optional tabs, and collapsible right panel. | none | `default`, `hover`, `expanded`, `collapsed` |
 | `TabBar` | Horizontal tab bar for switching named views. | none | `default`, `hover`, `selected` |

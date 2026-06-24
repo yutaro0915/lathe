@@ -10,6 +10,8 @@ import * as React from "react";
 
 export { default as Surface } from "./Surface";
 export type { SurfaceProps } from "./Surface";
+export { SideNav } from "./SideNav";
+export type { SideNavProps, SideNavItem, SideNavUser } from "./SideNav";
 
 /* ---- Pressable ----------------------------------------------------------- */
 export interface PressableProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

@@ -1,0 +1,27 @@
+{
+  "component": "SideNav",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Persistent left navigation rail with axis links and user footer.",
+  "axes": {
+    "activeItem": ["sessions", "findings", "chat", "pr", "overview", "none"]
+  },
+  "props": [
+    {
+      "name": "items",
+      "type": "array",
+      "required": true
+    },
+    {
+      "name": "user",
+      "type": "object",
+      "required": true
+    },
+    {
+      "name": "activePath",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "states": ["default", "hover", "active", "inactive"],
+  "notes": "items is SideNavItem[] ({ href: string; label: string; icon: IconName; nav: string; active: boolean }); user is SideNavUser ({ name: string; initials: string }). Presentational; route 判定は container(components/RailNav) が行う。全 data-testid は e2e 契約。"
+}
