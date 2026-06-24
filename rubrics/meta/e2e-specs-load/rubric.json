@@ -1,0 +1,27 @@
+{
+  "schema_version": "2",
+  "id": "meta/e2e-specs-load",
+  "title": "e2e spec はすべて load できる — 走らない spec による false-green を防ぐ",
+  "version": "1",
+  "scope": ["apps/web/e2e"],
+  "origin": "オーナーの coverage-harness 規律([[memory/feedback_coverage_harness]]: 完成/網羅/検証済みは機械照合で示す)に基づき、監査(2026-06-25, S3 中)で apps/web/e2e/pressable.spec.ts が react-dom/server を playwright(Node) context に import して ESM/CJS 衝突(`require is not defined in ES module scope`)で load 不能となり、`playwright test --list` が suite 全体で停止＝`pnpm e2e` 実質不能の false-green を検出。壊れた/非ロード spec を機械的に捕捉する gate を新設。rubric 追加は auditor のみ・実装スライスと別 commit(運用規律)。",
+  "checks": [
+    {
+      "id": "all-e2e-specs-load",
+      "value": "① 何を縛るか: apps/web/e2e の全 playwright spec が load(import/compile/解決) できる。② なぜ重要か: load 不能な spec が 1 つでもあると `playwright test --list` が suite 全体で停止し、テストが『在るのに走らない』false-green になる(pressable.spec.ts 事故)。unit runner(node --test, e2e 非対象)も render-layout-integrity(特定 spec だけ実行)もこの盲点を検出できない。③ 仕組み: `playwright test --list` は全 spec を load するがブラウザ起動も DB 接続もしない(軽い)。全 spec が load できれば exit 0、1 つでも load 失敗で非 0。その exit を 0/1 に正規化して照合。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "pnpm -C apps/web exec playwright test --list >/dev/null 2>&1 && echo 0 || echo 1",
+        "expect": "eq:0",
+        "tolerance": "exit 0 のみ GREEN。--list は load 検査(import/構文/module 解決)であって各 test の pass/fail は見ない — それは unit(node --test) / test-storybook(play+a11y) / 個別 e2e(render-layout-integrity 等)が担う。限界: playwright 未 install 環境では実行不可(CI/ローカルで playwright がある前提)。"
+      },
+      "evidence": "`playwright test --list` の正規化 exit code。0 で GREEN(全 e2e spec が load 可)、1 で RED(どれかが load 不能)。",
+      "examples": {
+        "pass": ["全 e2e spec が正しく import/解決できる", "部品の挙動テストは Storybook の play 関数に置き、e2e は DB を伴うアプリ導線に限定する"],
+        "fail": ["spec が react-dom/server や .tsx 部品を Node context に import して ESM/CJS 衝突 → load 不能 → RED", "spec の構文エラー・解決不能な import → RED"]
+      }
+    }
+  ]
+}
