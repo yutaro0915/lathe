@@ -1,0 +1,36 @@
+{
+  "component": "MiniBar",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Compact horizontal magnitude bar with label, track, fill, and value.",
+  "axes": {},
+  "props": [
+    {
+      "name": "label",
+      "type": "node",
+      "required": true
+    },
+    {
+      "name": "value",
+      "type": "node",
+      "required": true
+    },
+    {
+      "name": "pct",
+      "type": "number",
+      "required": false,
+      "default": 0
+    },
+    {
+      "name": "color",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "labelWidth",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "states": ["default"],
+  "notes": "pct is clamped to 0..100 before becoming the fill width; labelWidth sets the --label-w custom property."
+}

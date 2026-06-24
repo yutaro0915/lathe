@@ -1,0 +1,50 @@
+{
+  "component": "Button",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Command button for neutral, primary, ghost, and destructive actions.",
+  "axes": {
+    "variant": ["default", "primary", "ghost", "danger"],
+    "size": ["md", "sm"]
+  },
+  "props": [
+    {
+      "name": "variant",
+      "type": "enum",
+      "values": ["default", "primary", "ghost", "danger"],
+      "required": false,
+      "default": "default"
+    },
+    {
+      "name": "size",
+      "type": "enum",
+      "values": ["md", "sm"],
+      "required": false,
+      "default": "md"
+    },
+    {
+      "name": "icon",
+      "type": "node",
+      "required": false,
+      "default": null
+    },
+    {
+      "name": "type",
+      "type": "enum",
+      "values": ["button", "submit", "reset"],
+      "required": false,
+      "default": "button"
+    },
+    {
+      "name": "disabled",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": false
+    }
+  ],
+  "states": ["default", "hover", "focus", "disabled"],
+  "notes": "type defaults to button; icon content is wrapped with aria-hidden."
+}

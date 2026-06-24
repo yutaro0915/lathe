@@ -1,0 +1,74 @@
+{
+  "component": "Icon",
+  "exportedFrom": "@/design-system/components/icons",
+  "summary": "Thin-stroke line icon rendered from the DS IconName set.",
+  "axes": {
+    "name": [
+      "list",
+      "findings",
+      "pr",
+      "chart",
+      "messages",
+      "settings",
+      "grid",
+      "stack",
+      "folder",
+      "arrowLeft",
+      "external",
+      "github",
+      "branch",
+      "link",
+      "plus",
+      "x",
+      "send",
+      "check",
+      "alert",
+      "chevronDown",
+      "chevronRight"
+    ]
+  },
+  "props": [
+    {
+      "name": "name",
+      "type": "enum",
+      "values": [
+        "list",
+        "findings",
+        "pr",
+        "chart",
+        "messages",
+        "settings",
+        "grid",
+        "stack",
+        "folder",
+        "arrowLeft",
+        "external",
+        "github",
+        "branch",
+        "link",
+        "plus",
+        "x",
+        "send",
+        "check",
+        "alert",
+        "chevronDown",
+        "chevronRight"
+      ],
+      "required": true
+    },
+    {
+      "name": "size",
+      "type": "number",
+      "required": false,
+      "default": 14
+    },
+    {
+      "name": "stroke",
+      "type": "number",
+      "required": false,
+      "default": 1.9
+    }
+  ],
+  "states": ["default"],
+  "notes": "SVG is aria-hidden and uses currentColor; callers must provide an accessible label on the surrounding control when needed."
+}

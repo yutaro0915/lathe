@@ -1,0 +1,35 @@
+{
+  "component": "Badge",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Compact status or count label with optional semantic tone and dot.",
+  "axes": {
+    "tone": ["default", "ok", "warn", "err", "neutral", "accent"]
+  },
+  "props": [
+    {
+      "name": "tone",
+      "type": "enum",
+      "values": ["default", "ok", "warn", "err", "neutral", "accent"],
+      "required": false,
+      "default": "default"
+    },
+    {
+      "name": "dot",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    {
+      "name": "dotColor",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": false
+    }
+  ],
+  "states": ["default"],
+  "notes": "The dot is decorative; tone colors are semantic only for ok, warn, err, neutral, and accent."
+}

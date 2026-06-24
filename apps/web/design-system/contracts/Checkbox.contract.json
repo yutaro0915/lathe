@@ -1,0 +1,36 @@
+{
+  "component": "Checkbox",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Labeled checkbox row with optional trailing content.",
+  "axes": {},
+  "props": [
+    {
+      "name": "label",
+      "type": "node",
+      "required": true
+    },
+    {
+      "name": "checked",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "name": "onChange",
+      "type": "function",
+      "required": false
+    },
+    {
+      "name": "trailing",
+      "type": "node",
+      "required": false,
+      "default": null
+    },
+    {
+      "name": "disabled",
+      "type": "boolean",
+      "required": false
+    }
+  ],
+  "states": ["default", "checked", "disabled"],
+  "notes": "checked, onChange, and disabled are passed to the native checkbox input; label is the visible text slot."
+}

@@ -1,0 +1,41 @@
+{
+  "component": "Panel",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Bordered content panel with optional header metadata and action slot.",
+  "axes": {},
+  "props": [
+    {
+      "name": "title",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "count",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "sub",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "action",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "bodyClassName",
+      "type": "string",
+      "required": false,
+      "default": ""
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": false
+    }
+  ],
+  "states": ["default"],
+  "notes": "Header renders only when title or action is supplied; title prop intentionally replaces the native HTMLElement title attribute."
+}

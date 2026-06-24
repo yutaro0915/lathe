@@ -1,0 +1,31 @@
+{
+  "component": "Select",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Native select wrapped in DS chrome with a decorative caret.",
+  "axes": {},
+  "props": [
+    {
+      "name": "value",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "options",
+      "type": "node",
+      "required": true,
+      "default": []
+    },
+    {
+      "name": "onChange",
+      "type": "function",
+      "required": false
+    },
+    {
+      "name": "disabled",
+      "type": "boolean",
+      "required": false
+    }
+  ],
+  "states": ["default", "disabled"],
+  "notes": "options is an array of string or { value: string; label: React.ReactNode }; the caret span is aria-hidden."
+}

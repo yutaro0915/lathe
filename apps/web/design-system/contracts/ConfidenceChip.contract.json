@@ -1,0 +1,24 @@
+{
+  "component": "ConfidenceChip",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Small confidence label for high, medium, or unattributed evidence confidence.",
+  "axes": {
+    "level": ["high", "medium", "unattributed"]
+  },
+  "props": [
+    {
+      "name": "level",
+      "type": "enum",
+      "values": ["high", "medium", "unattributed"],
+      "required": false,
+      "default": "unattributed"
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": false
+    }
+  ],
+  "states": ["default"],
+  "notes": "When children are omitted, the rendered label is the level string."
+}

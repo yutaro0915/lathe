@@ -1,0 +1,32 @@
+{
+  "component": "IconButton",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Icon-only button with a required accessible label.",
+  "axes": {},
+  "props": [
+    {
+      "name": "label",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "type",
+      "type": "enum",
+      "values": ["button", "submit", "reset"],
+      "required": false,
+      "default": "button"
+    },
+    {
+      "name": "disabled",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": false
+    }
+  ],
+  "states": ["default", "hover", "disabled"],
+  "notes": "label is applied to aria-label and title; children should be the visual icon."
+}

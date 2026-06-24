@@ -1,0 +1,26 @@
+{
+  "component": "TabBar",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Horizontal tab bar for switching named views.",
+  "axes": {},
+  "props": [
+    {
+      "name": "tabs",
+      "type": "node",
+      "required": true,
+      "default": []
+    },
+    {
+      "name": "value",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "onChange",
+      "type": "function",
+      "required": false
+    }
+  ],
+  "states": ["default", "hover", "selected"],
+  "notes": "tabs is an array of string or { value: string; label: React.ReactNode; count?: React.ReactNode }. Buttons use role tab and aria-selected."
+}

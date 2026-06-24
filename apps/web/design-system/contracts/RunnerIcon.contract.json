@@ -1,0 +1,23 @@
+{
+  "component": "RunnerIcon",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Square runner identity glyph with known runner colors and accessible label.",
+  "axes": {
+    "runner": ["claude-code", "claude", "codex", "cursor"]
+  },
+  "props": [
+    {
+      "name": "runner",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "size",
+      "type": "number",
+      "required": false,
+      "default": 18
+    }
+  ],
+  "states": ["default"],
+  "notes": "Known runner keys map to token colors and monograms; any other string falls back to the uncertain color and '?' monogram. The chip has role img, aria-label, and title."
+}

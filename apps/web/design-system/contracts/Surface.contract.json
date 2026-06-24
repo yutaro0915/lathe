@@ -1,0 +1,50 @@
+{
+  "component": "Surface",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Work-area surface with standard header, optional tabs, and collapsible right panel.",
+  "axes": {},
+  "props": [
+    {
+      "name": "title",
+      "type": "node",
+      "required": true
+    },
+    {
+      "name": "meta",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "actions",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "tabs",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "rightPanel",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": true
+    },
+    {
+      "name": "surface",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "headerTestId",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "states": ["default", "hover", "expanded", "collapsed"],
+  "notes": "rightPanel is { title?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }; defaultOpen falls back to true. The edge toggle exposes aria-expanded."
+}

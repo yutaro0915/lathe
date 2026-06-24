@@ -1,0 +1,34 @@
+{
+  "component": "MetricStat",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Compact metric value and label pair for dense headers and stat bands.",
+  "axes": {
+    "layout": ["stack", "inline"]
+  },
+  "props": [
+    {
+      "name": "value",
+      "type": "node",
+      "required": true
+    },
+    {
+      "name": "label",
+      "type": "node",
+      "required": true
+    },
+    {
+      "name": "sub",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "layout",
+      "type": "enum",
+      "values": ["stack", "inline"],
+      "required": false,
+      "default": "stack"
+    }
+  ],
+  "states": ["default"],
+  "notes": "sub renders inside the value row with muted styling; inline reverses the row order."
+}

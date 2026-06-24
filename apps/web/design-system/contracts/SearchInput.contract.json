@@ -1,0 +1,31 @@
+{
+  "component": "SearchInput",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Search field wrapper with built-in glyph and optional keyboard hint.",
+  "axes": {},
+  "props": [
+    {
+      "name": "placeholder",
+      "type": "string",
+      "required": false,
+      "default": "Search…"
+    },
+    {
+      "name": "kbd",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "icon",
+      "type": "node",
+      "required": false
+    },
+    {
+      "name": "disabled",
+      "type": "boolean",
+      "required": false
+    }
+  ],
+  "states": ["default", "focus", "disabled"],
+  "notes": "icon defaults to the internal SearchGlyph when undefined; pass null to render no icon. kbd is visual helper text, not input behavior."
+}

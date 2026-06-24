@@ -1,0 +1,24 @@
+{
+  "component": "Chip",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Mono inline chip for hashes, cost, token, and compact metadata values.",
+  "axes": {
+    "kind": ["default", "hash", "cost", "token"]
+  },
+  "props": [
+    {
+      "name": "kind",
+      "type": "enum",
+      "values": ["default", "hash", "cost", "token"],
+      "required": false,
+      "default": "default"
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": false
+    }
+  ],
+  "states": ["default"],
+  "notes": "hash and cost get the explicit text-soft class variant; token currently shares the default styling."
+}
