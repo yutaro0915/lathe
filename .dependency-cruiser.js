@@ -7,9 +7,7 @@ module.exports = {
        * lib/db.ts と lib/postgres.ts 以外が apps/web/lib/postgres を import するのを warn。
        * verdict route / analyst / lib/write 等が lib/postgres を直 import しているケースを捕捉。
        *
-       * 注意: Next.js の @/ エイリアスは depcruise では実パスに解決されず
-       * "resolved" が "@/lib/postgres" のまま残る。
-       * そのため to.path は実パスと @/ エイリアスの両方をカバーする。
+       * @/ エイリアスは options.tsConfig の paths で apps/web/* に解決する。
        *
        * scripts/ は architecture §5 の I1 機械強制対象外なので from.pathNot で除外。
        */
@@ -27,9 +25,7 @@ module.exports = {
         ],
       },
       to: {
-        // @/ alias が解決されていない場合（"@/lib/postgres"）と
-        // 解決済みの実パス（"apps/web/lib/postgres"）の両方をカバー
-        path: '(^apps/web/lib/postgres|@/lib/postgres)',
+        path: '^apps/web/lib/postgres',
       },
     },
     {
@@ -79,8 +75,7 @@ module.exports = {
       /**
        * lib-db-internals:
        * apps/web/lib/db/* の内部モジュールは db.ts / read.ts facade 経由で利用する。
-       * depcruise は @/ alias を未解決のまま残すことがあるため、
-       * 実パスと alias の両方を捕捉する。
+       * @/ エイリアスは options.tsConfig の paths で apps/web/* に解決する。
        */
       name: 'lib-db-internals',
       severity: 'error',
@@ -95,7 +90,20 @@ module.exports = {
         ],
       },
       to: {
-        path: '(^apps/web/lib/db/|@/lib/db/)',
+        path: '^apps/web/lib/db/',
+      },
+    },
+    {
+      name: 'feature-internals-private',
+      severity: 'error',
+      comment:
+        'components/<feature> の内部モジュールを別 feature から import している',
+      from: {
+        path: '^apps/web/components/([^/]+)/',
+      },
+      to: {
+        path: '^apps/web/components/([^/]+)/',
+        pathNot: '^apps/web/components/$1/',
       },
     },
     /**
@@ -130,11 +138,14 @@ module.exports = {
       dependencyTypes: ['npm', 'npm-dev', 'npm-optional', 'npm-peer', 'npm-bundled', 'npm-no-pkg'],
     },
 
-    // tsPreCompilationDeps: false で @/ エイリアスが resolved 値として取得できる。
-    // tsConfig の tsc は next-env.d.ts がないと TS18003 エラーになるため使用しない。
+    // tsConfig は @/* -> apps/web/* の paths を resolver と TypeScript parser に渡すために使用する。
+    // tsPreCompilationDeps: true で、未使用 import や type-only import も変換前の依存として捕捉する。
     // extraExtensionsToScan はディレクトリスキャン時に依存解析を壊すため使用しない。
     // packages/ の .ts ファイルは lint:deps スクリプトで直接パス指定する。
-    tsPreCompilationDeps: false,
+    tsConfig: {
+      fileName: 'tsconfig.depcruise.json',
+    },
+    tsPreCompilationDeps: true,
 
     // ESM の .js 拡張子付き相対 import を解決できるようにする
     // (例: packages/mcp/src/server.ts が ../../../apps/web/lib/mcp.js を import)
