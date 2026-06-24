@@ -235,7 +235,7 @@ export function NestedMiniSession({
           <div className="lds-sa-nested-body" data-testid="sa-nested-body" data-nested-tab={tab}>
             {tab === "transcript" &&
               (kids.length === 0 ? (
-                <div className="empty" data-testid="empty" style={{ padding: "10px 14px" }}>
+                <div className="empty" data-testid="empty" style={{ padding: "var(--sp-12) var(--sp-16)" }}>
                   internal steps not captured
                 </div>
               ) : (
@@ -255,7 +255,7 @@ export function NestedMiniSession({
 
             {tab === "tools" &&
               (toolGroups.length === 0 ? (
-                <div className="empty" data-testid="empty" style={{ padding: "10px 14px" }}>
+                <div className="empty" data-testid="empty" style={{ padding: "var(--sp-12) var(--sp-16)" }}>
                   No tool events in this sub-agent.
                 </div>
               ) : (
@@ -273,7 +273,7 @@ export function NestedMiniSession({
 
             {tab === "git" &&
               (scopedBundle.changedFiles.length === 0 ? (
-                <div className="empty" data-testid="empty" style={{ padding: "10px 14px" }}>
+                <div className="empty" data-testid="empty" style={{ padding: "var(--sp-12) var(--sp-16)" }}>
                   No file changes attributed to this sub-agent.
                 </div>
               ) : (

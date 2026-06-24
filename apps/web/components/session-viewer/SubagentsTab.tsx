@@ -148,7 +148,7 @@ export function SubagentsTab({
     return (
       <div className="lds-sa-wrap" data-testid="sa-wrap">
         <div className="timeline" data-testid="timeline">
-          <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
+          <div className="empty" data-testid="empty" style={{ padding: "var(--sp-16)" }}>
             No sub-agent runs in this session.
           </div>
         </div>

@@ -304,7 +304,7 @@ export default function SessionStatsView({ bundle }: { bundle: SessionBundle }) 
                   <span className="hbar-label" data-testid="hbar-label">
                     {/* D4: runner icon (sub-agents run under this session's
                         runner) + name; replaces the bare text label. */}
-                    <RunnerIcon runner={session.runner} size={16} style={{ marginRight: 6, verticalAlign: "-4px" }} />
+                    <RunnerIcon runner={session.runner} size={16} className="session-stats-runner-icon" />
                     {s.name}
                     {s.model && (
                       <span className="muted small mono" data-testid="muted" style={{ marginLeft: 6 }}>

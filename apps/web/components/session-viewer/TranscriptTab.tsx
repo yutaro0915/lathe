@@ -81,7 +81,7 @@ export function TranscriptTab({
   return (
     <>
       <div className="transcript-toolbar" data-testid="transcript-toolbar">
-        <div className="transcript-toolbar-row" data-testid="transcript-toolbar-row" style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 12px 6px" }}>
+        <div className="transcript-toolbar-row" data-testid="transcript-toolbar-row" style={{ display: "flex", alignItems: "center", gap: "var(--sp-8)", margin: "var(--sp-12) var(--sp-12) var(--sp-8)" }}>
           <div data-testid="search" style={{ flex: "1 1 auto", minWidth: 0 }}>
             <SearchInput
               className="search"
@@ -105,7 +105,7 @@ export function TranscriptTab({
         <div className="filters transcript-filters" data-testid="transcript-filters">
           <div className="filter-row" data-testid="filter-row">
             <span className="flabel" data-testid="flabel">Step kinds</span>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-4)" }}>
               {ALL_KINDS.map((k) => {
                 const on = kindFilter.has(k);
                 return (
@@ -234,7 +234,7 @@ export function TranscriptTab({
           );
         })}
         {turnHeaders.length === 0 && (
-          <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
+          <div className="empty" data-testid="empty" style={{ padding: "var(--sp-16)" }}>
             No turns in this session.
           </div>
         )}

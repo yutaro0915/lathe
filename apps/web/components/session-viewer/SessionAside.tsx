@@ -91,26 +91,16 @@ export function SessionAside({
           </div>
 
           {noteDraft != null && (
-            <div style={{ padding: "0 16px 12px" }}>
+            <div className="session-note-editor-wrap">
               <textarea
                 value={noteDraft}
                 onChange={(e) => setNoteDraft(e.target.value)}
                 placeholder="Note for this event…"
                 rows={3}
                 autoFocus
-                style={{
-                  width: "100%",
-                  fontFamily: "var(--sans)",
-                  fontSize: "12.5px",
-                  padding: "8px",
-                  border: "1px solid var(--border-strong)",
-                  borderRadius: "var(--radius-sm)",
-                  background: "var(--panel)",
-                  color: "var(--text)",
-                  resize: "vertical",
-                }}
+                className="session-note-editor"
               />
-              <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+              <div className="session-note-actions">
                 <Button type="button" size="sm" variant="primary" data-testid="btn" onClick={saveNote}>Save</Button>
                 <Button type="button" size="sm" data-testid="btn" onClick={() => setNoteDraft(null)}>Cancel</Button>
               </div>
@@ -119,7 +109,7 @@ export function SessionAside({
 
           {selNote && noteDraft == null && (
             <div className="kv" data-testid="kv" style={{ borderTop: 0, paddingTop: 0, gridTemplateColumns: "1fr" }}>
-              <dd style={{ background: "var(--accent-weak)", padding: "8px 10px", borderRadius: "var(--radius-sm)" }}>🗒 {selNote}</dd>
+              <dd className="session-note-body">🗒 {selNote}</dd>
             </div>
           )}
 
@@ -177,7 +167,7 @@ export function SessionAside({
             )}
           </div>
           <div className="linked-files" data-testid="linked-files" style={{ borderBottom: 0, paddingBottom: 0 }}>
-            <div className="panel-title" data-testid="panel-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div className="panel-title session-run-json-title" data-testid="panel-title">
               <span>Run JSON</span>
               <Button type="button" size="sm" data-testid="btn" onClick={() => copy("runjson", JSON.stringify(runJson, null, 2))} disabled={!selected}>
                 {copied === "runjson" ? "Copied ✓" : "⧉ Copy"}

@@ -26,7 +26,7 @@ export function AnnotationsTab({
         Notable moments flagged along the run — errors, commits &amp; tests, in time order. Click one to jump to that step in the Transcript.
       </div>
       {annotations.length === 0 ? (
-        <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
+        <div className="empty" data-testid="empty" style={{ padding: "var(--sp-16)" }}>
           No flagged moments in this session.
         </div>
       ) : (

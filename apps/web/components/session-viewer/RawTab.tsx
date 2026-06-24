@@ -14,8 +14,8 @@ export function RawTab({
   copy: (key: string, text: string) => void;
 }) {
   return (
-    <div className="timeline" data-testid="timeline" style={{ padding: "12px 14px" }}>
-      <div className="panel-title" data-testid="panel-title" style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+    <div className="timeline" data-testid="timeline" style={{ padding: "var(--sp-12) var(--sp-16)" }}>
+      <div className="panel-title raw-tab-title" data-testid="panel-title">
         <span>{selected ? `Selected event ${selected.seq}` : "Events array"}</span>
         <Button size="sm" data-testid="btn" onClick={() => copy("raw-main", JSON.stringify(selected ?? events, null, 2))}>
           {copied === "raw-main" ? "Copied ✓" : "⧉ Copy"}

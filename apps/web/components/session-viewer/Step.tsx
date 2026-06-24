@@ -104,7 +104,7 @@ function StepDiff({ hunks }: { hunks: DiffHunk[] }) {
               const marker = cls === "add" ? "+" : cls === "del" ? "-" : " ";
               const text = cls ? line.slice(1) : line;
               return (
-                <div className={`diff-line${cls ? " " + cls : ""}`} data-testid="diff-line" key={`${h.id}-${li}`} style={{ gridTemplateColumns: "16px minmax(0,1fr)" }}>
+                <div className={`diff-line diff-line--step-compact${cls ? " " + cls : ""}`} data-testid="diff-line" key={`${h.id}-${li}`}>
                   <span className="marker" data-testid="marker">{marker}</span>
                   <span className="ltext" data-testid="ltext">{text}</span>
                 </div>

@@ -401,7 +401,7 @@ export default function FindingsExplorer({
       )}
       {error && <div className="finding-error" data-testid="finding-error">{error}</div>}
       {visibleFindings.length === 0 ? (
-        <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
+        <div className="empty" data-testid="empty" style={{ padding: "var(--sp-16)" }}>
           {mode === "session"
             ? "No findings are attached to this session."
             : "No findings match the current filters."}

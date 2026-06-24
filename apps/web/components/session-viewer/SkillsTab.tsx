@@ -125,7 +125,7 @@ export function SkillsTab({
   if (groups.length === 0) {
     return (
       <div className="timeline" data-testid="timeline">
-        <div className="empty" data-testid="empty" style={{ padding: "16px" }}>
+        <div className="empty" data-testid="empty" style={{ padding: "var(--sp-16)" }}>
           No skill events.
         </div>
       </div>

@@ -214,8 +214,8 @@ export default function TimeRibbon({
             return (
               <div
                 key={`${s.e.id}-${i}`}
-                className={`ribbon-seg ${kindOf(s.e.type)}${isSel ? " active" : ""}${isMax ? " peak" : ""}${isHov ? " hover" : ""}`} data-testid="ribbon-seg"
-                style={{ width: `max(2px, ${s.pct}%)` }}
+                className={`ribbon-seg ribbon-seg--measured ${kindOf(s.e.type)}${isSel ? " active" : ""}${isMax ? " peak" : ""}${isHov ? " hover" : ""}`} data-testid="ribbon-seg"
+                style={{ "--ribbon-seg-pct": `${s.pct}%` } as React.CSSProperties}
               />
             );
           })}
