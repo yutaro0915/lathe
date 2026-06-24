@@ -1,0 +1,27 @@
+{
+  "schema_version": "2",
+  "id": "apps/web/design-system/story-coverage",
+  "title": "全 DS primitive に Storybook story がある — 観測の網羅",
+  "version": "1",
+  "scope": ["apps/web/design-system/components", "apps/web/design-system/contracts"],
+  "origin": "DS governance P3(2026-06-24): 各 ds primitive を Storybook で観測可能にする(variant/state を視覚確認・build 検査)。primitive を story 無しで追加するのを機械照合で防ぐ(正本=contracts/ ⇄ 成果物=*.stories.tsx)。build-storybook 成功は重い gate なので CI/手動(P5)に回し、本 rubric は story の網羅(高速)を担保する。",
+  "checks": [
+    {
+      "id": "story-per-primitive",
+      "value": "① 何を縛るか: 全 ds primitive(正本=design-system/contracts/*.contract.json と一致)に対応する `design-system/components/<C>.stories.tsx` が存在する。② なぜ重要か: story 欠けの primitive は Storybook で観測されず、variant/state の視覚確認・build 検査から漏れる。新 primitive 追加時の story 忘れを防ぐ。③ 仕組み: contract 名(=primitive の正本リスト。contract-coverage で export と一致保証済)ごとに story ファイル存在を確認、欠落数 eq:0。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "miss=0; for c in apps/web/design-system/contracts/*.contract.json; do comp=$(basename \"$c\" .contract.json); [ -f \"apps/web/design-system/components/$comp.stories.tsx\" ] || miss=$((miss+1)); done; echo $miss",
+        "expect": "eq:0",
+        "tolerance": "ハード 0(2026-06-24、16 primitive 全てに story)。primitive を追加して story を作らないと欠落 >0 で RED。限界: (a) story ファイルの『存在』を見る(中身が描画されるか=build-storybook は重いので CI/P5 に委譲)。(b) 正本は contracts(contract-coverage が export と一致を保証)。contract 自体が無いケースは contract-coverage 側で RED になる。"
+      },
+      "evidence": "story が無い primitive の数。0=GREEN(全 primitive 観測可)、1+=RED(story 欠けの primitive あり)。",
+      "examples": {
+        "pass": ["新 primitive Foo を足したら Foo.stories.tsx も足す"],
+        "fail": ["primitive を追加して story を作らない → 欠落 1 → RED"]
+      }
+    }
+  ]
+}
