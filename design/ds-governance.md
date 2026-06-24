@@ -44,18 +44,19 @@ import: `@/components/ds` → `@/design-system/components`（`@/`=apps/web で c
 | | components(primitive 15) | ✅ ds に集約（Surface 移動済・Step/DiffViewer/TimeRibbon は feature/shared 維持） |
 | | contracts | 🟡 **P2 進行中**（design-system/contracts/<C>.contract.json） |
 | | dep-cruiser @/ 解決（境界 gate の前提） | ✅ tsConfig+tsPreCompilationDeps:true（P1④ で発見・修正）＋guard rubric `meta/dep-alias-resolution` |
-| Communicable | DESIGN.md(生成I/O) | ❌ |
-| Observable | Storybook | ❌ |
-| | Preview UI | 🟡 :3210 ツールあり・未形式化 |
+| Communicable | DESIGN.md(生成I/O) | ✅ tokens+contracts→冪等生成（P4）＋drift gate |
+| Observable | Storybook | ✅ 16 story・build 成功（P3）＋story-coverage gate |
+| | Preview UI | 🟡 :3210 ツールあり・未形式化（P6 任意） |
 | Enforcement | lint(spacing hard-0/色 strict-value/ds-reuse judge/tests-accompany)・tsc・boundaries | ✅ |
 | | 生 `<button>` 等 forbid lint | ✅ no-raw-primitives ratchet 58（P1③） |
 | | feature 同士の内部 deep-import 禁止 | ✅ dep-cruiser feature-internals-private（P1④、@/ 解決後に稼働） |
-| | Storybook tests / visual regression / a11y | ❌（P5） |
+| | a11y(axe) / interaction test | ✅ test-storybook 26 tests・a11y 違反 0（P5b）＋CI job |
+| | visual regression | ⏸ 保留（方式未決: Chromatic vs local playwright snapshot＋Docker 固定。Storybook 土台あり＝限界コスト小） |
 | **Dev harness**（DS と別軸） | .claude/agents・hooks・settings | ✅ |
 | | .claude/skills/lathe-ui | ✅（`.claude/skills/` へ移設済み） |
-| | skill 強制 hook（.claude/settings.json） | ❌ |
+| | skill 強制 hook（UI 編集時に lathe-ui 注入） | ✅ ui-skill-guard.mjs（P5a） |
 
-→ **enforcement 側が先行、observe/communicate 側が空白**のいびつな状態。移行はこの GAP を埋める順に組む。dev harness は `.claude/` に集約済み（skill 強制 hook だけ未）。
+→ **P1–P5 完了（2026-06-24）。Canonical / Communicable / Observable / Enforcement ＋ skill 強制 hook がすべて稼働**。残るは visual regression（⏸ 保留・方式未決）と Preview UI 形式化（P6・任意）のみ。フレームの本体は完成。
 
 ## フェーズ計画
 
@@ -89,10 +90,13 @@ import: `@/components/ds` → `@/design-system/components`（`@/`=apps/web で c
 - **gate**: 生成節が tokens/contracts と一致（drift 検査）
 - **dep**: P2（contracts）
 
-### P5 — Enforcement 仕上げ
-- **deliverable**: Storybook interaction test・visual regression（snapshot baseline）・a11y test を関所へ。skill 強制 PreToolUse hook（UI 編集時に lathe-ui を必ず読ませる）。
+### P5 — Enforcement 仕上げ  🟡 大半完了（visual regression のみ保留）
+- **deliverable**:
+  - ✅ **P5a** skill 強制 PreToolUse hook（`ui-skill-guard.mjs`、UI 編集で lathe-ui 手順＋gate を注入）。
+  - ✅ **P5b** a11y(axe `checkA11y`)＋interaction(`play`) test = `test-storybook`（26 tests・a11y 違反 0、disable 無し）＋CI job。
+  - ⏸ **③ visual regression**（snapshot baseline）= 保留。方式未決（Chromatic 課金 vs local playwright snapshot＋Docker 固定で決定論化）。Storybook 土台あり＝後から限界コスト小。layout-integrity e2e が構造破綻を既にカバー済で緊急度低。
 - **owner**: test setup = Codex / hook 配線・rubric = Claude
-- **gate**: visual regression baseline・a11y・hook 発火確認
+- **gate**: a11y/interaction = test-storybook（CI job、独立再現済）/ hook = pipe-test 検証済 / visual regression = 方式決定後
 - **dep**: P3（Storybook）
 
 ### P6 — Preview UI 形式化（任意・後回し）
