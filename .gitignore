@@ -3,6 +3,7 @@ node_modules/
 
 # next.js
 .next/
+storybook-static/
 out/
 dist/
 **/dist/
