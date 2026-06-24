@@ -2,7 +2,7 @@
 
 > status: planned / 2026-06-24 / 配置決定 = **A（apps/web 内集約）**
 > 方針: Design System を SSOT に、`design.md`/Storybook/Preview/lint/test はその伝達 I/O・観測・検査の子要素として扱う（ユーザー提供フレーム、2026-06-24）。
-> 関連: `design/ds-migration-plan.md`（globals.css→0 の旧 DS-replacement、並走トラック）/ `skills/lathe-ui`（手順正本）/ `memory/feedback_systemic_enforcement`。
+> 関連: `design/ds-migration-plan.md`（globals.css→0 の旧 DS-replacement、並走トラック）/ `.claude/skills/lathe-ui`（手順正本）/ `memory/feedback_systemic_enforcement`。
 
 ## SSOT 階層（lathe 版）
 
@@ -83,7 +83,7 @@ P1 が全ての土台。P2/P3 は P1 後に並走可。P4 は P2、P5 は P3 を
 ## 役割分担（恒久）
 - **Claude（監査役）**: dep-cruiser/rubric/contract schema/DESIGN.md human 領域/hook 配線/独立監査/merge。
 - **Codex（実装）**: 部品集約・lint・Storybook・contracts 記入・test・生成スクリプト。
-- 手順正本は `skills/lathe-ui`。strict 運用は P5 の hook で必ず読ませる。
+- 手順正本は `.claude/skills/lathe-ui`。strict 運用は P5 の hook で必ず読ませる。
 
 ## 旧 migration との関係
 `ds-migration-plan.md`（globals.css→0、DS v1 単一系）は **Canonical を綺麗にする並走作業**。本計画はその上に observe/communicate/contracts/strict-enforcement を足して**フレーム全体を完成**させる。globals.css 縮小スライスは P1 と整合する範囲で継続。
