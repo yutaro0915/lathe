@@ -1,0 +1,33 @@
+{
+  "schema_version": "2",
+  "id": "meta/dep-alias-resolution",
+  "title": "dep-cruiser の @/ 依存解決は tsConfig + tsPreCompilationDeps:true で行う — 境界ルールを @/ import に効かせ続ける",
+  "version": "2",
+  "scope": [".dependency-cruiser.js", "tsconfig.depcruise.json"],
+  "origin": "事故(2026-06-24): dep-cruiser が @/ alias を解決せず、forbidden ルールは未解決依存に to.path を当てないため、I1-postgres / lib-db-internals / pure-core / feature-internals 等の境界ルールが @/ 経由 import を全件素通りしていた(lathe はほぼ全 import が @/ なので実質ザル)。config のコメントは『tsPreCompilationDeps:false で @/ が解決される』と真逆の誤記で放置。正しい依存解決は options.tsConfig(tsconfig.depcruise.json の @/* -> apps/web/* paths) + tsPreCompilationDeps:true(これが無いと @/ エッジ自体が捕捉されずルールが当たらない、commit e6ebdd9 で確認・修正)。この『依存解決はこれを使う』を機械固定して再発を防ぐ。",
+  "checks": [
+    {
+      "id": "resolution-config-present",
+      "value": "① 何を縛るか: dep-cruiser の @/ 依存解決を成立させる 3 点 ―― (a) `options.tsConfig` 指定、(b) `tsPreCompilationDeps: true`、(c) `tsconfig.depcruise.json` が存在し `@/` paths を持つ ―― が揃っていること。欠けた数を数え eq:0。② なぜ重要か: この 3 点が依存解決の唯一の正しいやり方で、1 つでも欠けると @/ import が解決されない or エッジが捕捉されず、I1/lib-db/pure-core/feature-internals 等**全ての境界ルールが @/ 経由 import を素通り**する(=gate の装飾化)。実際に過去そうなり、誤コメントで放置された。③ 仕組み: 設定値を grep + ファイル存在で検査。outcome(@/ 未解決数)では tsPreCompilationDeps:false 退行を検知できない(false だと @/ エッジが捕捉されず『未解決』にもならず 0 のまま素通りする)ため、解決を成立させる設定そのものを正本として固定する。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "m=0; grep -qE '^[[:space:]]*tsPreCompilationDeps:[[:space:]]*true,' .dependency-cruiser.js || m=$((m+1)); grep -qE '^[[:space:]]*tsConfig:' .dependency-cruiser.js || m=$((m+1)); { [ -f tsconfig.depcruise.json ] && grep -q '@/' tsconfig.depcruise.json; } || m=$((m+1)); echo $m",
+        "expect": "eq:0",
+        "tolerance": "ハード 0。3 点(tsConfig 指定 / tsPreCompilationDeps:true / tsconfig.depcruise.json に @/ paths)のいずれかを外すと欠落数 >0 で即 RED。限界: (a) 設定の『存在』を見る検査で、tsconfig の paths が apps/web/* を正しく指すかの意味までは見ない(そこは独立 negative proof と日常の境界ルール発火で担保)。(b) outcome 計測でないのは、tsPreCompilationDeps:false 退行が outcome(@/ 未解決数)に現れない(エッジ非捕捉)ため設定検査が確実だから。設定リファクタで grep 形が変わった場合は本 rubric も追従更新する。"
+      },
+      "evidence": "依存解決を成立させる必須 3 設定の欠落数。0=GREEN(@/ が解決され境界ルールが効く)、1+=RED(設定が壊れ境界ルールが @/ import を素通り)。",
+      "examples": {
+        "pass": [
+          ".dependency-cruiser.js に `tsConfig: { fileName: 'tsconfig.depcruise.json' }` と `tsPreCompilationDeps: true` があり、tsconfig.depcruise.json が `@/*` paths を持つ"
+        ],
+        "fail": [
+          "tsConfig 指定を消す → 欠落 1 → RED",
+          "tsPreCompilationDeps を false に戻す(過去の誤設定) → 欠落 1 → RED",
+          "tsconfig.depcruise.json を削除 / @/ paths を消す → 欠落 1 → RED"
+        ]
+      }
+    }
+  ]
+}
