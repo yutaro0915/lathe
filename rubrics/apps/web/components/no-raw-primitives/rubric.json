@@ -4,20 +4,20 @@
   "title": "feature/app code は raw button/input/select を増やさない — DS primitive を使う",
   "version": "1",
   "scope": ["apps/web"],
-  "origin": "オーナー指示(P1, 2026-06-24): DS governance として「use ds primitive, don't hand-roll」を機械強制する。Button/IconButton, SearchInput, Select があるため feature/app code に raw <button>/<input>/<select> を増やさない。DS primitive (apps/web/design-system/components) は raw element を wrap する実装そのものなので find roots(components+app) の外＝対象外。既存 58 件(2026-06-24)を段階的に減らす ratchet（現 baseline 49、Pressable 追加で 0 目標へ駆動中）。rubrics/ 追加は gate 変更なので auditor review 対象。",
+  "origin": "オーナー指示(P1, 2026-06-24): DS governance として「use ds primitive, don't hand-roll」を機械強制する。Button/IconButton, SearchInput, Select があるため feature/app code に raw <button>/<input>/<select> を増やさない。DS primitive (apps/web/design-system/components) は raw element を wrap する実装そのものなので find roots(components+app) の外＝対象外。既存 58 件(2026-06-24)を段階的に減らす ratchet（現 baseline 5、Pressable 追加で 0 目標へ駆動中）。rubrics/ 追加は gate 変更なので auditor review 対象。",
   "checks": [
     {
       "id": "no-new-raw-button-input-select",
-      "value": "① 何を縛るか: apps/web/components と apps/web/app の TSX/JSX で、raw <button> / <input> / <select> opening tag を増やさない（DS primitive の apps/web/design-system/components は find roots の外＝対象外）。新規 UI は ds Button/IconButton, SearchInput, Select へ寄せる。② なぜ重要か: feature 側に raw control が増えると padding・状態・a11y・見た目が分散し、ds-reuse judge だけでは決定的に止められない。③ 仕組み: grep ratchet。baseline を段階的に締める（58→49…→0 目標、Pressable/Button へ置換するたび下げる）。増加は即 RED。",
+      "value": "① 何を縛るか: apps/web/components と apps/web/app の TSX/JSX で、raw <button> / <input> / <select> opening tag を増やさない（DS primitive の apps/web/design-system/components は find roots の外＝対象外）。新規 UI は ds Button/IconButton, SearchInput, Select へ寄せる。② なぜ重要か: feature 側に raw control が増えると padding・状態・a11y・見た目が分散し、ds-reuse judge だけでは決定的に止められない。③ 仕組み: grep ratchet。baseline を段階的に締める（58→…→5→0 目標、Pressable/Button へ置換するたび下げる）。増加は即 RED。",
       "severity": "major",
       "verify": {
         "kind": "cmd",
         "metric": "count",
         "cmd": "find apps/web/components apps/web/app -type f \\( -name '*.tsx' -o -name '*.jsx' \\) -print0 | xargs -0 grep -nHE '<(button|input|select)($|[[:space:]>]|/)' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|/\\*)' | grep -oE '<(button|input|select)($|[[:space:]>]|/)' | wc -l | tr -d ' '",
-        "expect": "le:49",
-        "tolerance": "baseline 49（2026-06-24、58 から削減中・0 目標。bespoke→Pressable / generic→Button で置換し都度下げる）。既存分は ratchet として許容し、1 件でも増えたら RED。限界: grep ベースなので TSX コメント行は行頭コメントのみ除外し、複雑な JSX 構文の意味解釈はしない。DS primitive (apps/web/design-system/components) は raw element を wrap する実装で find roots(components+app) の外＝対象外。"
+        "expect": "le:5",
+        "tolerance": "baseline 5（2026-06-24、58 から削減中・0 目標。bespoke→Pressable / generic→Button で置換し都度下げる）。既存分は ratchet として許容し、1 件でも増えたら RED。限界: grep ベースなので TSX コメント行は行頭コメントのみ除外し、複雑な JSX 構文の意味解釈はしない。DS primitive (apps/web/design-system/components) は raw element を wrap する実装で find roots(components+app) の外＝対象外。"
       },
-      "evidence": "cmd が出力する raw <button>/<input>/<select> opening tag 数。49 以下で GREEN、50 以上で RED。",
+      "evidence": "cmd が出力する raw <button>/<input>/<select> opening tag 数。5 以下で GREEN、6 以上で RED。",
       "examples": {
         "pass": [
           "@/design-system/components の Button / IconButton / SearchInput / Select を使う",
