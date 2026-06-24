@@ -1,0 +1,44 @@
+{
+  "schema_version": "2",
+  "id": "apps/web/design-system/contracts",
+  "title": "DS primitive は contract.json を持ち、内容が schema 妥当 — Canonical の機械照合",
+  "version": "1",
+  "scope": ["apps/web/design-system/contracts", "apps/web/design-system/components"],
+  "origin": "DS governance P2(2026-06-24): 全 ds primitive に machine-readable な contract(variants/props/states)を付け、DESIGN.md(P4)/Storybook(P3)が単一ソースから派生できるようにする。contract は実 TS から抽出。新 primitive を contract 無しで追加する/contract を壊すのを機械照合で防ぐ(正本リスト=ds export ⇄ 成果物=contracts)。",
+  "checks": [
+    {
+      "id": "contract-coverage",
+      "value": "① 何を縛るか: design-system/components が export する全 primitive(`export function X` ＋ `export { default as X }` の再エクスポート)に、対応する `design-system/contracts/<X>.contract.json` が存在する。② なぜ重要か: contract 無しの primitive があると DESIGN.md/Storybook の派生元が欠け、SSOT が部分的になる。新 primitive 追加時に contract を忘れるのを防ぐ。③ 仕組み: ds export 名を列挙し、各名の contract ファイル存在を確認、欠落数を eq:0。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "miss=0; for comp in $(grep -hoE 'export function [A-Z][A-Za-z]+|export \\{ default as [A-Z][A-Za-z]+' apps/web/design-system/components/*.tsx | grep -oE '[A-Z][A-Za-z]+$' | sort -u); do [ -f apps/web/design-system/contracts/$comp.contract.json ] || miss=$((miss+1)); done; echo $miss",
+        "expect": "eq:0",
+        "tolerance": "ハード 0(2026-06-24、16 export 全てに contract)。primitive を追加して contract を作らないと欠落 >0 で RED。限界: enumerate は `export function`/`export { default as }` の 2 形を対象(icons.tsx の Icon 含む)。別の export 形を新設したら本 cmd も追従更新する。"
+      },
+      "evidence": "contract が無い ds export の数。0=GREEN(全 primitive 網羅)、1+=RED(contract 欠落の primitive あり)。",
+      "examples": {
+        "pass": ["新 primitive Foo を追加したら design-system/contracts/Foo.contract.json も足す"],
+        "fail": ["primitive を追加して contract を作らない → 欠落 1 → RED"]
+      }
+    },
+    {
+      "id": "contract-schema-valid",
+      "value": "① 何を縛るか: 各 contract.json が必須 field(component / exportedFrom / summary / axes / props(配列) / states(配列) / notes)を満たす。② なぜ重要か: field 欠落の contract は DESIGN.md/Storybook の生成・検証で破綻する。schema を機械固定して骨抜きを防ぐ。③ 仕組み: jq で各 contract の必須 field 充足を検査、不正数を eq:0。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "bad=0; for f in apps/web/design-system/contracts/*.contract.json; do jq -e '.component and .exportedFrom and .summary and (.axes!=null) and (.props|type==\"array\") and (.states|type==\"array\") and (.notes!=null)' \"$f\" >/dev/null 2>&1 || bad=$((bad+1)); done; echo $bad",
+        "expect": "eq:0",
+        "tolerance": "ハード 0。必須 field を欠く contract があると >0 で RED。限界: field の『存在と型』を見る(値の意味=実 props と完全一致まではここでは見ない。値の正しさは P4 drift 検査と日常の Storybook 描画で担保)。jq に依存。"
+      },
+      "evidence": "必須 field を満たさない contract の数。0=GREEN、1+=RED。",
+      "examples": {
+        "pass": ["contract が component/exportedFrom/summary/axes/props/states/notes を全て持つ"],
+        "fail": ["props を消す / states を欠く → 不正 1 → RED"]
+      }
+    }
+  ]
+}
