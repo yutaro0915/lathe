@@ -41,7 +41,6 @@ export const Contract: Story = {
 
     const brand = canvas.getByTestId("topbar-brand");
     await expect(within(brand).getByText("Lathe")).toBeInTheDocument();
-    await expect(canvas.getByTestId("topbar-logo")).toHaveTextContent("L");
     await expect(canvas.getByTestId("topbar-ph")).toHaveTextContent("Phase 1");
     await expect(canvas.getByTestId("mock-scope")).toBeInTheDocument();
   },

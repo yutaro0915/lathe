@@ -11,7 +11,6 @@ test.describe("PR linkage", () => {
     await expect(topbar).toBeVisible();
     const brand = topbar.getByTestId("topbar-brand");
     await expect(brand).toContainText("Lathe");
-    await expect(topbar.getByTestId("topbar-logo")).toHaveText("L");
     await expect(topbar.getByTestId("topbar-ph")).toHaveText("Phase 1");
     await expect(topbar.getByTestId("topbar-scope")).toBeVisible();
     await expect(topbar.getByTestId("project-picker")).toBeVisible();

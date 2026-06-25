@@ -21,18 +21,15 @@
 .lds-app{display:flex;flex-direction:row;height:100vh;min-height:0;background:var(--bg);overflow:hidden;}
 
 /* ---- top bar: shell-owned scope + identity ONLY (no app-feature actions) -
-   Minimal by contract: brand mark (left), then a BORDERLESS breadcrumb project
+   Minimal by contract: brand wordmark (left), then a BORDERLESS breadcrumb project
    selector. It carries scope + identity only — no search/command, no Run/Find/
    Reset, no boxed control (topbar-scope-only). */
 .lds-topbar{flex:0 0 auto;display:flex;align-items:center;gap:var(--sp-8);height:var(--appbar-h);padding:0 var(--sp-12);
   background:var(--panel);border-bottom:1px solid var(--border);}
-.lds-topbar .lds-tb-brand{display:inline-flex;align-items:center;gap:var(--sp-8);font-weight:700;font-size:13.5px;
-  color:var(--text);letter-spacing:.01em;text-decoration:none;cursor:pointer;flex:0 0 auto;}
+.lds-topbar .lds-tb-brand{display:inline-flex;align-items:center;gap:var(--sp-8);font-weight:500;font-size:14px;
+  color:var(--text);letter-spacing:-0.01em;text-decoration:none;cursor:pointer;flex:0 0 auto;}
 .lds-topbar .lds-tb-brand:hover{text-decoration:none;}
-.lds-topbar .lds-tb-logo{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
-  font-weight:800;letter-spacing:-.5px;border:1px solid var(--border-strong);border-radius:5px;font-size:12px;
-  color:var(--text);background:var(--panel-2);}
-.lds-topbar .lds-tb-ph{margin-left:var(--sp-4);}
+.lds-topbar .lds-tb-ph{margin-left:var(--sp-4);color:var(--muted-2);font-size:11px;font-weight:400;}
 /* project-scope selector: a BORDERLESS breadcrumb segment (slash + name +
    chevron), like Langfuse's identity breadcrumb. No box/border/outline — plain
    text + chevron, subtle on hover/focus. The control is a CUSTOM dropdown (a
