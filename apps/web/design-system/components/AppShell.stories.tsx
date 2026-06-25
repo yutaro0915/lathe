@@ -87,3 +87,15 @@ export const Contract: Story = {
     await expect(canvas.getByTestId("lds-workarea")).toBeInTheDocument();
   },
 };
+
+export const Collapsed: Story = {
+  args: {
+    collapsed: true,
+    onToggleCollapse: () => {},
+  },
+  render: (args) => (
+    <div style={{ height: 520, overflow: "hidden" }}>
+      <AppShell {...args} />
+    </div>
+  ),
+};

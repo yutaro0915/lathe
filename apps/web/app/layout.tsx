@@ -1,8 +1,9 @@
 import './globals.css';
 import '../design-system/index.css';
 import RailNav from '@/components/RailNav';
+import ShellChrome from '@/components/ShellChrome';
 import TopBarProjectSelect from '@/components/TopBarProjectSelect';
-import { AppShell, Header } from '@/design-system/components';
+import { Header } from '@/design-system/components';
 import { getProjectStats, listSessions } from '@/lib/read';
 
 export const dynamic = 'force-dynamic';
@@ -31,8 +32,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="ja">
       <body>
-        {/* AppShell owns only chrome regions; layout builds the routed slot contents. */}
-        <AppShell
+        {/* ShellChrome owns client-only chrome state; layout builds the routed slot contents. */}
+        <ShellChrome
           topNav={(
             <Header
               projectSelector={(
@@ -47,7 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           sideNav={<RailNav />}
         >
           {children}
-        </AppShell>
+        </ShellChrome>
       </body>
     </html>
   );

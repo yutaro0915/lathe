@@ -527,6 +527,7 @@ test.describe("layout-integrity", () => {
 
     const app = page.getByTestId("lds-app");
     await expect(app).toBeVisible();
+    await expect(app).toHaveAttribute("data-collapsed", "false");
 
     const topbar = app.getByTestId("topbar");
     await expect(topbar).toBeVisible();
@@ -541,6 +542,26 @@ test.describe("layout-integrity", () => {
     const navBox = await globalnav.boundingBox();
     expect(navBox).not.toBeNull();
     expect(Math.round(navBox?.width ?? 0)).toBe(256);
+
+    const toggle = shellBody.getByTestId("rail-toggle");
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-label", "Collapse sidebar");
+    await toggle.click();
+    await expect(app).toHaveAttribute("data-collapsed", "true");
+    await expect(toggle).toHaveAttribute("aria-label", "Expand sidebar");
+
+    const collapsedNavBox = await globalnav.boundingBox();
+    expect(collapsedNavBox).not.toBeNull();
+    expect(Math.round(collapsedNavBox?.width ?? 0)).toBe(48);
+
+    await page.reload();
+    await settle(page);
+    const reloadedApp = page.getByTestId("lds-app");
+    await expect(reloadedApp).toHaveAttribute("data-collapsed", "true");
+
+    const reloadedShellBody = reloadedApp.getByTestId("lds-shell-body");
+    await reloadedShellBody.getByTestId("rail-toggle").click();
+    await expect(reloadedApp).toHaveAttribute("data-collapsed", "false");
 
     const brand = topbar.getByTestId("topbar-brand");
     await expect(brand).toContainText("Lathe");

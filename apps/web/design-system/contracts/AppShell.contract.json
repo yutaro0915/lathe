@@ -17,11 +17,21 @@
       "required": true
     },
     {
+      "name": "collapsed",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "name": "onToggleCollapse",
+      "type": "function",
+      "required": false
+    },
+    {
       "name": "children",
       "type": "node",
       "required": true
     }
   ],
-  "states": ["default"],
-  "notes": "Atlassian slot 命名(TopNav/SideNav/Main)。presentational、データ/routing は app/layout が持つ。testid lds-app/lds-shell-body/lds-workarea は e2e 契約。"
+  "states": ["default", "collapsed"],
+  "notes": "Atlassian slot 命名(TopNav/SideNav/Main)。presentational、データ/routing は app/layout が持つ。collapsed は controlled。状態は container(components/ShellChrome) が localStorage で持つ。data-collapsed で grid 幅とラベル sr-only を CSS が処理。rail-toggle testid。testid lds-app/lds-shell-body/lds-workarea は e2e 契約。"
 }

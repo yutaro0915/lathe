@@ -10,16 +10,39 @@ export interface AppShellProps {
   topNav: React.ReactNode;
   /** persistent left navigation (the SideNav, via its RailNav container) */
   sideNav: React.ReactNode;
+  /** controlled rail collapse state; owned by the container */
+  collapsed?: boolean;
+  /** toggles the controlled rail collapse state */
+  onToggleCollapse?: () => void;
   /** the work area content (Main) */
   children: React.ReactNode;
 }
 
-export function AppShell({ topNav, sideNav, children }: AppShellProps) {
+export function AppShell({
+  topNav,
+  sideNav,
+  collapsed = false,
+  onToggleCollapse,
+  children,
+}: AppShellProps) {
   return (
-    <div className="lds-shell" data-testid="lds-app">
+    <div className="lds-shell" data-testid="lds-app" data-collapsed={collapsed ? "true" : "false"}>
       {topNav}
       <div className="lds-shell-body" data-testid="lds-shell-body">
-        {sideNav}
+        <div className="lds-rail-col">
+          {sideNav}
+          <button
+            type="button"
+            className="lds-rail-toggle"
+            data-testid="rail-toggle"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-pressed={collapsed}
+            onClick={onToggleCollapse}
+          >
+            <span className="lds-rail-toggle-ic" aria-hidden="true">{collapsed ? "»" : "«"}</span>
+            <span className="lds-rail-toggle-label">Collapse</span>
+          </button>
+        </div>
         <div className="lds-workarea" data-testid="lds-workarea">{children}</div>
       </div>
     </div>

@@ -42,17 +42,18 @@ export function SideNav({ items, user, activePath }: SideNavProps) {
             data-nav={item.nav}
             data-state={item.active ? "active" : "inactive"}
             aria-current={item.active ? "page" : undefined}
+            title={item.label}
           >
             <span className="lds-rail-ic" data-testid="lds-rail-ic">
               <Icon name={item.icon} size={15} />
             </span>
-            {item.label}
+            <span className="lds-rail-label">{item.label}</span>
           </Link>
         ))}
       </div>
       <div className="lds-rail-scroll" data-testid="lds-rail-scroll" />
       <div className="lds-rail-user" data-testid="lds-rail-user">
-        <span className="lds-avatar" data-testid="lds-avatar">{user.initials}</span>
+        <span className="lds-avatar" data-testid="lds-avatar" title={user.name}>{user.initials}</span>
         <span className="lds-uname" data-testid="lds-uname">{user.name}</span>
         <span className="lds-gear" data-testid="lds-gear" aria-label="Settings" role="img">
           <Icon name="settings" size={15} />
