@@ -56,6 +56,38 @@ function fileLineCount(filePath) {
   return lineCount(fs.readFileSync(filePath, "utf8"));
 }
 
+// Grandfather-aware exemption. Files already tolerated by the file-size rubric
+// (listed in rubrics/file-size/gf-baseline.json) are allowed to be edited even
+// when over the limit: the rubric's gate (oxlint overrides + gf-ratchet) still
+// enforces that they do not GROW. Without this, the guard blocks every edit to a
+// god-file — including 1-line import fixes and shrinking refactors — which is the
+// opposite of "split god-files down". The guard then only needs to stop NEW files
+// crossing the limit.
+function grandfatheredPatterns() {
+  try {
+    const url = new URL("../../rubrics/file-size/gf-baseline.json", import.meta.url);
+    const json = JSON.parse(fs.readFileSync(url, "utf8"));
+    return Object.keys(json.overrides ?? {});
+  } catch {
+    return [];
+  }
+}
+
+function isGrandfathered(filePath) {
+  if (typeof filePath !== "string" || filePath.length === 0) {
+    return false;
+  }
+  const norm = filePath.replace(/\\/g, "/");
+  return grandfatheredPatterns().some((pattern) => {
+    const body = pattern
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, "___DS___")
+      .replace(/\*/g, "[^/]*")
+      .replace(/___DS___/g, ".*");
+    return new RegExp(`(^|/)${body}$`).test(norm);
+  });
+}
+
 function block(reason) {
   process.stderr.write(`${reason}\n`);
   process.exit(2);
@@ -76,7 +108,7 @@ if (mode === "pre") {
 
 if (mode === "post") {
   const actualLines = fileLineCount(toolInput.file_path);
-  if (actualLines > LIMIT_LINES && payloadLines > 0) {
+  if (actualLines > LIMIT_LINES && payloadLines > 0 && !isGrandfathered(toolInput.file_path)) {
     block(
       `file-size guard: ${toolInput.file_path} is ${actualLines} lines; limit is ${LIMIT_LINES}`,
     );
