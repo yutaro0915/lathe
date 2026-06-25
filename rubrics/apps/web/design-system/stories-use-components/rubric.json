@@ -1,0 +1,34 @@
+{
+  "schema_version": "2",
+  "id": "apps/web/design-system/stories-use-components",
+  "title": "Storybook story は DS 部品を組むだけ — 部品 markup を捏造しない",
+  "version": "1",
+  "scope": ["apps/web/design-system"],
+  "origin": "オーナー指摘(2026-06-25): AppShell/Header の story が raw markup（`<header>/<nav>/<main>`＋手書き `className=\"lds-…\"`）で header/nav/work area を捏造していた＝『Storybook は DS 部品にのみ依存すべき』原則の違反。捏造 markup は本物部品を検証せず、DS が撲滅すべき raw markup/class を story に複製し、実部品と drift する。S2c-1 で selector を DS ProjectScope に純粋化、S2c-2 で全 shell story を本物部品へ差し替えた上で、本 gate で再発を機械強制。rubric 追加は auditor のみ・実装と別 commit。",
+  "checks": [
+    {
+      "id": "no-fabricated-markup-in-stories",
+      "value": "① 何を縛るか: apps/web/design-system の *.stories.tsx は DS 部品を render してデータ/props を渡すだけにし、部品の中身を捏造しない ── 具体的には手書きの `className=\"lds-…\"`（部品が内部で当てる DS class を story が直書きする）と raw landmark `<header>/<nav>/<main>/<aside>`（部品が描くべき構造を story が偽装する）を書かない。② なぜ重要か: Storybook は DS 部品にのみ依存すべき観測層。捏造 markup は (1)本物部品を検証しない＝story の意味が無い (2)DS が撲滅すべき raw markup/class を story 内に複製 (3)実部品の変更に追従せず drift する。AppShell/Header story が mock で実際に陥った穴。③ 仕組み: *.stories.tsx 中の `className=…lds-` と raw landmark 行を grep して数え 0。`getByTestId(\"lds-app\")` のような testid 参照は className でないので誤検出しない。寸法/レイアウト用の素の `<div style>` ラッパは landmark でないので許容。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "grep -rhE 'className=[^>]*lds-|<(header|nav|main|aside)[[:space:]>]' apps/web/design-system/components/*.stories.tsx 2>/dev/null | wc -l | tr -d ' '",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。寸法/grid 用の `<div>`/`<span>` ラッパは landmark でも lds- class でもないので可。限界: grep ベース。lds- 以外の生 class で部品を模倣するケースまでは見ない（本筋は『本物部品を render する』こと）。testid 参照（getByTestId(\"lds-…\")）は className 文脈でないので対象外＝誤検出しない。"
+      },
+      "evidence": "story 中の捏造 markup（手書き lds- class ＋ raw landmark）の行数。0 で GREEN、1+ で RED。",
+      "examples": {
+        "pass": [
+          "本物の <Header>/<SideNav>/<ProjectScope>/<Surface>/<Panel> に mock data を渡して組む",
+          "play で getByTestId(\"lds-app\") など本物部品の testid を参照する",
+          "寸法確認用に <div style={{ width: 'var(--rail-w)', height: 420 }}> で囲う"
+        ],
+        "fail": [
+          "story 内に <header className=\"lds-topbar\"> を手書きして header を偽装する",
+          "<nav className=\"lds-railnav\"> や <span className=\"lds-tb-scope\"> を捏造して部品の代わりにする"
+        ]
+      }
+    }
+  ]
+}
