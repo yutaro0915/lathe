@@ -78,6 +78,7 @@
     "@lathe/domain": "workspace:*",
     "@lathe/mcp": "workspace:*",
     "@lathe/shared": "workspace:*",
+    "@radix-ui/react-dropdown-menu": "^2.1.18",
     "next": "^15.5.4",
     "pg": "^8.16.3",
     "react": "^19.0.0",

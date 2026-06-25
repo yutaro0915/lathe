@@ -16,6 +16,8 @@ export { SideNav } from "./SideNav";
 export type { SideNavProps, SideNavItem, SideNavUser } from "./SideNav";
 export { Header } from "./Header";
 export type { HeaderProps } from "./Header";
+export { ProjectScope } from "./ProjectScope";
+export type { ProjectScopeProps, ProjectScopeOption } from "./ProjectScope";
 
 /* ---- Pressable ----------------------------------------------------------- */
 export interface PressableProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

@@ -71,7 +71,9 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     // read its option values, then drive it by clicking the trigger + the option.
     const values = await projectOptionValues(page);
     expect(values.length).toBeGreaterThan(0);
+    await expect(page.locator(`[data-testid="project-menu"]`)).toHaveCount(0);
     await pickProject(page, values[0]);
+    await expect(page.locator(`[data-testid="project-picker"]`)).toHaveAttribute("data-value", values[0]);
     await expect(page.locator(`[data-testid="sessbar-meta"]`)).not.toContainText("All projects");
     await expect(page.locator(`[data-testid="trend-card"]`).first()).toBeVisible();
   });

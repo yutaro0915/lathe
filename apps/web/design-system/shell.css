@@ -48,18 +48,18 @@
 .lds-topbar .lds-tb-scope-trigger:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px;}
 .lds-topbar .lds-tb-scope-name{color:inherit;}
 .lds-topbar .lds-tb-scope-ic{display:inline-flex;color:var(--muted-2);}
-/* the custom menu: a floating panel below the trigger, DS-styled (panel bg,
-   hairline border, soft shadow). Options are quiet rows with a panel-hover
+/* the Radix portal menu: a floating panel below the trigger, DS-styled (panel
+   bg, hairline border, soft shadow). Options are quiet rows with a panel-hover
    highlight; the active (keyboard / hover) row and the current scope are marked. */
-.lds-topbar .lds-tb-scope-menu{position:absolute;top:calc(100% + var(--sp-4));left:0;z-index:40;margin:0;padding:var(--sp-4);
+.lds-tb-scope-menu{margin:0;padding:var(--sp-4);
   list-style:none;min-width:220px;max-width:340px;max-height:60vh;overflow-y:auto;background:var(--panel);
   border:1px solid var(--border-strong);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);}
-.lds-topbar .lds-tb-scope-opt{display:block;width:100%;height:auto;padding:var(--sp-4) var(--sp-8);border:0;border-radius:var(--radius-xs);
+.lds-tb-scope-opt{display:block;width:100%;height:auto;padding:var(--sp-4) var(--sp-8);border:0;border-radius:var(--radius-xs);
   background:transparent;color:var(--text-soft);font-family:var(--sans);font-size:12px;font-weight:500;
   text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;}
-.lds-topbar .lds-tb-scope-opt:hover,.lds-topbar .lds-tb-scope-opt.is-active{background:var(--panel-hover);color:var(--text);}
-.lds-topbar .lds-tb-scope-opt.is-current{font-weight:650;color:var(--text);}
-.lds-topbar .lds-tb-scope-opt:focus-visible{outline:2px solid var(--accent-ring);outline-offset:-2px;}
+.lds-tb-scope-opt:hover,.lds-tb-scope-opt[data-highlighted],.lds-tb-scope-opt.is-active{background:var(--panel-hover);color:var(--text);}
+.lds-tb-scope-opt.is-current{font-weight:650;color:var(--text);}
+.lds-tb-scope-opt:focus-visible{outline:2px solid var(--accent-ring);outline-offset:-2px;}
 /* session segment: read-only breadcrumb text (no control), ellipsized so a long
    title yields room rather than widening the bar. */
 .lds-topbar .lds-tb-scope-session{color:var(--text-soft);font-weight:600;min-width:0;flex:0 1 auto;

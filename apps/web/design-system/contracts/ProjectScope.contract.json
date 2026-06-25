@@ -1,0 +1,39 @@
+{
+  "component": "ProjectScope",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Topbar breadcrumb project scope picker with an optional read-only session segment.",
+  "axes": {
+    "scope": ["all", "project"],
+    "sessionSegment": ["shown", "omitted"]
+  },
+  "props": [
+    {
+      "name": "options",
+      "type": "array",
+      "required": true
+    },
+    {
+      "name": "value",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "currentLabel",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "onValueChange",
+      "type": "function",
+      "required": true
+    },
+    {
+      "name": "sessionLabel",
+      "type": "string",
+      "required": false,
+      "default": null
+    }
+  ],
+  "states": ["default", "open", "hover", "focus", "selected"],
+  "notes": "Radix DropdownMenu(RadioGroup) ベース。presentational、routing は container(components/TopBarProjectSelect)。testid project-picker/project-menu/project-option は e2e 契約。menu は Radix portal に出る。"
+}

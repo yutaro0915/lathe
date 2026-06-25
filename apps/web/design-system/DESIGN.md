@@ -101,6 +101,7 @@ Source files: `apps/web/design-system/tokens.css` and `apps/web/design-system/co
 | `MiniBar` | Compact horizontal magnitude bar with label, track, fill, and value. | none | `default` |
 | `Panel` | Bordered content panel with optional header metadata and action slot. | none | `default` |
 | `Pressable` | Bare interactive button base for bespoke-styled feature controls. | none | `default`, `hover`, `focus`, `disabled` |
+| `ProjectScope` | Topbar breadcrumb project scope picker with an optional read-only session segment. | `scope`: `all`, `project`<br>`sessionSegment`: `shown`, `omitted` | `default`, `open`, `hover`, `focus`, `selected` |
 | `RunnerIcon` | Square runner identity glyph with known runner colors and accessible label. | `runner`: `claude-code`, `claude`, `codex`, `cursor` | `default` |
 | `SearchInput` | Search field wrapper with built-in glyph and optional keyboard hint. | none | `default`, `focus`, `disabled` |
 | `Segmented` | Tablist-style segmented control for small mutually exclusive modes. | none | `default`, `hover`, `selected` |
