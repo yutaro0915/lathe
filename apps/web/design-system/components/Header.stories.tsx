@@ -1,15 +1,18 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { expect, within } from "@storybook/test";
 
-import { Header } from "@/design-system/components";
+import { Header, ProjectScope } from "@/design-system/components";
 
 const projectSelector = (
-  <span className="lds-tb-scope" data-testid="mock-scope">
-    <span className="lds-tb-scope-sep" aria-hidden>
-      /
-    </span>
-    <span className="lds-tb-scope-name">All projects</span>
-  </span>
+  <ProjectScope
+    options={[
+      { value: "all", label: "All projects · 12 sessions" },
+      { value: "lathe", label: "lathe · 8 ses · $12" },
+    ]}
+    value="all"
+    currentLabel="All projects"
+    onValueChange={() => {}}
+  />
 );
 
 const meta = {
@@ -42,6 +45,6 @@ export const Contract: Story = {
     const brand = canvas.getByTestId("topbar-brand");
     await expect(within(brand).getByText("Lathe")).toBeInTheDocument();
     await expect(canvas.getByTestId("topbar-ph")).toHaveTextContent("Phase 1");
-    await expect(canvas.getByTestId("mock-scope")).toBeInTheDocument();
+    await expect(canvas.getByTestId("project-picker")).toBeInTheDocument();
   },
 };

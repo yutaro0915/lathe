@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import * as React from "react";
 import { expect, screen, userEvent, waitFor, within } from "@storybook/test";
 
-import { ProjectScope, type ProjectScopeOption } from "@/design-system/components";
+import { Header, ProjectScope, type ProjectScopeOption } from "@/design-system/components";
 
 const options: ProjectScopeOption[] = [
   { value: "all", label: "All projects · 12 sessions" },
@@ -18,8 +18,8 @@ const meta = {
   component: ProjectScope,
   decorators: [
     (Story) => (
-      <div className="lds-topbar" style={{ maxWidth: "40rem" }}>
-        <Story />
+      <div style={{ maxWidth: "40rem" }}>
+        <Header projectSelector={<Story />} />
       </div>
     ),
   ],
