@@ -1,6 +1,6 @@
 {
   "schema_version": "2",
-  "id": "meta/e2e-specs-load",
+  "id": "apps/web/e2e/specs-load",
   "title": "e2e spec はすべて load できる — 走らない spec による false-green を防ぐ",
   "version": "1",
   "scope": ["apps/web/e2e"],
