@@ -11,7 +11,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Pool } from 'pg';
-import { insertBuilt, replaceBuiltSession } from './ingest/db';
+import { insertBuilt, replaceBuiltSession } from './ingest/repository/ingest-writer';
 import type { Built } from './ingest/built';
 import { withScratchDatabase } from './verify/scratch';
 

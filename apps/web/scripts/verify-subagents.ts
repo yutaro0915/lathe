@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { Pool } from 'pg';
 import { closePool, getPool, queryRows } from '../lib/postgres';
 import { getStats } from '../lib/db';
-import { insertBuilt } from './ingest/db';
+import { insertBuilt } from './ingest/repository/ingest-writer';
 import type { Built } from './ingest/built';
 import { currentDatabaseUrl, withScratchDatabase } from './verify/scratch';
 

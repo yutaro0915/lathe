@@ -1,78 +1,16 @@
-import * as fs from 'node:fs';
-import { Pool, type PoolClient } from 'pg';
-import type { Built } from './built';
-import { getDatabaseUrl } from '../../lib/postgres';
+import type { PoolClient } from 'pg';
+import type { Built } from '../built';
 import {
   backfillHarnessVersions,
   isHarnessProvider,
-  type HarnessSnapshot,
   upsertHarnessSnapshot,
-} from './harness';
+} from '../harness';
+import { subagentLinkCandidates } from '../domain/subagent-link';
+import { applySubagentLinks } from './subagent-link';
+import { cleanParams } from './schema';
+import type { InsertBuiltOptions, InsertCounts } from './types';
 
-export interface InsertCounts {
-  projects: number;
-  sessions: number;
-  events: number;
-  sessionCommits: number;
-  commitShaMisses: number;
-  changedFiles: number;
-  hunks: number;
-  attributions: number;
-  eventFiles: number;
-  annotations: number;
-  harnessVersions: number;
-}
-
-export interface InsertBuiltOptions {
-  harnessSnapshots?: Map<string, HarnessSnapshot>;
-  backfillHarness?: boolean;
-  existingHarnessStamps?: Map<string, string>;
-}
-
-export interface ResetDatabaseOptions {
-  existingHarnessStamps?: Map<string, string>;
-}
-
-function cleanParams(values: unknown[]): unknown[] {
-  return values.map((value) => (typeof value === 'string' ? value.replace(/\u0000/g, '') : value));
-}
-
-export async function resetDatabase(schemaPath: string, options: ResetDatabaseOptions = {}): Promise<Pool> {
-  const pool = new Pool({ connectionString: getDatabaseUrl() });
-  await pool.query(fs.readFileSync(schemaPath, 'utf8'));
-  if (options.existingHarnessStamps) {
-    const existing = await pool.query<{ id: string; harness_version_id: string }>(
-      `SELECT id,harness_version_id
-         FROM sessions
-        WHERE harness_version_id IS NOT NULL`,
-    );
-    for (const row of existing.rows) options.existingHarnessStamps.set(row.id, row.harness_version_id);
-  }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('DELETE FROM event_files');
-    await client.query('DELETE FROM attributions');
-    await client.query('DELETE FROM diff_hunks');
-    await client.query('DELETE FROM changed_files');
-    await client.query('DELETE FROM transcript_events');
-    await client.query('DELETE FROM session_commits');
-    await client.query('DELETE FROM pr_commits');
-    await client.query('DELETE FROM pull_requests');
-    await client.query('DELETE FROM github_pr_sync_state');
-    await client.query('DELETE FROM annotations');
-    await client.query('DELETE FROM sessions');
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
-  return pool;
-}
-
-async function prepareHarnessVersions(
+export async function prepareHarnessVersions(
   client: PoolClient,
   built: Built[],
   options: InsertBuiltOptions,
@@ -104,113 +42,7 @@ async function prepareHarnessVersions(
   return built.filter((item) => !!item.session.harness_version_id).length;
 }
 
-function spawnAgentIdFromMeta(meta: string | null): string | null {
-  if (!meta) return null;
-  try {
-    const parsed = JSON.parse(meta);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) && typeof parsed.agent_id === 'string'
-      ? parsed.agent_id
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-async function linkSubagentSessions(client: PoolClient, built: Built[]): Promise<void> {
-  const spawnLinks: Array<{
-    eventId: string;
-    parentSessionId: string;
-    childSessionId: string;
-    spawnedBySeq: number;
-  }> = [];
-  for (const b of built) {
-    for (const e of b.events) {
-      if (e.type !== 'subagent' || e.parent_id) continue;
-      const childSessionId = spawnAgentIdFromMeta(e.meta);
-      if (!childSessionId || childSessionId === b.session.id) continue;
-      spawnLinks.push({
-        eventId: e.id,
-        parentSessionId: b.session.id,
-        childSessionId,
-        spawnedBySeq: e.seq,
-      });
-    }
-  }
-  if (!spawnLinks.length) return;
-
-  const childIds = [...new Set(spawnLinks.map((link) => link.childSessionId))];
-  const existingRows = await client.query<{ id: string }>(
-    'SELECT id FROM sessions WHERE id = ANY($1::text[])',
-    [childIds],
-  );
-  const existingChildIds = new Set(existingRows.rows.map((row) => row.id));
-
-  for (const link of spawnLinks) {
-    if (!existingChildIds.has(link.childSessionId)) {
-      await client.query(
-        `UPDATE transcript_events
-            SET meta = CASE WHEN meta IS NULL THEN NULL ELSE meta - 'child_session_id' END
-          WHERE id = $1`,
-        [link.eventId],
-      );
-      continue;
-    }
-    await client.query(
-      `UPDATE sessions
-          SET parent_session_id = $1,
-              spawned_by_seq = $2
-        WHERE id = $3`,
-      [link.parentSessionId, link.spawnedBySeq, link.childSessionId],
-    );
-    await client.query(
-      `UPDATE transcript_events
-          SET meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('child_session_id', $1::text)
-        WHERE id = $2`,
-      [link.childSessionId, link.eventId],
-    );
-  }
-}
-
-// Incremental re-ingest of a single session (replaceBuiltSession) only carries
-// that session's own events. When the re-ingested session is a sub-agent CHILD,
-// its spawn_agent launcher lives in the PARENT session, so linkSubagentSessions
-// (which walks the built session's events) cannot restore parent_session_id.
-// Reverse-lookup the real parent from a spawn_agent event in another session
-// that names this child as its agent_id, and re-establish the link.
-//
-// Anti-fabrication: link only when a real launcher exists in the DB. The query
-// requires the launcher event (and therefore the parent session) to exist, and
-// we never create a parent — absent launcher leaves parent_session_id NULL.
-async function restoreSubagentParentLink(client: PoolClient, childSessionId: string): Promise<void> {
-  const launcher = await client.query<{ parentSessionId: string; spawnedBySeq: number; eventId: string }>(
-    `SELECT session_id AS "parentSessionId", seq AS "spawnedBySeq", id AS "eventId"
-       FROM transcript_events
-      WHERE type = 'subagent'
-        AND parent_id IS NULL
-        AND meta->>'agent_id' = $1
-        AND session_id <> $1
-      ORDER BY session_id ASC, seq ASC
-      LIMIT 1`,
-    [childSessionId],
-  );
-  const row = launcher.rows[0];
-  if (!row) return;
-  await client.query(
-    `UPDATE sessions
-        SET parent_session_id = $1,
-            spawned_by_seq = $2
-      WHERE id = $3`,
-    [row.parentSessionId, row.spawnedBySeq, childSessionId],
-  );
-  await client.query(
-    `UPDATE transcript_events
-        SET meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('child_session_id', $1::text)
-      WHERE id = $2`,
-    [childSessionId, row.eventId],
-  );
-}
-
-async function insertBuiltRows(
+export async function insertBuiltRows(
   client: PoolClient,
   built: Built[],
   options: InsertBuiltOptions = {},
@@ -382,28 +214,13 @@ async function insertBuiltRows(
     }
   }
 
-  await linkSubagentSessions(client, built);
+  const candidates = subagentLinkCandidates(built);
+  await applySubagentLinks(client, candidates);
 
   return counts;
 }
 
-async function insertBuiltWithClient(
-  client: PoolClient,
-  built: Built[],
-  options: InsertBuiltOptions = {},
-): Promise<InsertCounts> {
-  await client.query('BEGIN');
-  try {
-    const counts = await insertBuiltRows(client, built, options);
-    await client.query('COMMIT');
-    return counts;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  }
-}
-
-async function deleteSessionRows(client: PoolClient, sessionId: string): Promise<void> {
+export async function deleteSessionRows(client: PoolClient, sessionId: string): Promise<void> {
   await client.query(
     `DELETE FROM event_files
      WHERE event_id IN (SELECT id FROM transcript_events WHERE session_id = $1)`,
@@ -432,7 +249,7 @@ async function deleteSessionRows(client: PoolClient, sessionId: string): Promise
   await client.query('DELETE FROM sessions WHERE id = $1', [sessionId]);
 }
 
-async function seqForReplacement(client: PoolClient, sessionId: string, requestedSeq: number): Promise<number> {
+export async function seqForReplacement(client: PoolClient, sessionId: string, requestedSeq: number): Promise<number> {
   const existing = await client.query<{ seq: number }>('SELECT seq FROM sessions WHERE id = $1', [sessionId]);
   if (existing.rows[0]) return existing.rows[0].seq;
   if (requestedSeq > 0) return requestedSeq;
@@ -440,39 +257,4 @@ async function seqForReplacement(client: PoolClient, sessionId: string, requeste
   const first = await client.query<{ min_seq: number | null }>('SELECT MIN(seq) AS min_seq FROM sessions');
   const minSeq = first.rows[0]?.min_seq;
   return minSeq == null ? 1 : minSeq - 1;
-}
-
-export async function insertBuilt(
-  pool: Pool,
-  built: Built[],
-  options: InsertBuiltOptions = {},
-): Promise<InsertCounts> {
-  const client = await pool.connect();
-  try {
-    return await insertBuiltWithClient(client, built, options);
-  } finally {
-    client.release();
-  }
-}
-
-export async function replaceBuiltSession(
-  pool: Pool,
-  built: Built,
-  options: InsertBuiltOptions = {},
-): Promise<InsertCounts> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    built.session.seq = await seqForReplacement(client, built.session.id, built.session.seq);
-    await deleteSessionRows(client, built.session.id);
-    const counts = await insertBuiltRows(client, [built], options);
-    await restoreSubagentParentLink(client, built.session.id);
-    await client.query('COMMIT');
-    return counts;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
 }

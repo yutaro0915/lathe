@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { closePool, getPool } from '../lib/postgres';
 import type { Built } from './ingest/built';
-import { insertBuilt } from './ingest/db';
+import { insertBuilt } from './ingest/repository/ingest-writer';
 import {
   captureHarnessSnapshot,
   captureHarnessSnapshotFromGit,
