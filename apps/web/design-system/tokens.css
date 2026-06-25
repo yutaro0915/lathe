@@ -222,7 +222,7 @@
   --minimap-h: 150px;
 
   /* ---- rail / aside widths ---- */
-  --rail-w:    264px;  /* persistent left navigation rail */
+  --rail-w:    256px;  /* persistent left navigation rail */
   --sidebar-w: 264px;  /* alias (kept for back-compat)    */
   --aside-w:   336px;  /* toggleable detail / chat panel  */
 

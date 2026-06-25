@@ -1,0 +1,27 @@
+{
+  "component": "AppShell",
+  "exportedFrom": "@/design-system/components",
+  "summary": "Application chrome composer for TopNav, SideNav, and Main slots.",
+  "axes": {
+    "slotNaming": ["topNav", "sideNav", "children"]
+  },
+  "props": [
+    {
+      "name": "topNav",
+      "type": "node",
+      "required": true
+    },
+    {
+      "name": "sideNav",
+      "type": "node",
+      "required": true
+    },
+    {
+      "name": "children",
+      "type": "node",
+      "required": true
+    }
+  ],
+  "states": ["default"],
+  "notes": "Atlassian slot 命名(TopNav/SideNav/Main)。presentational、データ/routing は app/layout が持つ。testid lds-app/lds-shell-body/lds-workarea は e2e 契約。"
+}

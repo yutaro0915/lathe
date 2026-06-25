@@ -521,6 +521,35 @@ test.describe("layout-integrity", () => {
     await cleanupCostFallbackFixtures();
   });
 
+  test("AppShell composes TopNav, SideNav, and Main slots", async ({ page }) => {
+    await page.goto("/");
+    await settle(page);
+
+    const app = page.getByTestId("lds-app");
+    await expect(app).toBeVisible();
+
+    const topbar = app.getByTestId("topbar");
+    await expect(topbar).toBeVisible();
+
+    const shellBody = app.getByTestId("lds-shell-body");
+    await expect(shellBody).toBeVisible();
+
+    const globalnav = shellBody.getByTestId("globalnav");
+    await expect(globalnav).toBeVisible();
+    await expect(shellBody.getByTestId("lds-workarea")).toBeVisible();
+
+    const navBox = await globalnav.boundingBox();
+    expect(navBox).not.toBeNull();
+    expect(Math.round(navBox?.width ?? 0)).toBe(256);
+
+    const brand = topbar.getByTestId("topbar-brand");
+    await expect(brand).toContainText("Lathe");
+    await expect(topbar.getByTestId("topbar-ph")).toHaveText("Phase 1");
+    await expect(topbar.getByTestId("topbar-scope")).toBeVisible();
+    await expect(topbar.getByTestId("project-picker")).toBeVisible();
+    await expect(topbar.getByTestId("topbar-scope-name")).toContainText("All projects");
+  });
+
   for (const surface of SURFACES) {
     test(`${surface.name} — layout invariants`, async ({ page }, testInfo) => {
       const width = page.viewportSize()?.width ?? 0;

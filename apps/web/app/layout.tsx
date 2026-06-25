@@ -2,7 +2,7 @@ import './globals.css';
 import '../design-system/index.css';
 import RailNav from '@/components/RailNav';
 import TopBarProjectSelect from '@/components/TopBarProjectSelect';
-import { Header } from '@/design-system/components';
+import { AppShell, Header } from '@/design-system/components';
 import { getProjectStats, listSessions } from '@/lib/read';
 
 export const dynamic = 'force-dynamic';
@@ -31,33 +31,23 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="ja">
       <body>
-        {/* Layout v2 AppShell (design/layout-architecture.md): the shell OWNS the
-            chrome regions. A full-width TOP BAR (brand + a borderless breadcrumb
-            project-scope selector — scope and identity ONLY, no search/command,
-            no app-feature actions) sits above a horizontal BODY split: the ONE
-            persistent left nav RAIL (Sessions / Findings / PR / Overview, current
-            axis highlighted) + a WORK AREA. The work area's header chrome is owned
-            by the single Surface component, so no surface draws its own header
-            band (the cause of the old header step). Depth is hairline borders. */}
-        <div className="lds-shell" data-testid="lds-app">
-          {/* TopBar — shell-owned scope + identity ONLY. Brand mark + a borderless
-              breadcrumb project selector (`Lathe / <project> v`); the selector
-              writes the scope to ?project= and every section reads it. No search,
-              no command affordance, no boxed control. */}
-          <Header
-            projectSelector={(
-              <TopBarProjectSelect
-                projects={projects}
-                totalSessions={sessions.length}
-                sessionTitles={sessionTitles}
-              />
-            )}
-          />
-          <div className="lds-shell-body" data-testid="lds-shell-body">
-            <RailNav />
-            <div className="lds-workarea" data-testid="lds-workarea">{children}</div>
-          </div>
-        </div>
+        {/* AppShell owns only chrome regions; layout builds the routed slot contents. */}
+        <AppShell
+          topNav={(
+            <Header
+              projectSelector={(
+                <TopBarProjectSelect
+                  projects={projects}
+                  totalSessions={sessions.length}
+                  sessionTitles={sessionTitles}
+                />
+              )}
+            />
+          )}
+          sideNav={<RailNav />}
+        >
+          {children}
+        </AppShell>
       </body>
     </html>
   );

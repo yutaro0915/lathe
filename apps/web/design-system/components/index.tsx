@@ -8,6 +8,8 @@
 
 import * as React from "react";
 
+export { AppShell } from "./AppShell";
+export type { AppShellProps } from "./AppShell";
 export { default as Surface } from "./Surface";
 export type { SurfaceProps } from "./Surface";
 export { SideNav } from "./SideNav";

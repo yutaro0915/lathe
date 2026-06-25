@@ -86,6 +86,7 @@ Source files: `apps/web/design-system/tokens.css` and `apps/web/design-system/co
 
 | Component | Summary | Axes | States |
 |---|---|---|---|
+| `AppShell` | Application chrome composer for TopNav, SideNav, and Main slots. | `slotNaming`: `topNav`, `sideNav`, `children` | `default` |
 | `Badge` | Compact status or count label with optional semantic tone and dot. | `tone`: `default`, `ok`, `warn`, `err`, `neutral`, `accent` | `default` |
 | `Box` | Layout frame that owns padding, overflow and min-width:0 (containment). Optional hairline surface. | `overflow`: `visible`, `hidden`, `auto` | `default` |
 | `Button` | Command button for neutral, primary, ghost, and destructive actions. | `size`: `md`, `sm`<br>`variant`: `default`, `primary`, `ghost`, `danger` | `default`, `hover`, `focus`, `disabled` |
