@@ -1,0 +1,27 @@
+{
+  "schema_version": "2",
+  "id": "meta/triage-playbook-exists",
+  "title": "test-triage skill が依存する playbook が実在する — skill のドリフト防止",
+  "version": "1",
+  "scope": [".claude/skills/test-triage", ".claude/skills/verify", "design/test-failure-playbook.md"],
+  "origin": "agent-workflow(2026-06-25, step2): test-triage / verify skill と verifier agent は『成長する知識』を design/test-failure-playbook.md に外出しし、skill 本体には不変手順だけを置く。playbook が rename/削除されると skill の『playbook を引く』手順が黙って空振りし、既知失敗を新規と誤分類する（false escalation）。本 gate が playbook の実在を機械保証する。rubric 追加は auditor のみ・別 commit。",
+  "checks": [
+    {
+      "id": "playbook-resolves",
+      "value": "① 何を縛るか: test-triage / verify skill が名指す既知失敗台帳 `design/test-failure-playbook.md` が実在し、参照される pattern 見出し（最低 P1）を含む。② なぜ重要か: skill は検証が難しい層。台帳が消える/空になると triage の『playbook を引く』が空振りし、既知の flake を新規 RED として OPUS へ誤 escalate する（false escalation・時間浪費）。skill の invariant を、検証できる層（rubric）で裏取りする。③ 仕組み: ファイルの実在と P1 見出しの存在を確認し、欠けた数を数える。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "m=0; [ -f design/test-failure-playbook.md ] || m=$((m+1)); grep -q '^## P1' design/test-failure-playbook.md 2>/dev/null || m=$((m+1)); echo $m",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。ファイルの実在と P1 見出しの存在だけを見る（個々の pattern の中身の正しさは meta-audit と実運用で担保）。限界: 見出しの存在のみ（記述の質は見ない）。"
+      },
+      "evidence": "playbook の欠落数（ファイル不在＋P1 見出し不在の合計）。0 で GREEN、1+ で RED。",
+      "examples": {
+        "pass": ["design/test-failure-playbook.md が存在し ## P1 見出しを含む"],
+        "fail": ["playbook を削除 → test-triage の『playbook を引く』が空振り → RED", "P1 見出しを消す → 既知 flake の参照先が消える → RED"]
+      }
+    }
+  ]
+}
