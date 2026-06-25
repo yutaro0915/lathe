@@ -72,3 +72,21 @@ skill と rubric は**結合**している（skill はどの rubric を参照す
 - Eval を rubric で構成: 後（今は agent が rubric を直接参照）。
 - 呼称: 実装担当エージェントは一般名で記す（具体ツール名は書かない）。← hub memory 化予定。
 - handoff: implementer は uncommitted で残し commit/merge は OPUS。verifier は GREEN/RED＋evidence。RED は test-triage 先行。
+
+## Build status & 引き継ぎ（2026-06-25）
+
+### 進捗
+- **step 1（枠組み・本書）**: ✓
+- **step 2（verify capability）**: ✓ — `.claude/agents/verifier.md`(model:sonnet) ＋ `.claude/skills/verify/SKILL.md` ＋ guard rubric `rubrics/meta/verify-commands-exist`（GREEN）。GREEN-path 実証済（agent が run.mjs を実走し各 check を正確に報告）。**RED catch-test は未**。
+- 残り: ① verify の RED catch-test → ② reviewer / test-triage / meta-auditor を同型（skill＋rubric＋agent を一緒）で → ③ impact→rubric policy（最小）→ ④ command 集約＋preflight＋Stop hook → ⑤（最後）build/起動確認。
+
+### invocation（実測で確定）
+- `.claude/agents/*.md` は **`lathe/` を root に起動した cc セッションでのみ load される**（hub 起動セッションは built-in しか見えず named agent が not found）。
+- → **今後の開発は `lathe/` で cc を起動**。そこでは named agent（verifier 等＋frontmatter の model）を `subagent_type` で直接呼べる。
+- hub 起動でやむを得ない時のみ、built-in subagent_type（read-only=Explore / 編集=general-purpose / 計画=Plan）＋ `model` param ＋ 同じ skill をパス参照、でフォールバック。
+
+### 引き継ぎ（lathe-cc へ）
+- 開発は `lathe/` 起動の cc で継続。本書 ＋ AGENTS.md ＋ rubrics/ ＋ .claude/ で self-contained（hub 不要＝code/gate は hub なしで動く。確認済 2026-06-25）。
+- 旧運用「Claude(hub) ＋ supervised 別 runner(tmux)」は本 roster（implementer=sonnet 等）へ移行。
+- dev 規律（詳細は AGENTS.md）: **FF only（force-push 禁止）** / rubric 編集は auditor のみ・実装と別 commit（pr-split）/ worktree single-writer / merge 前に verify。
+- 注: 日本語敬語などの**個人グローバル設定は `~/.claude`（user 層）に置く**と lathe-cc にも効く（hub の CLAUDE.md は lathe-cc に読まれない）。
