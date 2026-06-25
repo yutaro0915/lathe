@@ -2,7 +2,16 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { costForUsage } from '../../../lib/cost';
-import type { Built } from '../built';
+import type { EventType } from '../../../lib/types';
+import type {
+  Built,
+  BuiltAnnotation,
+  BuiltAttribution,
+  BuiltChangedFile,
+  BuiltEvent,
+  BuiltEventFile,
+  BuiltHunk,
+} from '../built';
 import { collectSessionCommits } from '../commit-sha';
 import { resolveProjectIdentity, type ProjectIdentity } from '../project';
 import {
@@ -14,6 +23,8 @@ import {
   lineCount,
   parseJsonlRecords,
   preview,
+  type DraftChangedFile,
+  type DraftEvent,
   type LooseRecord,
 } from '../shared';
 import type { ProviderBuildOptions, TranscriptProvider } from './types';
@@ -149,21 +160,22 @@ export function parseCodexSessionRecords(
     if (r.type === 'event_msg' && r.payload?.type === 'patch_apply_end' && r.payload.call_id) patchEnd.set(r.payload.call_id, r.payload);
   }
 
-  const events: LooseRecord[] = [];
-  const eventFiles: LooseRecord[] = [];
-  const filesByPath = new Map<string, LooseRecord>();
-  const hunks: LooseRecord[] = [];
-  const attributions: LooseRecord[] = [];
-  const annotations: LooseRecord[] = [];
+  const events: BuiltEvent[] = [];
+  const eventFiles: BuiltEventFile[] = [];
+  const filesByPath = new Map<string, DraftChangedFile>();
+  const hunks: BuiltHunk[] = [];
+  const attributions: BuiltAttribution[] = [];
+  const annotations: BuiltAnnotation[] = [];
   let seq = 0, firstTs = '', lastTs = '';
   let tokenIn = 0, tokenOut = 0, tokenUsage = 0, cachedInput = 0;
   const counts: Record<string, number> = {};
-  const addEvent = (e: LooseRecord) => {
+  const addEvent = (e: DraftEvent): BuiltEvent => {
     seq += 1; e.seq = seq; e.session_id = sessionId; e.id = `${sessionId}_${seq}`;
     e.subagent = e.subagent ?? null; e.parent_id = null;
-    events.push(e); counts[e.type] = (counts[e.type] || 0) + 1; return e;
+    const ev = e as BuiltEvent;
+    events.push(ev); counts[ev.type] = (counts[ev.type] || 0) + 1; return ev;
   };
-  const ensureFile = (p: string) => {
+  const ensureFile = (p: string): DraftChangedFile => {
     let f = filesByPath.get(p);
     if (!f) { f = { id: `chf_${sessionId}_${filesByPath.size + 1}`, session_id: sessionId, path: p, status: 'modified', additions: 0, deletions: 0, language: langOf(p), seq: filesByPath.size + 1, _hunkSeq: 0 }; filesByPath.set(p, f); }
     return f;
@@ -187,7 +199,7 @@ export function parseCodexSessionRecords(
     if (r.type === 'response_item' && p.type === 'reasoning') {
       // raw reasoning is encrypted; the SUMMARY (when present) is the visible
       // thinking — emit a thinking event only when there is real summary text.
-      const sum = Array.isArray(p.summary) ? p.summary.map((x: LooseRecord) => x?.text ?? '').filter(Boolean).join('\n\n') : '';
+      const sum = Array.isArray(p.summary) ? p.summary.map((x: { text?: string }) => x?.text ?? '').filter(Boolean).join('\n\n') : '';
       if (sum.trim()) addEvent({ ts, type: 'thinking', actor: 'assistant', title: preview(sum, 90), body: sum.slice(0, 8000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
       continue;
     }
@@ -212,7 +224,7 @@ export function parseCodexSessionRecords(
         const exit = em ? Number(em[1]) : null;
         const oi = outText.indexOf('Output:');
         const stdout = oi >= 0 ? outText.slice(oi + 7).replace(/^\n/, '') : outText;
-        let etype = 'bash';
+        let etype: EventType = 'bash';
         let readPath: string | null = null;
         let skillName: string | null = null;
         if (isCommit(cmd)) etype = 'commit';
@@ -310,19 +322,21 @@ export function parseCodexSessionRecords(
     seq: 0,
     _startMs: firstTs ? new Date(firstTs).getTime() : 0,
   };
-  const changedFiles = [...filesByPath.values()].slice(0, maxFiles).map((f) => { delete f._hunkSeq; return f; });
+  const changedFiles: BuiltChangedFile[] = [...filesByPath.values()]
+    .slice(0, maxFiles)
+    .map(({ _hunkSeq, _firstWrite, ...f }) => f);
 
-  const commitExtraction = collectSessionCommits(events as Built['events']);
+  const commitExtraction = collectSessionCommits(events);
   return {
     session,
-    events: events as Built['events'],
+    events,
     sessionCommits: commitExtraction.commits,
     commitShaMissCount: commitExtraction.unextractedEvents,
-    eventFiles: eventFiles as Built['eventFiles'],
-    changedFiles: changedFiles as Built['changedFiles'],
-    hunks: hunks as Built['hunks'],
-    attributions: attributions as Built['attributions'],
-    annotations: annotations as Built['annotations'],
+    eventFiles,
+    changedFiles,
+    hunks,
+    attributions,
+    annotations,
   };
 }
 

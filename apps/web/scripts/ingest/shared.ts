@@ -1,8 +1,56 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { EventType } from '../../lib/types';
+import type { BuiltChangedFile, BuiltEvent } from './built';
 
+// Raw, un-normalized JSONL line from a transcript. Still loose because the
+// transcript record SHAPE differs per provider/version and is the external
+// boundary we have yet to fully type-guard (N7 / I7 backlog → 0).
 export type LooseRecord = Record<string, any>;
+
+// A content block inside a Claude `message.content[]` (text / thinking /
+// tool_use / tool_result). All fields optional — providers omit what they don't
+// emit — so call sites keep their existing `?.`/`??` guards.
+export interface ClaudeContentBlock {
+  type?: string;
+  text?: string;
+  thinking?: string;
+  name?: string;
+  id?: string;
+  input?: ToolInput;
+  tool_use_id?: string;
+  is_error?: boolean;
+  content?: string | ClaudeContentBlock[];
+}
+
+// A tool-call input payload. The common display fields are typed; the open
+// index keeps unusual tool args reachable without falling back to `any`.
+export interface ToolInput {
+  command?: string;
+  file_path?: string;
+  path?: string;
+  subagent_type?: string;
+  description?: string;
+  name?: string;
+  [key: string]: unknown;
+}
+
+// A `BuiltEvent` under construction: the display fields are supplied by call
+// sites, while id/seq/session_id (and subagent/parent_id for providers that
+// default them) are stamped by the local addEvent helper.
+export type DraftEvent = Omit<
+  BuiltEvent,
+  'id' | 'seq' | 'session_id' | 'subagent' | 'parent_id'
+> &
+  Partial<Pick<BuiltEvent, 'id' | 'seq' | 'session_id' | 'subagent' | 'parent_id'>>;
+
+// A `BuiltChangedFile` under construction, carrying private accumulators that
+// are dropped before the file is returned.
+export interface DraftChangedFile extends BuiltChangedFile {
+  _hunkSeq: number;
+  _firstWrite?: boolean;
+}
 
 export function parseJsonlRecords(raw: string): LooseRecord[] {
   const recs: LooseRecord[] = [];
@@ -163,7 +211,7 @@ export function parseSubagentUsage(text: string) {
   };
 }
 
-export function toolType(name: string): string {
+export function toolType(name: string): EventType {
   switch (name) {
     case 'Edit':
     case 'MultiEdit':
@@ -189,7 +237,7 @@ export function toolType(name: string): string {
   }
 }
 
-export function toolTitle(name: string, input: LooseRecord): string {
+export function toolTitle(name: string, input: ToolInput): string {
   switch (name) {
     case 'Edit':
     case 'MultiEdit':

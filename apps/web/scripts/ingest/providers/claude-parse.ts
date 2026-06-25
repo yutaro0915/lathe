@@ -1,6 +1,13 @@
 import * as path from 'node:path';
 import { costForUsage } from '../../../lib/cost';
-import type { Built } from '../built';
+import type {
+  Built,
+  BuiltAnnotation,
+  BuiltAttribution,
+  BuiltEvent,
+  BuiltEventFile,
+  BuiltHunk,
+} from '../built';
 import { collectSessionCommits } from '../commit-sha';
 import type { ProjectIdentity } from '../project';
 import {
@@ -16,6 +23,9 @@ import {
   preview,
   toolTitle,
   toolType,
+  type ClaudeContentBlock,
+  type DraftChangedFile,
+  type DraftEvent,
   type LooseRecord,
 } from '../shared';
 import { parseClaudeSubagentEvents } from './claude-subagents';
@@ -63,7 +73,7 @@ export function parseClaudeSessionRecords(
             typeof c.content === 'string'
               ? c.content
               : Array.isArray(c.content)
-                ? c.content.map((x: LooseRecord) => x?.text ?? '').join('\n')
+                ? c.content.map((x: ClaudeContentBlock) => x?.text ?? '').join('\n')
                 : '';
           results.set(c.tool_use_id, { isError: !!c.is_error, text, ts: r.timestamp });
         }
@@ -71,12 +81,12 @@ export function parseClaudeSessionRecords(
     }
   }
 
-  const events: LooseRecord[] = [];
-  const eventFiles: LooseRecord[] = [];
-  const filesByPath = new Map<string, LooseRecord>();
-  const hunks: LooseRecord[] = [];
-  const attributions: LooseRecord[] = [];
-  const annotations: LooseRecord[] = [];
+  const events: BuiltEvent[] = [];
+  const eventFiles: BuiltEventFile[] = [];
+  const filesByPath = new Map<string, DraftChangedFile>();
+  const hunks: BuiltHunk[] = [];
+  const attributions: BuiltAttribution[] = [];
+  const annotations: BuiltAnnotation[] = [];
   const agentLaunchers = new Map<string, string>(); // tool_use id -> launcher event id
 
   let seq = 0;
@@ -91,17 +101,18 @@ export function parseClaudeSessionRecords(
   const counts: Record<string, number> = {};
   const loadedMemory = new Set<string>(); // de-dupe nested CLAUDE.md/AGENTS.md re-attached every turn
 
-  const addEvent = (e: LooseRecord) => {
+  const addEvent = (e: DraftEvent): BuiltEvent => {
     seq += 1;
     e.seq = seq;
     e.session_id = sessionId;
     e.id = `${sessionId}_${seq}`; // globally unique, overrides provided ids
-    events.push(e);
-    counts[e.type] = (counts[e.type] || 0) + 1;
-    return e;
+    const ev = e as BuiltEvent;
+    events.push(ev);
+    counts[ev.type] = (counts[ev.type] || 0) + 1;
+    return ev;
   };
 
-  const ensureFile = (p: string, lang: string | null) => {
+  const ensureFile = (p: string, lang: string | null): DraftChangedFile => {
     let f = filesByPath.get(p);
     if (!f) {
       f = {
@@ -134,8 +145,8 @@ export function parseClaudeSessionRecords(
       if (typeof content === 'string') text = content;
       else if (Array.isArray(content)) {
         text = content
-          .filter((c: LooseRecord) => c?.type === 'text')
-          .map((c: LooseRecord) => c.text)
+          .filter((c: ClaudeContentBlock) => c?.type === 'text')
+          .map((c: ClaudeContentBlock) => c.text)
           .join('\n');
       }
       // strip slash-command xml wrappers for the headline
@@ -227,7 +238,7 @@ export function parseClaudeSessionRecords(
           // real duration = time from this tool_use to its result
           let durMs = durationBetween(r.timestamp, res?.ts);
           let tok: number | null = null;
-          const metaObj: LooseRecord = { tool: name };
+          const metaObj: { tool: string; toolUses?: number } = { tool: name };
           if (name === 'Agent' || name === 'Task') {
             const u = parseSubagentUsage(res?.text || '');
             if (u.durationMs != null) durMs = u.durationMs; // explicit, more accurate
@@ -378,7 +389,7 @@ export function parseClaudeSessionRecords(
     // Subagents tab can show which model ran and what the run cost.
     const launcher = events.find((e) => e.id === parentEventId);
     if (launcher) {
-      let lm: LooseRecord = {};
+      let lm: Record<string, unknown> = {};
       try {
         lm = launcher.meta ? JSON.parse(launcher.meta) : {};
       } catch {
@@ -449,21 +460,21 @@ export function parseClaudeSessionRecords(
     _startMs: firstTs ? new Date(firstTs).getTime() : 0,
   };
 
-  // finalize changed file list (cap)
-  const changedFiles = [...filesByPath.values()].slice(0, maxFiles).map((f) => {
-    delete f._hunkSeq; delete f._firstWrite; return f;
-  });
+  // finalize changed file list (cap) — drop the private accumulators
+  const changedFiles: Built['changedFiles'] = [...filesByPath.values()]
+    .slice(0, maxFiles)
+    .map(({ _hunkSeq, _firstWrite, ...f }) => f);
 
-  const commitExtraction = collectSessionCommits(events as Built['events']);
+  const commitExtraction = collectSessionCommits(events);
   return {
     session,
-    events: events as Built['events'],
+    events,
     sessionCommits: commitExtraction.commits,
     commitShaMissCount: commitExtraction.unextractedEvents,
-    eventFiles: eventFiles as Built['eventFiles'],
-    changedFiles: changedFiles as Built['changedFiles'],
-    hunks: hunks as Built['hunks'],
-    attributions: attributions as Built['attributions'],
-    annotations: annotations as Built['annotations'],
+    eventFiles,
+    changedFiles,
+    hunks,
+    attributions,
+    annotations,
   };
 }

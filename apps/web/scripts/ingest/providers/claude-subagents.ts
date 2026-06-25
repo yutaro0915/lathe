@@ -1,4 +1,5 @@
 import { costForUsage } from '../../../lib/cost';
+import type { BuiltEvent } from '../built';
 import {
   durationBetween,
   hhmmss,
@@ -8,11 +9,13 @@ import {
   preview,
   toolTitle,
   toolType,
+  type ClaudeContentBlock,
+  type DraftEvent,
   type LooseRecord,
 } from '../shared';
 
 export interface ClaudeSubagentParseResult {
-  children: LooseRecord[];
+  children: BuiltEvent[];
   model: string | null;
   costUsd: number | null;
   tokens: number | null;
@@ -37,7 +40,7 @@ export function parseClaudeSubagentEvents(
             typeof c.content === 'string'
               ? c.content
               : Array.isArray(c.content)
-                ? c.content.map((x: LooseRecord) => x?.text ?? '').join('\n')
+                ? c.content.map((x: ClaudeContentBlock) => x?.text ?? '').join('\n')
                 : '';
           results.set(c.tool_use_id, { isError: !!c.is_error, text, ts: r.timestamp });
         }
@@ -45,7 +48,7 @@ export function parseClaudeSubagentEvents(
     }
   }
 
-  const out: LooseRecord[] = [];
+  const out: BuiltEvent[] = [];
   let saModel: string | null = null;
   let saIn = 0,
     saOut = 0,
@@ -53,16 +56,17 @@ export function parseClaudeSubagentEvents(
     saCacheRead = 0;
   let saSawUsage = false;
   let k = 0;
-  const add = (e: LooseRecord) => {
+  const add = (e: DraftEvent) => {
     k += 1;
-    out.push({
+    const ev: BuiltEvent = {
       ...e,
       id: `${parentEventId}_c${k}`,
       session_id: sessionId,
       seq: k,
       parent_id: parentEventId,
       subagent: agentLabel,
-    });
+    };
+    out.push(ev);
   };
 
   for (const r of recs) {
@@ -72,7 +76,7 @@ export function parseClaudeSubagentEvents(
       let t = '';
       if (typeof c === 'string') t = c;
       else if (Array.isArray(c))
-        t = c.filter((x: LooseRecord) => x?.type === 'text').map((x: LooseRecord) => x.text).join('\n');
+        t = c.filter((x: ClaudeContentBlock) => x?.type === 'text').map((x: ClaudeContentBlock) => x.text).join('\n');
       const clean = t.replace(/<[^>]+>/g, ' ').trim();
       if (clean)
         add({ ts, type: 'user_message', actor: 'user', title: preview(clean, 90), body: t.slice(0, 2000), file_path: null, command: null, exit_code: null, duration_ms: null, token_usage: null, meta: null });
