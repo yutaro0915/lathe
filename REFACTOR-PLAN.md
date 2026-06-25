@@ -90,7 +90,7 @@ Codex 稼働パターン:
 3. **URL ルート不変**: `/`, `/diff`, `/stats`, `/overview` および `?session=`, `?tab=`, `?focusEvent=` 等のクエリ仕様。
 4. **DB スキーマ不変**（`db/schema.sql` を触らない）。
 5. **`db/pricing.json` のキー不変**（LiteLLM 由来）。
-6. **dev サーバを起動した状態でユーザーに確認を投げる**（本 repo の規約、[memory/USER.md](../../memory/USER.md) 参照）。
+6. **dev サーバを起動した状態でユーザーに確認を投げる**（作業慣習: 確認は preview を起動した状態で投げる）。
 
 ## 既知の落とし穴
 

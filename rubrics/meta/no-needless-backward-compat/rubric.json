@@ -12,7 +12,7 @@
           "input_cmd": "if ! git diff --quiet HEAD 2>/dev/null; then git diff HEAD -- apps/web packages 2>/dev/null | head -1200; else git show HEAD -- apps/web packages 2>/dev/null | head -1200; fi"
         },
         "expect": "le:0",
-        "means": "agent-judge が『再生成可能データへの必要性のない後方互換/移行/backfill』を検出したら 1+(違反)、無ければ 0。限界: judge は非決定的で、前向きロジックと移行コードの境界は文脈依存=完全な機械判定はできない(だから『迷ったら通す』設計)。決定的な下支えは、オーサリング時の規律 [[memory/feedback_no_needless_backward_compat]]。生 hex のような単純パターンでない『意図』の検査なので judge 型を採る。"
+        "means": "agent-judge が『再生成可能データへの必要性のない後方互換/移行/backfill』を検出したら 1+(違反)、無ければ 0。限界: judge は非決定的で、前向きロジックと移行コードの境界は文脈依存=完全な機械判定はできない(だから『迷ったら通す』設計)。決定的な下支えは、オーサリング時の規律『必要性のない後方互換/移行/backfill を作らない＝再生成可能データは作り直す』(オーナー方針, 2026-06-23)。生 hex のような単純パターンでない『意図』の検査なので judge 型を採る。"
       }
     }
   ],

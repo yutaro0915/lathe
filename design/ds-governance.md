@@ -2,7 +2,7 @@
 
 > status: planned / 2026-06-24 / 配置 = **A（apps/web 内集約）** ＋ レイアウト是正 = **`apps/web/design-system/` に token＋部品を統合**（旧 `components/ds` は廃止＝DS=factory が両方を出力、2026-06-24）
 > 方針: Design System を SSOT に、`design.md`/Storybook/Preview/lint/test はその伝達 I/O・観測・検査の子要素として扱う（ユーザー提供フレーム、2026-06-24）。
-> 関連: `design/ds-migration-plan.md`（globals.css→0 の旧 DS-replacement、並走トラック）/ `.claude/skills/lathe-ui`（手順正本）/ `memory/feedback_systemic_enforcement`。
+> 関連: `design/ds-migration-plan.md`（globals.css→0 の旧 DS-replacement、並走トラック）/ `.claude/skills/lathe-ui`（手順正本）/ systemic enforcement（同種問題は instance でなく共有 source を直し gate で強制）。
 
 ## SSOT 階層（lathe 版）
 

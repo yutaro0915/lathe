@@ -4,7 +4,7 @@
   "title": "UI は共有モジュールを再利用する — 既存 primitive / surface の再実装を禁ずる",
   "version": "1",
   "scope": ["apps/web/components"],
-  "origin": "オーナー指示(2026-06-24): 場当たり・再実装をやめ共有モジュールで全体最適する（[[memory/feedback_systemic_enforcement]]）。同じ箱・ボタン・チップを各所で手書きするから cramping/padding drift が起きた。design.md は記述、強制は機械。色=stylelint(T1)/spacing=T2 と並ぶ component 層の judge。手順は skill `lathe-ui`。",
+  "origin": "オーナー指示(2026-06-24): 場当たり・再実装をやめ共有モジュールで全体最適する（systemic enforcement: 同種の問題は instance を個別に直さず共有 source を直し gate で強制する）。同じ箱・ボタン・チップを各所で手書きするから cramping/padding drift が起きた。design.md は記述、強制は機械。色=stylelint(T1)/spacing=T2 と並ぶ component 層の judge。手順は skill `lathe-ui`。",
   "checks": [
     {
       "id": "no-reimplemented-ui",

@@ -4,7 +4,7 @@
   "title": "e2e spec はすべて load できる — 走らない spec による false-green を防ぐ",
   "version": "1",
   "scope": ["apps/web/e2e"],
-  "origin": "オーナーの coverage-harness 規律([[memory/feedback_coverage_harness]]: 完成/網羅/検証済みは機械照合で示す)に基づき、監査(2026-06-25, S3 中)で apps/web/e2e/pressable.spec.ts が react-dom/server を playwright(Node) context に import して ESM/CJS 衝突(`require is not defined in ES module scope`)で load 不能となり、`playwright test --list` が suite 全体で停止＝`pnpm e2e` 実質不能の false-green を検出。壊れた/非ロード spec を機械的に捕捉する gate を新設。rubric 追加は auditor のみ・実装スライスと別 commit(運用規律)。",
+  "origin": "オーナーの coverage-harness 規律(完成/網羅/検証済みは記憶でなく機械照合で示す。走らないテスト＝false-green)に基づき、監査(2026-06-25, S3 中)で apps/web/e2e/pressable.spec.ts が react-dom/server を playwright(Node) context に import して ESM/CJS 衝突(`require is not defined in ES module scope`)で load 不能となり、`playwright test --list` が suite 全体で停止＝`pnpm e2e` 実質不能の false-green を検出。壊れた/非ロード spec を機械的に捕捉する gate を新設。rubric 追加は auditor のみ・実装スライスと別 commit(運用規律)。",
   "checks": [
     {
       "id": "all-e2e-specs-load",
