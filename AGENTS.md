@@ -24,7 +24,7 @@ code-project（実装・テスト中心: `apps/web` / `design/` / `adr/` / `rubr
 複数 agent / chip が **main worktree を同時編集すると衝突する**（2026-06-19、a11y chip と T2 修正が main で交錯し、premature な gate 改変が混入した事故）。worktree はこれを防ぐためにある。
 
 - コード編集を伴う委譲（サブエージェント）は **`Agent(isolation: "worktree")`** で隔離し、編集・build・e2e をその worktree 内で完結させる。main は **Claude（監査役）が単独 writer** として diff を確認して取り込む。
-- **chip（`spawn_task`）は必ず ①自分の worktree で完結（main を触らせない、branch/diff で返す）か、②issue 化**のいずれか。auto 実行で main を直接編集させない。
+- **chip（`spawn_task`）は使わない（禁止）**。一見ただの cleanup でも、型の締め方・rubric の新設/改訂・入力境界の検証戦略・scope 切り分け等の**設計判断**が潜み、潜在の有無は事前に分からない（例: ingest の loose 型 43→38 削減チップは、実は「外部 transcript JSON の検証戦略をどうするか」という設計判断だった、2026-06-26）。chip は SCOPE→PLAN(人間承認)→implement の gate を迂回して設計判断を機械実行に流すため禁止。スコープ外の発見は **issue 化** するか OPUS に上げ、通常フローに戻す。
 - 「main を編集して e2e だけ disposable worktree で回す」運用は**禁止**（編集が隔離されず並行 writer で衝突する）。編集ごと隔離する。
 - rubric（`rubrics/`）の編集は監査役のみ・実装スライスと別コミット（**運用規律**。機械 gate `meta/no-gate-tampering` は gate 変更 PR と構造衝突するため廃止＝余計な依存を増やさず運用で担保、2026-06-23）。
 
