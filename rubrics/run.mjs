@@ -43,8 +43,13 @@ let failed = 0, total = 0;
 for (const r of selected) {
   console.log(`\n# ${r.id} — ${r.title}  [scope: ${(r.scope || []).join(' ')}]`);
   for (const c of r.checks) {
-    total++;
     const v = c.verify || {};
+    // opt-in: fast preflight skips codex agent-judge checks (deferred to --full / merge gate). Default unchanged.
+    if (v.judge && process.env.RUBRIC_SKIP_JUDGE === '1') {
+      console.log(`  [SKIP ] ${c.id} (judge — deferred to full preflight)`);
+      continue;
+    }
+    total++;
     const how = v.judge ? 'judge' : 'cmd';
     let out = '', threw = false;
     try {
