@@ -2,16 +2,20 @@
 // preflight — single consolidated verify entry. Runs ONLY the layers affected by
 // the current uncommitted changes (git working tree vs HEAD).
 //
-//   --fast (default; used by the Stop hook): cmd-gate (codex judges skipped) + tsc + unit.
-//           Fast & deterministic — a quick "did you verify before stopping" check.
-//   --full: full gate (incl judges/e2e) + tsc + unit + scope-relevant integration verifies.
+//   --quick (Stop hook): cmd-gate only (codex judges skipped). ~1-2s heads-up.
+//   --fast            : cmd-gate (judges skipped) + tsc + unit. Quick local check.
+//   --full            : full gate (incl judges/e2e) + tsc + unit + scope integration + storybook. Merge gate.
 //
 // The command bodies live HERE so the Stop hook (and implementer self-checks /
 // verifier) all call ONE entry instead of re-typing. The gate stays the single
 // source: preflight CALLS `rubrics/run.mjs`, it never reimplements gate logic.
 import { execSync } from 'node:child_process';
 
-const mode = process.argv.includes('--full') ? 'full' : 'fast';
+const mode = process.argv.includes('--full')
+  ? 'full'
+  : process.argv.includes('--quick')
+    ? 'quick'
+    : 'fast';
 
 function sh(cmd, extraEnv = {}) {
   try {
@@ -54,16 +58,16 @@ const run = (name, cmd, env) => {
   results.push({ name, ok: r.ok, out: r.out });
 };
 
-// 1. gate (always). --fast skips codex agent-judge checks via RUBRIC_SKIP_JUDGE.
-run('gate', `node rubrics/run.mjs --changed ${code.join(' ')}`, mode === 'fast' ? { RUBRIC_SKIP_JUDGE: '1' } : {});
+// 1. gate (always). --quick / --fast skip codex agent-judge checks via RUBRIC_SKIP_JUDGE.
+run('gate', `node rubrics/run.mjs --changed ${code.join(' ')}`, mode === 'full' ? {} : { RUBRIC_SKIP_JUDGE: '1' });
 
-// 2. tsc (when TS changed)
-if (tsChanged) run('tsc', 'pnpm -C apps/web exec tsc --noEmit');
+// 2. tsc + unit (skipped in --quick to stay snappy for the Stop hook)
+if (mode !== 'quick') {
+  if (tsChanged) run('tsc', 'pnpm -C apps/web exec tsc --noEmit');
+  if (unitRelevant) run('unit', 'pnpm test');
+}
 
-// 3. unit (when lib / components / scripts / packages changed)
-if (unitRelevant) run('unit', 'pnpm test');
-
-// 4. storybook & integration (full only, by scope)
+// 3. storybook & integration (full only, by scope)
 if (mode === 'full' && storybookRelevant) run('storybook', 'pnpm -C apps/web test-storybook');
 if (mode === 'full' && ingestChanged) {
   for (const v of ['verify:incremental', 'verify:subagent-relink', 'verify:subagents']) {
