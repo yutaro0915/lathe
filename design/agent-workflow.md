@@ -73,13 +73,14 @@ skill と rubric は**結合**している（skill はどの rubric を参照す
 - 呼称: 実装担当エージェントは一般名で記す（具体ツール名は書かない）。← hub memory 化予定。
 - handoff: implementer は uncommitted で残し commit/merge は OPUS。verifier は GREEN/RED＋evidence。RED は test-triage 先行。
 
-## Build status & 引き継ぎ（2026-06-25）
+## Build status & 引き継ぎ（2026-06-25, 更新 2026-06-26）
 
 ### 進捗
 - **step 1（枠組み・本書）**: ✓
 - **step 2（verify capability）**: ✓ — `.claude/agents/verifier.md`(model:sonnet) ＋ `.claude/skills/verify/SKILL.md` ＋ guard rubric `rubrics/meta/verify-commands-exist`（GREEN）。GREEN-path・**RED catch-test とも実証済**（2026-06-25: `file-size` を 500 行超 fixture で決定的に RED 化 → verifier が誘導なしで単一 RED `oversized-source-files`＋evidence を返し、他 16 check を GREEN と正確に報告。捨て worktree で完結・破棄）。
-- **step 2.5（reviewer / test-triage / meta-auditor）**: authoring ✓（2026-06-25、同型で skill＋agent。test-triage は加えて成長台帳 `design/test-failure-playbook.md`〔P1 cold-e2e-flake / P2 env 起因 build-RED〕＋ guard rubric `rubrics/meta/triage-playbook-exists`〔GREEN〕）。reviewer / meta-auditor は参照 rubric が既存物のため新 rubric なし（doc の「同 rubric / 全 rubric」規定どおり）。**新 rubric は schema 自己適用 GREEN**。runtime 実証（agent 実起動）は**次セッション持ち越し**（後述: 新 agent は mid-session で load されない）。
-- 残り: ③ impact→rubric policy（最小）→ ④ command 集約＋preflight＋Stop hook → ⑤（最後）build/起動確認。次セッションでまず reviewer / test-triage / meta-auditor の実起動 GREEN/RED-path を実証してから ③ へ。
+- **step 2.5（reviewer / test-triage / meta-auditor）**: authoring ✓（2026-06-25、同型で skill＋agent。test-triage は加えて成長台帳 `design/test-failure-playbook.md`〔P1 cold-e2e-flake / P2 env 起因 build-RED〕＋ guard rubric `rubrics/meta/triage-playbook-exists`〔GREEN〕）。reviewer / meta-auditor は参照 rubric が既存物のため新 rubric なし（doc の「同 rubric / 全 rubric」規定どおり）。**新 rubric は schema 自己適用 GREEN**。**runtime 実証済**（2026-06-26: reviewer / verifier / test-triage / meta-auditor を本セッションで多数実起動。meta-auditor は『分析対象＋分析タイプを呼び出し側が渡す』形に改訂し、観測を Lathe DB に接地して実走）。
+- **step 4（command 集約＋preflight＋Stop hook）**: ✓（2026-06-26、`pnpm preflight`〔--quick/--fast/--full〕＝単一入口で影響層だけ回す ＋ verify skill 参照 ＋ guard rubric `meta/preflight-commands-exist` ＋ run.mjs の opt-in `RUBRIC_SKIP_JUDGE` ＋ advisory Stop hook `preflight-stop.mjs`〔dirty 時 `--quick` で警告・必ず exit0〕）。
+- 残り: ③ impact→rubric policy（最小）／ ⑤（最後）build/起動確認（preflight `--full` が一部肩代わり済）。
 
 ### invocation（実測で確定）
 - `.claude/agents/*.md` は **`lathe/` を root に起動した cc セッションでのみ load される**（hub 起動セッションは built-in しか見えず named agent が not found）。
