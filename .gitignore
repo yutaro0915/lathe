@@ -1,5 +1,5 @@
-# dependencies
-node_modules/
+# dependencies (match dirs AND pnpm workspace symlinks named node_modules)
+node_modules
 
 # next.js
 .next/
