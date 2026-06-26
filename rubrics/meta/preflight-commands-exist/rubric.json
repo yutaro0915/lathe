@@ -1,0 +1,27 @@
+{
+  "schema_version": "2",
+  "id": "meta/preflight-commands-exist",
+  "title": "preflight が束ねる集約入口とコマンドが実在する — 集約のドリフト防止",
+  "version": "1",
+  "scope": ["scripts/preflight.mjs", "package.json", "rubrics/run.mjs", ".claude/skills/verify"],
+  "origin": "agent-workflow(2026-06-26, step4): 検証コマンドを毎回打ち直す代わりに単一入口 `pnpm preflight`(scripts/preflight.mjs)へ集約し、Stop hook はそれを叩くだけにした。入口やそれが呼ぶ土台コマンド(run.mjs / pnpm test 等)が rename/削除されると preflight が黙って空振りし『検証したつもりで未検証』になる。本 gate が入口の実在を機械保証する。rubric 追加は auditor のみ・別 commit。",
+  "checks": [
+    {
+      "id": "preflight-entry-resolves",
+      "value": "① 何を縛るか: 集約入口 `scripts/preflight.mjs` と root の `preflight` スクリプト、そして preflight が呼ぶ gate 集約口 `rubrics/run.mjs` が実在する。② なぜ重要か: skill / Stop hook / verifier が単一入口 `pnpm preflight` に依存する設計。入口や土台が消えると検証が黙って空振りし false confidence になる。skill の invariant を検証できる層(rubric)で裏取りする。③ 仕組み: 各要素の実在を確認し欠けた数を数える。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "m=0; [ -f scripts/preflight.mjs ] || m=$((m+1)); jq -e '.scripts.preflight' package.json >/dev/null 2>&1 || m=$((m+1)); [ -f rubrics/run.mjs ] || m=$((m+1)); echo $m",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。入口とスクリプト名と gate 集約口の実在のみ(中身の正しさは meta-audit / 実運用で担保)。preflight が個別に呼ぶ verify:* は各 capability の rubric(例 incremental-no-wipe)が別途守る。"
+      },
+      "evidence": "preflight.mjs / package.json の preflight スクリプト / rubrics/run.mjs のうち欠けている数。0 で GREEN、1+ で RED。",
+      "examples": {
+        "pass": ["scripts/preflight.mjs が在り package.json に preflight スクリプトがあり run.mjs が在る"],
+        "fail": ["preflight.mjs を rename / preflight スクリプトを消す → 単一入口が空振り → RED"]
+      }
+    }
+  ]
+}
