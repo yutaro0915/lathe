@@ -1,0 +1,61 @@
+{
+  "schema_version": "2",
+  "id": "apps/web/scripts/ingest/incremental-no-wipe",
+  "title": "増分 ingest は wipe しない・テストを伴う / domain は純粋を保つ (no-wipe / domain purity)",
+  "version": "1",
+  "scope": ["apps/web/scripts/ingest"],
+  "origin": "agent-workflow(2026-06-26, S3): 増分 ingest(usecase/incremental.ts)は resetDatabase を使わず replaceBuiltSession のみで取り込む設計。これが崩れると dev server 起動のたびに DB が全 wipe され複数 project・Phase-2 findings が消える(2026-06-26 に resetDatabase の破壊性を確認)。選択肢A の層分割は『domain は IO を import しない』が核なのでそれも機械保証する。invariant の存在(verify:incremental)も縛りテスト腐敗を防ぐ。rubric 追加は auditor のみ・別 commit。",
+  "checks": [
+    {
+      "id": "incremental-no-resetdb",
+      "value": "① 何を縛るか: 増分 ingest(usecase/incremental.ts)が resetDatabase / 全件 DELETE を呼ばない(no-wipe)。② なぜ重要か: 増分は per-session の replaceBuiltSession のみで取り込む設計。resetDatabase が混入すると起動のたびに全 session が消え、複数 project と Phase-2 findings の参照が壊れる(false data loss)。③ 仕組み: コメント(// 行・ブロック * 行)を除いたコードに resetDatabase( 呼び出し / DELETE FROM が現れる数を数える。0 で GREEN(no-wipe を記述したコメントは数えない)。",
+      "severity": "blocker",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "sed 's://.*$::' apps/web/scripts/ingest/usecase/incremental.ts | grep -vE '^[[:space:]]*\\*' | grep -cE 'resetDatabase\\(|DELETE FROM' || true",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。// 行コメントとブロックコメントの * 行を除外し、resetDatabase( 呼び出し or DELETE FROM のみ数える。限界: 動的生成 SQL や /** 開始行の同一行は見ない(その隠蔽は review/meta-audit で担保)。"
+      },
+      "evidence": "incremental.ts のコード行(コメント除く)に現れる resetDatabase / DELETE FROM の数。0=GREEN、1+ で RED。",
+      "examples": {
+        "pass": ["incremental.ts が replaceBuiltSession のみ使い resetDatabase をコメントでしか言及しない"],
+        "fail": ["incremental.ts に resetDatabase(...) 呼び出しや 'DELETE FROM sessions' が混入 → 起動で全 wipe → RED"]
+      }
+    },
+    {
+      "id": "incremental-invariants-tested",
+      "value": "① 何を縛るか: 増分の不変条件テスト(scratch DB integration)が存在する — package.json の verify:incremental スクリプトと verify-incremental-ingest.ts。② なぜ重要か: no-wipe/複数project/冪等/FK の invariant はテストが無いと腐る。テストの存在を gate で固定し、誰かが消したら RED にする。③ 仕組み: スクリプトとファイルの実在を確認し欠けた数を数える。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "m=0; jq -e '.scripts[\"verify:incremental\"]' apps/web/package.json >/dev/null 2>&1 || m=$((m+1)); [ -f apps/web/scripts/verify-incremental-ingest.ts ] || m=$((m+1)); echo $m",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。スクリプト名とファイルの実在のみ(中身の質は見ない=meta-audit/実運用で担保)。"
+      },
+      "evidence": "verify:incremental スクリプトと verify-incremental-ingest.ts のうち欠けている数。0=GREEN。",
+      "examples": {
+        "pass": ["package.json に verify:incremental があり verify-incremental-ingest.ts が在る"],
+        "fail": ["verify:incremental を消す / integration テストを削除 → RED"]
+      }
+    },
+    {
+      "id": "domain-stays-pure",
+      "value": "① 何を縛るか: 層分割の核 — ingest/domain/ の非テストファイルが pg/fs/net/http/child_process 等 IO を import しない(純粋・内向き依存)。② なぜ重要か: domain を純粋に保つと単体テスト可能性と層境界が守られる。IO が混入すると repository との責務が崩れテストが DB 依存になる。③ 仕組み: domain の非テスト .ts のうち IO モジュールを import するファイル数を数える。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "grep -rElE 'from .(pg|fs|net|http|child_process|node:[a-z_]+).' apps/web/scripts/ingest/domain --include=*.ts 2>/dev/null | grep -vc '\\.test\\.ts' || true",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。*.test.ts は除外(テストは node:test 等を使う)。限界: import 文の静的検査のみ(動的 require は見ない)。"
+      },
+      "evidence": "domain の非テストファイルで IO モジュールを import している数。0=GREEN、1+ で RED。",
+      "examples": {
+        "pass": ["domain/subagent-link.ts が built 型のみ import"],
+        "fail": ["domain に import { Pool } from 'pg' を足す → RED"]
+      }
+    }
+  ]
+}
