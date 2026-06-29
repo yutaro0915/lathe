@@ -1,39 +1,38 @@
 ---
 name: meta-audit
-description: 指定された分析対象と分析タイプだけを、Lathe のデータに接地して監査する手順。何を分析するかは呼び出し側が必ず渡す（毎回 cost/loop を全部はやらない）。meta-auditor agent が従う。閾値などの変動基準は rubric 側。
+description: Lathe MCP に接地して問題点を探る事後監査。使える MCP tool と返る情報のマップ＋進め方を簡潔に置くだけ（固定 pipeline にしない）。対象と問いは呼び出し側が渡す。重い/並列の掘削は subagent に委譲してよい。read-only（提案だけ・skill/rubric/コードを自分で変えない）。閾値など変動基準は rubric 側。
 ---
 
-# meta-audit — 事後監査の手順
+# meta-audit — Lathe データに接地した事後監査
 
-meta-auditor agent がこれに従う。**read-only**（skill / rubric / コードを変更しない。提案だけ）。
-ここに置くのは**変わらない手順**。個々の判断・採否・閾値は OPUS / rubric が持つ＝ここに決め打ちしない。
+meta-auditor agent（opus）がこれに従う。**read-only**（skill / rubric / コードを変更しない。提案だけ）。
+**目的＝問題点を探る**（任意の非効率・抜け・リスク・無駄）。狭めない。cost / loop は**例**であって定義ではない。
 
-## 大原則（毎回フルバッテリーを回さない）
-- **何を・どの観点で分析するかは呼び出し側（OPUS）が必ず渡す**。skill 側で「常に cost も loop も全部見る」はしない。
-- **指示された分析タイプだけを正確に返す**。指定外（例: 普段の開発で毎回 cost）は勝手にやらない（不要・非効率）。
-- 観点は**メニュー**。分析タイプは後から足す（narrow-now / expandable-later）。各タイプは独立に追加・実行できるよう分離して書く。
-- verify skill の「影響クラスに該当する分だけ・全部はやらない」と同じ思想。
+## 使える MCP tool と返る情報（これが接地面・生 DB/SQL は叩かない）
 
-## 入力（呼び出し側が必ず指定）
-1. **分析対象**: スコープ（session id 群 / project / 期間 / この変更サイクル）。原則 **Lathe に ingest 済みのデータ**に接地する。未 ingest なら対象が無い＝先に ingest。
-2. **分析タイプ / 問い**: 下記メニューから 1 つ以上、または具体的な問い。**渡されたものだけ**実行する。
+段階開示の梯子。**安いところから始め、必要な分だけ深く**降りる（一度に全部は開示しない）。
 
-## 分析メニュー（指定されたものだけ実行・接地は Lathe）
-- **loop / stall**: turn 数・往復・同種エラー反復。`transcript_events` の `command × exit_code` 集計（必ず `AND command<>''`。空コマンド〔約 1/4、heredoc/hook 由来〕は取りこぼす既知制約）。
-- **cost / 効率**: cost 異常。**runner 別 avg 倍率**で正規化（runner 間で turn/cost が数倍違うため混在 avg は歪む）。閾値は rubric（変動層）。
-- **rubric 化点**: 繰り返す手作業判断 → rubric 化提案。根拠＝**再発の回数**。
-- **reinforce（効いた点）**: 数値で取れない定性観点。**Lathe 接地外＝judge/skill 残置**。
-- （追加タイプは後から。）
+- **`list_sessions({project_id,runner,model,limit,offset}, order_by)`** → `{ total, sessions[] }`。各行に triage 指標（`status / turnCount / toolCount / bashCount / subagentCount / errorCount / costUsd / durationMs / model / runner / startedAt / parentSessionId`）。`order_by = error_count | cost_usd | turn_count | duration_ms | started_at`（全 DESC）で「臭う順／直近順」に並ぶ。**まずここで suspect を選ぶ**。
+- **`get_session_events(session_id, {seq_from, seq_to, subagent, types, errors_only, limit, offset})`** → `{ total, seqRange, events[] }`。turn の**背骨**＝ `seq / type / actor / title / command / exitCode / durationMs / tokenUsage / subagent`（**本文なし**）。長い session でも overflow しない。**どの turn が問題か位置特定**。`errors_only`（exit≠0 のみ）/ `subagent`（thread 別。multi-track の帰属に有効）/ `seq` 範囲で絞る。
+- **`get_session_bundle(session_id)`** → 1 session の全部（session 指標＋**全 event 本文**＋changedFiles＋hunks＋attributions＋PR）。**重い**。短い session か、背骨で絞り切れない時だけ。
+- **`query_findings({kind, verdict, session_id, project_id, analyst, limit})`** → 既存 finding ＋ evidence 論理座標 ＋ analysis ＋ verdict。**過去の指摘と採否**を参照（再発か・既知かの判定材料）。
+- **`get_evidence_context({subject_kind, subject_id, session_id, locator, evidence_id})`** → 特定 1 turn / event / hunk / PR の**生 context**。背骨で当たりを付けた seq の全文をここで読む。
+- **`submit_finding({...})`** → 指摘を finding として提出し採否フローに乗せる（**書き込み**）。read 専用環境では無効化されていることがある。
 
-## 手順
-- 一次トリアージは `sessions` の集計列（`turn_count / error_count / cost_usd / subagent_count`）、ドリルダウンは `transcript_events`（二層。重い走査は候補が絞れてから）。
-- **数値で取れる基準は rubric（変動層）を参照**。取れない定性は judge/skill に残す（射程の線引き＝numeric は Lathe、non-numeric は judge/skill）。
+## 進め方（固定 pipeline にしない・自由度を残す）
+
+- 呼び出し側が**対象（scope）と問い**を渡す。毎回フルバッテリーは回さない（指示された範囲・観点を正確に）。
+- list_sessions の triage → 必要なら背骨 → 必要なら生、と**必要な分だけ降りる**。決め打ちの順序を強制しない。
+- **重い/並列の掘削は subagent に委譲してよい**（自分の文脈を汚さない・扇状に同時調査）。例: suspect が複数なら session ごとに subagent を投げ、各自が背骨→生で掘って小さな結果（問題・evidence 座標・原因仮説・confidence）を返す。**呼ぶか・何個かは状況で判断**（しない選択も含め決め打ちしない）。
+- 数値で取れる基準は rubric（変動層）を参照。取れない定性は judge / skill に残す。
 
 ## 出力
-- **指示された分析タイプの結果だけ**。各 finding: `分類(keep / improve / fix)` / `優先度` / `観点` / `具体策` / `根拠(実データ)`。指定タイプ内では keep を先に置く（バランス・constructive framing、人でなく仕組みを直す）。
-- 指定外は出さない。データが無い（未 ingest）なら「対象なし」と返す（推測で埋めない）。
-- skill 変更の提案は「滅多に変えない」前提で再発の証拠を必須に。**自分では変更しない**。採否は OPUS。
+
+- 問題ごとに: `分類(keep / improve / fix) ＋ 優先度 ＋ 観点 ＋ 具体策 ＋ 根拠(実データ＝session_id + seq 等の座標)`。keep を先に置く（constructive・人でなく仕組みを直す）。
+- 対象が未 ingest なら「対象なし」と返す（推測で埋めない）。
+- skill / rubric の変更は**提案まで**。自分で編集しない。採否は OPUS。
 
 ## 不変の前提
-- read-only・事後。skill / rubric / コードを編集しない。
-- 接地は Lathe（Phase-1: `sessions` / `transcript_events`、Phase-2: `findings` / `attributions`）。数値化できない meta 層は judge / skill。
+
+- read-only・事後。接地は **Lathe MCP**（生 DB/SQL を直接叩かない＝将来の自律 lathe agent と同じ道具で動かし、その振る舞いを今ここで検証する）。
+- 数値化できない meta 層は judge / skill。
