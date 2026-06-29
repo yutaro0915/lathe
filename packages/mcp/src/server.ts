@@ -14,11 +14,10 @@ import {
   type FindingKind,
   type VerdictFilter,
 } from '@lathe/domain';
+import { getMcpSessionBundle } from './session-bundle';
+import { getSessionEvents, listMcpSessions } from './sessions';
 import {
   getEvidenceContext,
-  getMcpSessionBundle,
-  getSessionEvents,
-  listMcpSessions,
   queryFindings,
   submitFinding,
 } from './service';

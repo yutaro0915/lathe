@@ -23,6 +23,8 @@ import {
   type VerdictFilter,
 } from '@lathe/domain';
 import { getPool, queryOne, queryRows } from './postgres';
+import { getMcpSessionBundle } from './session-bundle';
+import { assertMaxLength, cleanNumber, cleanString, normalizeLimit } from './shared';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -47,48 +49,6 @@ export type {
   VerdictFilter,
 };
 
-export interface ListSessionsFilter {
-  projectId?: string;
-  runner?: string;
-  model?: string;
-  limit?: number;
-  offset?: number;
-  orderBy?: string;
-}
-
-export interface McpSessionSummary {
-  id: string;
-  projectId: string;
-  title: string;
-  runner: string;
-  model: string | null;
-  costUsd: number | null;
-  harnessVersionId: string | null;
-  status: string;
-  turnCount: number;
-  toolCount: number;
-  editCount: number;
-  bashCount: number;
-  subagentCount: number;
-  errorCount: number;
-  tokenUsage: number;
-  durationMs: number | null;
-  startedAt: string;
-  endedAt: string | null;
-  parentSessionId: string | null;
-}
-
-export interface GetSessionEventsInput {
-  sessionId: string;
-  seqFrom?: number;
-  seqTo?: number;
-  subagent?: string;
-  types?: string[];
-  errorsOnly?: boolean;
-  limit?: number;
-  offset?: number;
-}
-
 export interface QueryFindingsFilter {
   kind?: FindingKind;
   verdict?: VerdictFilter;
@@ -96,65 +56,6 @@ export interface QueryFindingsFilter {
   projectId?: string;
   limit?: number;
   offset?: number;
-}
-
-interface SessionSummaryRow {
-  id: string;
-  project_id: string;
-  title: string;
-  runner: string;
-  model: string | null;
-  cost_usd: number | null;
-  harness_version_id: string | null;
-  status: string;
-  turn_count: number;
-  tool_count: number;
-  edit_count: number;
-  bash_count: number;
-  subagent_count: number;
-  error_count: number;
-  token_usage: number;
-  duration_ms: number | null;
-  started_at: string;
-  ended_at: string | null;
-  parent_session_id: string | null;
-}
-
-interface SpineEventRow {
-  seq: number;
-  ts: string;
-  type: string;
-  actor: string;
-  title: string;
-  command: string | null;
-  exit_code: number | null;
-  duration_ms: number | null;
-  token_usage: number | null;
-  subagent: string | null;
-  __total: number;
-}
-
-interface SessionRow extends SessionSummaryRow {
-  project: string;
-  status: string;
-  started_at: string;
-  ended_at: string | null;
-  duration_ms: number | null;
-  turn_count: number;
-  tool_count: number;
-  edit_count: number;
-  bash_count: number;
-  subagent_count: number;
-  error_count: number;
-  token_usage: number;
-  token_in: number;
-  token_out: number;
-  git_branch: string | null;
-  commit_count: number;
-  summary: string | null;
-  parent_session_id: string | null;
-  spawned_by_seq: number | null;
-  seq: number;
 }
 
 interface FindingRow {
@@ -191,115 +92,14 @@ interface ProjectAndHarnessRow {
   harness_version_id: string | null;
 }
 
-interface PullRequestSummaryRow {
-  id: string;
-  project_id: string;
-  number: number;
-  title: string;
-  state: string;
-  url: string;
-  head_ref_name: string | null;
-  merged_at: string | null;
-  updated_at: string;
-  link_method: string;
-}
-
-interface TranscriptEventRow {
-  id: string;
-  session_id: string;
-  seq: number;
-  ts: string;
-  type: string;
-  actor: string;
-  title: string;
-  body: string | null;
-  file_path: string | null;
-  command: string | null;
-  exit_code: number | null;
-  duration_ms: number | null;
-  token_usage: number | null;
-  subagent: string | null;
-  meta: string | null;
-  parent_id: string | null;
-}
-
-interface ChangedFileRow {
-  id: string;
-  session_id: string;
-  path: string;
-  status: string;
-  additions: number;
-  deletions: number;
-  language: string | null;
-  seq: number;
-}
-
-interface DiffHunkRow {
-  id: string;
-  file_id: string;
-  seq: number;
-  header: string;
-  content: string;
-}
-
-interface AttributionRow {
-  id: string;
-  hunk_id: string;
-  event_id: string | null;
-  confidence: string;
-  method: string;
-  note: string | null;
-}
-
-interface EventFileRow {
-  id: number;
-  event_id: string;
-  path: string;
-  role: string;
-}
-
-interface AnnotationRow {
-  id: number;
-  session_id: string;
-  at_seq: number;
-  kind: string;
-  note: string | null;
-}
-
-interface LinkedEventRow extends TranscriptEventRow {
-  __confidence: string;
-  __method: string;
-  __hunk_id: string;
-  __file_id: string;
-}
-
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
-
-function cleanString(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function cleanNumber(value: number | undefined, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.max(0, Math.trunc(value));
-}
-
-function normalizeLimit(value: number | undefined): number {
-  return Math.min(MAX_LIMIT, Math.max(1, cleanNumber(value, DEFAULT_LIMIT)));
-}
-
-function assertMaxLength(label: string, value: string | undefined, max: number): void {
-  if (value !== undefined && value.length > max) {
-    throw new Error(`${label} must be ${max} characters or fewer`);
-  }
-}
+const LATEST_VERDICT_CTE = `WITH latest_verdict AS (
+  SELECT DISTINCT ON (finding_id) finding_id,verdict,reason,decided_at,decided_by
+    FROM finding_verdicts ORDER BY finding_id, decided_at DESC, id DESC
+)`;
 
 function idempotencyKey(analyst: string, kind: FindingKind, evidence: FindingEvidenceInput): string {
   const payload = {
-    analyst,
-    kind,
+    analyst, kind,
     subjectKind: evidence.subjectKind,
     subjectId: evidence.subjectId ?? '',
     sessionId: evidence.sessionId ?? '',
@@ -313,94 +113,6 @@ function assertLocatorLength(locator: Record<string, unknown>): void {
   if (serialized.length > FINDING_LOCATOR_MAX_LENGTH) {
     throw new Error(`evidence.locator must be ${FINDING_LOCATOR_MAX_LENGTH} characters or fewer`);
   }
-}
-
-function resolveOrderBy(orderBy: string | undefined): string {
-  switch (orderBy) {
-    case 'cost_usd':
-      return 'cost_usd DESC NULLS LAST, id ASC';
-    case 'error_count':
-      return 'error_count DESC, id ASC';
-    case 'turn_count':
-      return 'turn_count DESC, id ASC';
-    case 'duration_ms':
-      return 'duration_ms DESC NULLS LAST, id ASC';
-    default:
-      return 'started_at DESC NULLS LAST, id ASC';
-  }
-}
-
-function toSessionSummary(row: SessionSummaryRow): McpSessionSummary {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    title: row.title,
-    runner: row.runner,
-    model: row.model,
-    costUsd: row.cost_usd,
-    harnessVersionId: row.harness_version_id,
-    status: row.status,
-    turnCount: row.turn_count,
-    toolCount: row.tool_count,
-    editCount: row.edit_count,
-    bashCount: row.bash_count,
-    subagentCount: row.subagent_count,
-    errorCount: row.error_count,
-    tokenUsage: row.token_usage,
-    durationMs: row.duration_ms,
-    startedAt: row.started_at,
-    endedAt: row.ended_at,
-    parentSessionId: row.parent_session_id,
-  };
-}
-
-function toSpineEvent(row: SpineEventRow) {
-  return {
-    seq: row.seq,
-    ts: row.ts,
-    type: row.type,
-    actor: row.actor,
-    title: row.title,
-    command: row.command,
-    exitCode: row.exit_code,
-    durationMs: row.duration_ms,
-    tokenUsage: row.token_usage,
-    subagent: row.subagent,
-  };
-}
-
-function toEvent(row: TranscriptEventRow) {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    seq: row.seq,
-    ts: row.ts,
-    type: row.type,
-    actor: row.actor,
-    title: row.title,
-    body: row.body,
-    filePath: row.file_path,
-    command: row.command,
-    exitCode: row.exit_code,
-    durationMs: row.duration_ms,
-    tokenUsage: row.token_usage,
-    subagent: row.subagent,
-    meta: row.meta,
-    parentId: row.parent_id,
-  };
-}
-
-function toChangedFile(row: ChangedFileRow) {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    path: row.path,
-    status: row.status,
-    additions: row.additions,
-    deletions: row.deletions,
-    language: row.language,
-    seq: row.seq,
-  };
 }
 
 function toEvidence(row: EvidenceRow) {
@@ -417,25 +129,13 @@ function toEvidence(row: EvidenceRow) {
 
 function toFinding(row: FindingRow, evidence: EvidenceRow[]) {
   return {
-    id: row.id,
-    createdAt: row.created_at,
-    analyst: row.analyst,
-    kind: row.kind as FindingKind,
-    title: row.title,
-    body: row.body,
-    confidence: row.confidence,
-    harnessVersionId: row.harness_version_id,
-    projectId: row.project_id,
-    analysis: parseStoredAnalysis(row.analysis),
-    backlogStatus: row.backlog_status,
-    backlogActor: row.backlog_actor,
+    id: row.id, createdAt: row.created_at, analyst: row.analyst,
+    kind: row.kind as FindingKind, title: row.title, body: row.body,
+    confidence: row.confidence, harnessVersionId: row.harness_version_id,
+    projectId: row.project_id, analysis: parseStoredAnalysis(row.analysis),
+    backlogStatus: row.backlog_status, backlogActor: row.backlog_actor,
     latestVerdict: row.verdict
-      ? {
-          verdict: row.verdict,
-          reason: row.reason,
-          decidedAt: row.decided_at,
-          decidedBy: row.decided_by,
-        }
+      ? { verdict: row.verdict, reason: row.reason, decidedAt: row.decided_at, decidedBy: row.decided_by }
       : null,
     evidence: evidence.map(toEvidence),
   };
@@ -459,278 +159,21 @@ function validateEvidenceInput(evidence: FindingEvidenceInput): FindingEvidenceI
   assertLocatorLength(locator);
   const note = cleanString(evidence.note);
   assertMaxLength('evidence.note', note, FINDING_NOTE_MAX_LENGTH);
-  return {
-    subjectKind: evidence.subjectKind,
-    subjectId,
-    sessionId,
-    locator,
-    note,
-  };
+  return { subjectKind: evidence.subjectKind, subjectId, sessionId, locator, note };
 }
 
-export async function listMcpSessions(filter: ListSessionsFilter = {}): Promise<{ total: number; sessions: McpSessionSummary[] }> {
-  const where: string[] = [];
-  const params: unknown[] = [];
-  const addParam = (value: unknown) => {
-    params.push(value);
-    return `$${params.length}`;
-  };
-
-  const projectId = cleanString(filter.projectId);
-  const runner = cleanString(filter.runner);
-  const model = cleanString(filter.model);
-  if (projectId) where.push(`project_id = ${addParam(projectId)}`);
-  if (runner) where.push(`runner = ${addParam(runner)}`);
-  if (model) where.push(`model = ${addParam(model)}`);
-
-  const limit = normalizeLimit(filter.limit);
-  const offset = cleanNumber(filter.offset, 0);
-  const orderClause = resolveOrderBy(filter.orderBy);
-  const rows = await queryRows<SessionSummaryRow & { __total: number }>(
-    `SELECT id,project_id,title,runner,model,cost_usd,harness_version_id,
-            status,turn_count,tool_count,edit_count,bash_count,subagent_count,
-            error_count,token_usage,duration_ms,started_at,ended_at,parent_session_id,
-            COUNT(*) OVER() AS __total
-       FROM sessions
-      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY ${orderClause}
-      LIMIT ${addParam(limit)} OFFSET ${addParam(offset)}`,
-    params,
+async function queryFindingById(id: number) {
+  const row = await queryOne<FindingRow>(
+    `${LATEST_VERDICT_CTE}
+     SELECT f.*, lv.verdict, lv.reason, lv.decided_at, lv.decided_by
+       FROM findings f LEFT JOIN latest_verdict lv ON lv.finding_id = f.id WHERE f.id = $1`,
+    [id],
   );
-  const total = rows.length > 0 ? Number(rows[0].__total) : 0;
-  return { total, sessions: rows.map(toSessionSummary) };
-}
-
-export async function getSessionEvents(input: GetSessionEventsInput): Promise<{
-  total: number;
-  seqRange: { min: number; max: number } | null;
-  events: ReturnType<typeof toSpineEvent>[];
-}> {
-  const sessionExists = await queryOne<{ id: string }>('SELECT id FROM sessions WHERE id = $1', [input.sessionId]);
-  if (!sessionExists) throw new Error(`session not found: ${input.sessionId}`);
-
-  const where: string[] = ['session_id = $1'];
-  const params: unknown[] = [input.sessionId];
-  const addParam = (value: unknown) => {
-    params.push(value);
-    return `$${params.length}`;
-  };
-
-  if (input.seqFrom !== undefined) where.push(`seq >= ${addParam(input.seqFrom)}`);
-  if (input.seqTo !== undefined) where.push(`seq <= ${addParam(input.seqTo)}`);
-  if (input.subagent !== undefined) where.push(`subagent = ${addParam(input.subagent)}`);
-  if (input.types && input.types.length > 0) where.push(`type = ANY(${addParam(input.types)}::text[])`);
-  if (input.errorsOnly) where.push('exit_code IS NOT NULL AND exit_code <> 0');
-
-  const limit = Math.min(500, Math.max(1, cleanNumber(input.limit, 100)));
-  const offset = cleanNumber(input.offset, 0);
-
-  const [rows, rangeRow] = await Promise.all([
-    queryRows<SpineEventRow>(
-      `SELECT seq, ts, type, actor, LEFT(title, 200) AS title, command, exit_code, duration_ms, token_usage, subagent,
-              COUNT(*) OVER() AS __total
-         FROM transcript_events
-        WHERE ${where.join(' AND ')}
-        ORDER BY seq ASC, id ASC
-        LIMIT ${addParam(limit)} OFFSET ${addParam(offset)}`,
-      params,
-    ),
-    queryOne<{ min: number; max: number } | null>(
-      'SELECT MIN(seq) AS min, MAX(seq) AS max FROM transcript_events WHERE session_id = $1',
-      [input.sessionId],
-    ),
-  ]);
-
-  const total = rows.length > 0 ? Number(rows[0].__total) : 0;
-  const seqRange = rangeRow && rangeRow.min !== null ? { min: Number(rangeRow.min), max: Number(rangeRow.max) } : null;
-
-  return { total, seqRange, events: rows.map(toSpineEvent) };
-}
-
-async function getSession(id: string) {
-  const row = await queryOne<SessionRow>('SELECT * FROM sessions WHERE id = $1', [id]);
   if (!row) return undefined;
-  return {
-    id: row.id,
-    project: row.project,
-    projectId: row.project_id,
-    title: row.title,
-    runner: row.runner,
-    model: row.model,
-    status: row.status,
-    startedAt: row.started_at,
-    endedAt: row.ended_at,
-    durationMs: row.duration_ms,
-    turnCount: row.turn_count,
-    toolCount: row.tool_count,
-    editCount: row.edit_count,
-    bashCount: row.bash_count,
-    subagentCount: row.subagent_count,
-    errorCount: row.error_count,
-    tokenUsage: row.token_usage,
-    tokenIn: row.token_in,
-    tokenOut: row.token_out,
-    gitBranch: row.git_branch,
-    commitCount: row.commit_count,
-    costUsd: row.cost_usd,
-    costAnomaly: false,
-    costAnomalyThresholdUsd: 0,
-    costAnomalyGroupSize: 0,
-    costAnomalyGroupMedianUsd: null,
-    harnessVersionId: row.harness_version_id,
-    summary: row.summary,
-    parentSessionId: row.parent_session_id,
-    spawnedBySeq: row.spawned_by_seq,
-    stepCount: 0,
-    seq: row.seq,
-  };
-}
-
-export async function getMcpSessionBundle(sessionId: string) {
-  const session = await getSession(sessionId);
-  if (!session) throw new Error(`session not found: ${sessionId}`);
-
-  const [events, typeCountsRows, annotations, changedFiles, pullRequests] = await Promise.all([
-    queryRows<TranscriptEventRow>(
-      'SELECT * FROM transcript_events WHERE session_id = $1 ORDER BY seq ASC, parent_id NULLS FIRST, id ASC',
-      [sessionId],
-    ),
-    queryRows<{ type: string; n: number }>(
-      `SELECT type, COUNT(*)::int AS n
-         FROM transcript_events
-        WHERE session_id = $1
-          AND parent_id IS NULL
-        GROUP BY type`,
-      [sessionId],
-    ),
-    queryRows<AnnotationRow>('SELECT * FROM annotations WHERE session_id = $1 ORDER BY at_seq ASC', [sessionId]),
-    queryRows<ChangedFileRow>('SELECT * FROM changed_files WHERE session_id = $1 ORDER BY seq ASC', [sessionId]),
-    queryRows<PullRequestSummaryRow>(
-      `SELECT pr.id, pr.project_id, pr.number, pr.title, pr.state, pr.url,
-              pr.head_ref_name, pr.merged_at, pr.updated_at, spr.source AS link_method
-         FROM session_pull_requests spr
-         JOIN pull_requests pr ON pr.id = spr.pr_id
-        WHERE spr.session_id = $1
-        ORDER BY spr.pr_updated_at DESC, pr.number DESC`,
-      [sessionId],
-    ),
-  ]);
-  const typeCounts: Record<string, number> = {};
-  for (const row of typeCountsRows) typeCounts[row.type] = row.n;
-
-  const eventIds = events.map((event) => event.id);
-  const fileIds = changedFiles.map((file) => file.id);
-  const [eventFileRows, hunkRows, attrRows, linkedRows] = await Promise.all([
-    eventIds.length
-      ? queryRows<EventFileRow>('SELECT * FROM event_files WHERE event_id = ANY($1::text[]) ORDER BY event_id ASC, id ASC', [
-          eventIds,
-        ])
-      : Promise.resolve([]),
-    fileIds.length
-      ? queryRows<DiffHunkRow>('SELECT * FROM diff_hunks WHERE file_id = ANY($1::text[]) ORDER BY file_id ASC, seq ASC', [
-          fileIds,
-        ])
-      : Promise.resolve([]),
-    fileIds.length
-      ? queryRows<AttributionRow & { file_id: string }>(
-          `SELECT a.*, h.file_id
-             FROM attributions a
-             JOIN diff_hunks h ON h.id = a.hunk_id
-            WHERE h.file_id = ANY($1::text[])
-            ORDER BY a.hunk_id ASC, a.id ASC`,
-          [fileIds],
-        )
-      : Promise.resolve([]),
-    fileIds.length
-      ? queryRows<LinkedEventRow>(
-          `SELECT e.*,
-                  a.confidence AS __confidence,
-                  a.method     AS __method,
-                  a.hunk_id    AS __hunk_id,
-                  h.file_id    AS __file_id
-             FROM attributions a
-             JOIN diff_hunks h ON h.id = a.hunk_id
-             JOIN transcript_events e ON e.id = a.event_id
-            WHERE h.file_id = ANY($1::text[])
-              AND a.event_id IS NOT NULL
-            ORDER BY h.file_id ASC, h.seq ASC, e.seq ASC`,
-          [fileIds],
-        )
-      : Promise.resolve([]),
-  ]);
-
-  const eventFiles: Record<string, unknown[]> = {};
-  for (const row of eventFileRows) {
-    (eventFiles[row.event_id] ??= []).push({ id: row.id, eventId: row.event_id, path: row.path, role: row.role });
-  }
-
-  const hunks: Record<string, unknown[]> = {};
-  for (const file of changedFiles) hunks[file.id] = [];
-  for (const row of hunkRows) {
-    (hunks[row.file_id] ??= []).push({
-      id: row.id,
-      fileId: row.file_id,
-      seq: row.seq,
-      header: row.header,
-      content: row.content,
-    });
-  }
-
-  const attributions: Record<string, unknown[]> = {};
-  for (const list of Object.values(hunks)) {
-    for (const hunk of list as Array<{ id: string }>) attributions[hunk.id] = [];
-  }
-  for (const row of attrRows) {
-    (attributions[row.hunk_id] ??= []).push({
-      id: row.id,
-      hunkId: row.hunk_id,
-      eventId: row.event_id,
-      confidence: row.confidence,
-      method: row.method,
-      note: row.note,
-    });
-  }
-
-  const linkedEvents: Record<string, unknown[]> = {};
-  for (const file of changedFiles) linkedEvents[file.id] = [];
-  for (const row of linkedRows) {
-    (linkedEvents[row.__file_id] ??= []).push({
-      event: toEvent(row),
-      confidence: row.__confidence,
-      method: row.__method,
-      hunkId: row.__hunk_id,
-    });
-  }
-
-  return {
-    session,
-    pullRequests: pullRequests.map((row) => ({
-      id: row.id,
-      projectId: row.project_id,
-      number: row.number,
-      title: row.title,
-      state: row.state,
-      url: row.url,
-      headRefName: row.head_ref_name,
-      mergedAt: row.merged_at,
-      updatedAt: row.updated_at,
-      linkMethod: row.link_method,
-    })),
-    events: events.map(toEvent),
-    typeCounts,
-    annotations: annotations.map((row) => ({
-      id: row.id,
-      sessionId: row.session_id,
-      atSeq: row.at_seq,
-      kind: row.kind,
-      note: row.note,
-    })),
-    eventFiles,
-    changedFiles: changedFiles.map(toChangedFile),
-    hunks,
-    attributions,
-    linkedEvents,
-  };
+  const evidence = await queryRows<EvidenceRow>(
+    'SELECT * FROM finding_evidence WHERE finding_id = $1 ORDER BY id ASC', [id],
+  );
+  return toFinding(row, evidence);
 }
 
 export async function queryFindings(filter: QueryFindingsFilter = {}) {
@@ -741,20 +184,13 @@ export async function queryFindings(filter: QueryFindingsFilter = {}) {
 
   const where: string[] = [];
   const params: unknown[] = [];
-  const addParam = (value: unknown) => {
-    params.push(value);
-    return `$${params.length}`;
-  };
+  const addParam = (value: unknown) => { params.push(value); return `$${params.length}`; };
 
   if (filter.kind) where.push(`f.kind = ${addParam(filter.kind)}`);
   if (filter.projectId) where.push(`f.project_id = ${addParam(filter.projectId)}`);
   if (filter.sessionId) {
     const ref = addParam(filter.sessionId);
-    where.push(`EXISTS (
-      SELECT 1 FROM finding_evidence fe
-       WHERE fe.finding_id = f.id
-         AND (fe.session_id = ${ref} OR fe.subject_id = ${ref})
-    )`);
+    where.push(`EXISTS (SELECT 1 FROM finding_evidence fe WHERE fe.finding_id = f.id AND (fe.session_id = ${ref} OR fe.subject_id = ${ref}))`);
   }
   if (filter.verdict === 'accept' || filter.verdict === 'reject') {
     where.push(`lv.verdict = ${addParam(filter.verdict)}`);
@@ -765,19 +201,9 @@ export async function queryFindings(filter: QueryFindingsFilter = {}) {
   const limit = normalizeLimit(filter.limit);
   const offset = cleanNumber(filter.offset, 0);
   const rows = await queryRows<FindingRow>(
-    `WITH latest_verdict AS (
-       SELECT DISTINCT ON (finding_id)
-              finding_id,verdict,reason,decided_at,decided_by
-         FROM finding_verdicts
-        ORDER BY finding_id, decided_at DESC, id DESC
-     )
-     SELECT f.*,
-            lv.verdict,
-            lv.reason,
-            lv.decided_at,
-            lv.decided_by
-       FROM findings f
-       LEFT JOIN latest_verdict lv ON lv.finding_id = f.id
+    `${LATEST_VERDICT_CTE}
+     SELECT f.*, lv.verdict, lv.reason, lv.decided_at, lv.decided_by
+       FROM findings f LEFT JOIN latest_verdict lv ON lv.finding_id = f.id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY f.created_at DESC, f.id DESC
       LIMIT ${addParam(limit)} OFFSET ${addParam(offset)}`,
@@ -787,10 +213,7 @@ export async function queryFindings(filter: QueryFindingsFilter = {}) {
   const ids = rows.map((row) => row.id);
   const evidence = ids.length
     ? await queryRows<EvidenceRow>(
-        `SELECT *
-           FROM finding_evidence
-          WHERE finding_id = ANY($1::int[])
-          ORDER BY finding_id ASC, id ASC`,
+        'SELECT * FROM finding_evidence WHERE finding_id = ANY($1::int[]) ORDER BY finding_id ASC, id ASC',
         [ids],
       )
     : [];
@@ -807,74 +230,38 @@ async function inferProjectAndHarness(evidence: FindingEvidenceInput[]): Promise
   for (const item of evidence) {
     if (item.sessionId) {
       const row = await queryOne<ProjectAndHarnessRow>(
-        'SELECT project_id,harness_version_id FROM sessions WHERE id = $1',
-        [item.sessionId],
+        'SELECT project_id,harness_version_id FROM sessions WHERE id = $1', [item.sessionId],
       );
       if (row) return row;
     }
     if (item.subjectKind === 'session' && item.subjectId) {
       const row = await queryOne<ProjectAndHarnessRow>(
-        'SELECT project_id,harness_version_id FROM sessions WHERE id = $1',
-        [item.subjectId],
+        'SELECT project_id,harness_version_id FROM sessions WHERE id = $1', [item.subjectId],
       );
       if (row) return row;
     }
     if (item.subjectKind === 'event' && item.subjectId) {
       const row = await queryOne<ProjectAndHarnessRow>(
-        `SELECT s.project_id,s.harness_version_id
-           FROM transcript_events e
-           JOIN sessions s ON s.id = e.session_id
-          WHERE e.id = $1`,
+        'SELECT s.project_id,s.harness_version_id FROM transcript_events e JOIN sessions s ON s.id = e.session_id WHERE e.id = $1',
         [item.subjectId],
       );
       if (row) return row;
     }
     if (item.subjectKind === 'hunk' && item.subjectId) {
       const row = await queryOne<ProjectAndHarnessRow>(
-        `SELECT s.project_id,s.harness_version_id
-           FROM diff_hunks h
-           JOIN changed_files cf ON cf.id = h.file_id
-           JOIN sessions s ON s.id = cf.session_id
-          WHERE h.id = $1`,
+        'SELECT s.project_id,s.harness_version_id FROM diff_hunks h JOIN changed_files cf ON cf.id = h.file_id JOIN sessions s ON s.id = cf.session_id WHERE h.id = $1',
         [item.subjectId],
       );
       if (row) return row;
     }
     if (item.subjectKind === 'pr' && item.subjectId) {
       const row = await queryOne<ProjectAndHarnessRow>(
-        'SELECT project_id,NULL::text AS harness_version_id FROM pull_requests WHERE id = $1',
-        [item.subjectId],
+        'SELECT project_id,NULL::text AS harness_version_id FROM pull_requests WHERE id = $1', [item.subjectId],
       );
       if (row) return row;
     }
   }
   return undefined;
-}
-
-async function queryFindingById(id: number) {
-  const row = await queryOne<FindingRow>(
-    `WITH latest_verdict AS (
-       SELECT DISTINCT ON (finding_id)
-              finding_id,verdict,reason,decided_at,decided_by
-         FROM finding_verdicts
-        ORDER BY finding_id, decided_at DESC, id DESC
-     )
-     SELECT f.*,
-            lv.verdict,
-            lv.reason,
-            lv.decided_at,
-            lv.decided_by
-       FROM findings f
-       LEFT JOIN latest_verdict lv ON lv.finding_id = f.id
-      WHERE f.id = $1`,
-    [id],
-  );
-  if (!row) return undefined;
-  const evidence = await queryRows<EvidenceRow>(
-    'SELECT * FROM finding_evidence WHERE finding_id = $1 ORDER BY id ASC',
-    [id],
-  );
-  return toFinding(row, evidence);
 }
 
 export async function submitFinding(input: SubmitFindingInput) {
@@ -912,25 +299,17 @@ export async function submitFinding(input: SubmitFindingInput) {
     await client.query('BEGIN');
     await client.query('LOCK TABLE findings, finding_evidence IN SHARE ROW EXCLUSIVE MODE');
     const duplicate = await client.query<{ id: number; title: string; body: string }>(
-      `SELECT f.id
-              ,f.title
-              ,f.body
+      `SELECT f.id,f.title,f.body
          FROM findings f
          JOIN LATERAL (
-           SELECT fe.*
-             FROM finding_evidence fe
-            WHERE fe.finding_id = f.id
-            ORDER BY fe.id ASC
-            LIMIT 1
+           SELECT fe.* FROM finding_evidence fe WHERE fe.finding_id = f.id ORDER BY fe.id ASC LIMIT 1
          ) primary_fe ON true
-        WHERE f.analyst = $1
-          AND f.kind = $2
+        WHERE f.analyst = $1 AND f.kind = $2
           AND primary_fe.subject_kind = $3
           AND COALESCE(primary_fe.session_id, '') = $4
           AND COALESCE(primary_fe.subject_id, '') = $5
           AND primary_fe.locator = $6::jsonb
-        ORDER BY f.id ASC
-        LIMIT 1`,
+        ORDER BY f.id ASC LIMIT 1`,
       [analyst, input.kind, primary.subjectKind, primary.sessionId ?? '', primary.subjectId ?? '', primary.locator ?? {}],
     );
     const duplicateRow = duplicate.rows[0];
@@ -942,14 +321,9 @@ export async function submitFinding(input: SubmitFindingInput) {
       ].filter((field): field is 'title' | 'body' => Boolean(field));
       await client.query('COMMIT');
       return {
-        findingId: duplicateId,
-        created: false,
-        idempotencyKey: key,
+        findingId: duplicateId, created: false, idempotencyKey: key,
         idempotencyDiff: changedFields.length
-          ? {
-              message: 'existing finding matched idempotency key, but submitted title/body differed; existing finding returned',
-              changedFields,
-            }
+          ? { message: 'existing finding matched idempotency key, but submitted title/body differed; existing finding returned', changedFields }
           : null,
         finding: await queryFindingById(duplicateId),
       };
@@ -957,8 +331,7 @@ export async function submitFinding(input: SubmitFindingInput) {
 
     const inserted = await client.query<{ id: number }>(
       `INSERT INTO findings (analyst,kind,title,body,confidence,harness_version_id,project_id,analysis)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
-       RETURNING id`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING id`,
       [analyst, input.kind, title, body, input.confidence, harnessVersionId, projectId, analysis],
     );
     const findingId = inserted.rows[0]?.id;
@@ -972,10 +345,7 @@ export async function submitFinding(input: SubmitFindingInput) {
     }
     await client.query('COMMIT');
     return {
-      findingId,
-      created: true,
-      evidenceCount: evidence.length,
-      idempotencyKey: key,
+      findingId, created: true, evidenceCount: evidence.length, idempotencyKey: key,
       finding: await queryFindingById(findingId),
     };
   } catch (error) {
@@ -991,12 +361,7 @@ async function resolveTurn(subjectId: string | undefined, sessionId: string | un
     const byEventId = await queryOne('SELECT * FROM transcript_events WHERE id = $1', [subjectId]);
     if (byEventId) return byEventId;
     const evidence = await queryOne<EvidenceRow>(
-      `SELECT *
-         FROM finding_evidence
-        WHERE subject_kind = 'turn'
-          AND subject_id = $1
-        ORDER BY id DESC
-        LIMIT 1`,
+      `SELECT * FROM finding_evidence WHERE subject_kind = 'turn' AND subject_id = $1 ORDER BY id DESC LIMIT 1`,
       [subjectId],
     );
     if (evidence) {
@@ -1007,14 +372,8 @@ async function resolveTurn(subjectId: string | undefined, sessionId: string | un
   const seq = typeof locator.seq === 'number' ? locator.seq : typeof locator.seq === 'string' ? Number(locator.seq) : NaN;
   if (!sessionId || !Number.isFinite(seq)) return null;
   return queryOne(
-    `SELECT *
-       FROM transcript_events
-      WHERE session_id = $1
-        AND seq = $2
-        AND ($3::text IS NULL OR type = $3)
-        AND ($4::text IS NULL OR title = $4)
-      ORDER BY id ASC
-      LIMIT 1`,
+    `SELECT * FROM transcript_events WHERE session_id = $1 AND seq = $2
+       AND ($3::text IS NULL OR type = $3) AND ($4::text IS NULL OR title = $4) ORDER BY id ASC LIMIT 1`,
     [sessionId, seq, typeof locator.type === 'string' ? locator.type : null, typeof locator.title === 'string' ? locator.title : null],
   );
 }
@@ -1041,11 +400,7 @@ export async function getEvidenceContext(input: {
   if (input.subjectKind === 'session') {
     const id = subjectId ?? sessionId;
     if (!id) throw new Error('session evidence context requires subject_id or session_id');
-    return {
-      subjectKind: input.subjectKind,
-      subjectId: id,
-      context: await getMcpSessionBundle(id),
-    };
+    return { subjectKind: input.subjectKind, subjectId: id, context: await getMcpSessionBundle(id) };
   }
   if (input.subjectKind === 'event') {
     if (!subjectId) throw new Error('event evidence context requires subject_id');
@@ -1057,9 +412,7 @@ export async function getEvidenceContext(input: {
     if (!subjectId) throw new Error('hunk evidence context requires subject_id');
     const row = await queryOne(
       `SELECT h.*,cf.session_id,cf.path AS file_path,cf.status AS file_status
-         FROM diff_hunks h
-         JOIN changed_files cf ON cf.id = h.file_id
-        WHERE h.id = $1`,
+         FROM diff_hunks h JOIN changed_files cf ON cf.id = h.file_id WHERE h.id = $1`,
       [subjectId],
     );
     if (!row) throw new Error(`hunk not found: ${subjectId}`);
@@ -1075,10 +428,7 @@ export async function getEvidenceContext(input: {
   const row = await resolveTurn(subjectId, sessionId, locator);
   if (!row) throw new Error('turn evidence context could not be resolved');
   return {
-    subjectKind: input.subjectKind,
-    subjectId: subjectId ?? null,
-    sessionId: sessionId ?? null,
-    locator,
-    context: row,
+    subjectKind: input.subjectKind, subjectId: subjectId ?? null,
+    sessionId: sessionId ?? null, locator, context: row,
   };
 }

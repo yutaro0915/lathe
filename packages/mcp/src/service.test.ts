@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
+import { getSessionEvents, listMcpSessions } from "./sessions";
 import {
   FINDING_BODY_MAX_LENGTH,
   FINDING_EVIDENCE_MAX_ITEMS,
@@ -7,8 +8,6 @@ import {
   FINDING_NOTE_MAX_LENGTH,
   FINDING_TITLE_MAX_LENGTH,
   getEvidenceContext,
-  getSessionEvents,
-  listMcpSessions,
   parseStoredAnalysis,
   queryFindings,
   stableJson,
