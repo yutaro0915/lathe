@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, openSync, constants } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { resolveNextBin } from './dev-with-ingest-helpers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(__dirname, '..');
@@ -53,12 +54,23 @@ try {
 // ---------------------------------------------------------------------------
 
 const extraArgs = process.argv.slice(2); // e.g. ['--port', '3210']
-const nextBin = resolve(webRoot, 'node_modules', '.bin', 'next');
+
+const r = resolveNextBin(webRoot);
+if (!r.ok) {
+  console.error(`[lathe-dev] ${r.reason}`);
+  process.exit(1);
+}
+const nextBin = r.path;
 
 const next = spawn(nextBin, ['dev', ...extraArgs], {
   cwd: webRoot,
   stdio: 'inherit',
   env: process.env,
+});
+
+next.on('error', (err) => {
+  console.error('[lathe-dev] failed to start next dev:', err?.message ?? String(err));
+  process.exit(1);
 });
 
 next.on('exit', (code, signal) => {
