@@ -1,0 +1,25 @@
+{
+  "schema_version": "2",
+  "id": "meta/build",
+  "title": "apps/web が本番ビルドできる (next build)",
+  "version": "1",
+  "scope": ["apps/web"],
+  "origin": "agent-workflow(2026-06-29, step5): build/起動確認を preflight(heavy) で炙る。dev で動いても本番ビルドが壊れる差（webpack/型/静的生成）を merge gate で機械保証。scoped+tiered rubric として統一形に。tier=heavy（重いので --full のみ）。rubric 追加は auditor のみ・別 commit。",
+  "checks": [
+    {
+      "id": "next-build-clean",
+      "value": "① 何を縛るか: apps/web が `next build` で成功する（型チェック・静的生成・route 収集を含む）。② なぜ重要か: dev server が動いても本番ビルドが壊れることがある（webpack/型/静的生成の差）。merge 前に本番ビルドの健全性を機械保証する。③ 仕組み: `pnpm -C apps/web build` の exit が 0。tier=heavy（merge gate のみ）。",
+      "severity": "blocker",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "tier": "heavy",
+        "cmd": "pnpm -C apps/web build",
+        "expect": "exit0",
+        "tolerance": "exit0 のみ GREEN。重い（full build）ので heavy=merge gate のみ。env 起因の build 失敗は test-failure-playbook P2（依存入れ直し）で切り分けてから real breakage と判定する。"
+      },
+      "evidence": "next build の exit code（0=GREEN）。",
+      "examples": { "pass": ["Compiled successfully ＋ route 生成"], "fail": ["型エラー・webpack・静的生成失敗で非0"] }
+    }
+  ]
+}
