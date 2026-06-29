@@ -28,6 +28,15 @@ code-project（実装・テスト中心: `apps/web` / `design/` / `adr/` / `rubr
 - 「main を編集して e2e だけ disposable worktree で回す」運用は**禁止**（編集が隔離されず並行 writer で衝突する）。編集ごと隔離する。
 - rubric（`rubrics/`）の編集は監査役のみ・実装スライスと別コミット（**運用規律**。機械 gate `meta/no-gate-tampering` は gate 変更 PR と構造衝突するため廃止＝余計な依存を増やさず運用で担保、2026-06-23）。
 
+## コマンド規律（必ず使う）
+
+検証と git の正しいコマンド。逸脱は PreToolUse hook `.claude/hooks/git-guard.mjs` が機械で止める（broad `git add` と force-push を block・正解を提示）。
+
+- **検証は単一入口 `pnpm preflight`**: `--quick`（cmd-gate のみ・即時、Stop hook が使用）／`--fast`（＋tsc＋unit）／`--full`（merge gate：judge・e2e・integration・storybook 込み）。変更パスを検出し**影響層だけ**回す。gate 単体は `node rubrics/run.mjs --changed <paths>`。
+- **個別**: `pnpm test`（unit）／`pnpm -C apps/web exec tsc --noEmit`／`DATABASE_URL=…@localhost:55433/lathe pnpm -C apps/web run verify:incremental`（scratch DB integration）。
+- **dev / ingest**: `pnpm dev`（起動時に増分 ingest を background 実行）／`pnpm -C apps/web run ingest:incremental`。
+- **merge 衛生（必須・2026-06-26 の事故の教訓）**: `git reset`（index クリア）→ 明示 `git add <paths>` → `git diff --cached --stat` で意図と照合 → commit。**`git add -A` / `git add .` 禁止**（stray・node_modules symlink・残留 AD を巻き込む）。削除は `git rm`。**FF only（force-push 禁止）**。
+
 ## Status
 
 **Phase 1 完了（2026-06-11）・E2E 67/67 GREEN**。観測 = turn-first transcript / Git 差分 / 統計 / コスト異常検知（G9）/ PR 連携（G1、session ⇄ PR 紐付け）/ UI 標準 = observability-dense（`design/ui-design-language.md`）。
