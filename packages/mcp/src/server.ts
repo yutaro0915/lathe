@@ -17,6 +17,7 @@ import {
 import {
   getEvidenceContext,
   getMcpSessionBundle,
+  getSessionEvents,
   listMcpSessions,
   queryFindings,
   submitFinding,
@@ -99,7 +100,7 @@ function createServer(): McpServer {
       'list_sessions',
       {
         title: 'List Lathe sessions',
-        description: 'List session summaries with paging and optional project/runner/model filters.',
+        description: 'List session summaries with paging, optional project/runner/model filters, and triage fields (status, turn/tool/error counts, cost, duration). Returns { total, sessions }.',
         inputSchema: {
           filter: z
             .object({
@@ -108,6 +109,7 @@ function createServer(): McpServer {
               model: z.string().optional(),
               limit: z.number().int().positive().max(200).optional(),
               offset: z.number().int().min(0).optional(),
+              order_by: z.enum(['started_at', 'cost_usd', 'error_count', 'turn_count', 'duration_ms']).optional(),
             })
             .optional(),
         },
@@ -121,9 +123,42 @@ function createServer(): McpServer {
             model: optionalString(filter?.model),
             limit: optionalNumber(filter?.limit),
             offset: optionalNumber(filter?.offset),
+            orderBy: optionalString(filter?.order_by),
           }),
         ),
     );
+
+  server.registerTool(
+    'get_session_events',
+    {
+      title: 'List session turns (spine) without event bodies',
+      description: 'List session turns (spine) without event bodies, filterable by seq range / subagent / type. Returns { total, seqRange, events }.',
+      inputSchema: {
+        session_id: z.string().min(1),
+        seq_from: z.number().int().min(0).optional(),
+        seq_to: z.number().int().min(0).optional(),
+        subagent: z.string().optional(),
+        types: z.array(z.string()).optional(),
+        errors_only: z.boolean().optional(),
+        limit: z.number().int().positive().max(500).optional(),
+        offset: z.number().int().min(0).optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ session_id, seq_from, seq_to, subagent, types, errors_only, limit, offset }) =>
+      jsonResult(
+        await getSessionEvents({
+          sessionId: session_id,
+          seqFrom: seq_from,
+          seqTo: seq_to,
+          subagent: optionalString(subagent),
+          types,
+          errorsOnly: errors_only,
+          limit: optionalNumber(limit),
+          offset: optionalNumber(offset),
+        }),
+      ),
+  );
 
   server.registerTool(
     'get_session_bundle',

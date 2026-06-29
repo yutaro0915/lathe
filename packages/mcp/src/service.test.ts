@@ -7,6 +7,8 @@ import {
   FINDING_NOTE_MAX_LENGTH,
   FINDING_TITLE_MAX_LENGTH,
   getEvidenceContext,
+  getSessionEvents,
+  listMcpSessions,
   parseStoredAnalysis,
   queryFindings,
   stableJson,
@@ -240,6 +242,117 @@ test("submitFinding rejects invalid evidence coordinates before any database que
 
   for (const { name, evidence, message } of evidenceCases) {
     await assert.rejects(() => submitFinding(validFinding({ evidence: [evidence] })), message, name);
+  }
+});
+
+test("listMcpSessions returns { total, sessions } shape with triage fields", async () => {
+  const result = await listMcpSessions({ limit: 1 });
+  // 戻り値の形状確認
+  assert.ok(typeof result.total === "number", "total should be a number");
+  assert.ok(Array.isArray(result.sessions), "sessions should be an array");
+  if (result.sessions.length > 0) {
+    const s = result.sessions[0];
+    // triage フィールドの存在確認
+    assert.ok("status" in s, "session should have status");
+    assert.ok("turnCount" in s, "session should have turnCount");
+    assert.ok("toolCount" in s, "session should have toolCount");
+    assert.ok("editCount" in s, "session should have editCount");
+    assert.ok("bashCount" in s, "session should have bashCount");
+    assert.ok("subagentCount" in s, "session should have subagentCount");
+    assert.ok("errorCount" in s, "session should have errorCount");
+    assert.ok("tokenUsage" in s, "session should have tokenUsage");
+    assert.ok("durationMs" in s, "session should have durationMs");
+    assert.ok("startedAt" in s, "session should have startedAt");
+    assert.ok("endedAt" in s, "session should have endedAt");
+    assert.ok("parentSessionId" in s, "session should have parentSessionId");
+    assert.ok(typeof s.turnCount === "number", "turnCount should be a number");
+    assert.ok(typeof s.errorCount === "number", "errorCount should be a number");
+  }
+});
+
+test("listMcpSessions total is consistent with all sessions count", async () => {
+  const result = await listMcpSessions({ limit: 200 });
+  assert.ok(result.total >= result.sessions.length, "total should be >= returned sessions length");
+});
+
+test("listMcpSessions order_by error_count returns numeric errorCount in each session", async () => {
+  const result = await listMcpSessions({ limit: 5, orderBy: "error_count" });
+  assert.ok(typeof result.total === "number", "total should be a number");
+  for (const s of result.sessions) {
+    assert.ok(typeof s.errorCount === "number", "errorCount should be a number");
+  }
+});
+
+test("listMcpSessions order_by unknown value falls back without throwing (whitelist)", async () => {
+  // whitelist 外は started_at にフォールバック。エラーを投げないことを確認。
+  // orderBy は ListSessionsFilter では string なので型キャストして渡す。
+  const result = await listMcpSessions({ limit: 1, orderBy: "unknown_column_xyz" });
+  assert.ok(typeof result.total === "number", "should return total without throwing");
+});
+
+test("getSessionEvents rejects non-existent session_id", async () => {
+  await assert.rejects(
+    () => getSessionEvents({ sessionId: "00000000-0000-0000-0000-000000000000" }),
+    /session not found/,
+    "should throw session not found for unknown id",
+  );
+});
+
+test("getSessionEvents returns { total, seqRange, events } shape without body/meta", async () => {
+  // 既存の session を 1 件取得してから events を問い合わせる
+  const sessions = await listMcpSessions({ limit: 1 });
+  if (sessions.sessions.length === 0) {
+    // DB にデータが無い場合はスキップ（pass）
+    return;
+  }
+  const sessionId = sessions.sessions[0].id;
+  const result = await getSessionEvents({ sessionId, limit: 5 });
+
+  assert.ok(typeof result.total === "number", "total should be a number");
+  // seqRange は null または { min, max }
+  if (result.seqRange !== null) {
+    assert.ok(typeof result.seqRange.min === "number", "seqRange.min should be a number");
+    assert.ok(typeof result.seqRange.max === "number", "seqRange.max should be a number");
+  }
+  assert.ok(Array.isArray(result.events), "events should be an array");
+
+  // body / meta フィールドが含まれないことを確認
+  for (const ev of result.events) {
+    assert.ok(!("body" in ev), "spine event must not contain body");
+    assert.ok(!("meta" in ev), "spine event must not contain meta");
+    assert.ok(!("filePath" in ev), "spine event must not contain filePath");
+    assert.ok(!("parentId" in ev), "spine event must not contain parentId");
+    // 期待フィールドが存在する
+    assert.ok("seq" in ev, "spine event should have seq");
+    assert.ok("type" in ev, "spine event should have type");
+    assert.ok("actor" in ev, "spine event should have actor");
+  }
+});
+
+test("getSessionEvents seq_from / seq_to range filter narrows results", async () => {
+  const sessions = await listMcpSessions({ limit: 1 });
+  if (sessions.sessions.length === 0) return;
+  const sessionId = sessions.sessions[0].id;
+
+  const all = await getSessionEvents({ sessionId, limit: 500 });
+  if (all.events.length < 2) return; // データが少なすぎる場合はスキップ
+
+  const midSeq = all.events[Math.floor(all.events.length / 2)].seq;
+  const filtered = await getSessionEvents({ sessionId, seqFrom: midSeq, limit: 500 });
+  assert.ok(filtered.events.every((e) => e.seq >= midSeq), "all events should satisfy seqFrom");
+  assert.ok(filtered.events.length <= all.events.length, "filtered should be <= all");
+});
+
+test("getSessionEvents errors_only returns only non-zero exit_code events", async () => {
+  const sessions = await listMcpSessions({ limit: 10 });
+  // エラーのある session を探す
+  const errorSession = sessions.sessions.find((s) => s.errorCount > 0);
+  if (!errorSession) return; // データが無ければスキップ
+
+  const result = await getSessionEvents({ sessionId: errorSession.id, errorsOnly: true, limit: 100 });
+  for (const ev of result.events) {
+    // exitCode は数値（null でない）かつ 0 でない
+    assert.ok(ev.exitCode !== null && ev.exitCode !== 0, `event seq=${ev.seq} exitCode=${ev.exitCode} should be non-zero`);
   }
 });
 

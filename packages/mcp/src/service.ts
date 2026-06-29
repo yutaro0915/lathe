@@ -53,6 +53,7 @@ export interface ListSessionsFilter {
   model?: string;
   limit?: number;
   offset?: number;
+  orderBy?: string;
 }
 
 export interface McpSessionSummary {
@@ -63,6 +64,29 @@ export interface McpSessionSummary {
   model: string | null;
   costUsd: number | null;
   harnessVersionId: string | null;
+  status: string;
+  turnCount: number;
+  toolCount: number;
+  editCount: number;
+  bashCount: number;
+  subagentCount: number;
+  errorCount: number;
+  tokenUsage: number;
+  durationMs: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  parentSessionId: string | null;
+}
+
+export interface GetSessionEventsInput {
+  sessionId: string;
+  seqFrom?: number;
+  seqTo?: number;
+  subagent?: string;
+  types?: string[];
+  errorsOnly?: boolean;
+  limit?: number;
+  offset?: number;
 }
 
 export interface QueryFindingsFilter {
@@ -82,6 +106,32 @@ interface SessionSummaryRow {
   model: string | null;
   cost_usd: number | null;
   harness_version_id: string | null;
+  status: string;
+  turn_count: number;
+  tool_count: number;
+  edit_count: number;
+  bash_count: number;
+  subagent_count: number;
+  error_count: number;
+  token_usage: number;
+  duration_ms: number | null;
+  started_at: string;
+  ended_at: string | null;
+  parent_session_id: string | null;
+}
+
+interface SpineEventRow {
+  seq: number;
+  ts: string;
+  type: string;
+  actor: string;
+  title: string;
+  command: string | null;
+  exit_code: number | null;
+  duration_ms: number | null;
+  token_usage: number | null;
+  subagent: string | null;
+  __total: number;
 }
 
 interface SessionRow extends SessionSummaryRow {
@@ -265,6 +315,21 @@ function assertLocatorLength(locator: Record<string, unknown>): void {
   }
 }
 
+function resolveOrderBy(orderBy: string | undefined): string {
+  switch (orderBy) {
+    case 'cost_usd':
+      return 'cost_usd DESC NULLS LAST, id ASC';
+    case 'error_count':
+      return 'error_count DESC, id ASC';
+    case 'turn_count':
+      return 'turn_count DESC, id ASC';
+    case 'duration_ms':
+      return 'duration_ms DESC NULLS LAST, id ASC';
+    default:
+      return 'started_at DESC NULLS LAST, id ASC';
+  }
+}
+
 function toSessionSummary(row: SessionSummaryRow): McpSessionSummary {
   return {
     id: row.id,
@@ -274,6 +339,33 @@ function toSessionSummary(row: SessionSummaryRow): McpSessionSummary {
     model: row.model,
     costUsd: row.cost_usd,
     harnessVersionId: row.harness_version_id,
+    status: row.status,
+    turnCount: row.turn_count,
+    toolCount: row.tool_count,
+    editCount: row.edit_count,
+    bashCount: row.bash_count,
+    subagentCount: row.subagent_count,
+    errorCount: row.error_count,
+    tokenUsage: row.token_usage,
+    durationMs: row.duration_ms,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    parentSessionId: row.parent_session_id,
+  };
+}
+
+function toSpineEvent(row: SpineEventRow) {
+  return {
+    seq: row.seq,
+    ts: row.ts,
+    type: row.type,
+    actor: row.actor,
+    title: row.title,
+    command: row.command,
+    exitCode: row.exit_code,
+    durationMs: row.duration_ms,
+    tokenUsage: row.token_usage,
+    subagent: row.subagent,
   };
 }
 
@@ -376,7 +468,7 @@ function validateEvidenceInput(evidence: FindingEvidenceInput): FindingEvidenceI
   };
 }
 
-export async function listMcpSessions(filter: ListSessionsFilter = {}): Promise<McpSessionSummary[]> {
+export async function listMcpSessions(filter: ListSessionsFilter = {}): Promise<{ total: number; sessions: McpSessionSummary[] }> {
   const where: string[] = [];
   const params: unknown[] = [];
   const addParam = (value: unknown) => {
@@ -393,15 +485,66 @@ export async function listMcpSessions(filter: ListSessionsFilter = {}): Promise<
 
   const limit = normalizeLimit(filter.limit);
   const offset = cleanNumber(filter.offset, 0);
-  const rows = await queryRows<SessionSummaryRow>(
-    `SELECT id,project_id,title,runner,model,cost_usd,harness_version_id
+  const orderClause = resolveOrderBy(filter.orderBy);
+  const rows = await queryRows<SessionSummaryRow & { __total: number }>(
+    `SELECT id,project_id,title,runner,model,cost_usd,harness_version_id,
+            status,turn_count,tool_count,edit_count,bash_count,subagent_count,
+            error_count,token_usage,duration_ms,started_at,ended_at,parent_session_id,
+            COUNT(*) OVER() AS __total
        FROM sessions
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY seq ASC, started_at DESC, id ASC
+      ORDER BY ${orderClause}
       LIMIT ${addParam(limit)} OFFSET ${addParam(offset)}`,
     params,
   );
-  return rows.map(toSessionSummary);
+  const total = rows.length > 0 ? Number(rows[0].__total) : 0;
+  return { total, sessions: rows.map(toSessionSummary) };
+}
+
+export async function getSessionEvents(input: GetSessionEventsInput): Promise<{
+  total: number;
+  seqRange: { min: number; max: number } | null;
+  events: ReturnType<typeof toSpineEvent>[];
+}> {
+  const sessionExists = await queryOne<{ id: string }>('SELECT id FROM sessions WHERE id = $1', [input.sessionId]);
+  if (!sessionExists) throw new Error(`session not found: ${input.sessionId}`);
+
+  const where: string[] = ['session_id = $1'];
+  const params: unknown[] = [input.sessionId];
+  const addParam = (value: unknown) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  if (input.seqFrom !== undefined) where.push(`seq >= ${addParam(input.seqFrom)}`);
+  if (input.seqTo !== undefined) where.push(`seq <= ${addParam(input.seqTo)}`);
+  if (input.subagent !== undefined) where.push(`subagent = ${addParam(input.subagent)}`);
+  if (input.types && input.types.length > 0) where.push(`type = ANY(${addParam(input.types)}::text[])`);
+  if (input.errorsOnly) where.push('exit_code IS NOT NULL AND exit_code <> 0');
+
+  const limit = Math.min(500, Math.max(1, cleanNumber(input.limit, 100)));
+  const offset = cleanNumber(input.offset, 0);
+
+  const [rows, rangeRow] = await Promise.all([
+    queryRows<SpineEventRow>(
+      `SELECT seq, ts, type, actor, LEFT(title, 200) AS title, command, exit_code, duration_ms, token_usage, subagent,
+              COUNT(*) OVER() AS __total
+         FROM transcript_events
+        WHERE ${where.join(' AND ')}
+        ORDER BY seq ASC, id ASC
+        LIMIT ${addParam(limit)} OFFSET ${addParam(offset)}`,
+      params,
+    ),
+    queryOne<{ min: number; max: number } | null>(
+      'SELECT MIN(seq) AS min, MAX(seq) AS max FROM transcript_events WHERE session_id = $1',
+      [input.sessionId],
+    ),
+  ]);
+
+  const total = rows.length > 0 ? Number(rows[0].__total) : 0;
+  const seqRange = rangeRow && rangeRow.min !== null ? { min: Number(rangeRow.min), max: Number(rangeRow.max) } : null;
+
+  return { total, seqRange, events: rows.map(toSpineEvent) };
 }
 
 async function getSession(id: string) {
