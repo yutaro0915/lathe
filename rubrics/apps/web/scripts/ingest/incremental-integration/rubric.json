@@ -1,0 +1,25 @@
+{
+  "schema_version": "2",
+  "id": "apps/web/scripts/ingest/incremental-integration",
+  "title": "増分 ingest の不変条件が実 DB で成り立つ (verify:incremental)",
+  "version": "1",
+  "scope": ["apps/web/scripts/ingest"],
+  "origin": "agent-workflow(2026-06-29, step3): ingest の integration テスト実行を preflight フラグでなく scoped+tiered rubric に。ingest 変更で発火。tier=heavy（scratch DB 必要・重い）。incremental-no-wipe(cmd・静的)と二段で守る。rubric 追加は auditor のみ・別 commit。",
+  "checks": [
+    {
+      "id": "incremental-invariants-pass",
+      "value": "① 何を縛るか: 増分 ingest の不変条件（no-wipe・複数 project 共存・冪等・FK 整合・findings 非孤立）が scratch DB 実行で全て成り立つ。② なぜ重要か: incremental-no-wipe(cmd) はコードの静的検査、こちらは実 DB での挙動検証＝二段で守る。③ 仕組み: `verify:incremental` の exit が 0。tier=heavy（scratch DB 55433 が前提）。",
+      "severity": "blocker",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "tier": "heavy",
+        "cmd": "DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe pnpm -C apps/web run verify:incremental",
+        "expect": "exit0",
+        "tolerance": "exit0 のみ GREEN。scratch DB(55433) 起動が前提（merge gate=heavy で実行）。"
+      },
+      "evidence": "verify:incremental の exit code（0=GREEN、4 invariant 全 PASS）。",
+      "examples": { "pass": ["no-wipe/冪等/FK/findings 全 PASS"], "fail": ["どれか違反で非0"] }
+    }
+  ]
+}

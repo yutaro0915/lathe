@@ -13,6 +13,7 @@
       "verify": {
         "kind": "cmd",
         "metric": "count",
+        "tier": "test",
         "cmd": "pnpm -C apps/web exec playwright test --list >/dev/null 2>&1 && echo 0 || echo 1",
         "expect": "eq:0",
         "tolerance": "exit 0 のみ GREEN。--list は load 検査(import/構文/module 解決)であって各 test の pass/fail は見ない — それは unit(node --test) / test-storybook(play+a11y) / 個別 e2e(render-layout-integrity 等)が担う。限界: playwright 未 install 環境では実行不可(CI/ローカルで playwright がある前提)。"

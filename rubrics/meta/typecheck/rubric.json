@@ -1,0 +1,25 @@
+{
+  "schema_version": "2",
+  "id": "meta/typecheck",
+  "title": "apps/web が型エラーなしでコンパイルできる (tsc --noEmit)",
+  "version": "1",
+  "scope": ["apps/web"],
+  "origin": "agent-workflow(2026-06-29, step3): 検証を rubric に統一。tsc を preflight の命令フラグでなく scoped+tiered rubric にして run.mjs 一本に寄せる。tier=test（Stop hook の cmd では回さず --fast/--full で回す）。rubric 追加は auditor のみ・別 commit。",
+  "checks": [
+    {
+      "id": "tsc-noemit-clean",
+      "value": "① 何を縛るか: apps/web が `tsc --noEmit` で型エラー 0。② なぜ重要か: 型エラーは挙動破綻・import 不整合の最短検出。層分割やリファクタで import が壊れても tsc が捕まえる。③ 仕組み: `pnpm -C apps/web exec tsc --noEmit` の exit が 0。tier=test（中コスト）。",
+      "severity": "blocker",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "tier": "test",
+        "cmd": "pnpm -C apps/web exec tsc --noEmit",
+        "expect": "exit0",
+        "tolerance": "exit0 のみ GREEN。型のみ（実行時挙動は unit/e2e が担保）。"
+      },
+      "evidence": "tsc --noEmit の exit code（0=GREEN）。",
+      "examples": { "pass": ["型が通る"], "fail": ["import 解決不能・型不一致で tsc 非0"] }
+    }
+  ]
+}

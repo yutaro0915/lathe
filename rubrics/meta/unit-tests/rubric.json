@@ -1,0 +1,25 @@
+{
+  "schema_version": "2",
+  "id": "meta/unit-tests",
+  "title": "unit テストが緑 (pnpm test)",
+  "version": "1",
+  "scope": ["packages", "apps/web/lib", "apps/web/components", "apps/web/scripts"],
+  "origin": "agent-workflow(2026-06-29, step3): unit 実行を preflight フラグでなく scoped+tiered rubric に。lib/components/scripts/packages のロジック変更で発火。tier=test。rubric 追加は auditor のみ・別 commit。",
+  "checks": [
+    {
+      "id": "unit-suite-green",
+      "value": "① 何を縛るか: `pnpm test`（node --test）の unit スイートが全 pass。② なぜ重要か: ロジック変更の決定的な下支え。苦労して育てたテストピラミッドを腐らせない。③ 仕組み: `pnpm test` の exit が 0。tier=test。",
+      "severity": "blocker",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "tier": "test",
+        "cmd": "pnpm test",
+        "expect": "exit0",
+        "tolerance": "exit0 のみ GREEN。スイート全体を回す（変更分だけでない）。e2e は別 rubric。"
+      },
+      "evidence": "pnpm test の exit code（0=GREEN）。",
+      "examples": { "pass": ["全 unit pass"], "fail": ["どれか fail で非0"] }
+    }
+  ]
+}
