@@ -15,6 +15,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/git-guard.mjs",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
