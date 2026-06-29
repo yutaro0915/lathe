@@ -26,7 +26,17 @@ function findRubrics(dir) {
 }
 const all = findRubrics(here).map((f) => ({ id: relative(here, dirname(f)), ...JSON.parse(readFileSync(f, 'utf8')) }));
 
-const args = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+// --tier <cmd|test|heavy>: run only checks up to that cost tier (default heavy = all).
+// cmd = fast deterministic (grep/lint) — Stop hook; test = + tsc/unit; heavy = + e2e/integration/storybook/judge.
+const TIER_RANK = { cmd: 0, test: 1, heavy: 2 };
+let maxTierRank = 2;
+const tierIdx = rawArgs.indexOf('--tier');
+if (tierIdx >= 0) {
+  maxTierRank = TIER_RANK[rawArgs[tierIdx + 1]] ?? 2;
+  rawArgs.splice(tierIdx, 2);
+}
+const args = rawArgs;
 let selected, changed = [];
 if (args[0] === '--changed') {
   changed = args.slice(1);
@@ -44,9 +54,11 @@ for (const r of selected) {
   console.log(`\n# ${r.id} — ${r.title}  [scope: ${(r.scope || []).join(' ')}]`);
   for (const c of r.checks) {
     const v = c.verify || {};
-    // opt-in: fast preflight skips codex agent-judge checks (deferred to --full / merge gate). Default unchanged.
-    if (v.judge && process.env.RUBRIC_SKIP_JUDGE === '1') {
-      console.log(`  [SKIP ] ${c.id} (judge — deferred to full preflight)`);
+    // cost tier: explicit verify.tier, else judges default heavy / cmd checks default cmd.
+    // --tier keeps only checks at or below the requested tier (Stop hook=cmd, merge=heavy).
+    const tier = v.tier ?? (v.judge ? 'heavy' : 'cmd');
+    if ((TIER_RANK[tier] ?? 2) > maxTierRank) {
+      console.log(`  [SKIP ] ${c.id} (tier=${tier} > requested)`);
       continue;
     }
     total++;
