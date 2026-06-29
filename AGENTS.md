@@ -32,7 +32,7 @@ code-project（実装・テスト中心: `apps/web` / `design/` / `adr/` / `rubr
 
 検証と git の正しいコマンド。逸脱は PreToolUse hook `.claude/hooks/git-guard.mjs` が機械で止める（broad `git add` と force-push を block・正解を提示）。
 
-- **検証は単一入口 `pnpm preflight`**: `--quick`（cmd-gate のみ・即時、Stop hook が使用）／`--fast`（＋tsc＋unit）／`--full`（merge gate：judge・e2e・integration・storybook 込み）。変更パスを検出し**影響層だけ**回す。gate 単体は `node rubrics/run.mjs --changed <paths>`。
+- **検証は単一入口 `pnpm preflight`**: `--quick`（tier=cmd・即時、Stop hook が使用）／`--fast`（tier=test＝＋tsc＋unit）／`--full`（tier=heavy＝e2e・storybook・integration・judge 込み・merge gate）。**全検証層（tsc/unit/e2e/storybook/integration/judge）は run.mjs の scoped+tiered rubric**＝scope が「どれを」・tier が「どこまで」を決める。gate 単体は `node rubrics/run.mjs --changed <paths> [--tier cmd|test|heavy]`。
 - **個別**: `pnpm test`（unit）／`pnpm -C apps/web exec tsc --noEmit`／`DATABASE_URL=…@localhost:55433/lathe pnpm -C apps/web run verify:incremental`（scratch DB integration）。
 - **dev / ingest**: `pnpm dev`（起動時に増分 ingest を background 実行）／`pnpm -C apps/web run ingest:incremental`。
 - **merge 衛生（必須・2026-06-26 の事故の教訓）**: `git reset`（index クリア）→ 明示 `git add <paths>` → `git diff --cached --stat` で意図と照合 → commit。**`git add -A` / `git add .` 禁止**（stray・node_modules symlink・残留 AD を巻き込む）。削除は `git rm`。**FF only（force-push 禁止）**。
