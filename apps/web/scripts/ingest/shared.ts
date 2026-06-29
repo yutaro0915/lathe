@@ -37,13 +37,13 @@ export interface ToolInput {
 }
 
 // A `BuiltEvent` under construction: the display fields are supplied by call
-// sites, while id/seq/session_id (and subagent/parent_id for providers that
-// default them) are stamped by the local addEvent helper.
+// sites, while id/seq/session_id/exit_disposition (and subagent/parent_id for
+// providers that default them) are stamped by the local addEvent helper.
 export type DraftEvent = Omit<
   BuiltEvent,
-  'id' | 'seq' | 'session_id' | 'subagent' | 'parent_id'
+  'id' | 'seq' | 'session_id' | 'subagent' | 'parent_id' | 'exit_disposition'
 > &
-  Partial<Pick<BuiltEvent, 'id' | 'seq' | 'session_id' | 'subagent' | 'parent_id'>>;
+  Partial<Pick<BuiltEvent, 'id' | 'seq' | 'session_id' | 'subagent' | 'parent_id' | 'exit_disposition'>>;
 
 // A `BuiltChangedFile` under construction, carrying private accumulators that
 // are dropped before the file is returned.

@@ -120,8 +120,8 @@ export async function insertBuiltRows(
 
     for (const e of b.events) {
       await client.query(
-        `INSERT INTO transcript_events (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,duration_ms,token_usage,subagent,meta,parent_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        `INSERT INTO transcript_events (id,session_id,seq,ts,type,actor,title,body,file_path,command,exit_code,exit_disposition,duration_ms,token_usage,subagent,meta,parent_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
         cleanParams([
           e.id,
           e.session_id,
@@ -134,6 +134,7 @@ export async function insertBuiltRows(
           e.file_path,
           e.command,
           e.exit_code,
+          e.exit_disposition ?? null,
           e.duration_ms,
           e.token_usage,
           e.subagent,

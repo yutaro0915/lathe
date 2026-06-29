@@ -130,6 +130,7 @@ export interface TranscriptEvent {
   filePath: string | null;
   command: string | null;
   exitCode: number | null;
+  exitDisposition?: string | null;
   durationMs: number | null;
   tokenUsage: number | null;
   subagent: string | null;

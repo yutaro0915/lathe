@@ -9,6 +9,7 @@ import type {
   BuiltHunk,
 } from '../built';
 import { collectSessionCommits } from '../commit-sha';
+import { classifyExit } from '../domain/exit-disposition';
 import type { ProjectIdentity } from '../project';
 import {
   clampLines,
@@ -106,6 +107,7 @@ export function parseClaudeSessionRecords(
     e.seq = seq;
     e.session_id = sessionId;
     e.id = `${sessionId}_${seq}`; // globally unique, overrides provided ids
+    e.exit_disposition = classifyExit(e);
     const ev = e as BuiltEvent;
     events.push(ev);
     counts[ev.type] = (counts[ev.type] || 0) + 1;
@@ -268,7 +270,7 @@ export function parseClaudeSessionRecords(
               role: etype === 'file_read' ? 'read' : etype === 'file_write' ? 'write' : 'edit',
             });
           }
-          if (exit === 1) annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'error', note: preview(ev.title, 60) });
+          if (ev.exit_disposition === 'failure') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'error', note: preview(ev.title, 60) });
           else if (etype === 'commit') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'commit', note: preview(cmd || '', 60) });
           else if (etype === 'test') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'test', note: preview(cmd || '', 60) });
 
@@ -423,10 +425,8 @@ export function parseClaudeSessionRecords(
   // grounded signal: how many tool calls actually returned a non-zero exit (or
   // were error events), across the session + its sub-agents. NOT a vague
   // "session failed" verdict — there is no such thing in a transcript.
-  const errorCount = events.filter(
-    (e) => (e.exit_code != null && e.exit_code !== 0) || e.type === 'error',
-  ).length;
-  const status = errorCount > 0 ? 'failed' : 'done';
+  const errorCount = events.filter((e) => e.exit_disposition === 'failure').length;
+  const status = 'done' as const;
   const session: Built['session'] = {
     id: sessionId,
     projectId: project.id,

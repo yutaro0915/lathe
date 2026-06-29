@@ -64,6 +64,7 @@ export interface TranscriptEventRow {
   file_path: string | null;
   command: string | null;
   exit_code: number | null;
+  exit_disposition?: string | null;
   duration_ms: number | null;
   token_usage: number | null;
   subagent: string | null;
@@ -212,6 +213,7 @@ export function toEvent(r: TranscriptEventRow): TranscriptEvent {
     filePath: r.file_path,
     command: r.command,
     exitCode: r.exit_code,
+    exitDisposition: r.exit_disposition ?? null,
     durationMs: r.duration_ms,
     tokenUsage: r.token_usage,
     subagent: r.subagent,

@@ -117,7 +117,8 @@ CREATE TABLE IF NOT EXISTS transcript_events (
   body        TEXT,                       -- full content / command output
   file_path   TEXT,                       -- for file_* and inferred read events
   command     TEXT,                       -- for bash / test / commit events
-  exit_code   INTEGER,                    -- for bash / test / commit events
+  exit_code        INTEGER,               -- for bash / test / commit events
+  exit_disposition TEXT,                  -- na | ok | gate_verdict | probe | no_match | policy_block | failure
   duration_ms INTEGER,
   token_usage INTEGER,
   subagent    TEXT,                       -- nesting: subagent / thread name
@@ -230,6 +231,9 @@ BEGIN
   END IF;
 END $$;
 CREATE INDEX IF NOT EXISTS idx_findings_backlog_status ON findings(backlog_status);
+
+-- exit_disposition: added 2026-06-29. Idempotent — safe to run on existing DBs.
+ALTER TABLE transcript_events ADD COLUMN IF NOT EXISTS exit_disposition TEXT;
 
 CREATE TABLE IF NOT EXISTS finding_evidence (
   id           INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

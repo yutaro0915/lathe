@@ -55,6 +55,7 @@ export interface BuiltEvent {
   file_path: string | null;
   command: string | null;
   exit_code: number | null;
+  exit_disposition?: string | null;
   duration_ms: number | null;
   token_usage: number | null;
   subagent: string | null;

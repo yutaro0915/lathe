@@ -13,6 +13,7 @@ import type {
   BuiltHunk,
 } from '../built';
 import { collectSessionCommits } from '../commit-sha';
+import { classifyExit } from '../domain/exit-disposition';
 import { resolveProjectIdentity, type ProjectIdentity } from '../project';
 import {
   clampLines,
@@ -172,6 +173,7 @@ export function parseCodexSessionRecords(
   const addEvent = (e: DraftEvent): BuiltEvent => {
     seq += 1; e.seq = seq; e.session_id = sessionId; e.id = `${sessionId}_${seq}`;
     e.subagent = e.subagent ?? null; e.parent_id = null;
+    e.exit_disposition = classifyExit(e);
     const ev = e as BuiltEvent;
     events.push(ev); counts[ev.type] = (counts[ev.type] || 0) + 1; return ev;
   };
@@ -242,7 +244,7 @@ export function parseCodexSessionRecords(
         }
         const ev = addEvent({ ts, type: etype, actor: 'assistant', title: skillName ? `Skill · ${skillName}` : preview(cmd, 80), body: stdout.slice(0, 3000), file_path: readPath, command: cmd, exit_code: exit, duration_ms: null, token_usage: null, meta: JSON.stringify(skillName ? { tool: 'exec_command', skill: skillName } : { tool: 'exec_command' }) });
         if (readPath) eventFiles.push({ event_id: ev.id, path: readPath, role: 'read' });
-        if (exit != null && exit !== 0) annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'error', note: preview(cmd, 60) });
+        if (ev.exit_disposition === 'failure') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'error', note: preview(cmd, 60) });
         else if (etype === 'commit') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'commit', note: preview(cmd, 60) });
         else if (etype === 'test') annotations.push({ session_id: sessionId, at_seq: ev.seq, kind: 'test', note: preview(cmd, 60) });
       } else if (name === 'update_plan') {
@@ -284,7 +286,7 @@ export function parseCodexSessionRecords(
   if (!events.length) return null;
 
   const durationMs = firstTs && lastTs ? new Date(lastTs).getTime() - new Date(firstTs).getTime() : null;
-  const errorCount = events.filter((e) => (e.exit_code != null && e.exit_code !== 0) || e.type === 'error').length;
+  const errorCount = events.filter((e) => e.exit_disposition === 'failure').length;
   const title = titles.get(sessionId) || events.find((e) => e.type === 'user_message')?.title || '(codex session)';
   // cost from real GPT pricing: fresh input + cached (at cache-read rate) + output.
   // null for unpriceable models (e.g. codex-auto-review) -> shown as "—".
@@ -299,7 +301,7 @@ export function parseCodexSessionRecords(
     title,
     runner: 'codex',
     model,
-    status: errorCount > 0 ? 'failed' : 'done',
+    status: 'done',
     started_at: firstTs ? firstTs.replace('T', ' ').slice(0, 19) : '',
     ended_at: lastTs ? lastTs.replace('T', ' ').slice(0, 19) : null,
     duration_ms: durationMs,
