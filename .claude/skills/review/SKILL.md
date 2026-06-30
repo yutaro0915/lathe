@@ -27,3 +27,15 @@ reviewer agent がこれに従う。**read-only**（コード編集・git をし
 ## 不変の前提
 - reviewer は read-only。コード編集・git 操作・merge をしない。
 - 機械で測れる規範は rubric＝verifier が見る。reviewer はそれを再実行せず、**設計判断**に集中する（責務分離）。
+
+## receipt（必須）
+
+review が完了したら必ず receipt を書く:
+
+**この receipt は cwd=対象 worktree で実行する**（`git rev-parse HEAD` がブランチ tip を指すように。main で実行すると sha 不一致で merge が拒否される）
+
+```shell
+LATHE_AGENT=reviewer node scripts/receipt.mjs review "$(git rev-parse HEAD)" <PASS|CHANGES>
+```
+
+blocking 指摘が無い時（verdict=approve）だけ PASS。CHANGES は major/blocker あり。

@@ -45,6 +45,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# merge gate receipts (ephemeral / local state — do not track)
+.lathe/receipts/
+
 # secrets / env (be aggressive — public repo)
 .env
 .env.*
