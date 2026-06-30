@@ -13,6 +13,7 @@
  * immediately (skip), keeping dev restarts safe.
  */
 import { openSync, closeSync, unlinkSync, readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
 import { getDatabaseUrl } from '../lib/postgres';
 import { discoverTranscriptDirs } from './ingest/usecase/discover-dirs';
@@ -169,8 +170,25 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(`${PREFIX} fatal error (ingest skipped, dev server unaffected):`, err);
-  releaseLock();
-  process.exit(0);
-});
+// ---------------------------------------------------------------------------
+// Import-main guard: only run main() when this file is the direct entry point.
+// When imported by tests (or any other module), main() must not execute so
+// that no DB connection or ingest side-effect occurs.
+// ---------------------------------------------------------------------------
+const _isMain = (() => {
+  try {
+    // process.argv[1] is the resolved path tsx/node was invoked with.
+    // pathToFileURL normalises both sides to comparable file:// URLs.
+    return pathToFileURL(process.argv[1] ?? '').href === import.meta.url;
+  } catch {
+    return false;
+  }
+})();
+
+if (_isMain) {
+  main().catch((err) => {
+    console.error(`${PREFIX} fatal error (ingest skipped, dev server unaffected):`, err);
+    releaseLock();
+    process.exit(0);
+  });
+}

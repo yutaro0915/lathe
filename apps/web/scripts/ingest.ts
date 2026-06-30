@@ -1,43 +1,50 @@
 /*
  * Lathe Phase 1 — real transcript ingester.
  * Reads Claude Code and Codex transcripts and populates the configured database.
+ *
+ * This entry point uses the NO-WIPE incremental path (runIncrementalIngest)
+ * across all discovered transcript dirs. It never calls resetDatabase or issues
+ * any full DELETE, preventing accidental data-loss on a shared dev DB.
+ *
+ * For an intentional full rebuild use LATHE_FORCE_RESET=1 and call
+ * runFullRebuild directly (or use the verify:incremental scratch path).
  */
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { pickDefaultTranscriptsDir } from './ingest/shared';
-import { runFullRebuild } from './ingest/usecase/full-rebuild';
+import { Pool } from 'pg';
+import { getDatabaseUrl } from '../lib/postgres';
+import { discoverTranscriptDirs } from './ingest/usecase/discover-dirs';
+import { runIncrementalIngest } from './ingest/usecase/incremental';
 
-const TRANSCRIPTS_DIR = process.argv[2] || process.env.LATHE_TRANSCRIPTS_DIR || pickDefaultTranscriptsDir();
-const MAX_SESSIONS = Number(process.env.LATHE_MAX_SESSIONS || 100000);
-const ROOT = process.cwd();
-const SCHEMA_PATH = path.join(ROOT, 'db', 'schema.sql');
+const PREFIX = '[ingest]';
 
-async function main() {
-  if (!fs.existsSync(TRANSCRIPTS_DIR)) {
-    console.error(`[ingest] transcripts dir not found: ${TRANSCRIPTS_DIR}`);
-    process.exit(1);
+async function main(): Promise<void> {
+  const url = getDatabaseUrl();
+  console.log(`${PREFIX} starting no-wipe incremental ingest (db: ${url.replace(/:[^@]*@/, ':***@')})`);
+
+  const dirs = discoverTranscriptDirs();
+  console.log(`${PREFIX} discovered ${dirs.length} transcript dir(s)`);
+
+  const pool = new Pool({ connectionString: url });
+  try {
+    const result = await runIncrementalIngest(pool, {
+      dirs,
+      onFile: ({ file, action, error }) => {
+        if (action === 'error') {
+          console.error(`${PREFIX} error processing ${file}: ${error?.message ?? String(error)}`);
+        }
+      },
+    });
+
+    console.log(
+      `${PREFIX} done — dirs=${result.dirsScanned} found=${result.filesFound}` +
+        ` upserted=${result.filesUpserted} skipped=${result.filesSkipped}` +
+        ` errored=${result.filesErrored}`,
+    );
+  } finally {
+    await pool.end().catch(() => {/* ignore pool teardown errors */});
   }
-
-  const { counts, discovered, accepted, db } = await runFullRebuild({
-    transcriptsDir: TRANSCRIPTS_DIR,
-    maxSessions: MAX_SESSIONS,
-    buildOpts: {
-      maxEvents: Number(process.env.LATHE_MAX_EVENTS || 100000),
-      maxFiles: Number(process.env.LATHE_MAX_FILES || 100000),
-      maxHunkLines: Number(process.env.LATHE_MAX_HUNK_LINES || 200),
-    },
-    schemaPath: SCHEMA_PATH,
-    noCodex: process.env.LATHE_NO_CODEX === '1',
-    codexProject: process.env.LATHE_CODEX_PROJECT,
-  });
-
-  await db.end();
-  console.log(
-    `[ingest] from ${discovered.get('claude-code') ?? 0} claude transcripts + ${accepted.get('codex') ?? 0} codex sessions: projects=${counts.projects} sessions=${counts.sessions} events=${counts.events} session_commits=${counts.sessionCommits} commit_sha_misses=${counts.commitShaMisses} changed_files=${counts.changedFiles} hunks=${counts.hunks} attributions=${counts.attributions} event_files=${counts.eventFiles} annotations=${counts.annotations} harness_versions=${counts.harnessVersions}`,
-  );
 }
 
 main().catch((error) => {
-  console.error(`[ingest] failed: ${(error as Error).message}`);
+  console.error(`${PREFIX} failed: ${(error as Error).message}`);
   process.exit(1);
 });

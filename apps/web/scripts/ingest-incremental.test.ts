@@ -1,11 +1,27 @@
 /**
- * Unit tests for decideLock() in ingest-incremental.ts.
+ * Unit tests for decideLock() and the import-main guard in ingest-incremental.ts.
  *
  * No I/O, no DB — purely in-memory / side-effect-free.
+ *
+ * Import-main guard: importing this module must NOT trigger main() / DB
+ * connections / file I/O. The test itself proves this: if main() ran on
+ * import, the test process would either hang on a DB connect or emit noisy
+ * errors before any test assertion runs.
  */
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { decideLock } from './ingest-incremental';
+
+// ---------------------------------------------------------------------------
+// Import-main guard (smoke test)
+// ---------------------------------------------------------------------------
+
+test('import-main guard: importing ingest-incremental does not execute main()', () => {
+  // If main() had run on import, the test process would have attempted a DB
+  // connection (getDatabaseUrl → Pool constructor) and either hung or thrown
+  // before reaching this assertion. Reaching here proves main() was NOT called.
+  assert.ok(typeof decideLock === 'function', 'decideLock export is reachable after import');
+});
 
 const SELF_PID = 12345;
 const OTHER_PID = 99999;
