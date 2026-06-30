@@ -17,6 +17,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Pool } from 'pg';
 import { buildClaudeSession } from '../providers/claude';
+import {
+  buildCodexSession,
+  codexHeadSessionId,
+  listCodexRollouts,
+  loadCodexTitles,
+} from '../providers/codex';
 import { replaceBuiltSession } from '../repository/ingest-writer';
 import type { InsertBuiltOptions } from '../repository/types';
 import type { ProviderBuildOptions } from '../providers/types';
@@ -58,6 +64,11 @@ export interface IncrementalIngestResult {
   filesSkipped: number;
   filesUpserted: number;
   filesErrored: number;
+  /** Codex rollouts discovered across all projects (no cwd filter). */
+  codexRolloutsFound: number;
+  codexSkipped: number;
+  codexUpserted: number;
+  codexErrored: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +214,10 @@ export async function runIncrementalIngest(
     filesSkipped: 0,
     filesUpserted: 0,
     filesErrored: 0,
+    codexRolloutsFound: 0,
+    codexSkipped: 0,
+    codexUpserted: 0,
+    codexErrored: 0,
   };
 
   // -------------------------------------------------------------------------
@@ -304,6 +319,62 @@ export async function runIncrementalIngest(
   // Skip them — we cannot safely identify them.
   for (const { file, mtime } of noIdFiles) {
     await processFile(file, mtime, null);
+  }
+
+  // -------------------------------------------------------------------------
+  // Codex path: ingest all rollouts across all projects (no cwd filter).
+  //
+  // For each rollout we:
+  //  1. Cheap-probe the session id from head bytes (codexHeadSessionId).
+  //  2. Check isStale against the same endedAt map (fetched per batch below).
+  //  3. Build + upsert stale sessions with replaceBuiltSession (no-wipe).
+  // -------------------------------------------------------------------------
+
+  const codexRollouts = listCodexRollouts();
+  result.codexRolloutsFound = codexRollouts.length;
+
+  if (codexRollouts.length > 0) {
+    // Collect (sessionId, file, mtime) for all rollouts.
+    const codexEntries: Array<{ sessionId: string; file: string; mtime: number }> = [];
+    for (const file of codexRollouts) {
+      let mtime = 0;
+      try { mtime = fs.statSync(file).mtimeMs; } catch { /* ignore */ }
+      const sid = codexHeadSessionId(file); // always returns a non-empty string
+      codexEntries.push({ sessionId: sid, file, mtime });
+    }
+
+    // Global dedup across codex rollouts (same per-session invariant as claude).
+    const codexSessionMap = deduplicateByLatestMtime(codexEntries);
+
+    // Batch-fetch ended_at for all codex session ids in one query.
+    const codexSessionIds = [...codexSessionMap.keys()];
+    const codexEndedAtMap = await fetchEndedAtMap(pool, codexSessionIds);
+
+    // Load titles once (used by buildCodexSession).
+    const titles = loadCodexTitles();
+
+    for (const [sid, { file, mtime }] of codexSessionMap) {
+      const endedAt = codexEndedAtMap.get(sid);
+      if (!isStale(mtime, endedAt)) {
+        result.codexSkipped++;
+        onFile?.({ file, action: 'skip' });
+        continue;
+      }
+      try {
+        const built = buildCodexSession(file, titles, providerOpts);
+        if (!built) {
+          result.codexSkipped++;
+          onFile?.({ file, action: 'skip' });
+          continue;
+        }
+        await replaceBuiltSession(pool, built, insertOpts);
+        result.codexUpserted++;
+        onFile?.({ file, action: 'upsert' });
+      } catch (err) {
+        result.codexErrored++;
+        onFile?.({ file, action: 'error', error: err instanceof Error ? err : new Error(String(err)) });
+      }
+    }
   }
 
   return result;

@@ -61,7 +61,7 @@ function codexSkillName(cmd: string): string | null {
   return m ? m[1] : null;
 }
 
-function listCodexRollouts(): string[] {
+export function listCodexRollouts(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
     let entries: fs.Dirent[];
@@ -95,7 +95,29 @@ function codexHeadCwd(file: string): string | null {
   }
 }
 
-function loadCodexTitles(): Map<string, string> {
+/**
+ * Cheap probe: extract the session id from the head bytes of a rollout file.
+ *
+ * Reads only the first 16 KB (same as codexHeadCwd) and regex-extracts the
+ * "id" field from the session_meta payload. Falls back to the rollout's
+ * basename (without ".jsonl") when no id is found, so callers always get a
+ * stable key they can compare against the DB.
+ */
+export function codexHeadSessionId(file: string): string {
+  try {
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(16384);
+    const n = fs.readSync(fd, buf, 0, 16384, 0);
+    fs.closeSync(fd);
+    // The session_meta payload's "id" field sits near the start of the file.
+    // Use a regex rather than JSON.parse to handle possibly-truncated lines.
+    const m = /"id"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(buf.slice(0, n).toString('utf8'));
+    if (m?.[1]) return m[1];
+  } catch { /* fall through to basename */ }
+  return path.basename(file, '.jsonl');
+}
+
+export function loadCodexTitles(): Map<string, string> {
   const m = new Map<string, string>();
   try {
     const lines = fs.readFileSync(path.join(os.homedir(), '.codex', 'session_index.jsonl'), 'utf8').split('\n').filter(Boolean);
