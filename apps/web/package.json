@@ -43,6 +43,7 @@
   "scripts": {
     "dev": "node scripts/dev-with-ingest.mjs",
     "ingest:incremental": "tsx scripts/ingest-incremental.ts",
+    "backfill:session-class": "tsx scripts/backfill-session-class.ts",
     "build": "next build",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
