@@ -24,7 +24,7 @@ code-project（実装・テスト中心: `apps/web` / `design/` / `adr/` / `rubr
 複数 agent / chip が **main worktree を同時編集すると衝突する**（2026-06-19、a11y chip と T2 修正が main で交錯し、premature な gate 改変が混入した事故）。worktree はこれを防ぐためにある。
 
 - コード編集を伴う委譲（サブエージェント）は **`Agent(isolation: "worktree")`** で隔離し、編集・build・e2e をその worktree 内で完結させる。main は **Claude（監査役）が単独 writer** として diff を確認して取り込む。
-- **chip（`spawn_task`）は使わない（禁止）**。一見ただの cleanup でも、型の締め方・rubric の新設/改訂・入力境界の検証戦略・scope 切り分け等の**設計判断**が潜み、潜在の有無は事前に分からない（例: ingest の loose 型 43→38 削減チップは、実は「外部 transcript JSON の検証戦略をどうするか」という設計判断だった、2026-06-26）。chip は SCOPE→PLAN(人間承認)→implement の gate を迂回して設計判断を機械実行に流すため禁止。スコープ外の発見は **issue 化** するか OPUS に上げ、通常フローに戻す。
+- **chip（`spawn_task`）は使わない（禁止）**。一見ただの cleanup でも、型の締め方・rubric の新設/改訂・入力境界の検証戦略・scope 切り分け等の**設計判断**が潜み、潜在の有無は事前に分からない（例: ingest の loose 型 43→38 削減チップは、実は「外部 transcript JSON の検証戦略をどうするか」という設計判断だった、2026-06-26）。chip は SCOPE→PLAN(人間承認)→implement の gate を迂回して設計判断を機械実行に流すため禁止。スコープ外の発見は **issue 化** するか outer loop に上げ、通常フローに戻す。
 - 「main を編集して e2e だけ disposable worktree で回す」運用は**禁止**（編集が隔離されず並行 writer で衝突する）。編集ごと隔離する。
 - rubric（`rubrics/`）の編集は監査役のみ・実装スライスと別コミット（**運用規律**。機械 gate `meta/no-gate-tampering` は gate 変更 PR と構造衝突するため廃止＝余計な依存を増やさず運用で担保、2026-06-23）。
 
@@ -44,4 +44,4 @@ code-project（実装・テスト中心: `apps/web` / `design/` / `adr/` / `rubr
 - Claude Code + Codex 両対応、cost は実モデル単価（2026-06-11 公式照合済み、`docs/cost-semantics.md`）、push 主・pull 補 ingest（`lathe-client init` + notify、token 認可）。
 - **計画の正本は `ROADMAP.md`**（rolling wave）。実装運用は `skills/lathe-loop`（タスク類型 / tmux+goal 起動 / モデル配分）、コード規範と監査ゲートは `rubrics/`（機械検査・agent-judge、merge は `run.mjs` のみ。散文 MD と Tier 人間レビュー層は廃止）。起動/検証の詳細は `PROTOTYPE.md`。
 - 次は Phase 2（AI 分析）。開始ゲートのドラフトは `design/phase2-finding-model.md`。
-- **開発フロー（agent ecosystem）の正本は `design/agent-workflow.md`**: OPUS が scope/plan/merge/監査、grunt は research(haiku) / implement・review・verify(sonnet) / triage に委譲。`lathe/` 起動の cc で named agent を `subagent_type` で呼ぶ（hub 起動では built-in しか見えないので lathe/ で起動する）。
+- **開発フロー（agent ecosystem）の正本は `design/agent-workflow.md`**: **outer loop（監督の役割）が監視(meta-audit)/issue 化/rubric 管理/エスカレーション対応、inner loop（named agent）が issue ごとに plan→implement→review→verify→merge.mjs(receipt ゲート)を自律完走**。実装は outer と別セッションに分離する。**model ≠ role**（opus はモデル名で役割名ではない＝ADR 0005/0009）。`lathe/` 起動の cc で named agent を `subagent_type` で呼ぶ（hub 起動では built-in しか見えないので lathe/ で起動する）。
