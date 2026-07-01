@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkReceipts, parseRevList } from './merge.mjs';
+import { checkReceipts, parseRevList, extractFirstCommitMessage } from './merge.mjs';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -102,4 +102,33 @@ test('checkReceipts: both receipts missing for head sha → not ok, lists both',
   assert.ok(result.missing.some((m) => m.sha === 'headsha6' && m.step === 'review'));
   assert.ok(result.missing.some((m) => m.sha === 'headsha6' && m.step === 'verify'));
   rmSync(dir, { recursive: true, force: true });
+});
+
+// extractFirstCommitMessage — squash commit message extraction
+// Input format: git log --reverse --format=%B%x00 (NUL-separated commit bodies)
+test('extractFirstCommitMessage: single commit → returns its full message', () => {
+  // Single commit: body + NUL + trailing empty
+  const log = 'feat(workflow): add squash merge\n\nBody line.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\0';
+  const result = extractFirstCommitMessage(log);
+  assert.equal(result, 'feat(workflow): add squash merge\n\nBody line.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>');
+});
+
+test('extractFirstCommitMessage: two commits → returns first commit message only', () => {
+  // Two commits: first body + NUL + second body + NUL + trailing empty
+  const log = 'feat(workflow): add squash merge\n\nBody of first commit.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\0fix(workflow): review fix\n\nBody of second commit.\n\0';
+  const result = extractFirstCommitMessage(log);
+  assert.equal(result, 'feat(workflow): add squash merge\n\nBody of first commit.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>');
+});
+
+test('extractFirstCommitMessage: three commits → returns first commit message only', () => {
+  const log = 'feat(foo): implement foo\n\nDetails here.\n\nCo-Authored-By: Claude <x>\n\0fix(foo): review fix 1\n\nAnother body.\n\0fix(foo): review fix 2\n\n\0';
+  const result = extractFirstCommitMessage(log);
+  assert.equal(result, 'feat(foo): implement foo\n\nDetails here.\n\nCo-Authored-By: Claude <x>');
+});
+
+test('extractFirstCommitMessage: no body (subject only) → returns subject', () => {
+  // Subject-only commit: git log emits subject + \n\n as the body for %B
+  const log = 'feat(bar): add bar\n\n\0';
+  const result = extractFirstCommitMessage(log);
+  assert.equal(result, 'feat(bar): add bar');
 });
