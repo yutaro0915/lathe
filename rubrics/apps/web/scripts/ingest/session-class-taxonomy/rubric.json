@@ -1,0 +1,28 @@
+{
+  "schema_version": "2",
+  "id": "apps/web/scripts/ingest/session-class-taxonomy",
+  "title": "session_class の taxonomy はコード(SESSION_CLASSES)と ADR 0012 §2 で一致する",
+  "version": "1",
+  "scope": ["apps/web/scripts/ingest/domain/session-class.ts", "adr/0012-session-class-axis.md"],
+  "origin": "ADR 0012 §5 / issue #22: 型(session_class)とドメイン判断(ADR taxonomy)の drift を機械で防ぐ。片方だけ class を増減させたら RED。auditor 作成・実装スライスと別 commit（rubric 規律）。",
+  "checks": [
+    {
+      "id": "taxonomy-matches-adr",
+      "value": "① 何を縛るか: `SESSION_CLASSES`（session-class.ts の canonical 定数）の class 集合と、ADR 0012 決定 §2 の taxonomy 表の class 集合が完全一致する。② なぜ重要か: 型（コード）とドメイン判断（ADR）が乖離すると、コードだけ class を増減して意思決定記録と食い違い、再導出/裁可の根拠が壊れる。片方だけ変えたら RED にして両方を直させる（単一情報源の担保）。③ 仕組み: `check.mjs` が両者を抽出し対称差の要素数を出力（eq:0）。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "tier": "cmd",
+        "cmd": "node rubrics/apps/web/scripts/ingest/session-class-taxonomy/check.mjs",
+        "expect": "eq:0",
+        "means": "SESSION_CLASSES と ADR §2 taxonomy の class 集合の対称差の要素数。0=一致=GREEN。"
+      },
+      "evidence": "check.mjs が不一致の class 名を stderr に列挙し、件数を最終 stdout 行に出す。",
+      "examples": {
+        "pass": ["両者が {development, internal, auto_review, synthetic, sandbox} で一致 → 0"],
+        "fail": ["コードに class を足したが ADR §2 表を未更新 → 対称差 1 → RED"]
+      }
+    }
+  ]
+}
