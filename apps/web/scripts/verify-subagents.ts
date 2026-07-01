@@ -115,6 +115,7 @@ function baseSession(id: string, projectId: string, project: string, title: stri
     parent_session_id: null,
     spawned_by_seq: null,
     seq: 999999,
+    session_class: 'development',
     _startMs: 0,
   };
 }

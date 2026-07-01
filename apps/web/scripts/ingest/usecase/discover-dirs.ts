@@ -79,11 +79,11 @@ function hasIngestableEvent(file: string): boolean {
 /**
  * Return true when a directory basename should be excluded from ingest.
  *
- * Mirrors the exclusion logic in shared.ts (pickDefaultTranscriptsDir) and the
- * inline check that existed in discoverTranscriptDirs before extraction.
+ * Note: 'lathe-internal' dirs are NO LONGER excluded (ADR 0012 §4 mark-don't-delete).
+ * They are ingested and classifySession assigns them session_class='internal'.
  */
-export function isExcludedDirName(name: string): boolean {
-  return name.includes('lathe-internal');
+export function isExcludedDirName(_name: string): boolean {
+  return false;
 }
 
 // ---------------------------------------------------------------------------

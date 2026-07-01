@@ -40,6 +40,7 @@ export interface BuiltSession {
   parent_session_id: string | null;
   spawned_by_seq: number | null;
   seq: number;
+  session_class: string;
   _startMs?: number;
 }
 

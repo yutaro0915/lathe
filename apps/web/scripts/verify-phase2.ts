@@ -161,6 +161,7 @@ function minimalBuiltSession(id: string, projectId: string, cwd: string | null, 
       parent_session_id: null,
       spawned_by_seq: null,
       seq: 0,
+      session_class: 'development',
       _startMs: Date.now(),
     },
     events: [

@@ -74,6 +74,7 @@ function baseSession(id: string, projectId: string, overrides: Partial<Built['se
     parent_session_id: null,
     spawned_by_seq: null,
     seq: 1,
+    session_class: 'development',
     _startMs: 0,
     ...overrides,
   };

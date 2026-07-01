@@ -206,6 +206,14 @@ export async function runIncrementalIngest(
     onFile,
   } = opts;
 
+  // Idempotent migration: ensure session_class column exists before any INSERT.
+  // Runs on every no-wipe path (ingest.ts and ingest-incremental.ts both call
+  // runIncrementalIngest on main, so a single location covers all entrypoints).
+  await pool.query(`
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_class TEXT NOT NULL DEFAULT 'development';
+    CREATE INDEX IF NOT EXISTS idx_sessions_class ON sessions(session_class);
+  `);
+
   const providerOpts: ProviderBuildOptions = { ...DEFAULT_BUILD_OPTS, ...buildOpts };
 
   const result: IncrementalIngestResult = {

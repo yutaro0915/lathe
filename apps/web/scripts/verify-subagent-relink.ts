@@ -55,6 +55,7 @@ function baseSession(id: string, overrides: Partial<Built['session']> = {}): Bui
     parent_session_id: null,
     spawned_by_seq: null,
     seq: 1,
+    session_class: 'development',
     _startMs: 0,
     ...overrides,
   };

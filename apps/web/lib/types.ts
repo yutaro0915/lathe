@@ -71,6 +71,7 @@ export interface Session {
   spawnedBySeq: number | null;
   stepCount: number;
   seq: number;
+  sessionClass: string;
 }
 
 export type PullRequestState = 'open' | 'closed' | 'merged';

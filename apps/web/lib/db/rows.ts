@@ -50,6 +50,7 @@ export interface SessionRow {
   spawned_by_seq: number | null;
   step_count: number | null;
   seq: number;
+  session_class: string;
 }
 
 export interface TranscriptEventRow {
@@ -197,6 +198,7 @@ export function toSession(r: SessionRow): Session {
     spawnedBySeq: r.spawned_by_seq ?? null,
     stepCount: r.step_count ?? 0,
     seq: r.seq,
+    sessionClass: r.session_class ?? 'development',
   };
 }
 

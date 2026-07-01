@@ -10,6 +10,7 @@ import type {
 } from '../built';
 import { collectSessionCommits } from '../commit-sha';
 import { classifyExit } from '../domain/exit-disposition';
+import { classifySession } from '../domain/session-class';
 import type { ProjectIdentity } from '../project';
 import {
   clampLines,
@@ -457,6 +458,12 @@ export function parseClaudeSessionRecords(
     parent_session_id: null,
     spawned_by_seq: null,
     seq: 0,
+    session_class: classifySession({
+      model,
+      projectId: project.id,
+      projectCwdHint: project.cwdHint,
+      title,
+    }),
     _startMs: firstTs ? new Date(firstTs).getTime() : 0,
   };
 

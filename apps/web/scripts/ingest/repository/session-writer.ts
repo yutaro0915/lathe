@@ -87,8 +87,8 @@ export async function insertBuiltRows(
     counts.commitShaMisses += b.commitShaMissCount;
 
     await client.query(
-      `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,harness_version_id,parent_session_id,spawned_by_seq,seq)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NULL,NULL,$25)`,
+      `INSERT INTO sessions (id,project_id,project,title,runner,model,status,started_at,ended_at,duration_ms,turn_count,tool_count,edit_count,bash_count,subagent_count,error_count,token_usage,token_in,token_out,git_branch,commit_count,cost_usd,summary,harness_version_id,parent_session_id,spawned_by_seq,seq,session_class)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NULL,NULL,$25,$26)`,
       cleanParams([
         s.id,
         s.projectId,
@@ -115,6 +115,7 @@ export async function insertBuiltRows(
         s.summary,
         s.harness_version_id,
         s.seq,
+        s.session_class,
       ]),
     );
 

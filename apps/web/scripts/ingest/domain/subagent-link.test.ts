@@ -83,6 +83,7 @@ function makeSession(id: string): Built['session'] {
     parent_session_id: null,
     spawned_by_seq: null,
     seq: 1,
+    session_class: 'development',
   };
 }
 

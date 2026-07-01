@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   harness_version_id TEXT REFERENCES harness_versions(id) ON DELETE SET NULL,
   parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   spawned_by_seq INTEGER,
-  seq            INTEGER NOT NULL DEFAULT 0    -- ordering in the session list
+  seq            INTEGER NOT NULL DEFAULT 0,   -- ordering in the session list
+  session_class  TEXT NOT NULL DEFAULT 'development'
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
 
@@ -101,6 +102,9 @@ BEGIN
   END IF;
 END $$;
 CREATE INDEX IF NOT EXISTS idx_sessions_parent_session ON sessions(parent_session_id);
+
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_class TEXT NOT NULL DEFAULT 'development';
+CREATE INDEX IF NOT EXISTS idx_sessions_class ON sessions(session_class);
 
 -- Append-only transcript events (the timeline of a session).
 CREATE TABLE IF NOT EXISTS transcript_events (

@@ -22,6 +22,7 @@ const SESSIONS_WITH_COST_ANOMALY = `
            percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_usd)::float8 AS cost_anomaly_group_median_usd
       FROM sessions
      WHERE cost_usd IS NOT NULL
+       AND session_class = 'development'
      GROUP BY runner
   ),
   scored_sessions AS (

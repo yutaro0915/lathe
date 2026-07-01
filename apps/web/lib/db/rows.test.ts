@@ -53,6 +53,7 @@ function baseSessionRow(): SessionRow {
     spawned_by_seq: 19,
     step_count: 31,
     seq: 101,
+    session_class: 'development',
   };
 }
 
@@ -113,6 +114,7 @@ test("toSession maps a complete session row field-by-field", () => {
     spawnedBySeq: 19,
     stepCount: 31,
     seq: 101,
+    sessionClass: 'development',
   });
 });
 
