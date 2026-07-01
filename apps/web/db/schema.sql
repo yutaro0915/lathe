@@ -61,9 +61,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   bash_count     INTEGER NOT NULL DEFAULT 0,
   subagent_count INTEGER NOT NULL DEFAULT 0,
   error_count    INTEGER NOT NULL DEFAULT 0,   -- non-zero tool calls / error events
-  token_usage    INTEGER NOT NULL DEFAULT 0,
-  token_in       INTEGER NOT NULL DEFAULT 0,   -- real input tokens when known
-  token_out      INTEGER NOT NULL DEFAULT 0,   -- real output tokens when known
+  token_usage    BIGINT NOT NULL DEFAULT 0,
+  token_in       BIGINT NOT NULL DEFAULT 0,    -- real input tokens when known
+  token_out      BIGINT NOT NULL DEFAULT 0,    -- real output tokens when known
   git_branch     TEXT,                         -- git branch from transcript metadata
   commit_count   INTEGER NOT NULL DEFAULT 0,   -- count of commit events
   cost_usd       DOUBLE PRECISION,
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS transcript_events (
   exit_code        INTEGER,               -- for bash / test / commit events
   exit_disposition TEXT,                  -- na | ok | gate_verdict | probe | no_match | policy_block | failure
   duration_ms INTEGER,
-  token_usage INTEGER,
+  token_usage BIGINT,
   subagent    TEXT,                       -- nesting: subagent / thread name
   meta        JSONB,                      -- provider-specific extra fields
   parent_id   TEXT                        -- launcher event id for sub-agent child steps
@@ -383,3 +383,11 @@ SELECT session_id, pr_id, link_method, source, pr_updated_at FROM sha_links
 UNION
 SELECT session_id, pr_id, link_method, source, pr_updated_at FROM branch_links
 ORDER BY pr_updated_at DESC;
+
+-- #2a: Idempotent ALTER for existing databases — upgrade INTEGER token columns to
+-- BIGINT so Codex long sessions (>2,147,483,647 tokens) do not overflow.
+-- BIGINT->BIGINT is a no-op, so re-running on an already-upgraded DB is safe.
+ALTER TABLE sessions ALTER COLUMN token_usage TYPE BIGINT;
+ALTER TABLE sessions ALTER COLUMN token_in TYPE BIGINT;
+ALTER TABLE sessions ALTER COLUMN token_out TYPE BIGINT;
+ALTER TABLE transcript_events ALTER COLUMN token_usage TYPE BIGINT;

@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { costForUsage } from '../../../lib/cost';
-import { parseCodexSessionRecords } from './codex';
+import { filterOrphanHunks, parseCodexSessionRecords } from './codex';
 import {
   clampLines,
   hhmmss,
@@ -219,5 +219,85 @@ test('Codex rollout timestamps normalize valid ISO values and drop malformed val
 
   for (const c of cases) {
     assert.equal(hhmmss(c.input), c.expected, String(c.input));
+  }
+});
+
+test('filterOrphanHunks drops hunks whose file_id is not in changedFiles, keeps valid ones', () => {
+  const changedFiles = [
+    { id: 'chf_s1_1', session_id: 's1', path: 'a.ts', status: 'modified' as const, additions: 1, deletions: 0, language: 'typescript', seq: 1 },
+    { id: 'chf_s1_2', session_id: 's1', path: 'b.ts', status: 'added' as const, additions: 5, deletions: 0, language: 'typescript', seq: 2 },
+  ];
+  const hunks = [
+    { id: 'chf_s1_1_h1', file_id: 'chf_s1_1', seq: 1, header: '@@ Update a.ts (+1) @@', content: '+x' },
+    { id: 'chf_s1_2_h1', file_id: 'chf_s1_2', seq: 1, header: '@@ Add b.ts (+5) @@', content: '+y' },
+    // orphan: file_id refers to a file that was dropped by maxFiles cap
+    { id: 'chf_s1_3_h1', file_id: 'chf_s1_3', seq: 1, header: '@@ Add c.ts (+2) @@', content: '+z' },
+  ];
+
+  const result = filterOrphanHunks(hunks, changedFiles);
+  assert.equal(result.length, 2, 'orphan hunk should be dropped');
+  assert.deepEqual(result.map((h) => h.id), ['chf_s1_1_h1', 'chf_s1_2_h1']);
+});
+
+test('filterOrphanHunks returns empty array when changedFiles is empty', () => {
+  const hunks = [
+    { id: 'chf_s1_1_h1', file_id: 'chf_s1_1', seq: 1, header: '@@ Update a.ts (+1) @@', content: '+x' },
+  ];
+  assert.deepEqual(filterOrphanHunks(hunks, []), []);
+});
+
+test('filterOrphanHunks returns all hunks when none are orphans', () => {
+  const changedFiles = [
+    { id: 'chf_s1_1', session_id: 's1', path: 'a.ts', status: 'modified' as const, additions: 1, deletions: 0, language: 'typescript', seq: 1 },
+  ];
+  const hunks = [
+    { id: 'chf_s1_1_h1', file_id: 'chf_s1_1', seq: 1, header: '@@ Update a.ts (+1) @@', content: '+x' },
+    { id: 'chf_s1_1_h2', file_id: 'chf_s1_1', seq: 2, header: '@@ Update a.ts (+2) @@', content: '+y' },
+  ];
+  const result = filterOrphanHunks(hunks, changedFiles);
+  assert.equal(result.length, 2);
+});
+
+test('parseCodexSessionRecords drops orphan hunks when maxFiles cap is applied', () => {
+  // Build a session with 3 file edits but maxFiles=2 so the third file is dropped.
+  // The hunk for the third file must NOT appear in the returned hunks.
+  const makePatch = (callId: string) => ({
+    type: 'response_item',
+    timestamp: '2026-06-23T00:00:01+09:00',
+    payload: { type: 'custom_tool_call', call_id: callId, name: 'apply_patch' },
+  });
+  const makePatchEnd = (callId: string, fp: string) => ({
+    type: 'event_msg',
+    timestamp: '2026-06-23T00:00:02+09:00',
+    payload: { type: 'patch_apply_end', call_id: callId, changes: { [fp]: { type: 'add', content: 'line\n' } } },
+  });
+  const raw = [
+    { type: 'session_meta', timestamp: '2026-06-23T00:00:00+09:00', payload: { id: 'cap-test', cwd: '/repo', model: 'gpt-5.4' } },
+    { type: 'event_msg', timestamp: '2026-06-23T00:00:00+09:00', payload: { type: 'user_message', message: 'go' } },
+    makePatch('p1'), makePatchEnd('p1', 'a.ts'),
+    makePatch('p2'), makePatchEnd('p2', 'b.ts'),
+    makePatch('p3'), makePatchEnd('p3', 'c.ts'),
+  ].map((r) => JSON.stringify(r)).join('\n');
+
+  const capOpts: ProviderBuildOptions = { maxEvents: 100, maxFiles: 2, maxHunkLines: 20 };
+  const built = parseCodexSessionRecords(
+    parseJsonlRecords(raw),
+    '/tmp/cap-test.jsonl',
+    new Map(),
+    capOpts,
+    { id: 'local:/repo', displayName: 'repo', gitRemote: null, cwdHint: '/repo' },
+  );
+  assert.ok(built, 'built should not be null');
+  assert.equal(built.changedFiles.length, 2, 'changedFiles should be capped to 2');
+  assert.equal(built.hunks.length, 2, 'hunks for the dropped file must be removed');
+  // All returned hunks must reference a file that exists in changedFiles
+  const fileIds = new Set(built.changedFiles.map((f) => f.id));
+  for (const h of built.hunks) {
+    assert.ok(fileIds.has(h.file_id), `hunk ${h.id} references missing file_id ${h.file_id}`);
+  }
+  // attributions must also be clean (no orphan hunk references)
+  const hunkIds = new Set(built.hunks.map((h) => h.id));
+  for (const a of built.attributions) {
+    assert.ok(hunkIds.has(a.hunk_id), `attribution ${a.id} references missing hunk_id ${a.hunk_id}`);
   }
 });

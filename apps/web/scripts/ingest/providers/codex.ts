@@ -159,6 +159,25 @@ export function buildCodexSession(file: string, titles: Map<string, string>, opt
   );
 }
 
+/**
+ * Drop hunks whose file_id is not in the provided set of changed-file ids.
+ *
+ * Background: when the number of changed files exceeds maxFiles the
+ * changedFiles array is sliced before return, but the hunks array was
+ * historically built without the same cap.  That left hunks referencing
+ * file ids that were never inserted into changed_files, causing FK
+ * violations on INSERT INTO diff_hunks.
+ *
+ * Pure function — easy to unit-test without DB access.
+ */
+export function filterOrphanHunks(
+  hunks: BuiltHunk[],
+  changedFiles: BuiltChangedFile[],
+): BuiltHunk[] {
+  const validFileIds = new Set(changedFiles.map((f) => f.id));
+  return hunks.filter((h) => validFileIds.has(h.file_id));
+}
+
 export function parseCodexSessionRecords(
   recs: LooseRecord[],
   file: string,
@@ -350,6 +369,14 @@ export function parseCodexSessionRecords(
     .slice(0, maxFiles)
     .map(({ _hunkSeq, _firstWrite, ...f }) => f);
 
+  // Drop hunks whose parent file was dropped by the maxFiles cap, then drop
+  // attributions that reference those removed hunks.  Without this the FK
+  // constraints on diff_hunks.file_id and attributions.hunk_id cause INSERT
+  // failures for sessions that touch more than maxFiles paths.
+  const filteredHunks = filterOrphanHunks(hunks, changedFiles);
+  const validHunkIds = new Set(filteredHunks.map((h) => h.id));
+  const filteredAttributions = attributions.filter((a) => validHunkIds.has(a.hunk_id));
+
   const commitExtraction = collectSessionCommits(events);
   return {
     session,
@@ -358,8 +385,8 @@ export function parseCodexSessionRecords(
     commitShaMissCount: commitExtraction.unextractedEvents,
     eventFiles,
     changedFiles,
-    hunks,
-    attributions,
+    hunks: filteredHunks,
+    attributions: filteredAttributions,
     annotations,
   };
 }
