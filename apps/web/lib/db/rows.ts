@@ -18,6 +18,7 @@ import type {
   SessionStatus,
   TranscriptEvent,
 } from '../types';
+import type { SessionClass } from '../../scripts/ingest/domain/session-class';
 
 export interface SessionRow {
   id: string;
@@ -198,7 +199,7 @@ export function toSession(r: SessionRow): Session {
     spawnedBySeq: r.spawned_by_seq ?? null,
     stepCount: r.step_count ?? 0,
     seq: r.seq,
-    sessionClass: r.session_class ?? 'development',
+    sessionClass: (r.session_class ?? 'development') as SessionClass,
   };
 }
 

@@ -25,6 +25,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { fmtCost, fmtTok, humanizeDuration, shortModel } from "@lathe/shared";
 import { RUNNER_LABEL } from "@/lib/runner-display";
 import { EVENT_LABEL } from "@/lib/event-display";
+import {
+  SESSION_CLASS_OPTIONS,
+  sessionClassFilterOrDefault,
+  sessionClassLabel,
+  writeSessionClassParam,
+  type SessionClassFilter,
+} from "@/lib/session-class";
 import CostAnomalyChip from "@/components/CostAnomalyChip";
 import { Icon } from "@/design-system/components/icons";
 import {
@@ -91,10 +98,11 @@ export default function SessionsSurface({
   // the list reads it, the same filtering the old in-surface picker drove.
   const searchParams = useSearchParams();
   const projectFilter = searchParams.get("project") ?? "all";
+  const activeSessionClass = sessionClassFilterOrDefault(searchParams.get("sessionClass"));
   const [search, setSearch] = useState("");
   // open the filter panel up front when a drill-down pre-seeded a filter, so the
   // active scope is visible rather than silently applied.
-  const seeded = !!(initialModel || initialFrom || initialTo || initialErrors);
+  const seeded = !!(initialModel || initialFrom || initialTo || initialErrors || activeSessionClass !== "development");
   const [filtersOpen, setFiltersOpen] = useState(seeded);
   const [modelFilter, setModelFilter] = useState(initialModel ?? "all");
   const [errorsFilter, setErrorsFilter] = useState(initialErrors ?? "any");
@@ -148,7 +156,19 @@ export default function SessionsSurface({
     return rows;
   }, [sessions, search, showSubSessions, projectFilter, modelFilter, errorsFilter, sortKey, sessionProject, dateFrom, dateTo]);
 
-  const openSession = (id: string) => router.push(`/?session=${encodeURIComponent(id)}`);
+  const updateSessionClass = (value: SessionClassFilter) => {
+    const next = new URLSearchParams(searchParams.toString());
+    writeSessionClassParam(next, value);
+    const qs = next.toString();
+    router.push(qs ? `/?${qs}` : "/", { scroll: false });
+  };
+
+  const openSession = (id: string) => {
+    const next = new URLSearchParams();
+    next.set("session", id);
+    writeSessionClassParam(next, activeSessionClass);
+    router.push(`/?${next.toString()}`);
+  };
 
   // Header actions for the WorkareaHeader (right slot). These are surface-feature
   // controls (search / filters / sort) and live HERE, not in the shell TopBar.
@@ -216,6 +236,13 @@ export default function SessionsSurface({
               onChange={setFilterMode}
             />
             <Select
+              value={activeSessionClass}
+              options={SESSION_CLASS_OPTIONS}
+              onChange={(e) => updateSessionClass(e.target.value as SessionClassFilter)}
+              data-testid="session-class-filter"
+              title="Filter sessions by class"
+            />
+            <Select
               value={modelFilter}
               options={[{ value: "all", label: "All models" }, ...models.map((m) => ({ value: m, label: m }))]}
               onChange={(e) => setModelFilter(e.target.value)}
@@ -274,6 +301,7 @@ export default function SessionsSurface({
               key={s.id}
               type="button"
               data-session-id={s.id}
+              data-session-class={s.sessionClass}
               className="lds-sg-row session-item" data-testid="session-item"
               onClick={() => openSession(s.id)}
             >
@@ -285,6 +313,13 @@ export default function SessionsSurface({
                     moved out to its own column (D3 comparison-list). The single
                     duration item cannot ellipsize-silently, so no title needed. */}
                 <span className="lds-sg-meta" data-testid="lds-sg-meta">
+                  <Badge
+                    tone={s.sessionClass === "development" ? "neutral" : "accent"}
+                    data-testid="session-class-badge"
+                    title={`session_class: ${s.sessionClass}`}
+                  >
+                    {sessionClassLabel(s.sessionClass)}
+                  </Badge>
                   <span>{humanizeDuration(s.durationMs)}</span>
                 </span>
               </span>

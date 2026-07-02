@@ -1,4 +1,4 @@
-import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
+import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SESSION_CLASS_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
 import { pickProject } from "./topbar";
 
 registerFixtureHooks();
@@ -67,6 +67,21 @@ test.describe("Sessions surface + viewer (/)", () => {
     await expect(page.locator(`[data-testid="session-item"]`)).toHaveCount(0);
     await box.fill("");
     await expect(page.locator(`[data-testid="session-item"]`)).toHaveCount(before);
+  });
+
+  test("session class filter hides internal sessions by default and can opt in", async ({ page }) => {
+    await page.goto("/");
+    const internalRow = page.locator(
+      `[data-testid="session-item"][data-session-id="${SESSION_CLASS_FIXTURE.sessionId}"]`,
+    );
+    await expect(internalRow).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Filters" }).click();
+    await page.locator(`[data-testid="session-class-filter"]`).selectOption("internal");
+    await expect(page).toHaveURL(/sessionClass=internal/);
+    await expect(internalRow).toBeVisible();
+    await expect(internalRow).toHaveAttribute("data-session-class", "internal");
+    await expect(internalRow.locator(`[data-testid="session-class-badge"]`)).toHaveText("internal");
   });
 
   test("clicking a list row navigates with ?session= into the viewer", async ({ page }) => {

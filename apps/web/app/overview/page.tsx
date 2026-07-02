@@ -11,16 +11,23 @@ import {
   getStats,
   listSessions,
   getPendingFindingsBySession,
-  getFindingKindCounts,
+  getFindingKindSessionRefs,
 } from "@/lib/read";
 import OverviewView from "@/components/OverviewView";
+import { parseSessionClassFilter } from "@/lib/session-class";
 
-export default async function Page() {
-  const [sessions, stats, pendingFindings, findingKindCounts] = await Promise.all([
-    listSessions(),
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const sessionClass = parseSessionClassFilter(sp.sessionClass);
+  const [sessions, stats, pendingFindings, findingKindSessionRefs] = await Promise.all([
+    listSessions({ sessionClass }),
     getStats(),
     getPendingFindingsBySession(),
-    getFindingKindCounts(),
+    getFindingKindSessionRefs(),
   ]);
   // session -> primary project, computed from stats so the overview's project
   // scope (the shell TopBar selector → ?project=) scopes a consistent session set
@@ -32,7 +39,7 @@ export default async function Page() {
       sessions={sessions}
       sessionProject={sessionProject}
       pendingFindings={pendingFindings}
-      findingKindCounts={findingKindCounts}
+      findingKindSessionRefs={findingKindSessionRefs}
     />
   );
 }

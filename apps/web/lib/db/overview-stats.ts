@@ -1,6 +1,8 @@
 import type {
   FileStat,
+  FindingKind,
   FindingKindCounts,
+  FindingKindSessionRef,
   ProjectSessionRef,
   ProjectStat,
   StatsBundle,
@@ -31,6 +33,19 @@ interface StatSessionRow {
   token_usage: number;
   cost_usd: number | null;
   error_count: number;
+}
+
+function evidenceSessionId(row: Pick<FindingEvidenceRow, 'subject_kind' | 'session_id' | 'locator' | 'subject_id'>): string | null {
+  const locator = parseLocator(row.locator);
+  const locatorSession = ['session_id', 'sessionId', 'session']
+    .map((k) => locator[k])
+    .find((v): v is string => typeof v === 'string' && v.trim().length > 0);
+  return (
+    row.session_id ??
+    (row.subject_kind === 'session' ? row.subject_id : null) ??
+    locatorSession ??
+    null
+  );
 }
 
 // The per-project rollup ONLY — the just-the-projects slice of getStats, used by
@@ -320,15 +335,7 @@ export async function getPendingFindingsBySession(): Promise<Record<string, numb
   // evidence in the same session counts once).
   const findingsBySession = new Map<string, Set<number>>();
   for (const row of evidenceRows) {
-    const locator = parseLocator(row.locator);
-    const locatorSession = ['session_id', 'sessionId', 'session']
-      .map((k) => locator[k])
-      .find((v): v is string => typeof v === 'string' && v.trim().length > 0);
-    const sessionId =
-      row.session_id ??
-      (row.subject_kind === 'session' ? row.subject_id : null) ??
-      locatorSession ??
-      null;
+    const sessionId = evidenceSessionId(row);
     if (!sessionId) continue;
     let set = findingsBySession.get(sessionId);
     if (!set) {
@@ -341,6 +348,41 @@ export async function getPendingFindingsBySession(): Promise<Record<string, numb
   const out: Record<string, number> = {};
   for (const [sessionId, set] of findingsBySession) out[sessionId] = set.size;
   return out;
+}
+
+export async function getFindingKindSessionRefs(): Promise<FindingKindSessionRef[]> {
+  const rows = await queryRows<
+    FindingEvidenceRow & {
+      kind: string;
+    }
+  >(
+    `SELECT fe.id,
+            fe.finding_id,
+            fe.subject_kind,
+            fe.session_id,
+            fe.locator,
+            fe.subject_id,
+            fe.note,
+            f.kind
+       FROM finding_evidence fe
+       JOIN findings f ON f.id = fe.finding_id`,
+  );
+
+  const seen = new Set<string>();
+  const refs: FindingKindSessionRef[] = [];
+  for (const row of rows) {
+    const sessionId = evidenceSessionId(row);
+    if (!sessionId) continue;
+    const key = `${row.finding_id}\0${row.kind}\0${sessionId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    refs.push({
+      findingId: row.finding_id,
+      kind: row.kind as FindingKind,
+      sessionId,
+    });
+  }
+  return refs;
 }
 
 export async function getFindingKindCounts(): Promise<FindingKindCounts> {

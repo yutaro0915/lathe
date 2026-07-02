@@ -118,6 +118,17 @@ test("toSession maps a complete session row field-by-field", () => {
   });
 });
 
+test("toSession maps non-development session_class to sessionClass", () => {
+  assert.equal(
+    toSession({
+      ...baseSessionRow(),
+      id: "session-internal",
+      session_class: "internal",
+    }).sessionClass,
+    "internal",
+  );
+});
+
 test("toSession keeps nullable pg values and defaults nullish ancestry counters", () => {
   const nullRow: SessionRow = {
     ...baseSessionRow(),

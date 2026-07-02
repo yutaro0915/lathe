@@ -23,21 +23,36 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Pressable, Surface } from "@/design-system/components";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Pressable, Select, Surface } from "@/design-system/components";
 import OverviewTrends from "@/components/OverviewTrends";
 import { fmtCompact, fmtCost, fmtInt, humanizeDuration } from "@lathe/shared";
-import type { FindingKindCounts, Session } from "@/lib/types";
+import {
+  SESSION_CLASS_OPTIONS,
+  sessionClassFilterOrDefault,
+  sessionClassLabel,
+  writeSessionClassParam,
+  type SessionClassFilter,
+} from "@/lib/session-class";
+import { countFindingKindsForSessionScope } from "@/lib/finding-kind-scope";
+import type { FindingKindSessionRef, Session } from "@/lib/types";
 
 // ---- Sessions-axis deep links (every drill-down is a plain link) -----------
 // The Sessions axis (app/page.tsx → SessionViewer) seeds its session-list
 // filters from these query params, so an Overview drill-down lands on the
 // Sessions axis already scoped. Built here so the contract is in one place.
-function sessionsHrefForPeriod(fromDay: string, toDay: string): string {
-  return `/?from=${encodeURIComponent(fromDay)}&to=${encodeURIComponent(toDay)}`;
+function sessionsHrefForPeriod(fromDay: string, toDay: string, sessionClass: SessionClassFilter): string {
+  const params = new URLSearchParams();
+  params.set("from", fromDay);
+  params.set("to", toDay);
+  writeSessionClassParam(params, sessionClass);
+  return `/?${params.toString()}`;
 }
-function sessionHref(id: string): string {
-  return `/?session=${encodeURIComponent(id)}`;
+function sessionHref(id: string, sessionClass: SessionClassFilter): string {
+  const params = new URLSearchParams();
+  params.set("session", id);
+  writeSessionClassParam(params, sessionClass);
+  return `/?${params.toString()}`;
 }
 function findingsHrefForSession(id: string): string {
   return `/findings?session=${encodeURIComponent(id)}`;
@@ -47,18 +62,28 @@ export default function OverviewView({
   sessions,
   sessionProject,
   pendingFindings,
-  findingKindCounts,
+  findingKindSessionRefs,
 }: {
   sessions: Session[];
   sessionProject: Record<string, string>;
   pendingFindings: Record<string, number>;
-  findingKindCounts: FindingKindCounts;
+  findingKindSessionRefs: FindingKindSessionRef[];
 }) {
   // Project scope is the shell-owned control now (TopBar selector → ?project=);
   // Overview reads it to scope every panel, the same filtering its old in-header
   // picker drove.
+  const router = useRouter();
+  const pathname = usePathname() ?? "/overview";
   const searchParams = useSearchParams();
   const projectFilter = searchParams.get("project") ?? "all";
+  const activeSessionClass = sessionClassFilterOrDefault(searchParams.get("sessionClass"));
+
+  const updateSessionClass = (value: SessionClassFilter) => {
+    const next = new URLSearchParams(searchParams.toString());
+    writeSessionClassParam(next, value);
+    const qs = next.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
 
   // ---- dismissed Attention columns (VISIBILITY, decoupled from the filter) ----
   // The three Attention columns are derived from the project filter, but a user
@@ -162,6 +187,10 @@ export default function OverviewView({
     () => scopeSessions.reduce((acc, s) => acc + (pendingFindings[s.id] ?? 0), 0),
     [scopeSessions, pendingFindings],
   );
+  const scopeFindingKindCounts = useMemo(
+    () => countFindingKindsForSessionScope(findingKindSessionRefs, scopeSessions.map((s) => s.id)),
+    [findingKindSessionRefs, scopeSessions],
+  );
 
   const attentionEmpty =
     costAlerts.length === 0 && errorSessions.length === 0 && pendingSessions.length === 0;
@@ -176,6 +205,10 @@ export default function OverviewView({
     <>
       <span className="lds-session-bar-scope" data-testid="overview-scope-label">{scopeLabel}</span>
       <span className="lds-meta-sep" aria-hidden="true"> · </span>
+      <span className="lds-session-bar-scope" data-testid="overview-session-class-label">
+        {sessionClassLabel(activeSessionClass)} sessions
+      </span>
+      <span className="lds-meta-sep" aria-hidden="true"> · </span>
       <span data-testid="sessbar-meta">attention items, then the cross-session breakdown</span>
     </>
   );
@@ -185,28 +218,37 @@ export default function OverviewView({
   // band onto the shell-owned header. Project SCOPE is not a control here — it
   // moved to the shell TopBar selector (?project=), which this view reads.
   const actions = (
-    <span className="lds-sv-stats" data-testid="sessbar-stats">
-      <div className="kstat" data-testid="kstat">
-        <b>{fmtInt(scopeTotals.sessions)}</b>
-        <span>sessions</span>
-      </div>
-      <div className="kstat" data-testid="kstat">
-        <b>{scopeTotals.durationMs > 0 ? humanizeDuration(scopeTotals.durationMs) : "—"}</b>
-        <span>duration</span>
-      </div>
-      <div className="kstat" data-testid="kstat">
-        <b>{fmtCompact(scopeTotals.tokens)}</b>
-        <span>tokens</span>
-      </div>
-      <div className="kstat" data-testid="kstat">
-        <b>{scopeTotals.cost > 0 ? fmtCost(scopeTotals.cost) : "—"}</b>
-        <span>cost</span>
-      </div>
-      <div className="kstat" data-testid="kstat" title="G9: cost > 5× runner median, min $50">
-        <b>{fmtInt(scopeTotals.anomalies)}</b>
-        <span>cost outliers</span>
-      </div>
-    </span>
+    <>
+      <Select
+        value={activeSessionClass}
+        options={SESSION_CLASS_OPTIONS}
+        onChange={(e) => updateSessionClass(e.target.value as SessionClassFilter)}
+        data-testid="overview-session-class-filter"
+        title="Filter sessions by class"
+      />
+      <span className="lds-sv-stats" data-testid="sessbar-stats">
+        <div className="kstat" data-testid="kstat">
+          <b>{fmtInt(scopeTotals.sessions)}</b>
+          <span>sessions</span>
+        </div>
+        <div className="kstat" data-testid="kstat">
+          <b>{scopeTotals.durationMs > 0 ? humanizeDuration(scopeTotals.durationMs) : "—"}</b>
+          <span>duration</span>
+        </div>
+        <div className="kstat" data-testid="kstat">
+          <b>{fmtCompact(scopeTotals.tokens)}</b>
+          <span>tokens</span>
+        </div>
+        <div className="kstat" data-testid="kstat">
+          <b>{scopeTotals.cost > 0 ? fmtCost(scopeTotals.cost) : "—"}</b>
+          <span>cost</span>
+        </div>
+        <div className="kstat" data-testid="kstat" title="G9: cost > 5× runner median, min $50">
+          <b>{fmtInt(scopeTotals.anomalies)}</b>
+          <span>cost outliers</span>
+        </div>
+      </span>
+    </>
   );
 
   return (
@@ -272,7 +314,7 @@ export default function OverviewView({
                   costAlerts.map(({ session: s, ratio }) => (
                     <Link
                       key={s.id}
-                      href={sessionHref(s.id)}
+                      href={sessionHref(s.id, activeSessionClass)}
                       className="attn-row" data-testid="attn-row"
                       data-session-id={s.id}
                     >
@@ -314,7 +356,7 @@ export default function OverviewView({
                   errorSessions.map((s) => (
                     <Link
                       key={s.id}
-                      href={sessionHref(s.id)}
+                      href={sessionHref(s.id, activeSessionClass)}
                       className="attn-row" data-testid="attn-row"
                       data-session-id={s.id}
                     >
@@ -375,8 +417,8 @@ export default function OverviewView({
 
         <OverviewTrends
           scopeSessions={scopeSessions}
-          findingKindCounts={findingKindCounts}
-          periodHref={sessionsHrefForPeriod}
+          findingKindCounts={scopeFindingKindCounts}
+          periodHref={(fromDay, toDay) => sessionsHrefForPeriod(fromDay, toDay, activeSessionClass)}
         />
       </div>
       </div>

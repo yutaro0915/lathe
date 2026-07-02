@@ -11,11 +11,13 @@ export * from "./subagent";
 export * from "./cost";
 export * from "./pr";
 export * from "./chat";
+export * from "./session-class";
 
 import { seedCostFallbackFixtures, cleanupCostFallbackFixtures } from "./cost";
 import { seedFindingFixtures, cleanupFindingFixtures } from "./findings";
 import { seedSubagentFixtures, cleanupSubagentFixtures } from "./subagent";
 import { seedChatFixtures, cleanupChatFixtures } from "./chat";
+import { seedSessionClassFixtures, cleanupSessionClassFixtures } from "./session-class";
 
 export function registerFixtureHooks() {
   test.beforeAll(async () => {
@@ -23,9 +25,11 @@ export function registerFixtureHooks() {
     await seedFindingFixtures();
     await seedSubagentFixtures();
     await seedChatFixtures();
+    await seedSessionClassFixtures();
   });
 
   test.afterAll(async () => {
+    await cleanupSessionClassFixtures();
     await cleanupChatFixtures();
     await cleanupSubagentFixtures();
     await cleanupFindingFixtures();

@@ -23,6 +23,7 @@ import {
 } from "@/lib/read";
 import SessionViewer from "@/components/SessionViewer";
 import SessionsSurface from "@/components/SessionsSurface";
+import { parseSessionClassFilter } from "@/lib/session-class";
 
 const TABS = ["transcript", "tools", "git", "skills", "subagents", "annotations", "findings", "raw", "stats"] as const;
 type Tab = (typeof TABS)[number];
@@ -34,6 +35,7 @@ export default async function Page({
 }) {
   const sp = await searchParams;
   const req = typeof sp.session === "string" ? sp.session : undefined;
+  const sessionClass = parseSessionClassFilter(sp.sessionClass);
 
   // "Workspace mode" = a param that targets a SINGLE session (session id, a tab,
   // a step seq, or a finding jump). Bare "/" — and the list-scoping params
@@ -51,7 +53,10 @@ export default async function Page({
   // The session->project map is needed by the list surface for project scoping
   // (the scope SELECTOR itself is shell-owned in the TopBar now → ?project=).
   // It is derived from the same project stats.
-  const [sessions, projectStats] = await Promise.all([listSessions(), getProjectStats()]);
+  const [sessions, projectStats] = await Promise.all([
+    listSessions({ sessionClass }),
+    getProjectStats(),
+  ]);
   const sessionProject: Record<string, string> = {};
   for (const p of projectStats) for (const r of p.sessionRefs) sessionProject[r.id] = p.project;
 

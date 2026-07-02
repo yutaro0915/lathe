@@ -208,7 +208,7 @@ export default function OverviewTrends({
             ))}
           </div>
           <div className="trend-note" data-testid="trend-note">
-            Distribution across all findings; pending items remain in Attention.
+            Distribution across findings attached to this session scope.
           </div>
         </section>
       </div>

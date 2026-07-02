@@ -1,6 +1,8 @@
 // Domain types for the Lathe prototype — Phase 1 (transcript / Git-diff viewer).
 // Mirror db/schema.sql in camelCase. lib/db.ts maps snake_case rows to these.
 
+import type { SessionClass } from '../scripts/ingest/domain/session-class';
+
 export type Runner = 'claude-code' | 'codex' | 'cursor';
 export type SessionStatus = 'done' | 'running' | 'failed';
 
@@ -71,7 +73,7 @@ export interface Session {
   spawnedBySeq: number | null;
   stepCount: number;
   seq: number;
-  sessionClass: string;
+  sessionClass: SessionClass;
 }
 
 export type PullRequestState = 'open' | 'closed' | 'merged';
@@ -368,6 +370,12 @@ export interface StatsBundle {
 // of the whole findings corpus.
 export type PendingFindingsBySession = Record<string, number>;
 export type FindingKindCounts = Record<FindingKind, number>;
+
+export interface FindingKindSessionRef {
+  findingId: number;
+  kind: FindingKind;
+  sessionId: string;
+}
 
 // Everything the client needs to render one session interactively, assembled
 // server-side and passed as serializable props (no db access on the client).

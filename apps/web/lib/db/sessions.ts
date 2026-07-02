@@ -1,5 +1,6 @@
 import type { Session } from '../types';
 import { COST_ANOMALY_BASELINE } from '@lathe/shared';
+import type { SessionClassFilter } from '../session-class';
 import { queryOne, queryRows } from '../db.query';
 import { type SessionRow, toSession } from './rows';
 
@@ -79,10 +80,16 @@ export async function getSession(id: string): Promise<Session | undefined> {
   return row ? toSession(row) : undefined;
 }
 
-export async function listSessions(): Promise<Session[]> {
+export async function listSessions(options: { sessionClass?: SessionClassFilter } = {}): Promise<Session[]> {
+  const sessionClass = options.sessionClass ?? 'development';
+  const classWhere = sessionClass === 'all' ? '' : ' WHERE scored_sessions.session_class = $4';
+  const params =
+    sessionClass === 'all'
+      ? [...COST_ANOMALY_PARAMS]
+      : [...COST_ANOMALY_PARAMS, sessionClass];
   const rows = await queryRows<SessionRow>(
-    `${SESSIONS_WITH_COST_ANOMALY} ORDER BY seq ASC`,
-    [...COST_ANOMALY_PARAMS],
+    `${SESSIONS_WITH_COST_ANOMALY}${classWhere} ORDER BY seq ASC`,
+    params,
   );
   return rows.map(toSession);
 }

@@ -7,6 +7,7 @@ export {
   getEventFiles,
   getEvents,
   getFindingKindCounts,
+  getFindingKindSessionRefs,
   getHunks,
   getLinkedEventsForFile,
   getPendingFindingsBySession,

@@ -1,4 +1,5 @@
-import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
+import { COST_ANOMALY_BASELINE, COST_FIXTURE_IDS, COST_FIXTURE_PROJECT_ID, Client, CostAnomalyExpectation, DATABASE_URL, DbEvent, DbFileLink, DbSession, FINDING_FIXTURE, FindingOracle, PR_FIXTURE, SESSION_CLASS_FIXTURE, SUBAGENT_FIXTURE, TurnExpectation, cleanupCostFallbackFixtures, cleanupFindingFixtures, cleanupSubagentFixtures, expandAllTurns, expect, expectTurnJump, findCompactCodexSession, findScopingOracle, registerFixtureHooks, firstSessionId, fmtCompactForTest, fmtCostForTest, getCostAnomalyExpectations, getFindingOracle, getTurnExpectations, gotoViewer, highestCostTurn, hmsToMsForTest, humanizeDurationForTest, join, longestWallDurationTurn, pendingFindingsForSession, readFileSync, readMetaCostForTest, readdirSync, resolve, seedCostFallbackFixtures, seedFindingFixtures, seedPrFixture, seedSubagentFixtures, statSync, test, turnCache, verdictCountForFinding, withDb } from "./helpers";
+import type { Page } from "@playwright/test";
 import { pickProject, projectOptionValues } from "./topbar";
 
 registerFixtureHooks();
@@ -46,6 +47,37 @@ test.describe("Stats tab (in-session)", () => {
 });
 
 test.describe("Overview (/overview) — cross-session analytics", () => {
+  async function findingKindCountForClass(sessionClass: string, kind: string): Promise<number> {
+    return withDb(async (client) => {
+      const row = (
+        await client.query<{ n: number }>(
+          `SELECT COUNT(DISTINCT f.id)::int AS n
+             FROM findings f
+             JOIN finding_evidence fe ON fe.finding_id = f.id
+             JOIN sessions s
+               ON s.id = COALESCE(
+                    fe.session_id,
+                    CASE WHEN fe.subject_kind = 'session' THEN fe.subject_id END,
+                    fe.locator->>'session_id',
+                    fe.locator->>'sessionId',
+                    fe.locator->>'session'
+                  )
+            WHERE s.session_class = $1
+              AND f.kind = $2`,
+          [sessionClass, kind],
+        )
+      ).rows[0];
+      return row?.n ?? 0;
+    });
+  }
+
+  async function displayedFindingKindCount(page: Page, kind: string): Promise<number> {
+    const text = await page
+      .locator(`[data-testid="finding-kind-row"][data-kind="${kind}"] [data-testid="hbar-val"]`)
+      .innerText();
+    return Number(text.replace(/[^\d]/g, ""));
+  }
+
   test("/overview renders the D31 three-card Trends", async ({ page }) => {
     await page.goto("/overview");
     await expect(page.locator(`[data-testid="sessbar-title"]`)).toHaveText(/Overview/);
@@ -106,6 +138,36 @@ test.describe("Overview (/overview) — cross-session analytics", () => {
     );
     // the global bar now reads "Sessions" (axis moved via a real link, back works).
     await expect(page.locator(`[data-testid="globalnav-tab"][data-state="active"]`)).toHaveAttribute("data-nav", "sessions");
+  });
+
+  test("session class filter scopes Overview attention", async ({ page }) => {
+    await page.goto("/overview");
+    const internalRow = page.locator(
+      `[data-attn-group="errors"] [data-testid="attn-row"][data-session-id="${SESSION_CLASS_FIXTURE.sessionId}"]`,
+    );
+    await expect(internalRow).toHaveCount(0);
+
+    await page.locator(`[data-testid="overview-session-class-filter"]`).selectOption("internal");
+    await expect(page).toHaveURL(/sessionClass=internal/);
+    await expect(internalRow).toBeVisible();
+    await expect(internalRow).toContainText("7 err");
+    await expect(internalRow).toHaveAttribute("href", /\bsessionClass=internal\b/);
+  });
+
+  test("session class filter scopes Overview finding trends", async ({ page }) => {
+    const expectedDevelopmentFailureLoops = await findingKindCountForClass("development", "failure_loop");
+    const expectedInternalFailureLoops = await findingKindCountForClass("internal", "failure_loop");
+    expect(expectedDevelopmentFailureLoops).toBeGreaterThan(0);
+    expect(expectedInternalFailureLoops).toBeGreaterThan(0);
+
+    await page.goto("/overview");
+    await expect(page.locator(`[data-testid="finding-kind-row"][data-kind="failure_loop"]`)).toBeVisible();
+    expect(await displayedFindingKindCount(page, "failure_loop")).toBe(expectedDevelopmentFailureLoops);
+
+    await page.locator(`[data-testid="overview-session-class-filter"]`).selectOption("internal");
+    await expect(page).toHaveURL(/sessionClass=internal/);
+    await expect(page.locator(`[data-testid="finding-kind-row"][data-kind="failure_loop"]`)).toBeVisible();
+    expect(await displayedFindingKindCount(page, "failure_loop")).toBe(expectedInternalFailureLoops);
   });
 
   test("cost outlier and error attention signals use clean red token styling", async ({
