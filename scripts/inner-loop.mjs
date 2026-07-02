@@ -1,21 +1,30 @@
 #!/usr/bin/env node
-// CLI: node scripts/inner-loop.mjs <issue#> [--dry-run]
-// inner loop driver — a code state machine that drives headless named agents
+// CLI: node scripts/inner-loop.mjs <issue#> [--dry-run] [--backend claude|codex]
+//      [--backend-<stage> claude|codex]
+// inner loop driver — code state machine driving headless named agents
 // (planner/implementer/reviewer/verifier/test-triage) through
 // PLAN → IMPLEMENT → REVIEW → VERIFY → (RED→TRIAGE) → MERGE for one issue.
-// ADR 0013 (adr/0013-inner-loop-driver.md) — driver is code, not an agent,
-// because stage transitions are deterministic (verdict-driven), not judgment.
+// ADR 0013 (adr/0013-inner-loop-driver.md) / ADR 0014 (backend adapter).
 //
-// Pure logic (verdict parsing, state transitions, manifest entries) is
-// exported for unit testing. spawnSync calls to `claude`/`git`/`gh` are
-// isolated in thin wrappers so tests can inject fakes instead of spawning.
+// Pure logic is exported for unit testing; spawnSync wrappers are isolated so
+// tests can inject fakes. Backend pure functions live in inner-loop-backends.mjs.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import process from 'node:process';
 import { buildStagePrompt } from './inner-loop-prompts.mjs';
+import {
+  stagePermissions, stageCwd, buildReceiptArgs,
+  stageSandbox, buildCodexArgs, buildClaudeArgs,
+  stripFrontmatter, buildCodexPrompt,
+  parseCodexSessionId, parseBackendFlags, selectBackend,
+} from './inner-loop-backends.mjs';
+
+// Re-export stage helpers so existing tests importing from this file keep working.
+export { stagePermissions, stageCwd, buildReceiptArgs };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -23,15 +32,8 @@ const REPO_ROOT = join(__dirname, '..');
 // --- Constants ---
 
 export const VALID_VERDICT_TOKENS = [
-  'PLAN_READY',
-  'ESCALATE',
-  'IMPL_DONE',
-  'PASS',
-  'CHANGES',
-  'GREEN',
-  'RED',
-  'KNOWN',
-  'NOVEL',
+  'PLAN_READY', 'ESCALATE', 'IMPL_DONE', 'PASS', 'CHANGES',
+  'GREEN', 'RED', 'KNOWN', 'NOVEL',
 ];
 
 // Bounded retries: review⇄implement (CHANGES) and triage⇄implement (KNOWN)
@@ -42,8 +44,7 @@ export const MAX_CYCLES = 2;
 
 /**
  * Parse the VERDICT token from a stage's result text (last `VERDICT: <TOKEN>`
- * line wins, per ADR "envelope の result 末尾から parse"). Returns null if
- * absent/unparsable — callers must treat null as ESCALATE.
+ * line wins). Returns null if absent/unparsable — callers must treat as ESCALATE.
  * @param {string} resultText
  * @returns {string | null}
  */
@@ -55,236 +56,146 @@ export function parseVerdict(resultText) {
   return VALID_VERDICT_TOKENS.includes(token) ? token : null;
 }
 
-// Last `n` lines of `text` (default 30), for surfacing a failing command's
-// real output in an escalation excerpt instead of just "failed".
+// Last `n` lines of `text` (default 30), for surfacing real error output in
+// an escalation excerpt instead of just "failed".
 export function tailLines(text, n = 30) {
   return (text ?? '').trim().split('\n').slice(-n).join('\n');
 }
 
 /**
- * State transition table. Given the current state, the verdict just parsed,
- * and the current cycle count (review⇄implement / triage⇄implement retries so
- * far), returns the next state and the updated cycle count. Terminal states:
- * MERGE (success path continues to driver-run merge.mjs), ESCALATE, DONE.
+ * State transition table. Returns next state and updated cycle count.
+ * Terminal states: MERGE (driver runs merge.mjs), ESCALATE, DONE.
  * @param {string} state
  * @param {string | null} verdict
  * @param {number} cycles
  * @returns {{ next: string, cycles: number }}
  */
 export function nextState(state, verdict, cycles = 0) {
-  if (verdict === null) {
-    return { next: 'ESCALATE', cycles };
-  }
-
+  if (verdict === null) return { next: 'ESCALATE', cycles };
   switch (state) {
     case 'PLAN':
-      if (verdict === 'PLAN_READY') return { next: 'IMPLEMENT', cycles };
-      return { next: 'ESCALATE', cycles };
-
+      return verdict === 'PLAN_READY' ? { next: 'IMPLEMENT', cycles } : { next: 'ESCALATE', cycles };
     case 'IMPLEMENT':
-      if (verdict === 'IMPL_DONE') return { next: 'REVIEW', cycles };
-      return { next: 'ESCALATE', cycles };
-
+      return verdict === 'IMPL_DONE' ? { next: 'REVIEW', cycles } : { next: 'ESCALATE', cycles };
     case 'REVIEW':
       if (verdict === 'PASS') return { next: 'VERIFY', cycles };
       if (verdict === 'CHANGES') {
         const next = cycles + 1;
-        if (next > MAX_CYCLES) return { next: 'ESCALATE', cycles: next };
-        return { next: 'IMPLEMENT', cycles: next };
+        return next > MAX_CYCLES ? { next: 'ESCALATE', cycles: next } : { next: 'IMPLEMENT', cycles: next };
       }
       return { next: 'ESCALATE', cycles };
-
     case 'VERIFY':
       if (verdict === 'GREEN') return { next: 'MERGE', cycles };
       if (verdict === 'RED') return { next: 'TRIAGE', cycles };
       return { next: 'ESCALATE', cycles };
-
     case 'TRIAGE':
       if (verdict === 'KNOWN') {
         const next = cycles + 1;
-        if (next > MAX_CYCLES) return { next: 'ESCALATE', cycles: next };
-        return { next: 'IMPLEMENT', cycles: next };
+        return next > MAX_CYCLES ? { next: 'ESCALATE', cycles: next } : { next: 'IMPLEMENT', cycles: next };
       }
-      if (verdict === 'NOVEL') return { next: 'ESCALATE', cycles };
       return { next: 'ESCALATE', cycles };
-
     default:
       return { next: 'ESCALATE', cycles };
   }
 }
 
 /**
- * Build one run-manifest entry (ADR 0013 §2: `.lathe/runs/issue-<n>.json`).
- * @param {{ stage: string, sessionId: string | null, verdict: string | null, costUsd: number | null, ts?: string }} args
- * @returns {{ stage: string, session_id: string | null, verdict: string | null, cost_usd: number | null, ts: string }}
+ * Build one run-manifest entry (ADR 0013 §2 + ADR 0014 backend field).
+ * @param {{ stage: string, sessionId: string|null, verdict: string|null, costUsd: number|null, ts?: string, backend?: string|null }} p
  */
-export function buildManifestEntry({ stage, sessionId, verdict, costUsd, ts }) {
+export function buildManifestEntry({ stage, sessionId, verdict, costUsd, ts, backend }) {
   return {
     stage,
     session_id: sessionId ?? null,
     verdict: verdict ?? null,
     cost_usd: costUsd ?? null,
     ts: ts ?? new Date().toISOString(),
+    backend: backend ?? null,
   };
 }
 
-// Read an existing manifest file (if present), returning its stages array,
-// or [] if the file doesn't exist / is malformed.
-// @returns {Array<object>}
+// Read existing manifest (if present), returning stages array or [].
 export function readManifestStages(manifestPath) {
   if (!existsSync(manifestPath)) return [];
   try {
     const data = JSON.parse(readFileSync(manifestPath, 'utf8'));
     return Array.isArray(data.stages) ? data.stages : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 // Build the full manifest object for writing.
-// @returns {{ issue, stages }}
 export function buildManifest(issueNumber, stages) {
   return { issue: issueNumber, stages };
 }
 
-/**
- * Permission flags per stage, per ADR 0013 §機構詳細: implementer = acceptEdits
- * (worktree cwd, can edit) + allowedTools for git/pnpm/node (commit, verify);
- * read-only stages (planner/reviewer/verifier/test-triage) = dontAsk +
- * allowedTools for the Bash they need. `--bare` / `--dangerously-skip-permissions`
- * must never be used (ADR: hooks must fire).
- * @param {string} stage
- * @returns {{ agent: string, permissionMode: string, allowedTools?: string[] }}
- */
-export function stagePermissions(stage) {
-  switch (stage) {
-    case 'PLAN':
-      return { agent: 'planner', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
-    case 'IMPLEMENT':
-      return {
-        agent: 'implementer',
-        permissionMode: 'acceptEdits',
-        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', 'Bash(pnpm *)', 'Bash(node *)'],
-      };
-    case 'REVIEW':
-      // No receipt.mjs allowedTool: the driver stamps REVIEW/VERIFY receipts
-      // itself (buildReceiptArgs), not the agent — see that function's doc.
-      return { agent: 'reviewer', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
-    case 'VERIFY':
-      return {
-        agent: 'verifier',
-        permissionMode: 'dontAsk',
-        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', 'Bash(pnpm *)', 'Bash(node *)'],
-      };
-    case 'TRIAGE':
-      return { agent: 'test-triage', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
-    default:
-      throw new Error(`stagePermissions: unknown stage "${stage}"`);
-  }
-}
-
-/**
- * cwd for a stage: PLAN runs at repo root (it needs main's full context before
- * the worktree exists); every other agent stage runs inside the issue worktree.
- * @param {string} stage
- * @param {string} repoRoot
- * @param {string} worktreePath
- * @returns {string}
- */
-export function stageCwd(stage, repoRoot, worktreePath) {
-  return stage === 'PLAN' ? repoRoot : worktreePath;
-}
-
-// stage -> [receipt.mjs step, LATHE_AGENT, valid verdicts] — driver stamps
-// receipts itself (agent-issued `LATHE_AGENT=... node scripts/receipt.mjs
-// ...` silently fails the Bash allowlist — env-prefixed commands don't
-// prefix-match `Bash(node scripts/receipt.mjs *)` — so the agent reports
-// PASS/GREEN but no receipt lands and MERGE rejects for real). Verdict lists
-// mirror receipt.mjs's own VALID_VERDICTS.
-const RECEIPT_STAGE_MAP = {
-  REVIEW: ['review', 'reviewer', ['PASS', 'CHANGES']],
-  VERIFY: ['verify', 'verifier', ['GREEN', 'RED']],
+// Also export backend pure functions so tests can import from one place.
+export {
+  stageSandbox, buildCodexArgs, buildClaudeArgs,
+  stripFrontmatter, buildCodexPrompt,
+  parseCodexSessionId, parseBackendFlags, selectBackend,
 };
 
-// Build argv + env for stamping a receipt from a stage verdict. Only REVIEW
-// (PASS/CHANGES) and VERIFY (GREEN/RED) are receipt-eligible per receipt.mjs's
-// own validation; other stages/verdicts (e.g. ESCALATE) return null.
-// @returns {{ command, args, env: { LATHE_AGENT } } | null}
-export function buildReceiptArgs(stage, sha, verdict) {
-  const mapped = RECEIPT_STAGE_MAP[stage];
-  if (!mapped) return null;
-  const [step, agent, validVerdicts] = mapped;
-  if (!validVerdicts.includes(verdict)) return null;
-  return { command: 'node', args: ['scripts/receipt.mjs', step, sha, verdict], env: { LATHE_AGENT: agent } };
-}
+// --- Side-effectful helpers ---
 
-// --- Side-effectful helpers (thin wrappers; tests inject fakes instead) ---
+function die(msg) { process.stderr.write(`inner-loop: error: ${msg}\n`); process.exit(1); }
+function log(msg) { process.stdout.write(`[inner-loop] ${msg}\n`); }
 
-function die(msg) {
-  process.stderr.write(`inner-loop: error: ${msg}\n`);
-  process.exit(1);
-}
-function log(msg) {
-  process.stdout.write(`[inner-loop] ${msg}\n`);
-}
-
-// Fetch issue via `gh issue view`. Isolated for injectability.
-// @returns {{ number, title, body }}
 function fetchIssue(issueNumber) {
-  const args = ['issue', 'view', String(issueNumber), '--json', 'number,title,body'];
-  const result = spawnSync('gh', args, { encoding: 'utf8', cwd: REPO_ROOT });
-  if (result.status !== 0) {
-    die(`gh issue view failed: ${result.stderr || result.stdout}`);
-  }
-  try {
-    return JSON.parse(result.stdout);
-  } catch (e) {
-    die(`could not parse gh issue view output: ${e.message}`);
-  }
+  const r = spawnSync('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,body'], { encoding: 'utf8', cwd: REPO_ROOT });
+  if (r.status !== 0) die(`gh issue view failed: ${r.stderr || r.stdout}`);
+  try { return JSON.parse(r.stdout); } catch (e) { die(`could not parse gh issue view output: ${e.message}`); }
 }
 
-// Create the issue worktree. Errors (does not overwrite) if it already exists.
-// @returns {{ path, branch }}
 function prepareWorktree(issueNumber) {
   const branch = `inner/issue-${issueNumber}`;
   const path = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
-  if (existsSync(path)) {
-    die(`worktree already exists at ${path} — refusing to overwrite. Remove it first if you intend to restart.`);
-  }
-  const result = spawnSync('git', ['worktree', 'add', path, '-b', branch, 'main'], { stdio: 'inherit', cwd: REPO_ROOT });
-  if (result.status !== 0) {
-    die(`git worktree add failed for ${path}`);
-  }
+  if (existsSync(path)) die(`worktree already exists at ${path} — refusing to overwrite. Remove it first if you intend to restart.`);
+  const r = spawnSync('git', ['worktree', 'add', path, '-b', branch, 'main'], { stdio: 'inherit', cwd: REPO_ROOT });
+  if (r.status !== 0) die(`git worktree add failed for ${path}`);
   return { path, branch };
 }
 
+// --- Stage runners (ADR 0014 backend adapters) ---
+
+// Normalized envelope: { session_id, result, total_cost_usd, backend }
+function runStageClaude(stage, prompt, cwd, resumeSessionId) {
+  const args = buildClaudeArgs(stage, prompt, resumeSessionId);
+  const r = spawnSync('claude', args, { encoding: 'utf8', cwd, maxBuffer: 1e8 });
+  if (r.status !== 0 && !r.stdout) die(`claude -p failed for stage ${stage}: ${r.stderr || 'no output'}`);
+  let env;
+  try { env = JSON.parse(r.stdout); } catch (e) {
+    die(`could not parse claude envelope for stage ${stage}: ${e.message}\nstdout: ${r.stdout}`);
+  }
+  return { session_id: env.session_id ?? null, result: env.result ?? '', total_cost_usd: env.total_cost_usd ?? null, backend: 'claude' };
+}
+
+function runStageCodex(stage, prompt, cwd) {
+  const { agent } = stagePermissions(stage);
+  const agentFile = join(REPO_ROOT, '.claude', 'agents', `${agent}.md`);
+  const agentBody = existsSync(agentFile) ? stripFrontmatter(readFileSync(agentFile, 'utf8')) : '';
+  const fullPrompt = buildCodexPrompt(agentBody, prompt);
+  const lastmsgPath = join(tmpdir(), `lathe-inner-stage-${stage}.txt`);
+  const args = buildCodexArgs(stage, fullPrompt, cwd, lastmsgPath);
+  const r = spawnSync('codex', ['exec', ...args], { encoding: 'utf8', cwd, maxBuffer: 1e8 });
+  if (r.status !== 0 && !r.stdout) die(`codex exec failed for stage ${stage}: ${r.stderr || 'no output'}`);
+  const sessionId = parseCodexSessionId(r.stdout ?? '');
+  const result = existsSync(lastmsgPath) ? readFileSync(lastmsgPath, 'utf8') : '';
+  return { session_id: sessionId, result, total_cost_usd: null, backend: 'codex' };
+}
+
 /**
- * Run one stage via `claude -p ... --agent <name> --output-format json`.
- * Returns the parsed envelope ({ session_id, result, total_cost_usd, ... }).
+ * Run one stage via the specified backend, returning a normalized envelope.
  * @param {string} stage
  * @param {string} prompt
  * @param {string} cwd
- * @param {string | null} resumeSessionId
- * @returns {object}
+ * @param {string | null} resumeSessionId  (claude backend only)
+ * @param {string} backend  'claude' | 'codex' (default 'codex')
+ * @returns {{ session_id: string|null, result: string, total_cost_usd: number|null, backend: string }}
  */
-function runStage(stage, prompt, cwd, resumeSessionId = null) {
-  const { agent, permissionMode, allowedTools } = stagePermissions(stage);
-  const args = ['-p', prompt, '--agent', agent, '--output-format', 'json', '--permission-mode', permissionMode];
-  if (allowedTools && allowedTools.length > 0) {
-    args.push('--allowedTools', allowedTools.join(','));
-  }
-  if (resumeSessionId) {
-    args.push('--resume', resumeSessionId);
-  }
-  const result = spawnSync('claude', args, { encoding: 'utf8', cwd, maxBuffer: 1e8 });
-  if (result.status !== 0 && !result.stdout) {
-    die(`claude -p failed for stage ${stage}: ${result.stderr || 'no output'}`);
-  }
-  try {
-    return JSON.parse(result.stdout);
-  } catch (e) {
-    die(`could not parse claude envelope for stage ${stage}: ${e.message}\nstdout: ${result.stdout}`);
-  }
+function runStage(stage, prompt, cwd, resumeSessionId = null, backend = 'codex') {
+  return backend === 'codex'
+    ? runStageCodex(stage, prompt, cwd)
+    : runStageClaude(stage, prompt, cwd, resumeSessionId);
 }
 
 function manifestPathFor(issueNumber) {
@@ -292,58 +203,40 @@ function manifestPathFor(issueNumber) {
 }
 
 function appendManifestEntry(issueNumber, entry) {
-  const path = manifestPathFor(issueNumber);
-  mkdirSync(dirname(path), { recursive: true });
-  const stages = readManifestStages(path);
+  const p = manifestPathFor(issueNumber);
+  mkdirSync(dirname(p), { recursive: true });
+  const stages = readManifestStages(p);
   stages.push(entry);
-  writeFileSync(path, JSON.stringify(buildManifest(issueNumber, stages), null, 2) + '\n', 'utf8');
+  writeFileSync(p, JSON.stringify(buildManifest(issueNumber, stages), null, 2) + '\n', 'utf8');
 }
 
 function writeEscalation(issueNumber, stage, verdict, resultExcerpt) {
-  const path = join(REPO_ROOT, '.lathe', 'runs', `issue-${issueNumber}.escalation.md`);
-  mkdirSync(dirname(path), { recursive: true });
-  const body = [
-    `# escalation — issue #${issueNumber}`,
-    '',
-    `stage: ${stage}`,
-    `verdict: ${verdict ?? '(none/unparsable)'}`,
-    `ts: ${new Date().toISOString()}`,
-    '',
-    '## result excerpt',
-    '',
-    '```',
-    (resultExcerpt ?? '').slice(-4000),
-    '```',
-    '',
-  ].join('\n');
-  appendFileSync(path, body, 'utf8');
-  const commentResult = spawnSync(
-    'gh',
-    ['issue', 'comment', String(issueNumber), '--body', `inner-loop escalated at stage ${stage} (verdict: ${verdict ?? 'none'}). See ${path}`],
-    { cwd: REPO_ROOT, stdio: 'inherit' },
-  );
-  if (commentResult.status !== 0) {
-    log(`warning: gh issue comment failed (continuing) for issue #${issueNumber}`);
-  }
+  const p = join(REPO_ROOT, '.lathe', 'runs', `issue-${issueNumber}.escalation.md`);
+  mkdirSync(dirname(p), { recursive: true });
+  appendFileSync(p, [
+    `# escalation — issue #${issueNumber}`, '',
+    `stage: ${stage}`, `verdict: ${verdict ?? '(none/unparsable)'}`, `ts: ${new Date().toISOString()}`, '',
+    '## result excerpt', '', '```', (resultExcerpt ?? '').slice(-4000), '```', '',
+  ].join('\n'), 'utf8');
+  const cr = spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body',
+    `inner-loop escalated at stage ${stage} (verdict: ${verdict ?? 'none'}). See ${p}`],
+    { cwd: REPO_ROOT, stdio: 'inherit' });
+  if (cr.status !== 0) log(`warning: gh issue comment failed (continuing) for issue #${issueNumber}`);
 }
 
-function rebaseWorktree(worktreePath) {
-  const result = spawnSync('git', ['-C', worktreePath, 'rebase', 'main'], { stdio: 'inherit' });
-  return result.status === 0;
+function rebaseWorktree(wt) {
+  return spawnSync('git', ['-C', wt, 'rebase', 'main'], { stdio: 'inherit' }).status === 0;
 }
 
-// Captures stdout/stderr (not 'inherit') so a MERGE failure's real error
-// (e.g. merge.mjs's list of missing receipts) can reach the escalation
-// excerpt instead of just "failed"; still echoed so a live run isn't silent.
 function runMerge(branch) {
-  const result = spawnSync('node', ['scripts/merge.mjs', branch], { encoding: 'utf8', cwd: REPO_ROOT });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  return { ok: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+  const r = spawnSync('node', ['scripts/merge.mjs', branch], { encoding: 'utf8', cwd: REPO_ROOT });
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
 
-function cleanupWorktree(worktreePath, branch) {
-  spawnSync('git', ['worktree', 'remove', worktreePath, '--force'], { cwd: REPO_ROOT, stdio: 'inherit' });
+function cleanupWorktree(wt, branch) {
+  spawnSync('git', ['worktree', 'remove', wt, '--force'], { cwd: REPO_ROOT, stdio: 'inherit' });
   spawnSync('git', ['branch', '-D', branch], { cwd: REPO_ROOT, stdio: 'inherit' });
 }
 
@@ -356,31 +249,37 @@ if (isMain) {
   const dryRun = args.includes('--dry-run');
   const issueArg = args.find((a) => !a.startsWith('--'));
   const issueNumber = Number(issueArg);
+  const backendFlags = parseBackendFlags(args);
 
   if (!issueArg || !Number.isInteger(issueNumber) || issueNumber <= 0) {
-    die('usage: node scripts/inner-loop.mjs <issue#> [--dry-run]');
+    die('usage: node scripts/inner-loop.mjs <issue#> [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]');
   }
 
   if (dryRun) {
     log(`dry-run: would fetch issue #${issueNumber} via gh issue view`);
     log(`dry-run: would create worktree .claude/worktrees/inner-issue-${issueNumber} on branch inner/issue-${issueNumber}`);
-    const stages = ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE'];
-    for (const stage of stages) {
+    const wtPath = `.claude/worktrees/inner-issue-${issueNumber}`;
+    for (const stage of ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE']) {
       if (stage === 'MERGE') {
         log('dry-run: MERGE — node scripts/merge.mjs inner/issue-<n> (from repo root)');
         continue;
       }
+      const backend = selectBackend(stage, backendFlags);
       const { agent, permissionMode, allowedTools } = stagePermissions(stage);
-      const cwd = stageCwd(stage, REPO_ROOT, `.claude/worktrees/inner-issue-${issueNumber}`);
+      const cwd = stageCwd(stage, REPO_ROOT, wtPath);
       const promptPreview = buildStagePrompt(stage, {
-        issueNumber,
-        issueTitle: '<title>',
-        issueBody: '<body>',
-        plan: '<plan>',
-        headSha: '<sha>',
-        verifyResult: '<verify result>',
+        issueNumber, issueTitle: '<title>', issueBody: '<body>',
+        plan: '<plan>', headSha: '<sha>', verifyResult: '<verify result>',
       });
-      log(`dry-run: stage=${stage} agent=${agent} permission-mode=${permissionMode} allowedTools=${(allowedTools || []).join(',')} cwd=${cwd}`);
+      if (backend === 'codex') {
+        const sb = stageSandbox(stage);
+        const lm = join(tmpdir(), `lathe-inner-stage-${stage}.txt`);
+        log(`dry-run: stage=${stage} backend=codex sandbox=${sb} cwd=${cwd}`);
+        log(`dry-run: codex exec '<prompt>' --json -o ${lm} -C ${cwd} -s ${sb}`);
+      } else {
+        log(`dry-run: stage=${stage} backend=claude agent=${agent} permission-mode=${permissionMode} allowedTools=${(allowedTools || []).join(',')} cwd=${cwd}`);
+        log(`dry-run: claude -p '<prompt>' --agent ${agent} --output-format json --permission-mode ${permissionMode}`);
+      }
       log(`dry-run: prompt preview:\n${promptPreview}\n`);
     }
     log('dry-run: transition plan — PLAN_READY->IMPLEMENT, IMPL_DONE->REVIEW, REVIEW PASS->VERIFY / CHANGES->IMPLEMENT (max 2 cycles), VERIFY GREEN->MERGE / RED->TRIAGE, TRIAGE KNOWN->IMPLEMENT / NOVEL->ESCALATE, missing/unparsable VERDICT->ESCALATE');
@@ -401,90 +300,52 @@ if (isMain) {
     const cwd = stageCwd(state, REPO_ROOT, worktreePath);
 
     if (state === 'REVIEW' || state === 'VERIFY') {
-      // Capture the current worktree HEAD sha for receipt issuance (post rebase for REVIEW).
       if (state === 'REVIEW') {
         log(`rebasing worktree onto main before review (issue #${issueNumber})`);
         if (!rebaseWorktree(worktreePath)) {
           writeEscalation(issueNumber, 'REVIEW', 'REBASE_CONFLICT', 'git rebase main failed in worktree');
-          state = 'ESCALATE';
-          break;
+          state = 'ESCALATE'; break;
         }
       }
-      const shaResult = spawnSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
-      headSha = shaResult.stdout.trim();
+      headSha = spawnSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
     }
 
     const prompt = buildStagePrompt(state, {
-      issueNumber,
-      issueTitle: issue.title,
-      issueBody: issue.body,
-      plan,
-      feedback,
-      headSha,
-      verifyResult,
+      issueNumber, issueTitle: issue.title, issueBody: issue.body,
+      plan, feedback, headSha, verifyResult,
     });
 
-    log(`stage=${state} cwd=${cwd} — spawning claude -p`);
-    const envelope = runStage(state, prompt, cwd);
+    const backend = selectBackend(state, backendFlags);
+    log(`stage=${state} backend=${backend} cwd=${cwd} — spawning ${backend}`);
+    const envelope = runStage(state, prompt, cwd, null, backend);
     const verdict = parseVerdict(envelope.result);
 
     appendManifestEntry(issueNumber, buildManifestEntry({
-      stage: state,
-      sessionId: envelope.session_id ?? null,
-      verdict,
-      costUsd: envelope.total_cost_usd ?? null,
+      stage: state, sessionId: envelope.session_id ?? null,
+      verdict, costUsd: envelope.total_cost_usd ?? null, backend: envelope.backend ?? null,
     }));
 
-    if (verdict === null) {
-      writeEscalation(issueNumber, state, null, envelope.result ?? '');
-      state = 'ESCALATE';
-      break;
-    }
+    if (verdict === null) { writeEscalation(issueNumber, state, null, envelope.result ?? ''); state = 'ESCALATE'; break; }
 
-    if (state === 'PLAN' && verdict === 'PLAN_READY') {
-      plan = envelope.result;
-    }
-    if (state === 'REVIEW' && verdict === 'CHANGES') {
-      feedback = envelope.result;
-    }
-    if (state === 'VERIFY' && verdict === 'RED') {
-      verifyResult = envelope.result;
-    }
-    if (state === 'TRIAGE' && verdict === 'KNOWN') {
-      feedback = envelope.result;
-    }
+    if (state === 'PLAN' && verdict === 'PLAN_READY') plan = envelope.result;
+    if (state === 'REVIEW' && verdict === 'CHANGES') feedback = envelope.result;
+    if (state === 'VERIFY' && verdict === 'RED') verifyResult = envelope.result;
+    if (state === 'TRIAGE' && verdict === 'KNOWN') feedback = envelope.result;
 
-    // Driver stamps the REVIEW/VERIFY receipt itself from the verdict it just
-    // parsed (see buildReceiptArgs) — not left to the agent. Exit non-zero
-    // here is escalated, not silently swallowed.
     const receipt = buildReceiptArgs(state, headSha, verdict);
     if (receipt) {
-      const receiptResult = spawnSync(receipt.command, receipt.args, {
-        cwd: worktreePath,
-        env: { ...process.env, ...receipt.env },
-        stdio: 'inherit',
-      });
-      if (receiptResult.status !== 0) {
-        writeEscalation(issueNumber, state, verdict, `receipt.mjs failed: ${receipt.args.join(' ')}`);
-        state = 'ESCALATE';
-        break;
-      }
+      const rr = spawnSync(receipt.command, receipt.args, { cwd: worktreePath, env: { ...process.env, ...receipt.env }, stdio: 'inherit' });
+      if (rr.status !== 0) { writeEscalation(issueNumber, state, verdict, `receipt.mjs failed: ${receipt.args.join(' ')}`); state = 'ESCALATE'; break; }
     }
 
     const { next, cycles: nextCycles } = nextState(state, verdict, cycles);
-    if (next === 'ESCALATE') {
-      writeEscalation(issueNumber, state, verdict, envelope.result ?? '');
-    }
+    if (next === 'ESCALATE') writeEscalation(issueNumber, state, verdict, envelope.result ?? '');
     log(`stage=${state} verdict=${verdict} -> next=${next} (cycles=${nextCycles})`);
-    state = next;
-    cycles = nextCycles;
+    state = next; cycles = nextCycles;
   }
 
-  if (state === 'ESCALATE') {
-    die(`escalated — see .lathe/runs/issue-${issueNumber}.escalation.md`);
-  }
+  if (state === 'ESCALATE') die(`escalated — see .lathe/runs/issue-${issueNumber}.escalation.md`);
 
-  // state === 'MERGE'
   log(`merging branch ${branch} onto main`);
   const mergeResult = runMerge(branch);
   if (!mergeResult.ok) {

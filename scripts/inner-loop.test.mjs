@@ -352,6 +352,16 @@ test('buildManifestEntry: null sessionId/verdict/costUsd -> null fields (not und
   assert.equal(entry.cost_usd, null);
 });
 
+test('buildManifestEntry: backend field is recorded when provided (ADR 0014)', () => {
+  const entry = buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', costUsd: 0.01, backend: 'codex' });
+  assert.equal(entry.backend, 'codex');
+});
+
+test('buildManifestEntry: backend omitted -> null (backward compatible)', () => {
+  const entry = buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', costUsd: 0.01 });
+  assert.equal(entry.backend, null);
+});
+
 test('buildManifest: wraps issue number and stages array', () => {
   const stages = [buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', costUsd: 0.1 })];
   const manifest = buildManifest(25, stages);
