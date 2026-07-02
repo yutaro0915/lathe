@@ -212,6 +212,12 @@ export async function runIncrementalIngest(
   await pool.query(`
     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_class TEXT NOT NULL DEFAULT 'development';
     CREATE INDEX IF NOT EXISTS idx_sessions_class ON sessions(session_class);
+    CREATE INDEX IF NOT EXISTS idx_events_session ON transcript_events(session_id);
+    CREATE INDEX IF NOT EXISTS idx_changed_files_session ON changed_files(session_id);
+    CREATE INDEX IF NOT EXISTS idx_diff_hunks_file ON diff_hunks(file_id);
+    CREATE INDEX IF NOT EXISTS idx_attributions_hunk ON attributions(hunk_id);
+    CREATE INDEX IF NOT EXISTS idx_attributions_event ON attributions(event_id);
+    CREATE INDEX IF NOT EXISTS idx_event_files_event ON event_files(event_id);
   `);
 
   const providerOpts: ProviderBuildOptions = { ...DEFAULT_BUILD_OPTS, ...buildOpts };

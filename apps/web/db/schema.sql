@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS transcript_events (
   meta        JSONB,                      -- provider-specific extra fields
   parent_id   TEXT                        -- launcher event id for sub-agent child steps
 );
+CREATE INDEX IF NOT EXISTS idx_events_session ON transcript_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_events_parent ON transcript_events(parent_id);
 
 -- Files changed in the session's git diff (left tree of the diff screen).
@@ -142,6 +143,7 @@ CREATE TABLE IF NOT EXISTS changed_files (
   language    TEXT,
   seq         INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_changed_files_session ON changed_files(session_id);
 
 -- Hunks within a changed file (the diff body).
 CREATE TABLE IF NOT EXISTS diff_hunks (
@@ -151,6 +153,7 @@ CREATE TABLE IF NOT EXISTS diff_hunks (
   header      TEXT NOT NULL,              -- @@ -a,b +c,d @@ context
   content     TEXT NOT NULL               -- lines prefixed with ' ', '+', or '-'
 );
+CREATE INDEX IF NOT EXISTS idx_diff_hunks_file ON diff_hunks(file_id);
 
 -- Attribution: which event produced which hunk, and the confidence.
 -- This is the core Phase 1 contribution (diff -> event linkage).
@@ -162,6 +165,8 @@ CREATE TABLE IF NOT EXISTS attributions (
   method      TEXT NOT NULL,             -- edit_event | shell_inferred | external | dirty_worktree
   note        TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_attributions_hunk ON attributions(hunk_id);
+CREATE INDEX IF NOT EXISTS idx_attributions_event ON attributions(event_id);
 
 -- Files referenced/touched by an event (right-panel "Linked files").
 CREATE TABLE IF NOT EXISTS event_files (
@@ -170,6 +175,7 @@ CREATE TABLE IF NOT EXISTS event_files (
   path      TEXT NOT NULL,
   role      TEXT NOT NULL                -- read | edit | write
 );
+CREATE INDEX IF NOT EXISTS idx_event_files_event ON event_files(event_id);
 
 -- Minimap markers (bottom density bar of timeline/diff screens).
 CREATE TABLE IF NOT EXISTS annotations (
