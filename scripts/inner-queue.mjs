@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CLI: node scripts/inner-queue.mjs [--max K] [--dry-run]
+// CLI: node scripts/inner-queue.mjs [--max K] [--max-failures N] [--dry-run]
 //
 // Dependency-aware dispatcher for ADR 0015. It lists open GitHub issues labeled
 // `inner-loop`, skips unresolved dependencies / already-running issues, and
@@ -214,13 +214,14 @@ export function planDryRun({
  * promise resolving to { status }. Touch conflicts against queue-launched active
  * issues are re-evaluated after each completion.
  *
- * @param {{ issues: object[], dependencyStates?: Map<number,string>|Record<string,string>, runningWorktrees?: Map<number,string>|Set<number>|Record<string,string>, max?: number, spawnIssue: (issue: object) => Promise<{status:number|null}>, log?: (line:string)=>void }} p
+ * @param {{ issues: object[], dependencyStates?: Map<number,string>|Record<string,string>, runningWorktrees?: Map<number,string>|Set<number>|Record<string,string>, max?: number, maxFailures?: number, spawnIssue: (issue: object) => Promise<{status:number|null}>, log?: (line:string)=>void }} p
  */
 export async function runQueue({
   issues,
   dependencyStates = new Map(),
   runningWorktrees = new Map(),
   max = 2,
+  maxFailures = 3,
   spawnIssue,
   log = () => {},
 }) {
@@ -232,10 +233,16 @@ export async function runQueue({
   const launched = [];
   const skipped = [];
   let failed = 0;
+  let consecutiveFailures = 0;
+  let circuitOpen = false;
 
   function removePending(issueNumber) {
     const index = pending.findIndex((issue) => issue.number === issueNumber);
     if (index >= 0) pending.splice(index, 1);
+  }
+
+  function hasFailureBudgetForDispatch() {
+    return maxFailures === 0 || consecutiveFailures + active.length < maxFailures;
   }
 
   for (const issue of [...pending]) {
@@ -254,10 +261,15 @@ export async function runQueue({
     }
   }
 
-  while (pending.length > 0 || active.length > 0) {
+  while ((pending.length > 0 && !circuitOpen) || active.length > 0) {
     let madeProgress = false;
 
-    while (pending.length > 0 && runningIssues.length + active.length < max) {
+    while (
+      !circuitOpen &&
+      pending.length > 0 &&
+      runningIssues.length + active.length < max &&
+      hasFailureBudgetForDispatch()
+    ) {
       const activeIssues = [...runningIssues, ...active.map((entry) => entry.issue)];
       const startIndex = pending.findIndex((issue) => (
         classifyIssue({
@@ -278,12 +290,7 @@ export async function runQueue({
       launched.push(issue.number);
       const promise = Promise.resolve()
         .then(() => spawnIssue(issue))
-        .then((result) => {
-          if ((result?.status ?? 1) !== 0) failed += 1;
-          return result;
-        })
         .catch((error) => {
-          failed += 1;
           return { status: 1, error };
         });
       active.push({ issue, promise });
@@ -297,6 +304,16 @@ export async function runQueue({
       const [done] = active.splice(settled.index, 1);
       const status = settled.result?.status ?? 1;
       log(`DONE #${done.issue.number} status=${status}`);
+      if (status === 0) {
+        consecutiveFailures = 0;
+      } else {
+        failed += 1;
+        consecutiveFailures += 1;
+        if (!circuitOpen && maxFailures > 0 && consecutiveFailures >= maxFailures) {
+          circuitOpen = true;
+          log(`CIRCUIT_OPEN after ${maxFailures} consecutive failures — dispatch halted`);
+        }
+      }
       continue;
     }
 
@@ -355,6 +372,7 @@ export function parseInnerIssueWorktrees(worktreeListOutput) {
 
 function parseArgs(argv) {
   let max = 2;
+  let maxFailures = 3;
   let dryRun = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -365,6 +383,11 @@ function parseArgs(argv) {
       i += 1;
     } else if (arg.startsWith('--max=')) {
       max = Number(arg.slice('--max='.length));
+    } else if (arg === '--max-failures') {
+      maxFailures = Number(argv[i + 1]);
+      i += 1;
+    } else if (arg.startsWith('--max-failures=')) {
+      maxFailures = Number(arg.slice('--max-failures='.length));
     } else {
       throw new Error(`unknown argument: ${arg}`);
     }
@@ -372,7 +395,10 @@ function parseArgs(argv) {
   if (!Number.isInteger(max) || max <= 0) {
     throw new Error('--max must be a positive integer');
   }
-  return { max, dryRun };
+  if (!Number.isInteger(maxFailures) || maxFailures < 0) {
+    throw new Error('--max-failures must be a non-negative integer');
+  }
+  return { max, maxFailures, dryRun };
 }
 
 function ghJson(args) {
@@ -477,7 +503,7 @@ if (isMain) {
   try {
     parsed = parseArgs(process.argv.slice(2));
   } catch (e) {
-    die(`${e.message}\nusage: node scripts/inner-queue.mjs [--max K] [--dry-run]`);
+    die(`${e.message}\nusage: node scripts/inner-queue.mjs [--max K] [--max-failures N] [--dry-run]`);
   }
 
   let issues;
@@ -508,6 +534,7 @@ if (isMain) {
     dependencyStates,
     runningWorktrees,
     max: parsed.max,
+    maxFailures: parsed.maxFailures,
     spawnIssue: spawnInnerLoop,
     log: (line) => process.stdout.write(`${line}\n`),
   });

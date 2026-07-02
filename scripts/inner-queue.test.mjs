@@ -107,6 +107,100 @@ test('runQueue: unresolved dependency is not spawned in live mode', async () => 
   assert.ok(logs.includes('WAIT_DEP #10 unresolved=#37'));
 });
 
+test('runQueue: circuit breaker stops dispatch after three consecutive failures', async () => {
+  const spawned = [];
+  const logs = [];
+
+  const result = await runQueue({
+    issues: [issue(1), issue(2), issue(3), issue(4), issue(5)],
+    dependencyStates: new Map(),
+    runningWorktrees: new Map(),
+    max: 1,
+    spawnIssue: async (candidate) => {
+      spawned.push(candidate.number);
+      return { status: 1 };
+    },
+    log: (line) => logs.push(line),
+  });
+
+  assert.deepEqual(spawned, [1, 2, 3]);
+  assert.deepEqual(result.launched, [1, 2, 3]);
+  assert.equal(result.failed, 3);
+  assert.ok(logs.includes('CIRCUIT_OPEN after 3 consecutive failures — dispatch halted'));
+});
+
+test('runQueue: circuit breaker stops dispatch before replenishing default parallelism', async () => {
+  const spawned = [];
+  const logs = [];
+
+  const result = await runQueue({
+    issues: [issue(1), issue(2), issue(3), issue(4), issue(5)],
+    dependencyStates: new Map(),
+    runningWorktrees: new Map(),
+    spawnIssue: async (candidate) => {
+      spawned.push(candidate.number);
+      return { status: 1 };
+    },
+    log: (line) => logs.push(line),
+  });
+
+  assert.deepEqual(spawned, [1, 2, 3]);
+  assert.deepEqual(result.launched, [1, 2, 3]);
+  assert.equal(result.failed, 3);
+  assert.ok(logs.includes('CIRCUIT_OPEN after 3 consecutive failures — dispatch halted'));
+});
+
+test('runQueue: successful completion resets consecutive failure count', async () => {
+  const statuses = new Map([
+    [1, 1],
+    [2, 0],
+    [3, 1],
+    [4, 1],
+  ]);
+  const spawned = [];
+  const logs = [];
+
+  const result = await runQueue({
+    issues: [issue(1), issue(2), issue(3), issue(4)],
+    dependencyStates: new Map(),
+    runningWorktrees: new Map(),
+    max: 1,
+    spawnIssue: async (candidate) => {
+      spawned.push(candidate.number);
+      return { status: statuses.get(candidate.number) };
+    },
+    log: (line) => logs.push(line),
+  });
+
+  assert.deepEqual(spawned, [1, 2, 3, 4]);
+  assert.deepEqual(result.launched, [1, 2, 3, 4]);
+  assert.equal(result.failed, 3);
+  assert.ok(!logs.some((line) => line.startsWith('CIRCUIT_OPEN ')));
+});
+
+test('runQueue: maxFailures 0 disables the circuit breaker', async () => {
+  const spawned = [];
+  const logs = [];
+
+  const result = await runQueue({
+    issues: [issue(1), issue(2), issue(3), issue(4), issue(5)],
+    dependencyStates: new Map(),
+    runningWorktrees: new Map(),
+    max: 1,
+    maxFailures: 0,
+    spawnIssue: async (candidate) => {
+      spawned.push(candidate.number);
+      return { status: 1 };
+    },
+    log: (line) => logs.push(line),
+  });
+
+  assert.deepEqual(spawned, [1, 2, 3, 4, 5]);
+  assert.deepEqual(result.launched, [1, 2, 3, 4, 5]);
+  assert.equal(result.failed, 5);
+  assert.ok(!logs.some((line) => line.startsWith('CIRCUIT_OPEN ')));
+});
+
 test('runQueue: overlapping Touches are not active at the same time and start after the blocker exits', async () => {
   const started = [];
   const resolvers = new Map();
