@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash } from './merge.mjs';
+import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash, decideLock } from './merge.mjs';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +24,64 @@ test('parseRevList: trims and filters blank lines', () => {
 test('parseRevList: single sha, no trailing newline', () => {
   const result = parseRevList('abc123');
   assert.deepEqual(result, ['abc123']);
+});
+
+// landing lock decision logic
+const SELF_PID = 12345;
+const OTHER_PID = 99999;
+
+test('decideLock: no lock file -> acquire', () => {
+  assert.equal(decideLock({
+    exists: false,
+    holderPid: NaN,
+    holderAlive: false,
+    selfPid: SELF_PID,
+  }), 'acquire');
+});
+
+test('decideLock: live other holder -> skip', () => {
+  assert.equal(decideLock({
+    exists: true,
+    holderPid: OTHER_PID,
+    holderAlive: true,
+    selfPid: SELF_PID,
+  }), 'skip');
+});
+
+test('decideLock: dead other holder -> reclaim', () => {
+  assert.equal(decideLock({
+    exists: true,
+    holderPid: OTHER_PID,
+    holderAlive: false,
+    selfPid: SELF_PID,
+  }), 'reclaim');
+});
+
+test('decideLock: unreadable PID -> reclaim', () => {
+  assert.equal(decideLock({
+    exists: true,
+    holderPid: NaN,
+    holderAlive: false,
+    selfPid: SELF_PID,
+  }), 'reclaim');
+});
+
+test('decideLock: zero PID -> reclaim even if holderAlive is true', () => {
+  assert.equal(decideLock({
+    exists: true,
+    holderPid: 0,
+    holderAlive: true,
+    selfPid: SELF_PID,
+  }), 'reclaim');
+});
+
+test('decideLock: self PID -> acquire', () => {
+  assert.equal(decideLock({
+    exists: true,
+    holderPid: SELF_PID,
+    holderAlive: true,
+    selfPid: SELF_PID,
+  }), 'acquire');
 });
 
 // Helper: create a temp receipts dir for a test

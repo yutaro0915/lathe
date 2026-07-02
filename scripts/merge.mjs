@@ -21,8 +21,8 @@
 //
 // Pure logic is exported for unit testing.
 
-import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { closeSync, existsSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync, spawnSync } from 'node:child_process';
 import process from 'node:process';
@@ -125,6 +125,35 @@ export function extractFirstCommitMessage(logOutput) {
   return parts[0].trim();
 }
 
+/**
+ * Pure function: decide what to do with a PID lock file.
+ *
+ * Mirrors the ingest incremental lock semantics:
+ * - no file => acquire
+ * - self PID => acquire/re-enter
+ * - live other positive PID => skip/wait
+ * - dead, zero, or unreadable PID => reclaim
+ *
+ * @param {{ exists: boolean, holderPid: number, holderAlive: boolean, selfPid: number }} p
+ * @returns {'acquire' | 'skip' | 'reclaim'}
+ */
+export function decideLock({ exists, holderPid, holderAlive, selfPid }) {
+  if (!exists) return 'acquire';
+  if (!Number.isNaN(holderPid) && holderPid === selfPid) return 'acquire';
+  if (!Number.isNaN(holderPid) && holderPid > 0 && holderAlive) return 'skip';
+  return 'reclaim';
+}
+
+export function resolveMergeLockPath(cwd) {
+  const commonDir = execSync('git rev-parse --git-common-dir', {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, LATHE_MERGE: '1' },
+  }).trim();
+  const gitDir = isAbsolute(commonDir) ? commonDir : resolve(cwd, commonDir);
+  return join(gitDir, 'lathe-merge.lock');
+}
+
 // --- CLI helpers (side-effectful) ---
 
 // git() uses process.cwd() implicitly (execSync default), which is main
@@ -140,6 +169,76 @@ function git(args, env = {}) {
 function die(msg) {
   process.stderr.write(`merge: error: ${msg}\n`);
   process.exit(1);
+}
+
+function sleep(ms) {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+}
+
+function isAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readLockPid(lockPath) {
+  try {
+    return parseInt(readFileSync(lockPath, 'utf8').trim(), 10);
+  } catch {
+    return NaN;
+  }
+}
+
+async function acquireMergeLock(lockPath, { retryMs = 1000, log = (msg) => process.stdout.write(msg) } = {}) {
+  let waitingFor = null;
+  while (true) {
+    try {
+      const fd = openSync(lockPath, 'wx');
+      try {
+        writeFileSync(fd, `${process.pid}\n`, 'utf8');
+      } finally {
+        closeSync(fd);
+      }
+      if (waitingFor !== null) {
+        log(`merge: acquired landing lock after waiting for pid ${waitingFor}\n`);
+      }
+      return;
+    } catch (e) {
+      if (e?.code !== 'EEXIST') throw e;
+    }
+
+    const holderPid = readLockPid(lockPath);
+    const decision = decideLock({
+      exists: true,
+      holderPid,
+      holderAlive: isAlive(holderPid),
+      selfPid: process.pid,
+    });
+
+    if (decision === 'skip') {
+      if (waitingFor !== holderPid) {
+        log(`merge: waiting for landing lock held by pid ${holderPid}\n`);
+        waitingFor = holderPid;
+      }
+      await sleep(retryMs);
+      continue;
+    }
+
+    if (decision === 'reclaim') {
+      log(`merge: stale landing lock (pid ${Number.isNaN(holderPid) ? '?' : holderPid}) — reclaiming\n`);
+    }
+    try { unlinkSync(lockPath); } catch { /* ignore */ }
+  }
+}
+
+function releaseMergeLock(lockPath) {
+  const holderPid = readLockPid(lockPath);
+  if (holderPid !== process.pid) return;
+  try { unlinkSync(lockPath); } catch { /* ignore */ }
 }
 
 // --- CLI entrypoint ---
@@ -158,6 +257,15 @@ if (isMain) {
   // cwd = where merge.mjs was invoked (should be main worktree).
   // All git operations run here so squash merge lands on main.
   const cwd = process.cwd();
+
+  let mergeLockPath;
+  try {
+    mergeLockPath = resolveMergeLockPath(cwd);
+    await acquireMergeLock(mergeLockPath);
+    process.on('exit', () => releaseMergeLock(mergeLockPath));
+  } catch (e) {
+    die(`could not acquire landing lock: ${e.message}`);
+  }
 
   // 1. Determine commit range
   let base;
