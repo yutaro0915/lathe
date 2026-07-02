@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkReceipts, parseRevList, extractFirstCommitMessage } from './merge.mjs';
+import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash } from './merge.mjs';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -131,4 +131,71 @@ test('extractFirstCommitMessage: no body (subject only) → returns subject', ()
   const log = 'feat(bar): add bar\n\n\0';
   const result = extractFirstCommitMessage(log);
   assert.equal(result, 'feat(bar): add bar');
+});
+
+// cleanupFailedSquash — hermetic temp git repo smoke test
+test('cleanupFailedSquash: squash 衝突後に working tree がクリーンになること', async () => {
+  const { mkdtempSync, writeFileSync: wfs, readFileSync: rfs } = await import('node:fs');
+  const { execFileSync } = await import('node:child_process');
+
+  const tmp = mkdtempSync(join(tmpdir(), 'lathe-squash-smoke-'));
+  try {
+    // temp repo 初期化
+    const git = (args) =>
+      execFileSync('git', args, { cwd: tmp, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+
+    git(['init', '-b', 'main']);
+    git(['config', 'user.name', 'Test']);
+    git(['config', 'user.email', 'test@example.com']);
+    git(['config', 'commit.gpgsign', 'false']);
+
+    // main に base commit
+    wfs(join(tmp, 'f.txt'), 'base\n', 'utf8');
+    git(['add', 'f.txt']);
+    git(['commit', '-m', 'base']);
+
+    // feat ブランチで変更
+    git(['checkout', '-b', 'feat']);
+    wfs(join(tmp, 'f.txt'), 'feat\n', 'utf8');
+    git(['add', 'f.txt']);
+    git(['commit', '-m', 'feat: change']);
+
+    // main に戻り競合する変更
+    git(['checkout', 'main']);
+    wfs(join(tmp, 'f.txt'), 'main\n', 'utf8');
+    git(['add', 'f.txt']);
+    git(['commit', '-m', 'main: change']);
+
+    // squash マージを試みる（衝突を期待）
+    let squashFailed = false;
+    try {
+      git(['merge', '--squash', 'feat']);
+    } catch {
+      squashFailed = true;
+    }
+    assert.ok(squashFailed, 'squash merge should fail with conflict');
+
+    // sanity: 衝突状態で tree が dirty であること
+    const statusBefore = execFileSync('git', ['status', '--porcelain'], {
+      cwd: tmp,
+      encoding: 'utf8',
+    });
+    assert.ok(statusBefore.trim().length > 0, 'working tree should be dirty after squash conflict');
+
+    // cleanupFailedSquash を呼ぶ
+    cleanupFailedSquash(tmp);
+
+    // 主張: tree がクリーンであること
+    const statusAfter = execFileSync('git', ['status', '--porcelain'], {
+      cwd: tmp,
+      encoding: 'utf8',
+    });
+    assert.equal(statusAfter.trim(), '', 'working tree should be clean after cleanupFailedSquash');
+
+    // f.txt に conflict marker が残っていないこと
+    const content = rfs(join(tmp, 'f.txt'), 'utf8');
+    assert.ok(!content.includes('<<<<<<<'), 'f.txt should not contain conflict markers after cleanup');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });

@@ -92,6 +92,23 @@ export function checkReceipts(receiptsDir, headSha) {
 }
 
 /**
+ * Clean up a failed squash merge by resetting the working tree to HEAD.
+ *
+ * `git merge --squash` does NOT create MERGE_HEAD, so `git merge --abort`
+ * is a no-op and leaves staged auto-merge content and conflict markers in the
+ * working tree. `git reset --hard HEAD` removes both staged content and
+ * conflict markers by restoring tracked files to HEAD.
+ *
+ * @param {string} cwd  working directory (the main worktree)
+ */
+export function cleanupFailedSquash(cwd) {
+  spawnSync('git', ['reset', '--hard', 'HEAD'], {
+    cwd,
+    env: { ...process.env, LATHE_MERGE: '1' },
+  });
+}
+
+/**
  * Extract the first commit's full message from
  * `git log --reverse --format=%B%x00` output (NUL-separated).
  *
@@ -243,12 +260,10 @@ if (isMain) {
     },
   );
   if (squashResult.status !== 0) {
-    // Abort any partial merge state
-    spawnSync('git', ['merge', '--abort'], {
-      env: { ...process.env, LATHE_MERGE: '1' },
-      cwd,
-    });
-    die('git merge --squash failed (conflict) — aborted. Resolve conflicts and retry.');
+    // squash merge は MERGE_HEAD を作らないため merge --abort は空振りする。
+    // reset --hard HEAD でステージング内容と conflict marker を除去する。
+    cleanupFailedSquash(cwd);
+    die('squash conflict — working tree を HEAD に戻しました。競合を解消して再実行してください。');
   }
 
   // Check that there is actually something staged (net diff not empty)
