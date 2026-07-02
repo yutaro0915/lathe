@@ -24,13 +24,20 @@ export function stagePermissions(stage) {
       // No receipt.mjs allowedTool: the driver stamps receipts itself (buildReceiptArgs).
       return { agent: 'reviewer', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
     case 'VERIFY':
+      // Bash is blanket, not narrowed to git/pnpm/node: verification idioms
+      // (`; echo EXIT=$?`, `2>&1 | tail`, `TZ=UTC node …`) compose arbitrary
+      // commands and structurally conflict with fine-grained allowlists
+      // (#36/#44). Containment is worktree cwd, the read-only role contract,
+      // the main-dirty backstop, and the merge gate — not the allowlist.
       return {
         agent: 'verifier',
         permissionMode: 'dontAsk',
-        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', 'Bash(pnpm *)', 'Bash(node *)'],
+        allowedTools: ['Read', 'Grep', 'Glob', 'Bash'],
       };
     case 'TRIAGE':
-      return { agent: 'test-triage', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
+      // Same rationale as VERIFY above (#36/#44): triage reruns verification
+      // probes, so it needs the same blanket Bash.
+      return { agent: 'test-triage', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash'] };
     default:
       throw new Error(`stagePermissions: unknown stage "${stage}"`);
   }

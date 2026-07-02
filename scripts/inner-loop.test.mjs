@@ -327,10 +327,9 @@ test('stagePermissions: read-only stages use dontAsk, never bypassPermissions', 
   }
 });
 
-test('stagePermissions: VERIFY allows pnpm/node Bash (needs to run gates)', () => {
+test('stagePermissions: VERIFY allows blanket Bash (needs to run gates; narrow allowlists structurally conflict with verification idioms, #36/#44)', () => {
   const { allowedTools } = stagePermissions('VERIFY');
-  assert.ok(allowedTools.some((t) => t.includes('pnpm')));
-  assert.ok(allowedTools.some((t) => t.includes('node')));
+  assert.ok(allowedTools.includes('Bash'));
 });
 
 test('stagePermissions: unknown stage throws', () => {

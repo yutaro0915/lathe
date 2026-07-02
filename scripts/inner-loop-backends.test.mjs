@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  stagePermissions,
   stageSandbox,
   buildCodexArgs,
   buildClaudeArgs,
@@ -12,6 +13,48 @@ import {
   selectBackend,
   detectMainDirty,
 } from './inner-loop-backends.mjs';
+
+// --- stagePermissions: VERIFY/TRIAGE blanket Bash (issue #44) ---
+//
+// Verification idioms (`; echo EXIT=$?`, `2>&1 | tail`, `TZ=UTC node …`)
+// compose arbitrary commands and structurally conflict with fine-grained
+// Bash(git *)/Bash(pnpm *)/Bash(node *) allowlists (#36). Containment is
+// worktree cwd, the read-only role contract, the main-dirty backstop, and
+// the merge gate — not the allowlist. PLAN/REVIEW/IMPLEMENT are unchanged.
+
+test('stagePermissions: VERIFY allowedTools includes blanket Bash', () => {
+  const { allowedTools } = stagePermissions('VERIFY');
+  assert.ok(allowedTools.includes('Bash'));
+});
+
+test('stagePermissions: TRIAGE allowedTools includes blanket Bash', () => {
+  const { allowedTools } = stagePermissions('TRIAGE');
+  assert.ok(allowedTools.includes('Bash'));
+});
+
+test('stagePermissions: VERIFY/TRIAGE never use bypassPermissions or --bare', () => {
+  for (const stage of ['VERIFY', 'TRIAGE']) {
+    const { permissionMode } = stagePermissions(stage);
+    assert.notEqual(permissionMode, 'bypassPermissions');
+    assert.notEqual(permissionMode, '--bare');
+  }
+});
+
+test('stagePermissions: PLAN and REVIEW remain narrow (Bash(git *) only, no blanket Bash)', () => {
+  for (const stage of ['PLAN', 'REVIEW']) {
+    const { allowedTools } = stagePermissions(stage);
+    assert.ok(!allowedTools.includes('Bash'), `stage=${stage}: must not grant blanket Bash`);
+    assert.ok(allowedTools.some((t) => t === 'Bash(git *)'), `stage=${stage}: must keep narrow Bash(git *)`);
+  }
+});
+
+test('stagePermissions: IMPLEMENT is unchanged (narrow git/pnpm/node Bash, no blanket Bash)', () => {
+  const { allowedTools } = stagePermissions('IMPLEMENT');
+  assert.ok(!allowedTools.includes('Bash'), 'IMPLEMENT must not grant blanket Bash');
+  assert.ok(allowedTools.some((t) => t.includes('git')));
+  assert.ok(allowedTools.some((t) => t.includes('pnpm')));
+  assert.ok(allowedTools.some((t) => t.includes('node')));
+});
 
 // --- stageSandbox ---
 
