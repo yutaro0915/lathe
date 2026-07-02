@@ -23,6 +23,28 @@ test('shouldBlockOnMain: commit with apps/web path staged on main → block', ()
   assert.ok(r.message);
 });
 
+// quoted issue body mentions guarded git subcommands → pass
+test('shouldBlockOnMain: gh body mentioning guarded git subcommands on main → pass', () => {
+  const r = shouldBlockOnMain(
+    'gh issue create --body "please do not run git merge / git cherry-pick / git commit directly"',
+    'main',
+    '0',
+    ['apps/web/foo.ts'],
+  );
+  assert.equal(r.block, false);
+});
+
+// quoted echo text mentions guarded git subcommands → pass
+test('shouldBlockOnMain: echo mentioning guarded git subcommands on main → pass', () => {
+  const r = shouldBlockOnMain(
+    'echo "git merge feature && git cherry-pick abc && git commit"',
+    'main',
+    '0',
+    ['apps/web/foo.ts'],
+  );
+  assert.equal(r.block, false);
+});
+
 // commit with docs only staged on main → pass
 test('shouldBlockOnMain: commit with docs only staged on main → pass', () => {
   const r = shouldBlockOnMain('git commit -m "docs"', 'main', '0', ['docs/README.md']);
@@ -51,6 +73,13 @@ test('shouldBlockOnMain: cherry-pick on main with LATHE_MERGE=1 → pass', () =>
 test('shouldBlockOnMain: merge-base command on main → pass', () => {
   const r = shouldBlockOnMain('git merge-base main feature', 'main', '0', []);
   assert.equal(r.block, false);
+});
+
+// guarded subcommands after a shell list operator still block
+test('shouldBlockOnMain: merge after && on main → block', () => {
+  const r = shouldBlockOnMain('echo ok && git merge feature-x', 'main', '0', []);
+  assert.equal(r.block, true);
+  assert.ok(r.message);
 });
 
 // packages/ path staged on main → block

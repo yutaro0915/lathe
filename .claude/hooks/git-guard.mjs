@@ -55,6 +55,42 @@ export function getStagedPaths() {
   }
 }
 
+function maskQuotedLiterals(cmd) {
+  let masked = '';
+  let quote = '';
+  let escaped = false;
+
+  for (const ch of cmd) {
+    if (quote) {
+      if (quote === '"' && escaped) {
+        escaped = false;
+      } else if (quote === '"' && ch === '\\') {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = '';
+      }
+      masked += ch === '\n' ? '\n' : ' ';
+      continue;
+    }
+
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      masked += ' ';
+      continue;
+    }
+
+    masked += ch;
+  }
+
+  return masked;
+}
+
+function hasGitSubcommandAtExecutionPosition(cmd, subcommandPattern) {
+  const masked = maskQuotedLiterals(cmd);
+  const re = new RegExp(String.raw`(?:^|[;|\n]|&&)\s*git\s+${subcommandPattern}`);
+  return re.test(masked);
+}
+
 /**
  * Determine whether the given git command should be blocked on main.
  *
@@ -77,7 +113,7 @@ export function shouldBlockOnMain(cmd, branch, latheMerge, stagedPaths) {
   }
 
   // cherry-pick
-  if (/\bgit\s+cherry-pick\b/.test(cmd)) {
+  if (hasGitSubcommandAtExecutionPosition(cmd, String.raw`cherry-pick\b`)) {
     return {
       block: true,
       message:
@@ -89,7 +125,7 @@ export function shouldBlockOnMain(cmd, branch, latheMerge, stagedPaths) {
 
   // merge (branch merge — not `git merge-base` etc.)
   // match: `git merge <something>` but NOT `git merge-base`
-  if (/\bgit\s+merge(?!-)\b/.test(cmd)) {
+  if (hasGitSubcommandAtExecutionPosition(cmd, String.raw`merge(?!-)\b`)) {
     return {
       block: true,
       message:
@@ -100,7 +136,7 @@ export function shouldBlockOnMain(cmd, branch, latheMerge, stagedPaths) {
   }
 
   // commit with code paths staged
-  if (/\bgit\s+commit\b/.test(cmd)) {
+  if (hasGitSubcommandAtExecutionPosition(cmd, String.raw`commit\b`)) {
     const CODE_PREFIXES = ['apps/web/', 'packages/'];
     const hasCode = stagedPaths.some((p) =>
       CODE_PREFIXES.some((prefix) => p.startsWith(prefix)),
