@@ -4,6 +4,11 @@
 
 import { isAbsolute } from 'node:path';
 
+const READ_ONLY_GH_ISSUE_TOOLS = [
+  'Bash(gh issue view *)',
+  'Bash(gh issue list *)',
+];
+
 /**
  * Permission flags per stage (ADR 0013 §機構詳細).
  * --bare / --dangerously-skip-permissions must never be used (hooks must fire).
@@ -12,8 +17,22 @@ import { isAbsolute } from 'node:path';
  */
 export function stagePermissions(stage) {
   switch (stage) {
+    case 'RESEARCH':
+      return {
+        agent: 'researcher',
+        permissionMode: 'dontAsk',
+        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', ...READ_ONLY_GH_ISSUE_TOOLS],
+      };
     case 'PLAN':
       return { agent: 'planner', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
+    case 'PLAN_REVIEW':
+      // ADR 0016: PLAN-REVIEW is a plan audit by the reviewer role (separation
+      // of author and approver), not the planner reviewing its own output.
+      return {
+        agent: 'reviewer',
+        permissionMode: 'dontAsk',
+        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', ...READ_ONLY_GH_ISSUE_TOOLS],
+      };
     case 'IMPLEMENT':
       return {
         agent: 'implementer',
@@ -51,7 +70,7 @@ export function stagePermissions(stage) {
  * @returns {string}
  */
 export function stageCwd(stage, repoRoot, worktreePath) {
-  return stage === 'PLAN' ? repoRoot : worktreePath;
+  return ['RESEARCH', 'PLAN', 'PLAN_REVIEW'].includes(stage) ? repoRoot : worktreePath;
 }
 
 // stage -> [receipt.mjs step, LATHE_AGENT, valid verdicts] — driver stamps
@@ -237,8 +256,8 @@ export function parseBackendFlags(argv) {
     const arg = argv[i];
     if (arg === '--backend') { result.global = argv[i + 1] ?? null; i++; }
     else {
-      const m = arg.match(/^--backend-([a-z]+)$/);
-      if (m) { result.stages[m[1].toUpperCase()] = argv[i + 1] ?? null; i++; }
+      const m = arg.match(/^--backend-([a-z-]+)$/);
+      if (m) { result.stages[m[1].replaceAll('-', '_').toUpperCase()] = argv[i + 1] ?? null; i++; }
     }
   }
   return result;
@@ -284,4 +303,31 @@ export function detectMainDirty(porcelainText) {
     if (filePath) paths.push(filePath);
   }
   return { dirty: paths.length > 0, paths };
+}
+
+/**
+ * Validate a plan-loop `Depends-on:` value (ADR 0015/0016: Depends-on is a
+ * machine-readable contract that decides run eligibility, not free text).
+ *
+ * A missing/unparseable line is a parser failure, not an empty dependency —
+ * silently rounding "absent" down to "no deps" would let plan-loop issue
+ * implementation issues with unverified dependency claims. Plans with no
+ * real dependency must say so explicitly with the `none` marker.
+ *
+ * @param {string | null} rawValue - the captured group after "Depends-on:",
+ *   or null if the line itself was not found in the plan text.
+ * @returns {{ ok: true, dependsOn: string } | { ok: false, error: string }}
+ */
+export function parseDependsOnLine(rawValue) {
+  if (rawValue == null) {
+    return { ok: false, error: 'approved plan is missing required "Depends-on:" line (use "Depends-on: none" if there are no dependencies)' };
+  }
+  const trimmed = rawValue.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: 'approved plan has an empty "Depends-on:" value (use "Depends-on: none" if there are no dependencies)' };
+  }
+  if (/^none$/i.test(trimmed)) {
+    return { ok: true, dependsOn: '' };
+  }
+  return { ok: true, dependsOn: trimmed };
 }

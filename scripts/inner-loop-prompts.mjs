@@ -27,13 +27,70 @@ function verdictInstruction(tokens) {
   return `最終行に必ず次の形式で verdict を出力してください（他の形式は不可）:\nVERDICT: <TOKEN>\n<TOKEN> は次のいずれか: ${tokens.join(' | ')}`;
 }
 
+const PLAN_LOOP_ESCALATION_CONTRACT = 'plan-loop escalation: ユーザー裁可が必要な設計判断、調査結果による目標不成立・前提矛盾、生成 task の依存が既存 open issue と衝突する場合は ESCALATE してください。';
+const IMPL_LOOP_ESCALATION_CONTRACT = 'impl-loop escalation: plan の前提が現実（コードの現状・依存状態）と乖離している場合は、その場で再計画せず ESCALATE してください。既存条件（VERDICT 不能・周回超過・NOVEL RED・merge 失敗・main dirty）も ESCALATE です。';
+
 /**
- * PLAN stage prompt — planner agent, cwd = repo root.
+ * RESEARCH stage prompt — researcher agent, cwd = repo root.
  * @param {{ issueNumber: number, issueTitle: string, issueBody: string }} ctx
  * @returns {string}
  */
-export function buildPlanPrompt(ctx) {
+export function buildResearchPrompt(ctx) {
   const { issueNumber, issueTitle, issueBody } = ctx;
+  return [
+    marker(issueNumber, 'RESEARCH'),
+    '',
+    `以下の needs-plan issue を実装 issue に落とすため、現在のコード・ADR・関連 issue を調査してください。`,
+    '',
+    `## source issue #${issueNumber}: ${issueTitle}`,
+    issueBody ?? '',
+    '',
+    PLAN_LOOP_ESCALATION_CONTRACT,
+    '',
+    '調査結果には、実装境界、依存候補、Touches 候補、未解決のリスクを含めてください。',
+    '',
+    verdictInstruction(['PASS', 'ESCALATE']),
+  ].join('\n');
+}
+
+/**
+ * PLAN stage prompt — planner agent, cwd = repo root.
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, mode?: string, research?: string, feedback?: string }} ctx
+ * @returns {string}
+ */
+export function buildPlanPrompt(ctx) {
+  const { issueNumber, issueTitle, issueBody, mode, research, feedback } = ctx;
+  if (mode === 'plan-loop') {
+    const lines = [
+      marker(issueNumber, 'PLAN'),
+      '',
+      `以下の source issue と research 結果から、inner-loop で実行可能な実装 issue 1 本の plan を作成してください。`,
+      '',
+      `## source issue #${issueNumber}: ${issueTitle}`,
+      issueBody ?? '',
+      '',
+      '## research',
+      research ?? '',
+    ];
+    if (feedback) {
+      lines.push('', '## PLAN-REVIEW feedback', feedback);
+    }
+    lines.push(
+      '',
+      PLAN_LOOP_ESCALATION_CONTRACT,
+      '',
+      '出力は以下の機械可読行を必ず含めてください。',
+      'Title: <implementation issue title>',
+      'Depends-on: #<n>, #<m>（依存が無い場合は "Depends-on: none" と明記。この行自体を省略しない）',
+      'Touches: <path>, <path>',
+      '',
+      '続けて実装 agent がそのまま実行できる scoped implementation plan を書いてください。受け入れ基準・対象ファイル・検証方法（gate/tier）を明示してください。',
+      '',
+      verdictInstruction(['PLAN_READY', 'ESCALATE']),
+    );
+    return lines.join('\n');
+  }
+
   return [
     marker(issueNumber, 'PLAN'),
     '',
@@ -45,6 +102,8 @@ export function buildPlanPrompt(ctx) {
     '受け入れ基準・対象ファイル・検証方法（gate/tier）を明示してください。',
     '',
     'rigor は影響クラスでスケールします。**低リスク小変更は軽量 plan で可**（受け入れ基準・検証方法・scope 境界だけ falsifiable に示す）。',
+    '',
+    IMPL_LOOP_ESCALATION_CONTRACT,
     '',
     verdictInstruction(['PLAN_READY', 'ESCALATE']),
   ].join('\n');
@@ -75,12 +134,43 @@ export function buildImplementPrompt(ctx) {
   }
   lines.push(
     '',
+    IMPL_LOOP_ESCALATION_CONTRACT,
+    '',
     '1 commit にまとめること（差し戻しの場合は amend）。明示 `git add <paths>` を使うこと（`git add -A` / `git add .` は禁止）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
     '',
     verdictInstruction(['IMPL_DONE', 'ESCALATE']),
   );
   return lines.join('\n');
+}
+
+/**
+ * PLAN_REVIEW stage prompt — plan review stage, cwd = repo root.
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, research: string, plan: string }} ctx
+ * @returns {string}
+ */
+export function buildPlanReviewPrompt(ctx) {
+  const { issueNumber, issueTitle, issueBody, research, plan } = ctx;
+  return [
+    marker(issueNumber, 'PLAN-REVIEW'),
+    '',
+    '以下の plan-loop 出力を、実装 issue として起票してよいかレビューしてください。',
+    '',
+    `## source issue #${issueNumber}: ${issueTitle}`,
+    issueBody ?? '',
+    '',
+    '## research',
+    research ?? '',
+    '',
+    '## plan candidate',
+    plan ?? '',
+    '',
+    PLAN_LOOP_ESCALATION_CONTRACT,
+    '',
+    'PASS は Title / Depends-on / Touches と実行可能な scoped plan が揃っている場合だけです。修正で足りる場合は CHANGES、裁可事項・目標不成立・依存衝突は ESCALATE してください。',
+    '',
+    verdictInstruction(['PASS', 'CHANGES', 'ESCALATE']),
+  ].join('\n');
 }
 
 /**
@@ -156,7 +246,9 @@ export function buildTriagePrompt(ctx) {
 }
 
 export const STAGE_PROMPT_BUILDERS = {
+  RESEARCH: buildResearchPrompt,
   PLAN: buildPlanPrompt,
+  PLAN_REVIEW: buildPlanReviewPrompt,
   IMPLEMENT: buildImplementPrompt,
   REVIEW: buildReviewPrompt,
   VERIFY: buildVerifyPrompt,

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // CLI: node scripts/inner-loop.mjs <issue#> [--resume] [--dry-run] [--backend claude|codex]
+//      node scripts/inner-loop.mjs --plan <issue#> [--dry-run] [--backend claude|codex]
 //      [--backend-<stage> claude|codex]
 // inner loop driver — code state machine driving headless named agents
 // (planner/implementer/reviewer/verifier/test-triage) through
 // PLAN → IMPLEMENT → REVIEW → VERIFY → (RED→TRIAGE) → MERGE for one issue.
+// plan-loop mode drives RESEARCH → PLAN → PLAN-REVIEW → issue create → close.
 // ADR 0013 (adr/0013-inner-loop-driver.md) / ADR 0014 (backend adapter).
 //
 // Pure logic is exported for unit testing; spawnSync wrappers are isolated so
@@ -21,7 +23,7 @@ import {
   stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt,
   parseCodexSessionId, parseCodexCostUsd, parseBackendFlags, selectBackend,
-  detectMainDirty,
+  detectMainDirty, parseDependsOnLine,
 } from './inner-loop-backends.mjs';
 
 // Re-export stage helpers so existing tests importing from this file keep working.
@@ -40,6 +42,15 @@ export const VALID_VERDICT_TOKENS = [
 // Bounded retries: review⇄implement (CHANGES) and triage⇄implement (KNOWN)
 // share one cycle counter — "review⇄implement は 2 周まで" (ADR 0013 §1).
 export const MAX_CYCLES = 2;
+
+export const APPROVED_PLAN_HEADING = '## Plan (approved)';
+export const IMPL_LOOP_STAGES = ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE'];
+export const IMPL_LOOP_STAGES_AFTER_PLAN = ['IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE'];
+export const PLAN_LOOP_STAGES = ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'ISSUE_CREATE', 'CLOSE_SOURCE'];
+
+export function displayStage(stage) {
+  return stage === 'PLAN_REVIEW' ? 'PLAN-REVIEW' : stage;
+}
 
 // --- Pure / testable exports ---
 
@@ -61,6 +72,106 @@ export function parseVerdict(resultText) {
 // an escalation excerpt instead of just "failed".
 export function tailLines(text, n = 30) {
   return (text ?? '').trim().split('\n').slice(-n).join('\n');
+}
+
+/**
+ * Detect the approved plan marker ADR 0016 uses to make impl-loop skip PLAN.
+ * The marker is deliberately strict: a top-level line exactly matching
+ * "## Plan (approved)" with optional trailing whitespace.
+ * @param {string | null | undefined} body
+ * @returns {boolean}
+ */
+export function hasApprovedPlanMarker(body) {
+  if (typeof body !== 'string') return false;
+  return body.split(/\r?\n/).some((line) => /^## Plan \(approved\)\s*$/.test(line));
+}
+
+/**
+ * Extract the approved plan body after "## Plan (approved)" through EOF.
+ * Returns an empty string when the marker is missing.
+ * @param {string | null | undefined} body
+ * @returns {string}
+ */
+export function extractApprovedPlan(body) {
+  if (typeof body !== 'string') return '';
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((line) => /^## Plan \(approved\)\s*$/.test(line));
+  if (start < 0) return '';
+  return lines.slice(start + 1).join('\n').trim();
+}
+
+/**
+ * Select the loop/stage plan for an issue body.
+ * @param {{ mode?: 'impl'|'plan', issueBody?: string|null }} p
+ */
+export function selectRunPlan({ mode = 'impl', issueBody = '' } = {}) {
+  if (mode === 'plan') {
+    return {
+      mode: 'plan',
+      manifestPrefix: 'plan',
+      stages: [...PLAN_LOOP_STAGES],
+      initialState: 'RESEARCH',
+      skipPlan: false,
+      approvedPlan: '',
+    };
+  }
+
+  const approvedPlan = extractApprovedPlan(issueBody);
+  const skipPlan = hasApprovedPlanMarker(issueBody);
+  return {
+    mode: 'impl',
+    manifestPrefix: 'issue',
+    stages: skipPlan ? [...IMPL_LOOP_STAGES_AFTER_PLAN] : [...IMPL_LOOP_STAGES],
+    initialState: skipPlan ? 'IMPLEMENT' : 'PLAN',
+    skipPlan,
+    approvedPlan,
+  };
+}
+
+/**
+ * Parse driver flags while preserving backend flag handling in
+ * inner-loop-backends.mjs.
+ * @param {string[]} argv
+ * @returns {{ mode: 'impl'|'plan', issueNumber: number|null, dryRun: boolean, resume: boolean, backendFlags: { global: string|null, stages: Record<string,string> }, error: string|null }}
+ */
+export function parseDriverArgs(argv) {
+  let mode = 'impl';
+  let issueArg = null;
+  let dryRun = false;
+  let resume = false;
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--dry-run') {
+      dryRun = true;
+    } else if (arg === '--resume') {
+      resume = true;
+    } else if (arg === '--plan') {
+      mode = 'plan';
+      issueArg = argv[i + 1] ?? null;
+      i += 1;
+    } else if (arg.startsWith('--plan=')) {
+      mode = 'plan';
+      issueArg = arg.slice('--plan='.length);
+    } else if (arg === '--backend' || /^--backend-[a-z-]+$/.test(arg)) {
+      i += 1;
+    } else if (arg.startsWith('--')) {
+      return { mode, issueNumber: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: `unknown argument: ${arg}` };
+    } else if (issueArg == null) {
+      issueArg = arg;
+    } else {
+      return { mode, issueNumber: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: `unexpected positional argument: ${arg}` };
+    }
+  }
+
+  const issueNumber = Number(issueArg);
+  if (!issueArg || !Number.isInteger(issueNumber) || issueNumber <= 0) {
+    return { mode, issueNumber: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: 'missing or invalid issue number' };
+  }
+  if (mode === 'plan' && resume) {
+    return { mode, issueNumber, dryRun, resume, backendFlags: parseBackendFlags(argv), error: '--resume is only supported for impl-loop' };
+  }
+  return { mode, issueNumber, dryRun, resume, backendFlags: parseBackendFlags(argv), error: null };
 }
 
 /**
@@ -128,11 +239,38 @@ export function nextState(state, verdict, cycles = 0, context = {}) {
 }
 
 /**
+ * Plan-loop transition table (ADR 0016).
+ * Terminal/action states: ISSUE_CREATE, ESCALATE.
+ * @param {string} state
+ * @param {string | null} verdict
+ * @param {number} cycles
+ * @returns {{ next: string, cycles: number }}
+ */
+export function nextPlanLoopState(state, verdict, cycles = 0) {
+  if (verdict === null) return { next: 'ESCALATE', cycles };
+  switch (state) {
+    case 'RESEARCH':
+      return verdict === 'PASS' ? { next: 'PLAN', cycles } : { next: 'ESCALATE', cycles };
+    case 'PLAN':
+      return verdict === 'PLAN_READY' ? { next: 'PLAN_REVIEW', cycles } : { next: 'ESCALATE', cycles };
+    case 'PLAN_REVIEW':
+      if (verdict === 'PASS') return { next: 'ISSUE_CREATE', cycles };
+      if (verdict === 'CHANGES') {
+        const next = cycles + 1;
+        return next > MAX_CYCLES ? { next: 'ESCALATE', cycles: next } : { next: 'PLAN', cycles: next };
+      }
+      return { next: 'ESCALATE', cycles };
+    default:
+      return { next: 'ESCALATE', cycles };
+  }
+}
+
+/**
  * Build one run-manifest entry (ADR 0013 §2 + ADR 0014 backend field).
  * @param {{ stage: string, sessionId: string|null, verdict: string|null, costUsd: number|null, durationMs?: number|null, ts?: string, backend?: string|null, headSha?: string|null, resultText?: string|null }} p
  */
-export function buildManifestEntry({ stage, sessionId, verdict, costUsd, durationMs, ts, backend, headSha, resultText }) {
-  return {
+export function buildManifestEntry({ stage, sessionId, verdict, costUsd, durationMs, ts, backend, headSha, resultText, skipped }) {
+  const entry = {
     stage,
     session_id: sessionId ?? null,
     verdict: verdict ?? null,
@@ -143,6 +281,22 @@ export function buildManifestEntry({ stage, sessionId, verdict, costUsd, duratio
     head_sha: headSha ?? null,
     result_text: resultText ?? null,
   };
+  if (skipped === true) entry.skipped = true;
+  return entry;
+}
+
+export function buildSkippedPlanEntry(approvedPlan) {
+  return buildManifestEntry({
+    stage: 'PLAN',
+    sessionId: null,
+    verdict: 'PLAN_READY',
+    costUsd: null,
+    durationMs: null,
+    backend: null,
+    headSha: null,
+    resultText: approvedPlan ?? '',
+    skipped: true,
+  });
 }
 
 // Read existing manifest (if present), returning stages array or [].
@@ -155,8 +309,8 @@ export function readManifestStages(manifestPath) {
 }
 
 // Build the full manifest object for writing.
-export function buildManifest(issueNumber, stages) {
-  return { issue: issueNumber, stages };
+export function buildManifest(issueNumber, stages, extra = {}) {
+  return { issue: issueNumber, ...extra, stages };
 }
 
 function requiresResultText(stage, verdict) {
@@ -299,6 +453,94 @@ function fetchIssue(issueNumber) {
   try { return JSON.parse(r.stdout); } catch (e) { die(`could not parse gh issue view output: ${e.message}`); }
 }
 
+function stripVerdictLine(text) {
+  return String(text ?? '').split(/\r?\n/).filter((line) => !/^VERDICT:\s*[A-Z_]+\s*$/.test(line)).join('\n').trim();
+}
+
+function firstMatchingLine(text, pattern) {
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const match = line.match(pattern);
+    if (match) return match[1].trim();
+  }
+  return null;
+}
+
+export function parseApprovedPlanForIssue(planText) {
+  const title = firstMatchingLine(planText, /^\s*Title\s*:\s*(.+)$/i);
+  const dependsOn = firstMatchingLine(planText, /^\s*Depends-on\s*:\s*(.*)$/i);
+  const touches = firstMatchingLine(planText, /^\s*Touches\s*:\s*(.*)$/i);
+  return { title, dependsOn, touches };
+}
+
+export function buildImplementationIssueBody({ sourceIssueNumber, approvedPlan, dependsOn, touches }) {
+  return [
+    `Generated from #${sourceIssueNumber}`,
+    `Depends-on: ${dependsOn ?? ''}`,
+    `Touches: ${touches ?? ''}`,
+    '',
+    APPROVED_PLAN_HEADING,
+    stripVerdictLine(approvedPlan),
+    '',
+  ].join('\n');
+}
+
+export function parseGhIssueNumber(output) {
+  const text = String(output ?? '');
+  const urlMatch = text.match(/\/issues\/(\d+)\b/);
+  if (urlMatch) return Number(urlMatch[1]);
+  const hashMatch = text.match(/#(\d+)\b/);
+  return hashMatch ? Number(hashMatch[1]) : null;
+}
+
+function createImplementationIssue(sourceIssueNumber, approvedPlan) {
+  const parsed = parseApprovedPlanForIssue(approvedPlan);
+  if (!parsed.title) {
+    return { ok: false, error: 'approved plan is missing required "Title:" line' };
+  }
+  if (parsed.touches == null) {
+    return { ok: false, error: 'approved plan is missing required "Touches:" line' };
+  }
+  const dependsOnResult = parseDependsOnLine(parsed.dependsOn);
+  if (!dependsOnResult.ok) {
+    return { ok: false, error: dependsOnResult.error };
+  }
+  const body = buildImplementationIssueBody({
+    sourceIssueNumber,
+    approvedPlan,
+    dependsOn: dependsOnResult.dependsOn,
+    touches: parsed.touches,
+  });
+  const r = spawnSync('gh', ['issue', 'create', '--title', parsed.title, '--body-file', '-', '--label', 'inner-loop'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    input: body,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if (r.status !== 0) {
+    return { ok: false, error: `gh issue create failed: ${r.stderr || r.stdout}` };
+  }
+  const issueNumber = parseGhIssueNumber(r.stdout);
+  if (!issueNumber) {
+    return { ok: false, error: `could not parse created issue number from gh output: ${r.stdout}` };
+  }
+  return { ok: true, issueNumber, url: r.stdout.trim(), body, title: parsed.title };
+}
+
+function closeSourceIssue(sourceIssueNumber, createdIssue) {
+  const comment = [
+    `plan-loop created implementation issue #${createdIssue.issueNumber}.`,
+    '',
+    createdIssue.url,
+  ].join('\n');
+  const r = spawnSync('gh', ['issue', 'close', String(sourceIssueNumber), '--reason', 'completed', '--comment', comment], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+}
+
 function prepareWorktree(issueNumber) {
   const branch = `inner/issue-${issueNumber}`;
   const path = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
@@ -424,12 +666,24 @@ function manifestPathFor(issueNumber) {
   return join(REPO_ROOT, '.lathe', 'runs', `issue-${issueNumber}.json`);
 }
 
+function planManifestPathFor(issueNumber) {
+  return join(REPO_ROOT, '.lathe', 'runs', `plan-${issueNumber}.json`);
+}
+
 function appendManifestEntry(issueNumber, entry) {
   const p = manifestPathFor(issueNumber);
   mkdirSync(dirname(p), { recursive: true });
   const stages = readManifestStages(p);
   stages.push(entry);
   writeFileSync(p, JSON.stringify(buildManifest(issueNumber, stages), null, 2) + '\n', 'utf8');
+}
+
+function appendPlanManifestEntry(issueNumber, entry) {
+  const p = planManifestPathFor(issueNumber);
+  mkdirSync(dirname(p), { recursive: true });
+  const stages = readManifestStages(p);
+  stages.push(entry);
+  writeFileSync(p, JSON.stringify(buildManifest(issueNumber, stages, { mode: 'plan-loop' }), null, 2) + '\n', 'utf8');
 }
 
 function writeEscalation(issueNumber, stage, verdict, resultExcerpt) {
@@ -444,6 +698,20 @@ function writeEscalation(issueNumber, stage, verdict, resultExcerpt) {
     `inner-loop escalated at stage ${stage} (verdict: ${verdict ?? 'none'}). See ${p}`],
     { cwd: REPO_ROOT, stdio: 'inherit' });
   if (cr.status !== 0) log(`warning: gh issue comment failed (continuing) for issue #${issueNumber}`);
+}
+
+function writePlanEscalation(issueNumber, stage, verdict, resultExcerpt) {
+  const p = join(REPO_ROOT, '.lathe', 'runs', `plan-${issueNumber}.escalation.md`);
+  mkdirSync(dirname(p), { recursive: true });
+  appendFileSync(p, [
+    `# escalation — plan-loop issue #${issueNumber}`, '',
+    `stage: ${displayStage(stage)}`, `verdict: ${verdict ?? '(none/unparsable)'}`, `ts: ${new Date().toISOString()}`, '',
+    '## result excerpt', '', '```', (resultExcerpt ?? '').slice(-4000), '```', '',
+  ].join('\n'), 'utf8');
+  const cr = spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body',
+    `plan-loop escalated at stage ${displayStage(stage)} (verdict: ${verdict ?? 'none'}). See ${p}`],
+    { cwd: REPO_ROOT, stdio: 'inherit' });
+  if (cr.status !== 0) log(`warning: gh issue comment failed (continuing) for source issue #${issueNumber}`);
 }
 
 function rebaseWorktree(wt) {
@@ -462,20 +730,150 @@ function cleanupWorktree(wt, branch) {
   spawnSync('git', ['branch', '-D', branch], { cwd: REPO_ROOT, stdio: 'inherit' });
 }
 
+function logDryRunStage(stage, backendFlags, cwd, promptPreview) {
+  const backend = selectBackend(stage, backendFlags);
+  const stageLabel = displayStage(stage);
+  if (backend === 'codex') {
+    const sb = stageSandbox(stage);
+    const lm = join(tmpdir(), `lathe-inner-stage-${stage}.txt`);
+    log(`dry-run: stage=${stageLabel} backend=codex sandbox=${sb} cwd=${cwd}`);
+    const codexArgs = buildCodexArgs(stage, '<prompt>', cwd, lm, REPO_ROOT);
+    log(`dry-run: codex exec ${codexArgs.join(' ')}`);
+  } else {
+    const { agent, permissionMode, allowedTools } = stagePermissions(stage);
+    log(`dry-run: stage=${stageLabel} backend=claude agent=${agent} permission-mode=${permissionMode} allowedTools=${(allowedTools || []).join(',')} cwd=${cwd}`);
+    log(`dry-run: claude -p '<prompt>' --agent ${agent} --output-format json --permission-mode ${permissionMode}`);
+  }
+  log(`dry-run: prompt preview:\n${promptPreview}\n`);
+}
+
+function dryRunPlanLoop(issueNumber, backendFlags) {
+  log(`dry-run: plan-loop issue #${issueNumber}`);
+  log(`dry-run: manifest ${planManifestPathFor(issueNumber)}`);
+  log(`dry-run: would fetch source issue #${issueNumber} via gh issue view`);
+  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW']) {
+    const promptPreview = buildStagePrompt(stage, {
+      mode: 'plan-loop',
+      issueNumber,
+      issueTitle: '<title>',
+      issueBody: '<body>',
+      research: '<research>',
+      plan: '<approved plan candidate>',
+      feedback: '<plan-review feedback>',
+    });
+    logDryRunStage(stage, backendFlags, REPO_ROOT, promptPreview);
+  }
+  log('dry-run: ISSUE_CREATE — gh issue create --label inner-loop --body-file -');
+  log(`dry-run: ISSUE_CREATE body includes Generated from #${issueNumber}, Depends-on:, Touches:, ${APPROVED_PLAN_HEADING}`);
+  log(`dry-run: CLOSE_SOURCE — gh issue close ${issueNumber} --reason completed --comment '<created issue>'`);
+  log('dry-run: transition plan — RESEARCH PASS->PLAN, PLAN_READY->PLAN-REVIEW, PLAN-REVIEW PASS->ISSUE_CREATE / CHANGES->PLAN (max 2 cycles), gh issue create -> CLOSE_SOURCE, missing/unparsable VERDICT->ESCALATE');
+}
+
+function runPlanLoop(issueNumber, backendFlags) {
+  const issue = fetchIssue(issueNumber);
+  let state = 'RESEARCH';
+  let cycles = 0;
+  let research = '';
+  let approvedPlan = '';
+  let feedback = null;
+
+  while (state !== 'ISSUE_CREATE' && state !== 'ESCALATE') {
+    const prompt = buildStagePrompt(state, {
+      mode: 'plan-loop',
+      issueNumber,
+      issueTitle: issue.title,
+      issueBody: issue.body,
+      research,
+      plan: approvedPlan,
+      feedback,
+    });
+    const backend = selectBackend(state, backendFlags);
+    log(`plan-loop stage=${displayStage(state)} backend=${backend} cwd=${REPO_ROOT} — spawning ${backend}`);
+    const stageStartedAt = Date.now();
+    const envelope = runStage(state, prompt, REPO_ROOT, null, backend);
+    const durationMs = Math.max(1, Date.now() - stageStartedAt);
+    const verdict = parseVerdict(envelope.result);
+
+    appendPlanManifestEntry(issueNumber, buildManifestEntry({
+      stage: state,
+      sessionId: envelope.session_id ?? null,
+      verdict,
+      costUsd: envelope.total_cost_usd ?? null,
+      durationMs,
+      backend: envelope.backend ?? null,
+      resultText: envelope.result ?? '',
+    }));
+
+    if (verdict === null) {
+      writePlanEscalation(issueNumber, state, null, envelope.result ?? '');
+      state = 'ESCALATE';
+      break;
+    }
+
+    if (state === 'RESEARCH' && verdict === 'PASS') research = envelope.result;
+    if (state === 'PLAN' && verdict === 'PLAN_READY') approvedPlan = envelope.result;
+    if (state === 'PLAN_REVIEW' && verdict === 'CHANGES') feedback = envelope.result;
+    if (state === 'PLAN_REVIEW' && verdict === 'PASS') feedback = null;
+
+    const { next, cycles: nextCycles } = nextPlanLoopState(state, verdict, cycles);
+    if (next === 'ESCALATE') writePlanEscalation(issueNumber, state, verdict, envelope.result ?? '');
+    log(`plan-loop stage=${displayStage(state)} verdict=${verdict} -> next=${displayStage(next)} (cycles=${nextCycles})`);
+    state = next;
+    cycles = nextCycles;
+  }
+
+  if (state === 'ESCALATE') die(`plan-loop escalated — see .lathe/runs/plan-${issueNumber}.escalation.md`);
+
+  const created = createImplementationIssue(issueNumber, approvedPlan);
+  if (!created.ok) {
+    writePlanEscalation(issueNumber, 'ISSUE_CREATE', null, created.error);
+    die(`plan-loop issue create failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
+  }
+  appendPlanManifestEntry(issueNumber, buildManifestEntry({
+    stage: 'ISSUE_CREATE',
+    sessionId: null,
+    verdict: 'PASS',
+    costUsd: null,
+    backend: null,
+    resultText: `created #${created.issueNumber}\n${created.url}`,
+  }));
+  log(`plan-loop created implementation issue #${created.issueNumber}: ${created.url}`);
+
+  const closeResult = closeSourceIssue(issueNumber, created);
+  if (!closeResult.ok) {
+    writePlanEscalation(issueNumber, 'CLOSE_SOURCE', null, `gh issue close failed\n\n${tailLines(closeResult.output)}`);
+    die(`plan-loop source close failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
+  }
+  appendPlanManifestEntry(issueNumber, buildManifestEntry({
+    stage: 'CLOSE_SOURCE',
+    sessionId: null,
+    verdict: 'PASS',
+    costUsd: null,
+    backend: null,
+    resultText: `closed source issue #${issueNumber}`,
+  }));
+  log(`plan-loop done — created implementation issue #${created.issueNumber} and closed source issue #${issueNumber}.`);
+}
+
 // --- CLI entrypoint ---
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 
 if (isMain) {
-  const args = process.argv.slice(2);
-  const dryRun = args.includes('--dry-run');
-  const resume = args.includes('--resume');
-  const issueArg = args.find((a) => !a.startsWith('--'));
-  const issueNumber = Number(issueArg);
-  const backendFlags = parseBackendFlags(args);
+  const parsedArgs = parseDriverArgs(process.argv.slice(2));
+  const { mode, issueNumber, dryRun, resume, backendFlags } = parsedArgs;
 
-  if (!issueArg || !Number.isInteger(issueNumber) || issueNumber <= 0) {
-    die('usage: node scripts/inner-loop.mjs <issue#> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]');
+  if (parsedArgs.error) {
+    die(`${parsedArgs.error}\nusage: node scripts/inner-loop.mjs <issue#> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]\n       node scripts/inner-loop.mjs --plan <issue#> [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]`);
+  }
+
+  if (mode === 'plan') {
+    if (dryRun) {
+      dryRunPlanLoop(issueNumber, backendFlags);
+      process.exit(0);
+    }
+    runPlanLoop(issueNumber, backendFlags);
+    process.exit(0);
   }
 
   if (dryRun) {
@@ -502,32 +900,27 @@ if (isMain) {
       log(`dry-run: prompt preview:\n${promptPreview}\n`);
       process.exit(0);
     }
-    log(`dry-run: would fetch issue #${issueNumber} via gh issue view`);
+    log(`dry-run: fetching issue #${issueNumber} via gh issue view`);
+    const issue = fetchIssue(issueNumber);
+    const runPlan = selectRunPlan({ mode: 'impl', issueBody: issue.body });
+    if (runPlan.skipPlan) {
+      log('dry-run: approved plan marker detected; skipping PLAN');
+      log('dry-run: synthetic manifest entry stage=PLAN verdict=PLAN_READY skipped=true');
+      log(`dry-run: next=${runPlan.initialState}`);
+    }
     const wtPath = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
     log(`dry-run: would create worktree ${wtPath} on branch inner/issue-${issueNumber}`);
-    for (const stage of ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE']) {
+    for (const stage of runPlan.stages) {
       if (stage === 'MERGE') {
         log('dry-run: MERGE — node scripts/merge.mjs inner/issue-<n> (from repo root)');
         continue;
       }
-      const backend = selectBackend(stage, backendFlags);
-      const { agent, permissionMode, allowedTools } = stagePermissions(stage);
       const cwd = stageCwd(stage, REPO_ROOT, wtPath);
       const promptPreview = buildStagePrompt(stage, {
-        issueNumber, issueTitle: '<title>', issueBody: '<body>',
-        plan: '<plan>', headSha: '<sha>', verifyResult: '<verify result>',
+        issueNumber, issueTitle: issue.title, issueBody: issue.body,
+        plan: runPlan.approvedPlan || '<plan>', headSha: '<sha>', verifyResult: '<verify result>',
       });
-      if (backend === 'codex') {
-        const sb = stageSandbox(stage);
-        const lm = join(tmpdir(), `lathe-inner-stage-${stage}.txt`);
-        log(`dry-run: stage=${stage} backend=codex sandbox=${sb} cwd=${cwd}`);
-        const codexArgs = buildCodexArgs(stage, '<prompt>', cwd, lm, REPO_ROOT);
-        log(`dry-run: codex exec ${codexArgs.join(' ')}`);
-      } else {
-        log(`dry-run: stage=${stage} backend=claude agent=${agent} permission-mode=${permissionMode} allowedTools=${(allowedTools || []).join(',')} cwd=${cwd}`);
-        log(`dry-run: claude -p '<prompt>' --agent ${agent} --output-format json --permission-mode ${permissionMode}`);
-      }
-      log(`dry-run: prompt preview:\n${promptPreview}\n`);
+      logDryRunStage(stage, backendFlags, cwd, promptPreview);
     }
     log('dry-run: transition plan — PLAN_READY->IMPLEMENT, IMPL_DONE->REVIEW, REVIEW PASS->VERIFY / CHANGES->IMPLEMENT (max 2 cycles), VERIFY GREEN->MERGE / RED->TRIAGE, TRIAGE KNOWN->IMPLEMENT only when implementable / P4 Codex sandbox EPERM->ESCALATE / NOVEL->ESCALATE, missing/unparsable VERDICT->ESCALATE');
     process.exit(0);
@@ -554,15 +947,20 @@ if (isMain) {
     if (state !== 'MERGE') issue = fetchIssue(issueNumber);
   } else {
     issue = fetchIssue(issueNumber);
+    const runPlan = selectRunPlan({ mode: 'impl', issueBody: issue.body });
     const wt = prepareWorktree(issueNumber);
     worktreePath = wt.path;
     branch = wt.branch;
-    state = 'PLAN';
+    state = runPlan.initialState;
     cycles = 0;
-    plan = '';
+    plan = runPlan.approvedPlan;
     feedback = null;
     headSha = null;
     verifyResult = '';
+    if (runPlan.skipPlan) {
+      appendManifestEntry(issueNumber, buildSkippedPlanEntry(plan));
+      log('approved plan marker detected; skipping PLAN');
+    }
   }
 
   while (state !== 'MERGE' && state !== 'ESCALATE' && state !== 'DONE') {

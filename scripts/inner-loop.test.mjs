@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import {
   parseVerdict,
   nextState,
+  nextPlanLoopState,
   decideResumeState,
   buildManifestEntry,
+  buildSkippedPlanEntry,
   buildManifest,
   readManifestStages,
   stagePermissions,
@@ -13,8 +15,24 @@ import {
   tailLines,
   MAX_CYCLES,
   isCodexSandboxEpermTriageResult,
+  hasApprovedPlanMarker,
+  extractApprovedPlan,
+  selectRunPlan,
+  parseDriverArgs,
+  parseApprovedPlanForIssue,
+  buildImplementationIssueBody,
+  parseGhIssueNumber,
 } from './inner-loop.mjs';
-import { buildStagePrompt, buildPlanPrompt, buildImplementPrompt, buildReviewPrompt, buildVerifyPrompt, buildTriagePrompt } from './inner-loop-prompts.mjs';
+import {
+  buildStagePrompt,
+  buildResearchPrompt,
+  buildPlanPrompt,
+  buildPlanReviewPrompt,
+  buildImplementPrompt,
+  buildReviewPrompt,
+  buildVerifyPrompt,
+  buildTriagePrompt,
+} from './inner-loop-prompts.mjs';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,6 +74,118 @@ test('parseVerdict: multiple VERDICT lines → last one wins (envelope result ta
 test('parseVerdict: VERDICT embedded mid-text still parses (last match)', () => {
   const result = parseVerdict('I reviewed everything.\n\nVERDICT: GREEN\n');
   assert.equal(result, 'GREEN');
+});
+
+// --- ADR 0016: approved plan marker / loop selection ---
+
+test('hasApprovedPlanMarker: detects exact H2 approved plan marker', () => {
+  assert.equal(hasApprovedPlanMarker('Intro\n## Plan (approved)\nDo it'), true);
+  assert.equal(hasApprovedPlanMarker('Intro\n## Plan (approved)   \nDo it'), true);
+});
+
+test('hasApprovedPlanMarker: rejects non-exact headings', () => {
+  assert.equal(hasApprovedPlanMarker('### Plan (approved)\nDo it'), false);
+  assert.equal(hasApprovedPlanMarker('## Plan (approved) extra\nDo it'), false);
+  assert.equal(hasApprovedPlanMarker(' ## Plan (approved)\nDo it'), false);
+});
+
+test('extractApprovedPlan: returns content through EOF so nested H2 plan sections are preserved', () => {
+  const body = [
+    '# issue',
+    '',
+    '## Plan (approved)',
+    'Step 1',
+    '### Details',
+    'Keep this.',
+    '## Scope',
+    'Keep this H2 too.',
+    '## Verification',
+    'Keep this final section.',
+  ].join('\n');
+  assert.equal(
+    extractApprovedPlan(body),
+    'Step 1\n### Details\nKeep this.\n## Scope\nKeep this H2 too.\n## Verification\nKeep this final section.',
+  );
+});
+
+test('selectRunPlan: impl-loop with approved plan marker skips PLAN', () => {
+  const result = selectRunPlan({ mode: 'impl', issueBody: '## Plan (approved)\nImplement X.' });
+  assert.equal(result.mode, 'impl');
+  assert.equal(result.skipPlan, true);
+  assert.equal(result.initialState, 'IMPLEMENT');
+  assert.deepEqual(result.stages, ['IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE']);
+  assert.equal(result.approvedPlan, 'Implement X.');
+});
+
+test('selectRunPlan: impl-loop without marker remains backward compatible', () => {
+  const result = selectRunPlan({ mode: 'impl', issueBody: 'No approved plan.' });
+  assert.equal(result.skipPlan, false);
+  assert.equal(result.initialState, 'PLAN');
+  assert.deepEqual(result.stages, ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE']);
+});
+
+test('selectRunPlan: plan-loop uses ADR 0016 stage sequence', () => {
+  const result = selectRunPlan({ mode: 'plan', issueBody: 'needs plan' });
+  assert.equal(result.initialState, 'RESEARCH');
+  assert.deepEqual(result.stages, ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'ISSUE_CREATE', 'CLOSE_SOURCE']);
+});
+
+test('buildSkippedPlanEntry: creates synthetic skipped PLAN_READY manifest entry', () => {
+  const entry = buildSkippedPlanEntry('approved plan text');
+  assert.equal(entry.stage, 'PLAN');
+  assert.equal(entry.verdict, 'PLAN_READY');
+  assert.equal(entry.session_id, null);
+  assert.equal(entry.result_text, 'approved plan text');
+  assert.equal(entry.skipped, true);
+});
+
+test('parseDriverArgs: parses --plan mode and backend flags', () => {
+  const parsed = parseDriverArgs(['--plan', '41', '--dry-run', '--backend-plan', 'claude']);
+  assert.equal(parsed.error, null);
+  assert.equal(parsed.mode, 'plan');
+  assert.equal(parsed.issueNumber, 41);
+  assert.equal(parsed.dryRun, true);
+  assert.equal(parsed.backendFlags.stages.PLAN, 'claude');
+});
+
+test('parseDriverArgs: parses impl mode with positional issue', () => {
+  const parsed = parseDriverArgs(['41', '--resume']);
+  assert.equal(parsed.error, null);
+  assert.equal(parsed.mode, 'impl');
+  assert.equal(parsed.issueNumber, 41);
+  assert.equal(parsed.resume, true);
+});
+
+test('parseApprovedPlanForIssue: extracts machine-readable issue fields', () => {
+  const parsed = parseApprovedPlanForIssue([
+    'Title: feat: add thing',
+    'Depends-on: #38',
+    'Touches: scripts/inner-loop.mjs, scripts/inner-loop-prompts.mjs',
+    'Plan body',
+  ].join('\n'));
+  assert.deepEqual(parsed, {
+    title: 'feat: add thing',
+    dependsOn: '#38',
+    touches: 'scripts/inner-loop.mjs, scripts/inner-loop-prompts.mjs',
+  });
+});
+
+test('buildImplementationIssueBody: includes approved plan marker and queue hints', () => {
+  const body = buildImplementationIssueBody({
+    sourceIssueNumber: 41,
+    approvedPlan: 'Title: feat: x\nDepends-on: #38\nTouches: scripts/a.mjs\nDo X.\nVERDICT: PLAN_READY',
+    dependsOn: '#38',
+    touches: 'scripts/a.mjs',
+  });
+  assert.match(body, /Generated from #41/);
+  assert.match(body, /^Depends-on: #38$/m);
+  assert.match(body, /^Touches: scripts\/a\.mjs$/m);
+  assert.match(body, /^## Plan \(approved\)$/m);
+  assert.doesNotMatch(body, /VERDICT: PLAN_READY/);
+});
+
+test('parseGhIssueNumber: parses GitHub issue URL', () => {
+  assert.equal(parseGhIssueNumber('https://github.com/yutaro0915/lathe/issues/123\n'), 123);
 });
 
 // --- nextState: transition table ---
@@ -158,6 +288,41 @@ test('nextState: unknown state -> ESCALATE', () => {
   assert.equal(next, 'ESCALATE');
 });
 
+// --- nextPlanLoopState: ADR 0016 transition table ---
+
+test('nextPlanLoopState: RESEARCH PASS -> PLAN', () => {
+  const { next, cycles } = nextPlanLoopState('RESEARCH', 'PASS', 0);
+  assert.equal(next, 'PLAN');
+  assert.equal(cycles, 0);
+});
+
+test('nextPlanLoopState: PLAN PLAN_READY -> PLAN_REVIEW', () => {
+  const { next } = nextPlanLoopState('PLAN', 'PLAN_READY', 0);
+  assert.equal(next, 'PLAN_REVIEW');
+});
+
+test('nextPlanLoopState: PLAN_REVIEW PASS -> ISSUE_CREATE', () => {
+  const { next } = nextPlanLoopState('PLAN_REVIEW', 'PASS', 0);
+  assert.equal(next, 'ISSUE_CREATE');
+});
+
+test('nextPlanLoopState: PLAN_REVIEW CHANGES -> PLAN within max cycles', () => {
+  const { next, cycles } = nextPlanLoopState('PLAN_REVIEW', 'CHANGES', 0);
+  assert.equal(next, 'PLAN');
+  assert.equal(cycles, 1);
+});
+
+test('nextPlanLoopState: PLAN_REVIEW CHANGES exceeding max -> ESCALATE', () => {
+  const { next, cycles } = nextPlanLoopState('PLAN_REVIEW', 'CHANGES', MAX_CYCLES);
+  assert.equal(next, 'ESCALATE');
+  assert.equal(cycles, MAX_CYCLES + 1);
+});
+
+test('nextPlanLoopState: null verdict -> ESCALATE', () => {
+  const { next } = nextPlanLoopState('RESEARCH', null, 0);
+  assert.equal(next, 'ESCALATE');
+});
+
 // --- buildStagePrompt / prompt interpolation ---
 
 test('buildStagePrompt: PLAN includes issue number, title, body, and VERDICT instruction', () => {
@@ -167,6 +332,45 @@ test('buildStagePrompt: PLAN includes issue number, title, body, and VERDICT ins
   assert.match(prompt, /Do the thing\./);
   assert.match(prompt, /VERDICT: <TOKEN>/);
   assert.match(prompt, /PLAN_READY \| ESCALATE/);
+});
+
+test('buildResearchPrompt: includes plan-loop escalation contract', () => {
+  const prompt = buildResearchPrompt({ issueNumber: 42, issueTitle: 'Needs plan', issueBody: 'Investigate.' });
+  assert.match(prompt, /plan-loop escalation/);
+  assert.match(prompt, /裁可/);
+  assert.match(prompt, /目標不成立/);
+  assert.match(prompt, /依存が既存 open issue と衝突/);
+  assert.match(prompt, /PASS \| ESCALATE/);
+});
+
+test('buildPlanPrompt: plan-loop mode requires Title Depends-on Touches', () => {
+  const prompt = buildPlanPrompt({
+    mode: 'plan-loop',
+    issueNumber: 42,
+    issueTitle: 'Needs plan',
+    issueBody: 'Investigate.',
+    research: 'Facts.',
+  });
+  assert.match(prompt, /Title:/);
+  assert.match(prompt, /Depends-on:/);
+  assert.match(prompt, /Touches:/);
+  assert.match(prompt, /plan-loop escalation/);
+  assert.match(prompt, /PLAN_READY \| ESCALATE/);
+});
+
+test('buildPlanReviewPrompt: includes plan-loop escalation contract and PASS/CHANGES', () => {
+  const prompt = buildPlanReviewPrompt({
+    issueNumber: 42,
+    issueTitle: 'Needs plan',
+    issueBody: 'Investigate.',
+    research: 'Facts.',
+    plan: 'Title: feat\nDepends-on:\nTouches: scripts/x.mjs',
+  });
+  assert.match(prompt, /PLAN-REVIEW/);
+  assert.match(prompt, /裁可事項/);
+  assert.match(prompt, /目標不成立/);
+  assert.match(prompt, /依存衝突/);
+  assert.match(prompt, /PASS \| CHANGES \| ESCALATE/);
 });
 
 test('buildStagePrompt: IMPLEMENT includes plan and optional feedback', () => {
@@ -184,6 +388,12 @@ test('buildStagePrompt: IMPLEMENT includes plan and optional feedback', () => {
   assert.match(withFeedback, /差し戻し指摘/);
   assert.match(withFeedback, /Missing test for edge case\./);
   assert.match(withFeedback, /IMPL_DONE \| ESCALATE/);
+});
+
+test('buildImplementPrompt: impl-loop premise break escalates without replanning', () => {
+  const prompt = buildImplementPrompt({ issueNumber: 1, issueTitle: 'T', issueBody: 'B', plan: 'P' });
+  assert.match(prompt, /前提/);
+  assert.match(prompt, /再計画せず ESCALATE/);
 });
 
 test('buildStagePrompt: REVIEW includes plan and VERDICT instruction', () => {
@@ -290,7 +500,9 @@ test('buildStagePrompt: unknown stage throws', () => {
 
 test('direct builder exports match buildStagePrompt dispatch', () => {
   const ctx = { issueNumber: 5, issueTitle: 'T', issueBody: 'B', plan: 'P', headSha: 'sha1', verifyResult: 'V' };
+  assert.equal(buildResearchPrompt(ctx), buildStagePrompt('RESEARCH', ctx));
   assert.equal(buildPlanPrompt(ctx), buildStagePrompt('PLAN', ctx));
+  assert.equal(buildPlanReviewPrompt(ctx), buildStagePrompt('PLAN_REVIEW', ctx));
   assert.equal(buildImplementPrompt(ctx), buildStagePrompt('IMPLEMENT', ctx));
   assert.equal(buildReviewPrompt(ctx), buildStagePrompt('REVIEW', ctx));
   assert.equal(buildVerifyPrompt(ctx), buildStagePrompt('VERIFY', ctx));
@@ -313,7 +525,7 @@ test('stagePermissions: IMPLEMENT allows git/pnpm/node Bash (needs to commit + v
 });
 
 test('stagePermissions: no stage ever uses bypassPermissions or --bare', () => {
-  for (const stage of ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
+  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
     const { permissionMode } = stagePermissions(stage);
     assert.notEqual(permissionMode, 'bypassPermissions');
     assert.notEqual(permissionMode, '--bare');
@@ -321,11 +533,16 @@ test('stagePermissions: no stage ever uses bypassPermissions or --bare', () => {
 });
 
 test('stagePermissions: read-only stages use dontAsk, never bypassPermissions', () => {
-  for (const stage of ['PLAN', 'REVIEW', 'VERIFY', 'TRIAGE']) {
+  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'REVIEW', 'VERIFY', 'TRIAGE']) {
     const { permissionMode } = stagePermissions(stage);
     assert.equal(permissionMode, 'dontAsk');
     assert.notEqual(permissionMode, 'bypassPermissions');
   }
+});
+
+test('stagePermissions: plan-loop RESEARCH uses researcher and PLAN_REVIEW uses reviewer (ADR 0016: author/approver separation)', () => {
+  assert.equal(stagePermissions('RESEARCH').agent, 'researcher');
+  assert.equal(stagePermissions('PLAN_REVIEW').agent, 'reviewer');
 });
 
 test('stagePermissions: VERIFY allows blanket Bash (needs to run gates; narrow allowlists structurally conflict with verification idioms, #36/#44)', () => {
@@ -343,7 +560,12 @@ test('stageCwd: PLAN runs at repo root', () => {
   assert.equal(stageCwd('PLAN', '/repo', '/repo/.claude/worktrees/inner-issue-1'), '/repo');
 });
 
-test('stageCwd: other stages run in the worktree', () => {
+test('stageCwd: plan-loop read stages run at repo root', () => {
+  assert.equal(stageCwd('RESEARCH', '/repo', '/repo/.claude/worktrees/inner-issue-1'), '/repo');
+  assert.equal(stageCwd('PLAN_REVIEW', '/repo', '/repo/.claude/worktrees/inner-issue-1'), '/repo');
+});
+
+test('stageCwd: implementation stages run in the worktree', () => {
   for (const stage of ['IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
     assert.equal(stageCwd(stage, '/repo', '/repo/.claude/worktrees/inner-issue-1'), '/repo/.claude/worktrees/inner-issue-1');
   }
@@ -757,7 +979,7 @@ test('buildReceiptArgs: VERIFY + ESCALATE -> null (not a receipt-eligible verdic
 });
 
 test('buildReceiptArgs: non-receipt stages (PLAN/IMPLEMENT/TRIAGE) -> null', () => {
-  for (const stage of ['PLAN', 'IMPLEMENT', 'TRIAGE']) {
+  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'IMPLEMENT', 'TRIAGE']) {
     assert.equal(buildReceiptArgs(stage, 'abc123', 'PLAN_READY'), null, `stage=${stage} should not be receipt-eligible`);
   }
 });

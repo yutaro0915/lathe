@@ -12,6 +12,7 @@ import {
   parseBackendFlags,
   selectBackend,
   detectMainDirty,
+  parseDependsOnLine,
 } from './inner-loop-backends.mjs';
 
 // --- stagePermissions: VERIFY/TRIAGE blanket Bash (issue #44) ---
@@ -48,6 +49,17 @@ test('stagePermissions: PLAN and REVIEW remain narrow (Bash(git *) only, no blan
   }
 });
 
+test('stagePermissions: plan-loop RESEARCH and PLAN_REVIEW only allow read-only gh issue commands', () => {
+  for (const stage of ['RESEARCH', 'PLAN_REVIEW']) {
+    const { permissionMode, allowedTools } = stagePermissions(stage);
+    assert.equal(permissionMode, 'dontAsk');
+    assert.ok(allowedTools.includes('Bash(gh issue view *)'));
+    assert.ok(allowedTools.includes('Bash(gh issue list *)'));
+    assert.ok(!allowedTools.includes('Bash(gh issue *)'), `stage=${stage}: must not allow gh issue writes`);
+    assert.ok(!allowedTools.includes('Bash'), `stage=${stage}: must not grant blanket Bash`);
+  }
+});
+
 test('stagePermissions: IMPLEMENT is unchanged (narrow git/pnpm/node Bash, no blanket Bash)', () => {
   const { allowedTools } = stagePermissions('IMPLEMENT');
   assert.ok(!allowedTools.includes('Bash'), 'IMPLEMENT must not grant blanket Bash');
@@ -62,8 +74,16 @@ test('stageSandbox: IMPLEMENT -> workspace-write', () => {
   assert.equal(stageSandbox('IMPLEMENT'), 'workspace-write');
 });
 
+test('stageSandbox: RESEARCH -> read-only', () => {
+  assert.equal(stageSandbox('RESEARCH'), 'read-only');
+});
+
 test('stageSandbox: PLAN -> read-only', () => {
   assert.equal(stageSandbox('PLAN'), 'read-only');
+});
+
+test('stageSandbox: PLAN_REVIEW -> read-only', () => {
+  assert.equal(stageSandbox('PLAN_REVIEW'), 'read-only');
 });
 
 test('stageSandbox: REVIEW -> read-only', () => {
@@ -106,7 +126,7 @@ test('buildCodexArgs: workspace-write stages enable sandbox localhost/network ac
 });
 
 test('buildCodexArgs: read-only stages do not enable workspace-write network config', () => {
-  for (const stage of ['PLAN', 'REVIEW']) {
+  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'REVIEW']) {
     const args = buildCodexArgs(stage, 'p', '/repo', '/tmp/out.txt');
     assert.ok(!args.includes('sandbox_workspace_write.network_access=true'), `stage=${stage}: must not add workspace-write config`);
   }
@@ -118,7 +138,7 @@ test('buildCodexArgs: prompt is first element', () => {
 });
 
 test('buildCodexArgs: never includes --dangerously-bypass (regression guard)', () => {
-  for (const stage of ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
+  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
     const args = buildCodexArgs(stage, 'p', '/cwd', '/tmp/out.txt');
     for (const a of args) {
       assert.ok(!String(a).includes('dangerously'), `stage=${stage}: must never include --dangerously-bypass-*`);
@@ -127,7 +147,7 @@ test('buildCodexArgs: never includes --dangerously-bypass (regression guard)', (
 });
 
 test('buildCodexArgs: never includes --ephemeral (regression guard)', () => {
-  for (const stage of ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
+  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
     const args = buildCodexArgs(stage, 'p', '/cwd', '/tmp/out.txt');
     assert.ok(!args.includes('--ephemeral'), `stage=${stage}: must not include --ephemeral`);
   }
@@ -155,7 +175,7 @@ test('buildCodexArgs: workspace-write stage with repoRoot adds --add-dir <repoRo
 });
 
 test('buildCodexArgs: read-only stage does not add --add-dir even when repoRoot is provided', () => {
-  for (const stage of ['PLAN', 'REVIEW']) {
+  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'REVIEW']) {
     const args = buildCodexArgs(stage, 'p', '/repo', '/tmp/out.txt', '/repo');
     assert.ok(!args.includes('--add-dir'), `stage=${stage}: must not include --add-dir`);
   }
@@ -359,17 +379,24 @@ test('parseBackendFlags: stage key is uppercased', () => {
   assert.ok(!('verify' in flags.stages));
 });
 
+test('parseBackendFlags: hyphenated stage key maps to underscore stage name', () => {
+  const flags = parseBackendFlags(['--backend-plan-review', 'claude']);
+  assert.equal(flags.stages.PLAN_REVIEW, 'claude');
+});
+
 // --- selectBackend ---
 
 test('selectBackend: default is codex except VERIFY fallback when no flags', () => {
+  assert.equal(selectBackend('RESEARCH', { global: null, stages: {} }), 'codex');
   assert.equal(selectBackend('PLAN', { global: null, stages: {} }), 'codex');
+  assert.equal(selectBackend('PLAN_REVIEW', { global: null, stages: {} }), 'codex');
   assert.equal(selectBackend('IMPLEMENT', { global: null, stages: {} }), 'codex');
   assert.equal(selectBackend('VERIFY', { global: null, stages: {} }), 'claude');
 });
 
 test('selectBackend: global override applies to all stages', () => {
   const flags = { global: 'claude', stages: {} };
-  for (const s of ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
+  for (const s of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
     assert.equal(selectBackend(s, flags), 'claude', `stage=${s}`);
   }
 });
@@ -471,4 +498,49 @@ test('detectMainDirty: whitespace-only lines are ignored', () => {
   const result = detectMainDirty(text);
   assert.equal(result.dirty, true);
   assert.deepEqual(result.paths, ['file.ts']);
+});
+
+// --- parseDependsOnLine (ADR 0015/0016: Depends-on is a machine-readable
+// contract, not free text; a missing/unparseable line must fail, not be
+// rounded down to "no deps") ---
+
+test('parseDependsOnLine: missing line (null) -> fail', () => {
+  const result = parseDependsOnLine(null);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Depends-on/);
+});
+
+test('parseDependsOnLine: empty value -> fail', () => {
+  const result = parseDependsOnLine('');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Depends-on/);
+});
+
+test('parseDependsOnLine: whitespace-only value -> fail', () => {
+  const result = parseDependsOnLine('   ');
+  assert.equal(result.ok, false);
+});
+
+test('parseDependsOnLine: explicit "none" -> ok with empty dependsOn', () => {
+  const result = parseDependsOnLine('none');
+  assert.equal(result.ok, true);
+  assert.equal(result.dependsOn, '');
+});
+
+test('parseDependsOnLine: "none" is case-insensitive', () => {
+  const result = parseDependsOnLine('None');
+  assert.equal(result.ok, true);
+  assert.equal(result.dependsOn, '');
+});
+
+test('parseDependsOnLine: issue references -> ok, parsed value preserved', () => {
+  const result = parseDependsOnLine('#41, #42');
+  assert.equal(result.ok, true);
+  assert.equal(result.dependsOn, '#41, #42');
+});
+
+test('parseDependsOnLine: single issue reference -> ok', () => {
+  const result = parseDependsOnLine('#41');
+  assert.equal(result.ok, true);
+  assert.equal(result.dependsOn, '#41');
 });
