@@ -225,6 +225,8 @@ export async function runIncrementalIngest(
   // runIncrementalIngest on main, so a single location covers all entrypoints).
   await pool.query(`
     ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_class TEXT NOT NULL DEFAULT 'development';
+    ALTER TABLE sessions ALTER COLUMN duration_ms TYPE BIGINT;
+    ALTER TABLE transcript_events ALTER COLUMN duration_ms TYPE BIGINT;
     CREATE INDEX IF NOT EXISTS idx_sessions_class ON sessions(session_class);
     CREATE INDEX IF NOT EXISTS idx_events_session ON transcript_events(session_id);
     CREATE INDEX IF NOT EXISTS idx_changed_files_session ON changed_files(session_id);

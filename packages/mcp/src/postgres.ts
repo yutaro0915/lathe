@@ -1,8 +1,10 @@
 import { Pool, types } from 'pg';
 
 const JSON_OID = 114;
+const INT8_OID = 20;
 const JSONB_OID = 3802;
 
+types.setTypeParser(INT8_OID, (value) => Number(value));
 types.setTypeParser(JSON_OID, (value) => value);
 types.setTypeParser(JSONB_OID, (value) => value);
 

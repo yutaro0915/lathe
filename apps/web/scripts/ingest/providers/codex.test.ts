@@ -196,6 +196,37 @@ test('Codex token cost extraction keeps cached input billable while the session 
   assert.ok(withCachedRead > withoutCachedRead);
 });
 
+test('Codex session duration preserves values above the PostgreSQL int4 range', () => {
+  const raw = jsonl(
+    {
+      type: 'session_meta',
+      timestamp: '2026-05-07T05:57:02.275Z',
+      payload: {
+        id: 'codex-long-duration',
+        cwd: '/repo/project',
+        model: 'gpt-5.4',
+      },
+    },
+    {
+      type: 'event_msg',
+      timestamp: '2026-06-05T05:09:11.744Z',
+      payload: { type: 'user_message', message: 'Still working' },
+    },
+  );
+
+  const built = parseCodexSessionRecords(
+    parseJsonlRecords(raw),
+    '/tmp/rollout-codex-long-duration.jsonl',
+    new Map(),
+    opts,
+    project,
+  );
+
+  assert.ok(built);
+  assert.equal(built.session.duration_ms, 2_502_729_469);
+  assert.ok((built.session.duration_ms ?? 0) > 2_147_483_647);
+});
+
 test('Codex visible message previews normalize whitespace and cap titles deterministically', () => {
   const cases = [
     { input: '  hello\n\nworld\t ', width: 90, expected: 'hello world' },

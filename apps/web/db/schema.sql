@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   status         TEXT NOT NULL,           -- done | running | failed
   started_at     TEXT NOT NULL,
   ended_at       TEXT,
-  duration_ms    INTEGER,
+  duration_ms    BIGINT,
   turn_count     INTEGER NOT NULL DEFAULT 0,
   tool_count     INTEGER NOT NULL DEFAULT 0,
   edit_count     INTEGER NOT NULL DEFAULT 0,
@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS transcript_events (
   command     TEXT,                       -- for bash / test / commit events
   exit_code        INTEGER,               -- for bash / test / commit events
   exit_disposition TEXT,                  -- na | ok | gate_verdict | probe | no_match | policy_block | failure
-  duration_ms INTEGER,
+  duration_ms BIGINT,
   token_usage BIGINT,
   subagent    TEXT,                       -- nesting: subagent / thread name
   meta        JSONB,                      -- provider-specific extra fields

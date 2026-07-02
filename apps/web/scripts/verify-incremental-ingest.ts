@@ -13,11 +13,14 @@
  *       A finding + evidence referencing A session survives B incremental ingest
  *  3. 冪等 — same dir ingested twice incremental → session/event counts identical
  *  4. FK 整合 — no dangling FK (transcript_events / changed_files / diff_hunks)
+ *  5. migration — existing INTEGER duration_ms columns converge to BIGINT
+ *  6. duration_ms BIGINT / int8 readback — large duration values survive insertBuilt
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { Pool } from 'pg';
+import '../lib/postgres';
 import { insertBuilt } from './ingest/repository/ingest-writer';
 import { runIncrementalIngest } from './ingest/usecase/incremental';
 import type { Built } from './ingest/built';
@@ -42,6 +45,8 @@ function verdict(label: string, pass: boolean, detail: string): void {
 
 const PROJECT_A = 'fixture:incremental-A';
 const PROJECT_B = 'fixture:incremental-B';
+const PROJECT_BIGINT = 'fixture:bigint-duration';
+const BIG_DURATION_MS = 2_502_729_469;
 
 function baseSession(id: string, projectId: string, overrides: Partial<Built['session']> = {}): Built['session'] {
   return {
@@ -115,6 +120,23 @@ function makeBuilt(sessionId: string, projectId: string, seqOffset = 0): Built {
   };
 }
 
+function makeBigintDurationBuilt(): Built {
+  const sessionId = 'bigint-duration-session';
+  return {
+    ...makeBuilt(sessionId, PROJECT_BIGINT, 1),
+    session: baseSession(sessionId, PROJECT_BIGINT, {
+      duration_ms: BIG_DURATION_MS,
+      seq: 1,
+    }),
+    events: [
+      {
+        ...minimalEvent(`${sessionId}_e1`, sessionId, 1),
+        duration_ms: BIG_DURATION_MS,
+      },
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Fake transcript dir for incremental ingest
 // ---------------------------------------------------------------------------
@@ -182,6 +204,13 @@ async function main(): Promise<void> {
 
       try {
         await pool.query(schemaSql);
+        // Simulate an existing DB created before #31. Fresh schema uses BIGINT,
+        // but incremental ingest must also converge no-wipe databases where
+        // duration_ms is still INTEGER.
+        await pool.query(`
+          ALTER TABLE sessions ALTER COLUMN duration_ms TYPE INTEGER;
+          ALTER TABLE transcript_events ALTER COLUMN duration_ms TYPE INTEGER;
+        `);
 
         // ------------------------------------------------------------------
         // Invariant 1: no-wipe / 複数 project 共存
@@ -206,6 +235,23 @@ async function main(): Promise<void> {
           insertOpts: { backfillHarness: false },
           codexRolloutFiles: [],
         });
+
+        const durationColumnTypes = await pool.query<{ table_name: string; data_type: string }>(
+          `SELECT table_name, data_type
+             FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND column_name = 'duration_ms'
+              AND table_name IN ('sessions', 'transcript_events')
+            ORDER BY table_name`,
+        );
+        const durationMigrationOk =
+          durationColumnTypes.rows.length === 2
+          && durationColumnTypes.rows.every((row) => row.data_type === 'bigint');
+        verdict(
+          'duration_ms legacy migration',
+          durationMigrationOk,
+          durationColumnTypes.rows.map((row) => `${row.table_name}.${row.data_type}`).join(', '),
+        );
 
         const aCountAfter = (
           await pool.query<{ c: string }>(`SELECT COUNT(*) AS c FROM sessions WHERE project_id = $1`, [PROJECT_A])
@@ -327,6 +373,48 @@ async function main(): Promise<void> {
         // ------------------------------------------------------------------
         const dangling = await danglingFkCount(pool);
         verdict('FK 整合', dangling === 0, `dangling FK rows: ${dangling}`);
+
+        // ------------------------------------------------------------------
+        // Invariant 6: duration_ms BIGINT / int8 readback
+        // ------------------------------------------------------------------
+        // Codex rollout 019e0101 spans 2,502,729,469 ms. That value must pass
+        // through insertBuilt for both session and event duration columns.
+        const bigintBuilt = makeBigintDurationBuilt();
+        let durationInsertError: string | null = null;
+        let durationRow: { session_duration_ms: number; event_duration_ms: number } | undefined;
+        try {
+          await insertBuilt(pool, [bigintBuilt], { backfillHarness: false });
+          durationRow = (
+            await pool.query<{
+              session_duration_ms: number;
+              event_duration_ms: number;
+            }>(
+              `SELECT s.duration_ms AS session_duration_ms,
+                      e.duration_ms AS event_duration_ms
+                 FROM sessions s
+                 JOIN transcript_events e ON e.session_id = s.id
+                WHERE s.id = $1`,
+              [bigintBuilt.session.id],
+            )
+          ).rows[0];
+        } catch (error) {
+          durationInsertError = (error as Error).message;
+        }
+        const bigintDurationReadback =
+          durationInsertError === null
+          && durationRow !== undefined
+          && durationRow.session_duration_ms === BIG_DURATION_MS
+          && durationRow.event_duration_ms === BIG_DURATION_MS
+          && typeof durationRow.session_duration_ms === 'number'
+          && typeof durationRow.event_duration_ms === 'number';
+
+        verdict(
+          'duration_ms BIGINT / int8 readback',
+          bigintDurationReadback,
+          `${durationInsertError ? `insert error=${durationInsertError}; ` : ''}`
+            + `session=${String(durationRow?.session_duration_ms)} (${typeof durationRow?.session_duration_ms}), `
+            + `event=${String(durationRow?.event_duration_ms)} (${typeof durationRow?.event_duration_ms})`,
+        );
 
         // ------------------------------------------------------------------
         // Summary
