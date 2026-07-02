@@ -32,3 +32,15 @@
 - **切り分け**: 同じ変更を `workspace-write` + `sandbox_workspace_write.network_access=true` で再実行できるかを見る。Codex exec 自体が環境 EPERM で起動不能、または localhost 接続だけが EPERM の場合は、コード修正で直らない実行基盤問題として扱う。
 - **対処**: driver の sandbox/backend 設定を確認する。VERIFY は必要に応じて Claude backend fallback（`--backend-verify claude`、既定 fallback を含む）で検証する。sandbox EPERM を `KNOWN` として IMPLEMENT に戻しても、実装コードは改善せず 1 周浪費するだけなので戻さない。TRIAGE はこのパターンを見つけたら `VERDICT: ESCALATE` とする。
 - **出所**: 2026-07-02、issue #33 初 Codex run。VERIFY が read-only sandbox で tsc/unit/next/playwright/localhost を実行して EPERM になり、TRIAGE が環境起因を `KNOWN` と誤分類した。
+
+## P5 — e2e scratch DB の schema 消失（55433 未初期化）
+- **症状**: webServer 起動を伴う e2e 系 rubric が一斉 RED。run.mjs の最終行では `[WebServer] }` だけが見えるが、展開すると Postgres `42P01 relation "sessions" does not exist` 等の連発と `Timed out waiting 180000ms from config.webServer`。
+- **切り分け**: `docker exec lathe-scratch-postgres psql -U lathe -d lathe -c '\dt'` で relations が空かを見る。空なら schema 消失（コンテナ再作成等）でコードの責ではない。
+- **対処**: 環境修理は監査役へ escalate（`apps/web/db/schema.sql` 適用 → `DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe pnpm -C apps/web run ingest:incremental`）。コード修正で直らないので IMPLEMENT に戻さない。
+- **出所**: 2026-07-03、issue #24 の VERIFY。scratch DB (55433) の relations がゼロで `inspector-collapse-expand-toggle` / `render-layout-integrity` が持続 RED。schema+ingest 復旧後に両者 GREEN。
+
+## P6 — PG 22003: BIGINT 集計の ::int downcast overflow
+- **症状**: 特定ページ（例 `/overview`）の e2e が application error / server exception で複数 RED。error digest があり、DB ログ/再現 SQL で `integer out of range`（code 22003、`numeric_int4_opt_error`）。
+- **切り分け**: 該当ページの読み取りクエリに `SUM(<BIGINT列>)::int` 等の downcast が無いか grep。実データで `SUM` が 2147483647 を超えるかを SQL で確認（データ量が増えるとある日突然発火する）。
+- **対処**: コード修正（downcast 除去）として issue 化する。env 修理では直らない。データを減らして緑化するのは偽修復なので禁止。
+- **出所**: 2026-07-03、issue #24 の VERIFY。`overview-stats.ts` の `SUM(token_usage)::int` が実データ 25.3 億で overflow（→ issue #55）。#24 の差分とは無関係（blame 286b2f58）。
