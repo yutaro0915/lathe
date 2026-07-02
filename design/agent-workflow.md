@@ -93,3 +93,11 @@ skill と rubric は**結合**している（skill はどの rubric を参照す
 - 旧運用「Claude(hub) ＋ supervised 別 runner(tmux)」は本 roster（implementer=sonnet 等）へ移行。
 - dev 規律（詳細は AGENTS.md）: **FF only（force-push 禁止）** / rubric 編集は auditor のみ・実装と別 commit（pr-split）/ worktree single-writer / merge 前に verify。
 - 注: 日本語敬語などの**個人グローバル設定は `~/.claude`（user 層）に置く**と lathe-cc にも効く（hub の CLAUDE.md は lathe-cc に読まれない）。
+
+## 保留（意図的な deferral・2026-07-02）: provider 非依存の単一 agent/harness ディレクトリ
+
+**将来形**: agent 定義・hooks 等を単一ディレクトリで管理し、実行時引数に応じて provider ごとに agent を構築して実行する（現状は役割の正本 `.claude/agents/*.md` までは単一化済みで、cc=参照注入／codex=inline と「構築」だけ実行時。未統一なのは hooks・permission 系の管理）。
+
+**今はやらない（ユーザー判断）**。根拠: lathe-phase7 で経験した問題——**inner loop と outer loop の harness が混じると面倒**。現状で回っているので、問題が出るまで現行のまま。
+
+**再考のトリガー**: (a) hooks 周りの管理が面倒になった時（hooks にすべき事柄は複数あるが、それは inner loop の設計ドメイン）、(b) 役割 .md に provider 別の分岐が必要になった時、(c) 第 3 の provider を足す時。統一する場合も **inner/outer の harness 分離を壊さない**ことを制約にする。
