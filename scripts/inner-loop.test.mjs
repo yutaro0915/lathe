@@ -25,6 +25,7 @@ import {
   collectReviewHistory,
   buildReviewHistorySummary,
   buildEscalationMarkdown,
+  stageRequiresFreshMainRebase,
 } from './inner-loop.mjs';
 import {
   buildStagePrompt,
@@ -398,6 +399,15 @@ test('buildStagePrompt: IMPLEMENT includes plan and optional feedback', () => {
   assert.match(withFeedback, /IMPL_DONE \| ESCALATE/);
 });
 
+test('buildImplementPrompt: points implementer to the implement skill and freshness contract', () => {
+  const prompt = buildImplementPrompt({ issueNumber: 1, issueTitle: 'T', issueBody: 'B', plan: 'P' });
+  assert.match(prompt, /\.claude\/skills\/implement\/SKILL\.md/);
+  assert.match(prompt, /着手前/);
+  assert.match(prompt, /git rebase main/);
+  assert.match(prompt, /review handoff 前/);
+  assert.match(prompt, /reset --hard main/);
+});
+
 test('buildImplementPrompt: impl-loop premise break escalates without replanning', () => {
   const prompt = buildImplementPrompt({ issueNumber: 1, issueTitle: 'T', issueBody: 'B', plan: 'P' });
   assert.match(prompt, /前提/);
@@ -441,6 +451,14 @@ test('buildReviewPrompt: asks for comprehensive first-pass review and limits maj
   assert.match(prompt, /過剰 flag 禁止/);
 });
 
+test('buildReviewPrompt: assumes a rebased branch tip as the merged-main artifact', () => {
+  const prompt = buildReviewPrompt({ issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
+  assert.match(prompt, /rebase 済み/);
+  assert.match(prompt, /branch tip/);
+  assert.match(prompt, /merged-main 実体/);
+  assert.match(prompt, /stale branch を救済しない/);
+});
+
 test('buildReviewPrompt: includes review history only when provided', () => {
   const withoutHistory = buildReviewPrompt({ issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
   assert.doesNotMatch(withoutHistory, /前周までの REVIEW 履歴/);
@@ -461,6 +479,14 @@ test('buildReviewPrompt: includes review history only when provided', () => {
 test('buildStagePrompt: VERIFY includes VERDICT instruction', () => {
   const prompt = buildStagePrompt('VERIFY', { issueNumber: 7, headSha: 'def456' });
   assert.match(prompt, /GREEN \| RED \| ESCALATE/);
+});
+
+test('buildVerifyPrompt: assumes a rebased branch tip as the merged-main artifact', () => {
+  const prompt = buildVerifyPrompt({ issueNumber: 7, headSha: 'def456' });
+  assert.match(prompt, /rebase 済み/);
+  assert.match(prompt, /branch tip/);
+  assert.match(prompt, /merged-main 実体/);
+  assert.match(prompt, /stale branch を救済しない/);
 });
 
 // --- receipt issuance is the driver's job, not the prompt's (regression guard) ---
@@ -558,6 +584,41 @@ test('implementer agent: ambiguous requirements choose smallest change except un
   assert.match(agent, /ESCALATE/);
 });
 
+test('implementer agent and skill require main freshness before implementation and review handoff', () => {
+  const agent = readFileSync(new URL('../.claude/agents/implementer.md', import.meta.url), 'utf8');
+  const skill = readFileSync(new URL('../.claude/skills/implement/SKILL.md', import.meta.url), 'utf8');
+  for (const text of [agent, skill]) {
+    assert.match(text, /git rebase main/);
+    assert.match(text, /着手前/);
+    assert.match(text, /review handoff 前/);
+    assert.match(text, /ESCALATE/);
+  }
+  assert.match(skill, /git reset --hard main/);
+  assert.match(skill, /成果物を消す運用は禁止/);
+});
+
+test('review and verify skills assume a rebased branch tip rather than rescuing stale branches', () => {
+  const reviewSkill = readFileSync(new URL('../.claude/skills/review/SKILL.md', import.meta.url), 'utf8');
+  const verifySkill = readFileSync(new URL('../.claude/skills/verify/SKILL.md', import.meta.url), 'utf8');
+  for (const text of [reviewSkill, verifySkill]) {
+    assert.match(text, /rebase 済み/);
+    assert.match(text, /branch tip/);
+    assert.match(text, /merged-main 実体/);
+    assert.match(text, /stale branch を救済しない/);
+  }
+});
+
+test('reviewer agent and skill review branch diff, not uncommitted diff handoff', () => {
+  const reviewerAgent = readFileSync(new URL('../.claude/agents/reviewer.md', import.meta.url), 'utf8');
+  const reviewSkill = readFileSync(new URL('../.claude/skills/review/SKILL.md', import.meta.url), 'utf8');
+  for (const text of [reviewerAgent, reviewSkill]) {
+    assert.doesNotMatch(text, /未コミット|uncommitted/);
+    assert.match(text, /branch tip/);
+    assert.match(text, /git diff main\.\.\.HEAD/);
+    assert.match(text, /merged-main 実体/);
+  }
+});
+
 test('buildStagePrompt: unknown stage throws', () => {
   assert.throws(() => buildStagePrompt('BOGUS', {}), /unknown stage/);
 });
@@ -633,6 +694,14 @@ test('stageCwd: implementation stages run in the worktree', () => {
   for (const stage of ['IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
     assert.equal(stageCwd(stage, '/repo', '/repo/.claude/worktrees/inner-issue-1'), '/repo/.claude/worktrees/inner-issue-1');
   }
+});
+
+test('stageRequiresFreshMainRebase: IMPLEMENT and REVIEW rebase before spawning agents', () => {
+  assert.equal(stageRequiresFreshMainRebase('IMPLEMENT'), true);
+  assert.equal(stageRequiresFreshMainRebase('REVIEW'), true);
+  assert.equal(stageRequiresFreshMainRebase('VERIFY'), false);
+  assert.equal(stageRequiresFreshMainRebase('TRIAGE'), false);
+  assert.equal(stageRequiresFreshMainRebase('PLAN'), false);
 });
 
 // --- manifest entry / manifest shape ---

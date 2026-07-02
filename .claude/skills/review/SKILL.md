@@ -9,9 +9,14 @@ reviewer agent がこれに従う。**read-only**（コード編集・git をし
 ここに置くのは**変わらない観点と手順**。「何が正しいか」の基準は plan と該当 rubric が持つ＝ここに列挙しない。
 
 ## 入力
-- 変更パス一覧＋未コミット diff（implementer の handoff。`git diff` の対象）。
+- 変更パス一覧＋`git diff main...HEAD` の branch diff（rebase 済み branch tip の main からの差分）。
 - plan（acceptance criteria / finish line）。
 - 該当 rubric（`node rubrics/run.mjs --changed <paths>` が選ぶのと同じ scope の rubric 群を読む）。
+
+## worktree freshness 前提
+- reviewer は、driver / implementer が **rebase 済み**にした **branch tip** を **merged-main 実体**としてレビューする。
+- stale branch を救済しない。reviewer は rebase や reset を実行せず、現在の HEAD が最新 main 基準である前提のまま plan / rubric と照合する。
+- レビュー対象の diff は `git diff main...HEAD` で取得する。working tree の一時差分を入力前提にしない。
 
 ## 観点（gate で測れない設計判断に集中。機械検査は verifier の領分＝重複しない）
 1. **plan / 設計 遵守**: plan の acceptance を満たすか。設計意図・周辺コードの慣習（命名・構造・DS=lathe-ui）に沿うか。

@@ -419,6 +419,10 @@ function isWorktreeStage(stage) {
   return ['IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE'].includes(stage);
 }
 
+export function stageRequiresFreshMainRebase(stage) {
+  return stage === 'IMPLEMENT' || stage === 'REVIEW';
+}
+
 /**
  * Decide where a manifest-backed inner-loop run can resume.
  * @param {{ stages: object[], worktree: { exists: boolean, branchMatches: boolean, clean: boolean, headSha: string|null } }} p
@@ -1064,14 +1068,15 @@ if (isMain) {
   while (state !== 'MERGE' && state !== 'ESCALATE' && state !== 'DONE') {
     const cwd = stageCwd(state, REPO_ROOT, worktreePath);
 
-    if (state === 'REVIEW' || state === 'VERIFY') {
-      if (state === 'REVIEW') {
-        log(`rebasing worktree onto main before review (issue #${issueNumber})`);
-        if (!rebaseWorktree(worktreePath)) {
-          writeEscalation(issueNumber, 'REVIEW', 'REBASE_CONFLICT', 'git rebase main failed in worktree');
-          state = 'ESCALATE'; break;
-        }
+    if (stageRequiresFreshMainRebase(state)) {
+      log(`rebasing worktree onto main before ${state} (issue #${issueNumber})`);
+      if (!rebaseWorktree(worktreePath)) {
+        writeEscalation(issueNumber, state, 'REBASE_CONFLICT', `git rebase main failed in worktree before ${state}`);
+        state = 'ESCALATE'; break;
       }
+    }
+
+    if (state === 'REVIEW' || state === 'VERIFY') {
       headSha = spawnSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
     }
 
