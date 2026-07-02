@@ -9,30 +9,139 @@
 //   --quick (Stop hook): tier=cmd   — fast deterministic checks only (~1-2s)
 //   --fast             : tier=test  — + tsc + unit
 //   --full             : tier=heavy — everything (e2e / storybook / integration / judges) = merge gate
+//   --changed <paths>  : explicit changed path scope; replaces porcelain detection
 import { execSync, spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const mode = process.argv.includes('--full') ? 'full' : process.argv.includes('--fast') ? 'fast' : 'quick';
-const tier = mode === 'full' ? 'heavy' : mode === 'fast' ? 'test' : 'cmd';
+const MODE_TIERS = {
+  quick: 'cmd',
+  fast: 'test',
+  full: 'heavy',
+};
 
-let status = '';
-try {
-  status = execSync('git status --porcelain', { encoding: 'utf8', maxBuffer: 1e7 });
-} catch {
-  status = '';
+const USAGE = 'usage: pnpm preflight [--quick|--fast|--full] [--changed <paths...>]';
+
+export function parsePreflightArgs(argv) {
+  const modes = {
+    quick: false,
+    fast: false,
+    full: false,
+  };
+  const changed = [];
+  const warnings = [];
+  let changedSpecified = false;
+
+  for (let i = 0; i < argv.length;) {
+    const arg = argv[i];
+
+    if (arg === '--quick') {
+      modes.quick = true;
+      i += 1;
+      continue;
+    }
+
+    if (arg === '--fast') {
+      modes.fast = true;
+      i += 1;
+      continue;
+    }
+
+    if (arg === '--full') {
+      modes.full = true;
+      i += 1;
+      continue;
+    }
+
+    if (arg === '--changed') {
+      changedSpecified = true;
+      i += 1;
+      while (i < argv.length && !argv[i].startsWith('--')) {
+        changed.push(argv[i]);
+        i += 1;
+      }
+      continue;
+    }
+
+    if (arg.startsWith('--')) {
+      warnings.push(`unknown flag ${arg}`);
+      i += 1;
+      continue;
+    }
+
+    warnings.push(`unexpected positional argument ${arg}`);
+    i += 1;
+  }
+
+  const mode = modes.full ? 'full' : modes.fast ? 'fast' : 'quick';
+  const error = changedSpecified && changed.length === 0 ? '--changed requires at least one path' : null;
+
+  return {
+    mode,
+    changedSpecified,
+    changed,
+    warnings,
+    error,
+  };
 }
 
-// changed = uncommitted working-tree / index paths, minus personal untracked.
-const changed = status
-  .split('\n')
-  .map((l) => l.slice(3).trim())
-  .filter(Boolean)
-  .filter((p) => !p.startsWith('.agents/') && p !== 'skills-lock.json');
-
-if (!changed.length) {
-  console.log('[preflight] no changes — nothing to verify');
-  process.exit(0);
+export function changedPathsFromPorcelain(status) {
+  // changed = uncommitted working-tree / index paths, minus personal untracked.
+  return status
+    .split('\n')
+    .map((l) => l.slice(3).trim())
+    .filter(Boolean)
+    .filter((p) => !p.startsWith('.agents/') && p !== 'skills-lock.json');
 }
 
-console.log(`[preflight:${mode}] tier=${tier} changed=${changed.length}`);
-const r = spawnSync('node', ['rubrics/run.mjs', '--changed', ...changed, '--tier', tier], { stdio: 'inherit' });
-process.exit(r.status ?? 0);
+function getGitStatus() {
+  try {
+    return execSync('git status --porcelain', { encoding: 'utf8', maxBuffer: 1e7 });
+  } catch {
+    return '';
+  }
+}
+
+function runRubrics(args) {
+  return spawnSync('node', args, { stdio: 'inherit' });
+}
+
+function writeLine(stream, line) {
+  stream.write(`${line}\n`);
+}
+
+export function runPreflight(argv = process.argv.slice(2), deps = {}) {
+  const {
+    getStatus = getGitStatus,
+    runRubrics: runRubricsCommand = runRubrics,
+    stdout = process.stdout,
+    stderr = process.stderr,
+  } = deps;
+
+  const parsed = parsePreflightArgs(argv);
+  for (const warning of parsed.warnings) {
+    writeLine(stderr, `[preflight] warning: ${warning}`);
+  }
+
+  if (parsed.error) {
+    writeLine(stderr, `[preflight] error: ${parsed.error}`);
+    writeLine(stderr, `[preflight] ${USAGE}`);
+    return 2;
+  }
+
+  const tier = MODE_TIERS[parsed.mode];
+  const changed = parsed.changedSpecified ? parsed.changed : changedPathsFromPorcelain(getStatus());
+
+  if (!changed.length) {
+    writeLine(stdout, '[preflight] no changes — nothing to verify');
+    return 0;
+  }
+
+  writeLine(stdout, `[preflight:${parsed.mode}] tier=${tier} changed=${changed.length}`);
+  const result = runRubricsCommand(['rubrics/run.mjs', '--changed', ...changed, '--tier', tier]);
+  return result.status ?? 0;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exit(runPreflight());
+}
