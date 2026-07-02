@@ -208,6 +208,60 @@ test('buildStagePrompt: VERIFY prompt does not instruct the agent to issue a rec
   assert.doesNotMatch(prompt, /LATHE_AGENT/);
 });
 
+// --- F1: IMPLEMENT prompt に役割契約（worktree 内・ネスト禁止）---
+
+test('buildImplementPrompt: contains worktree role contract — in worktree inner-issue-N', () => {
+  const prompt = buildImplementPrompt({ issueNumber: 1, issueTitle: 'T', issueBody: 'B', plan: 'P' });
+  assert.match(prompt, /inner-issue-1/);
+  assert.match(prompt, /worktree/);
+});
+
+test('buildImplementPrompt: forbids nested subagent spawn', () => {
+  const prompt = buildImplementPrompt({ issueNumber: 1, issueTitle: 'T', issueBody: 'B', plan: 'P' });
+  assert.match(prompt, /subagent/);
+  assert.match(prompt, /spawn しない/);
+});
+
+test('buildImplementPrompt: worktree name reflects issueNumber', () => {
+  const prompt42 = buildImplementPrompt({ issueNumber: 42, issueTitle: 'T', issueBody: 'B', plan: 'P' });
+  assert.match(prompt42, /inner-issue-42/);
+  assert.match(prompt42, /inner\/issue-42/);
+});
+
+// --- F3: REVIEW/VERIFY prompt に receipt 非発行契約 ---
+
+test('buildReviewPrompt: instructs agent not to issue receipt', () => {
+  const prompt = buildReviewPrompt({ issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
+  assert.match(prompt, /発行しない/);
+  // 既存ガードも維持（receipt.mjs / LATHE_AGENT を含まない）
+  assert.doesNotMatch(prompt, /receipt\.mjs/);
+  assert.doesNotMatch(prompt, /LATHE_AGENT/);
+});
+
+test('buildVerifyPrompt: instructs agent not to issue receipt', () => {
+  const prompt = buildVerifyPrompt({ issueNumber: 7, headSha: 'def456' });
+  assert.match(prompt, /発行しない/);
+  // 既存ガードも維持
+  assert.doesNotMatch(prompt, /receipt\.mjs/);
+  assert.doesNotMatch(prompt, /LATHE_AGENT/);
+});
+
+// --- I1: PLAN prompt に impact-scaled rigor ---
+
+test('buildPlanPrompt: contains impact-scaled rigor hint', () => {
+  const prompt = buildPlanPrompt({ issueNumber: 42, issueTitle: 'T', issueBody: 'B' });
+  assert.match(prompt, /軽量 plan/);
+});
+
+// --- I2: REVIEW prompt に inline diff 指定 ---
+
+test('buildReviewPrompt: specifies inline git diff main...HEAD', () => {
+  const prompt = buildReviewPrompt({ issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
+  assert.match(prompt, /git diff main\.\.\.HEAD/);
+  // diff 収集の subagent 委譲禁止も含む
+  assert.match(prompt, /subagent に委譲しない/);
+});
+
 test('buildStagePrompt: TRIAGE includes verifyResult', () => {
   const prompt = buildStagePrompt('TRIAGE', { issueNumber: 7, verifyResult: 'RED: unit — assertion failed at x.test.mjs:10' });
   assert.match(prompt, /assertion failed at x\.test\.mjs:10/);

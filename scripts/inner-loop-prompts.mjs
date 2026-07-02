@@ -44,6 +44,8 @@ export function buildPlanPrompt(ctx) {
     '',
     '受け入れ基準・対象ファイル・検証方法（gate/tier）を明示してください。',
     '',
+    'rigor は影響クラスでスケールします。**低リスク小変更は軽量 plan で可**（受け入れ基準・検証方法・scope 境界だけ falsifiable に示す）。',
+    '',
     verdictInstruction(['PLAN_READY', 'ESCALATE']),
   ].join('\n');
 }
@@ -59,6 +61,8 @@ export function buildImplementPrompt(ctx) {
     marker(issueNumber, 'IMPLEMENT'),
     '',
     `以下の plan に従って issue #${issueNumber}: ${issueTitle} を実装してください。`,
+    '',
+    `あなたは implementer です。既に worktree \`inner-issue-${issueNumber}\`（branch \`inner/issue-${issueNumber}\`）の**中**に居ます。その場で編集してください。**ネストした subagent を spawn しない・main（repo root）に書かない・別 worktree を切らない**。`,
     '',
     '## issue',
     issueBody ?? '',
@@ -95,6 +99,9 @@ export function buildReviewPrompt(ctx) {
     marker(issueNumber, 'REVIEW'),
     '',
     '`.claude/skills/review/SKILL.md` の手順に従い、未コミットではなく main からの branch diff（現在の HEAD）を plan ＋ 該当 rubric に照らしてレビューしてください。',
+    'diff は **inline の `git diff main...HEAD`** で取得すること。単純な diff 収集を subagent に委譲しない。',
+    '',
+    '**receipt（受領証）は driver が刻みます。あなたは発行しないでください**。最終行に `VERDICT: <TOKEN>` のみを出力すること。',
     '',
     '## plan',
     plan ?? '',
@@ -118,6 +125,8 @@ export function buildVerifyPrompt(ctx) {
     '',
     '`.claude/skills/verify/SKILL.md` の手順に厳密に従い、変更の影響範囲に該当する gate/test を独立実行してください。',
     '実 exit code で判定すること（推測で GREEN と書かない）。',
+    '',
+    '**receipt（受領証）は driver が刻みます。あなたは発行しないでください**。最終行に `VERDICT: <TOKEN>` のみを出力すること。',
     '',
     verdictInstruction(['GREEN', 'RED', 'ESCALATE']),
   ].join('\n');
