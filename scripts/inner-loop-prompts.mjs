@@ -81,11 +81,16 @@ export function buildImplementPrompt(ctx) {
 
 /**
  * REVIEW stage prompt — reviewer agent, cwd = worktree.
+ * Note: receipt issuance is NOT part of this prompt — the driver stamps the
+ * REVIEW receipt itself from the parsed verdict (see inner-loop.mjs
+ * buildReceiptArgs), because an agent-issued `LATHE_AGENT=... node
+ * scripts/receipt.mjs ...` command silently fails the Bash allowlist
+ * (env-prefixed commands don't prefix-match `Bash(node scripts/receipt.mjs *)`).
  * @param {{ issueNumber: number, plan: string, headSha: string }} ctx
  * @returns {string}
  */
 export function buildReviewPrompt(ctx) {
-  const { issueNumber, plan, headSha } = ctx;
+  const { issueNumber, plan } = ctx;
   return [
     marker(issueNumber, 'REVIEW'),
     '',
@@ -94,28 +99,25 @@ export function buildReviewPrompt(ctx) {
     '## plan',
     plan ?? '',
     '',
-    `レビュー後、必ず receipt を発行してください（cwd はこの worktree のまま）:`,
-    `LATHE_AGENT=reviewer node scripts/receipt.mjs review ${headSha} <PASS|CHANGES>`,
-    '',
     verdictInstruction(['PASS', 'CHANGES', 'ESCALATE']),
   ].join('\n');
 }
 
 /**
  * VERIFY stage prompt — verifier agent, cwd = worktree.
+ * Note: receipt issuance is NOT part of this prompt — the driver stamps the
+ * VERIFY receipt itself from the parsed verdict (see inner-loop.mjs
+ * buildReceiptArgs); see buildReviewPrompt's note for why.
  * @param {{ issueNumber: number, headSha: string }} ctx
  * @returns {string}
  */
 export function buildVerifyPrompt(ctx) {
-  const { issueNumber, headSha } = ctx;
+  const { issueNumber } = ctx;
   return [
     marker(issueNumber, 'VERIFY'),
     '',
     '`.claude/skills/verify/SKILL.md` の手順に厳密に従い、変更の影響範囲に該当する gate/test を独立実行してください。',
     '実 exit code で判定すること（推測で GREEN と書かない）。',
-    '',
-    `検証後、必ず receipt を発行してください（cwd はこの worktree のまま）:`,
-    `LATHE_AGENT=verifier node scripts/receipt.mjs verify ${headSha} <GREEN|RED>`,
     '',
     verdictInstruction(['GREEN', 'RED', 'ESCALATE']),
   ].join('\n');

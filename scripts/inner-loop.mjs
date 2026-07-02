@@ -3,13 +3,12 @@
 // inner loop driver — a code state machine that drives headless named agents
 // (planner/implementer/reviewer/verifier/test-triage) through
 // PLAN → IMPLEMENT → REVIEW → VERIFY → (RED→TRIAGE) → MERGE for one issue.
-// ADR 0013: https://... (adr/0013-inner-loop-driver.md) — driver is code, not
-// an agent, because stage transitions are deterministic (verdict-driven), not
-// judgment calls.
+// ADR 0013 (adr/0013-inner-loop-driver.md) — driver is code, not an agent,
+// because stage transitions are deterministic (verdict-driven), not judgment.
 //
-// Pure logic (verdict parsing, state transitions, manifest entries) is exported
-// for unit testing. spawnSync calls to `claude`/`git`/`gh` are isolated in thin
-// wrapper functions so tests can inject fakes without spawning real processes.
+// Pure logic (verdict parsing, state transitions, manifest entries) is
+// exported for unit testing. spawnSync calls to `claude`/`git`/`gh` are
+// isolated in thin wrappers so tests can inject fakes instead of spawning.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -42,11 +41,9 @@ export const MAX_CYCLES = 2;
 // --- Pure / testable exports ---
 
 /**
- * Parse the VERDICT token from a stage's result text.
- * Looks for a line matching `VERDICT: <TOKEN>` (last match wins, per ADR
- * "envelope の result 末尾から parse"). Returns null if absent or unparsable
- * — callers must treat null as ESCALATE ("VERDICT が無い・parse 不能もエスカレーション").
- *
+ * Parse the VERDICT token from a stage's result text (last `VERDICT: <TOKEN>`
+ * line wins, per ADR "envelope の result 末尾から parse"). Returns null if
+ * absent/unparsable — callers must treat null as ESCALATE.
  * @param {string} resultText
  * @returns {string | null}
  */
@@ -58,14 +55,17 @@ export function parseVerdict(resultText) {
   return VALID_VERDICT_TOKENS.includes(token) ? token : null;
 }
 
+// Last `n` lines of `text` (default 30), for surfacing a failing command's
+// real output in an escalation excerpt instead of just "failed".
+export function tailLines(text, n = 30) {
+  return (text ?? '').trim().split('\n').slice(-n).join('\n');
+}
+
 /**
  * State transition table. Given the current state, the verdict just parsed,
- * and the current cycle count (review⇄implement / triage⇄implement retries
- * so far), returns the next state and the updated cycle count.
- *
- * Terminal states: MERGE (success path continues to driver-run merge.mjs,
- * modeled here as state 'MERGE'), ESCALATE, DONE.
- *
+ * and the current cycle count (review⇄implement / triage⇄implement retries so
+ * far), returns the next state and the updated cycle count. Terminal states:
+ * MERGE (success path continues to driver-run merge.mjs), ESCALATE, DONE.
  * @param {string} state
  * @param {string | null} verdict
  * @param {number} cycles
@@ -128,12 +128,9 @@ export function buildManifestEntry({ stage, sessionId, verdict, costUsd, ts }) {
   };
 }
 
-/**
- * Read an existing manifest file (if present) and return its stages array,
- * or an empty array if the file doesn't exist / is malformed.
- * @param {string} manifestPath
- * @returns {Array<object>}
- */
+// Read an existing manifest file (if present), returning its stages array,
+// or [] if the file doesn't exist / is malformed.
+// @returns {Array<object>}
 export function readManifestStages(manifestPath) {
   if (!existsSync(manifestPath)) return [];
   try {
@@ -144,26 +141,18 @@ export function readManifestStages(manifestPath) {
   }
 }
 
-/**
- * Build the full manifest object for writing.
- * @param {number} issueNumber
- * @param {Array<object>} stages
- * @returns {{ issue: number, stages: Array<object> }}
- */
+// Build the full manifest object for writing.
+// @returns {{ issue, stages }}
 export function buildManifest(issueNumber, stages) {
   return { issue: issueNumber, stages };
 }
 
 /**
- * Permission flags per stage, per ADR 0013 §機構詳細:
- * implementer = acceptEdits (worktree cwd, can edit) + allowedTools for the
- * git/pnpm/node commands the IMPLEMENT prompt requires (commit, verify);
+ * Permission flags per stage, per ADR 0013 §機構詳細: implementer = acceptEdits
+ * (worktree cwd, can edit) + allowedTools for git/pnpm/node (commit, verify);
  * read-only stages (planner/reviewer/verifier/test-triage) = dontAsk +
- * allowedTools for the Bash they need (verify/review need to run pnpm/node/git
- * commands).
- * `--bare` and `--dangerously-skip-permissions` must never be used (ADR: hooks
- * must fire).
- *
+ * allowedTools for the Bash they need. `--bare` / `--dangerously-skip-permissions`
+ * must never be used (ADR: hooks must fire).
  * @param {string} stage
  * @returns {{ agent: string, permissionMode: string, allowedTools?: string[] }}
  */
@@ -178,24 +167,14 @@ export function stagePermissions(stage) {
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', 'Bash(pnpm *)', 'Bash(node *)'],
       };
     case 'REVIEW':
-      return {
-        agent: 'reviewer',
-        permissionMode: 'dontAsk',
-        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', 'Bash(node scripts/receipt.mjs *)'],
-      };
+      // No receipt.mjs allowedTool: the driver stamps REVIEW/VERIFY receipts
+      // itself (buildReceiptArgs), not the agent — see that function's doc.
+      return { agent: 'reviewer', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
     case 'VERIFY':
       return {
         agent: 'verifier',
         permissionMode: 'dontAsk',
-        allowedTools: [
-          'Read',
-          'Grep',
-          'Glob',
-          'Bash(git *)',
-          'Bash(pnpm *)',
-          'Bash(node *)',
-          'Bash(node scripts/receipt.mjs *)',
-        ],
+        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', 'Bash(pnpm *)', 'Bash(node *)'],
       };
     case 'TRIAGE':
       return { agent: 'test-triage', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
@@ -216,28 +195,44 @@ export function stageCwd(stage, repoRoot, worktreePath) {
   return stage === 'PLAN' ? repoRoot : worktreePath;
 }
 
+// stage -> [receipt.mjs step, LATHE_AGENT, valid verdicts] — driver stamps
+// receipts itself (agent-issued `LATHE_AGENT=... node scripts/receipt.mjs
+// ...` silently fails the Bash allowlist — env-prefixed commands don't
+// prefix-match `Bash(node scripts/receipt.mjs *)` — so the agent reports
+// PASS/GREEN but no receipt lands and MERGE rejects for real). Verdict lists
+// mirror receipt.mjs's own VALID_VERDICTS.
+const RECEIPT_STAGE_MAP = {
+  REVIEW: ['review', 'reviewer', ['PASS', 'CHANGES']],
+  VERIFY: ['verify', 'verifier', ['GREEN', 'RED']],
+};
+
+// Build argv + env for stamping a receipt from a stage verdict. Only REVIEW
+// (PASS/CHANGES) and VERIFY (GREEN/RED) are receipt-eligible per receipt.mjs's
+// own validation; other stages/verdicts (e.g. ESCALATE) return null.
+// @returns {{ command, args, env: { LATHE_AGENT } } | null}
+export function buildReceiptArgs(stage, sha, verdict) {
+  const mapped = RECEIPT_STAGE_MAP[stage];
+  if (!mapped) return null;
+  const [step, agent, validVerdicts] = mapped;
+  if (!validVerdicts.includes(verdict)) return null;
+  return { command: 'node', args: ['scripts/receipt.mjs', step, sha, verdict], env: { LATHE_AGENT: agent } };
+}
+
 // --- Side-effectful helpers (thin wrappers; tests inject fakes instead) ---
 
 function die(msg) {
   process.stderr.write(`inner-loop: error: ${msg}\n`);
   process.exit(1);
 }
-
 function log(msg) {
   process.stdout.write(`[inner-loop] ${msg}\n`);
 }
 
-/**
- * Fetch issue via `gh issue view`. Isolated for injectability.
- * @param {number} issueNumber
- * @returns {{ number: number, title: string, body: string }}
- */
+// Fetch issue via `gh issue view`. Isolated for injectability.
+// @returns {{ number, title, body }}
 function fetchIssue(issueNumber) {
-  const result = spawnSync(
-    'gh',
-    ['issue', 'view', String(issueNumber), '--json', 'number,title,body'],
-    { encoding: 'utf8', cwd: REPO_ROOT },
-  );
+  const args = ['issue', 'view', String(issueNumber), '--json', 'number,title,body'];
+  const result = spawnSync('gh', args, { encoding: 'utf8', cwd: REPO_ROOT });
   if (result.status !== 0) {
     die(`gh issue view failed: ${result.stderr || result.stdout}`);
   }
@@ -248,21 +243,15 @@ function fetchIssue(issueNumber) {
   }
 }
 
-/**
- * Create the issue worktree. Errors (does not overwrite) if it already exists.
- * @param {number} issueNumber
- * @returns {{ path: string, branch: string }}
- */
+// Create the issue worktree. Errors (does not overwrite) if it already exists.
+// @returns {{ path, branch }}
 function prepareWorktree(issueNumber) {
   const branch = `inner/issue-${issueNumber}`;
   const path = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
   if (existsSync(path)) {
     die(`worktree already exists at ${path} — refusing to overwrite. Remove it first if you intend to restart.`);
   }
-  const result = spawnSync('git', ['worktree', 'add', path, '-b', branch, 'main'], {
-    stdio: 'inherit',
-    cwd: REPO_ROOT,
-  });
+  const result = spawnSync('git', ['worktree', 'add', path, '-b', branch, 'main'], { stdio: 'inherit', cwd: REPO_ROOT });
   if (result.status !== 0) {
     die(`git worktree add failed for ${path}`);
   }
@@ -343,9 +332,14 @@ function rebaseWorktree(worktreePath) {
   return result.status === 0;
 }
 
+// Captures stdout/stderr (not 'inherit') so a MERGE failure's real error
+// (e.g. merge.mjs's list of missing receipts) can reach the escalation
+// excerpt instead of just "failed"; still echoed so a live run isn't silent.
 function runMerge(branch) {
-  const result = spawnSync('node', ['scripts/merge.mjs', branch], { stdio: 'inherit', cwd: REPO_ROOT });
-  return result.status === 0;
+  const result = spawnSync('node', ['scripts/merge.mjs', branch], { encoding: 'utf8', cwd: REPO_ROOT });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  return { ok: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 }
 
 function cleanupWorktree(worktreePath, branch) {
@@ -460,6 +454,23 @@ if (isMain) {
       feedback = envelope.result;
     }
 
+    // Driver stamps the REVIEW/VERIFY receipt itself from the verdict it just
+    // parsed (see buildReceiptArgs) — not left to the agent. Exit non-zero
+    // here is escalated, not silently swallowed.
+    const receipt = buildReceiptArgs(state, headSha, verdict);
+    if (receipt) {
+      const receiptResult = spawnSync(receipt.command, receipt.args, {
+        cwd: worktreePath,
+        env: { ...process.env, ...receipt.env },
+        stdio: 'inherit',
+      });
+      if (receiptResult.status !== 0) {
+        writeEscalation(issueNumber, state, verdict, `receipt.mjs failed: ${receipt.args.join(' ')}`);
+        state = 'ESCALATE';
+        break;
+      }
+    }
+
     const { next, cycles: nextCycles } = nextState(state, verdict, cycles);
     if (next === 'ESCALATE') {
       writeEscalation(issueNumber, state, verdict, envelope.result ?? '');
@@ -475,8 +486,9 @@ if (isMain) {
 
   // state === 'MERGE'
   log(`merging branch ${branch} onto main`);
-  if (!runMerge(branch)) {
-    writeEscalation(issueNumber, 'MERGE', null, 'node scripts/merge.mjs failed');
+  const mergeResult = runMerge(branch);
+  if (!mergeResult.ok) {
+    writeEscalation(issueNumber, 'MERGE', null, `node scripts/merge.mjs failed\n\n${tailLines(mergeResult.output)}`);
     die(`merge failed — see .lathe/runs/issue-${issueNumber}.escalation.md`);
   }
 

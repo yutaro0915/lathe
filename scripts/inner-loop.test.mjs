@@ -8,6 +8,8 @@ import {
   readManifestStages,
   stagePermissions,
   stageCwd,
+  buildReceiptArgs,
+  tailLines,
   MAX_CYCLES,
 } from './inner-loop.mjs';
 import { buildStagePrompt, buildPlanPrompt, buildImplementPrompt, buildReviewPrompt, buildVerifyPrompt, buildTriagePrompt } from './inner-loop-prompts.mjs';
@@ -176,17 +178,34 @@ test('buildStagePrompt: IMPLEMENT includes plan and optional feedback', () => {
   assert.match(withFeedback, /IMPL_DONE \| ESCALATE/);
 });
 
-test('buildStagePrompt: REVIEW includes headSha in receipt command and plan', () => {
+test('buildStagePrompt: REVIEW includes plan and VERDICT instruction', () => {
   const prompt = buildStagePrompt('REVIEW', { issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
-  assert.match(prompt, /receipt\.mjs review abc123/);
   assert.match(prompt, /plan text/);
   assert.match(prompt, /PASS \| CHANGES \| ESCALATE/);
 });
 
-test('buildStagePrompt: VERIFY includes headSha in receipt command', () => {
+test('buildStagePrompt: VERIFY includes VERDICT instruction', () => {
   const prompt = buildStagePrompt('VERIFY', { issueNumber: 7, headSha: 'def456' });
-  assert.match(prompt, /receipt\.mjs verify def456/);
   assert.match(prompt, /GREEN \| RED \| ESCALATE/);
+});
+
+// --- receipt issuance is the driver's job, not the prompt's (regression guard) ---
+// The driver stamps REVIEW/VERIFY receipts itself (buildReceiptArgs) because an
+// agent-issued `LATHE_AGENT=... node scripts/receipt.mjs ...` command silently
+// fails the Bash allowlist (env-prefixed commands don't prefix-match
+// `Bash(node scripts/receipt.mjs *)`). Prompts must never re-introduce that
+// instruction.
+
+test('buildStagePrompt: REVIEW prompt does not instruct the agent to issue a receipt', () => {
+  const prompt = buildStagePrompt('REVIEW', { issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
+  assert.doesNotMatch(prompt, /receipt\.mjs/);
+  assert.doesNotMatch(prompt, /LATHE_AGENT/);
+});
+
+test('buildStagePrompt: VERIFY prompt does not instruct the agent to issue a receipt', () => {
+  const prompt = buildStagePrompt('VERIFY', { issueNumber: 7, headSha: 'def456' });
+  assert.doesNotMatch(prompt, /receipt\.mjs/);
+  assert.doesNotMatch(prompt, /LATHE_AGENT/);
 });
 
 test('buildStagePrompt: TRIAGE includes verifyResult', () => {
@@ -329,4 +348,71 @@ test('readManifestStages: stages not an array -> []', () => {
   const result = readManifestStages(path);
   assert.deepEqual(result, []);
   rmSync(dir, { recursive: true, force: true });
+});
+
+// --- buildReceiptArgs: driver stamps REVIEW/VERIFY receipts itself ---
+
+test('buildReceiptArgs: REVIEW + PASS builds review receipt argv with reviewer agent', () => {
+  const result = buildReceiptArgs('REVIEW', 'abc123', 'PASS');
+  assert.equal(result.command, 'node');
+  assert.deepEqual(result.args, ['scripts/receipt.mjs', 'review', 'abc123', 'PASS']);
+  assert.deepEqual(result.env, { LATHE_AGENT: 'reviewer' });
+});
+
+test('buildReceiptArgs: REVIEW + CHANGES builds review receipt argv', () => {
+  const result = buildReceiptArgs('REVIEW', 'abc123', 'CHANGES');
+  assert.deepEqual(result.args, ['scripts/receipt.mjs', 'review', 'abc123', 'CHANGES']);
+  assert.deepEqual(result.env, { LATHE_AGENT: 'reviewer' });
+});
+
+test('buildReceiptArgs: VERIFY + GREEN builds verify receipt argv with verifier agent', () => {
+  const result = buildReceiptArgs('VERIFY', 'def456', 'GREEN');
+  assert.equal(result.command, 'node');
+  assert.deepEqual(result.args, ['scripts/receipt.mjs', 'verify', 'def456', 'GREEN']);
+  assert.deepEqual(result.env, { LATHE_AGENT: 'verifier' });
+});
+
+test('buildReceiptArgs: VERIFY + RED builds verify receipt argv', () => {
+  const result = buildReceiptArgs('VERIFY', 'def456', 'RED');
+  assert.deepEqual(result.args, ['scripts/receipt.mjs', 'verify', 'def456', 'RED']);
+  assert.deepEqual(result.env, { LATHE_AGENT: 'verifier' });
+});
+
+test('buildReceiptArgs: REVIEW + ESCALATE -> null (not a receipt-eligible verdict)', () => {
+  assert.equal(buildReceiptArgs('REVIEW', 'abc123', 'ESCALATE'), null);
+});
+
+test('buildReceiptArgs: VERIFY + ESCALATE -> null (not a receipt-eligible verdict)', () => {
+  assert.equal(buildReceiptArgs('VERIFY', 'def456', 'ESCALATE'), null);
+});
+
+test('buildReceiptArgs: non-receipt stages (PLAN/IMPLEMENT/TRIAGE) -> null', () => {
+  for (const stage of ['PLAN', 'IMPLEMENT', 'TRIAGE']) {
+    assert.equal(buildReceiptArgs(stage, 'abc123', 'PLAN_READY'), null, `stage=${stage} should not be receipt-eligible`);
+  }
+});
+
+// --- tailLines: merge escalation output capture ---
+
+test('tailLines: returns last n lines (default 30)', () => {
+  const lines = Array.from({ length: 40 }, (_, i) => `line-${i}`);
+  const result = tailLines(lines.join('\n'));
+  const resultLines = result.split('\n');
+  assert.equal(resultLines.length, 30);
+  assert.equal(resultLines[0], 'line-10');
+  assert.equal(resultLines[29], 'line-39');
+});
+
+test('tailLines: shorter input returned unchanged (trimmed)', () => {
+  assert.equal(tailLines('  a\nb\nc  '), 'a\nb\nc');
+});
+
+test('tailLines: custom n', () => {
+  const result = tailLines('a\nb\nc\nd', 2);
+  assert.equal(result, 'c\nd');
+});
+
+test('tailLines: null/undefined -> empty string', () => {
+  assert.equal(tailLines(null), '');
+  assert.equal(tailLines(undefined), '');
 });
