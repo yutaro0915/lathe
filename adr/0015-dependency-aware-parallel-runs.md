@@ -41,3 +41,16 @@ Depends-on: #29, #35
 
 ## 実装スライス
 1 issue（inner loop 実装可）: inner-queue.mjs＋Depends-on/Touches パーサ（純関数・単体テスト）＋merge.mjs の landing lock＋`.lathe/runs/issue-<n>.log`。受け入れ: dry-run で「実行可/依存待ち/重複回避」の判定表示・依存未解決 issue が起動されないテスト・2 並列の実走スモーク。
+
+## 追補（2026-07-02）: 並列可否の判断の所在と防衛線
+
+「並列できるか」の判断は 2 層に分離する:
+- **宣言＝判断の実体**: outer loop が**起票時**に issue body へ書く（根拠: 論理依存＝成果物の利用関係、触るパスの見積もり）。
+- **執行＝判断しない**: inner-queue は宣言を機械的に読むだけ（全依存 CLOSED か・Touches 重複か・run 中か）。merge gate と同じ「判断と執行の分離」。
+
+宣言が誤っていた場合の防衛線（失敗モードは**破壊でなく停止**）:
+1. **planner**: 未宣言の前提欠落を PLAN 段で検知しエスカレート（実績: #25 PLAN が未配線テストという未宣言依存を発見→#29）。
+2. **git 3-way＋landing lock**: Touches 予測が外れて同一ファイルに触れても、衝突すれば merge.mjs が escalate。
+3. **verify/backstop**: 意味的干渉の最終網。
+
+既知の限界: Touches は起票時の予測（#32 で予測外の新ファイルが生まれた実例）。将来は lathe の実測 `changed_files`（全 run の触ったパスの観測データ）から Touches を接地する改善余地がある。
