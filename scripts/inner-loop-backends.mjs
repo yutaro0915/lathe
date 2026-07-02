@@ -69,26 +69,41 @@ export function buildReceiptArgs(stage, sha, verdict) {
 
 /**
  * Sandbox mode for a stage's codex exec invocation.
- * IMPLEMENT → workspace-write (edits files); all others → read-only.
+ * IMPLEMENT/VERIFY/TRIAGE -> workspace-write; PLAN/REVIEW -> read-only.
+ * VERIFY needs build/test writes and localhost. TRIAGE may rerun probes.
  * @param {string} stage
  * @returns {'workspace-write' | 'read-only'}
  */
 export function stageSandbox(stage) {
-  return stage === 'IMPLEMENT' ? 'workspace-write' : 'read-only';
+  return ['IMPLEMENT', 'VERIFY', 'TRIAGE'].includes(stage) ? 'workspace-write' : 'read-only';
 }
 
 /**
  * Build argv for `codex exec <prompt> ...` (everything after 'exec').
  * NEVER includes --dangerously-bypass-* or --ephemeral.
+ *
+ * When the sandbox is workspace-write, also grants --add-dir <repoRoot>/.git.
+ * A worktree's real git metadata (objects/refs/worktrees/logs) lives under the
+ * main checkout's .git, outside the worktree's own workspace-write root, so
+ * `git commit` inside the worktree needs write access there too. Granting the
+ * whole .git directory (rather than enumerating subpaths) is deliberate: git's
+ * internal layout there is not a stable fine-grained surface to allowlist, and
+ * protecting main is already the job of merge.mjs's receipt gate plus the
+ * IMPLEMENT stage's role contract — that is what this sandbox boundary is for.
  * @param {string} stage
  * @param {string} prompt
  * @param {string} cwd
  * @param {string} lastmsgPath  path for -o (last assistant message output)
+ * @param {string | undefined} repoRoot  main repo root; enables --add-dir <repoRoot>/.git under workspace-write
  * @param {string | undefined} model  optional model override (-m)
  * @returns {string[]}
  */
-export function buildCodexArgs(stage, prompt, cwd, lastmsgPath, model) {
+export function buildCodexArgs(stage, prompt, cwd, lastmsgPath, repoRoot, model) {
   const args = [prompt, '--json', '-o', lastmsgPath, '-C', cwd, '-s', stageSandbox(stage)];
+  if (stageSandbox(stage) === 'workspace-write') {
+    args.push('-c', 'sandbox_workspace_write.network_access=true');
+    if (repoRoot) args.push('--add-dir', `${repoRoot}/.git`);
+  }
   if (model) args.push('-m', model);
   return args;
 }
@@ -134,9 +149,9 @@ export function buildCodexPrompt(agentBody, stagePrompt) {
 }
 
 /**
- * Parse the codex session/rollout id from the --json JSONL stream (stdout).
- * Looks for a `session_meta` record with payload.id — the same format used
- * in ~/.codex/sessions rollout files (see ingest/providers/codex.ts).
+ * Parse the codex session/thread id from the --json JSONL stream (stdout).
+ * Accepts both persisted rollout shape (`session_meta.payload.id`) and exec
+ * stream shape (`session_configured.session_id`).
  * Returns null if not found.
  * @param {string} jsonlText
  * @returns {string | null}
@@ -148,7 +163,49 @@ export function parseCodexSessionId(jsonlText) {
     if (!t) continue;
     try {
       const rec = JSON.parse(t);
-      if (rec?.type === 'session_meta' && typeof rec.payload?.id === 'string') return rec.payload.id;
+      const payload = rec?.payload && typeof rec.payload === 'object' ? rec.payload : {};
+      if (rec?.type === 'session_meta') {
+        if (typeof payload.id === 'string' && payload.id) return payload.id;
+        if (typeof payload.session_id === 'string' && payload.session_id) return payload.session_id;
+      }
+      if (rec?.type === 'session_configured') {
+        if (typeof rec.session_id === 'string' && rec.session_id) return rec.session_id;
+        if (typeof rec.sessionId === 'string' && rec.sessionId) return rec.sessionId;
+        if (typeof payload.session_id === 'string' && payload.session_id) return payload.session_id;
+        if (typeof payload.sessionId === 'string' && payload.sessionId) return payload.sessionId;
+        if (typeof rec.thread_id === 'string' && rec.thread_id) return rec.thread_id;
+        if (typeof rec.threadId === 'string' && rec.threadId) return rec.threadId;
+        if (typeof payload.thread_id === 'string' && payload.thread_id) return payload.thread_id;
+        if (typeof payload.threadId === 'string' && payload.threadId) return payload.threadId;
+      }
+      if (rec?.type === 'thread.started') {
+        if (typeof rec.thread_id === 'string' && rec.thread_id) return rec.thread_id;
+        if (typeof rec.threadId === 'string' && rec.threadId) return rec.threadId;
+        if (typeof payload.thread_id === 'string' && payload.thread_id) return payload.thread_id;
+        if (typeof payload.threadId === 'string' && payload.threadId) return payload.threadId;
+      }
+    } catch { /* skip malformed lines */ }
+  }
+  return null;
+}
+
+/**
+ * Parse an explicit USD cost from codex JSONL when the stream provides one.
+ * Codex exec commonly omits dollar cost, so callers must tolerate null.
+ * @param {string} jsonlText
+ * @returns {number | null}
+ */
+export function parseCodexCostUsd(jsonlText) {
+  if (!jsonlText || typeof jsonlText !== 'string') return null;
+  for (const line of jsonlText.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const rec = JSON.parse(t);
+      const payload = rec?.payload && typeof rec.payload === 'object' ? rec.payload : {};
+      for (const v of [rec.total_cost_usd, rec.cost_usd, payload.total_cost_usd, payload.cost_usd]) {
+        if (typeof v === 'number' && Number.isFinite(v)) return v;
+      }
     } catch { /* skip malformed lines */ }
   }
   return null;
@@ -175,7 +232,7 @@ export function parseBackendFlags(argv) {
 
 /**
  * Resolve the backend for a given stage from parsed flags.
- * Stage-specific override > global override > default ('codex').
+ * Stage-specific override > global override > default.
  * @param {string} stage
  * @param {{ global: string | null, stages: Record<string, string> }} flags
  * @returns {string}
@@ -183,5 +240,6 @@ export function parseBackendFlags(argv) {
 export function selectBackend(stage, flags) {
   if (flags.stages[stage] != null) return flags.stages[stage];
   if (flags.global != null) return flags.global;
+  if (stage === 'VERIFY') return 'claude';
   return 'codex';
 }

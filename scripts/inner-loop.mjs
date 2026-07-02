@@ -20,7 +20,7 @@ import {
   stagePermissions, stageCwd, buildReceiptArgs,
   stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt,
-  parseCodexSessionId, parseBackendFlags, selectBackend,
+  parseCodexSessionId, parseCodexCostUsd, parseBackendFlags, selectBackend,
 } from './inner-loop-backends.mjs';
 
 // Re-export stage helpers so existing tests importing from this file keep working.
@@ -63,14 +63,40 @@ export function tailLines(text, n = 30) {
 }
 
 /**
+ * Detect the P4 playbook class: Codex sandbox EPERM is a non-implementable
+ * environment/backend failure. If triage still returns KNOWN for it, the driver
+ * must escalate instead of spending an IMPLEMENT cycle.
+ * @param {string} resultText
+ * @returns {boolean}
+ */
+export function isCodexSandboxEpermTriageResult(resultText) {
+  if (!resultText || typeof resultText !== 'string') return false;
+  const text = resultText.toLowerCase();
+  if (!text.includes('eperm')) return false;
+  if (/\bp4\b/.test(text)) return true;
+  if (text.includes('codex sandbox')) return true;
+  if (!text.includes('sandbox')) return false;
+  return [
+    '.tsbuildinfo',
+    '.next',
+    'playwright',
+    '127.0.0.1',
+    '::1',
+    'localhost',
+    'temp',
+  ].some((marker) => text.includes(marker));
+}
+
+/**
  * State transition table. Returns next state and updated cycle count.
  * Terminal states: MERGE (driver runs merge.mjs), ESCALATE, DONE.
  * @param {string} state
  * @param {string | null} verdict
  * @param {number} cycles
+ * @param {{ nonImplementableKnown?: boolean }} context
  * @returns {{ next: string, cycles: number }}
  */
-export function nextState(state, verdict, cycles = 0) {
+export function nextState(state, verdict, cycles = 0, context = {}) {
   if (verdict === null) return { next: 'ESCALATE', cycles };
   switch (state) {
     case 'PLAN':
@@ -90,6 +116,7 @@ export function nextState(state, verdict, cycles = 0) {
       return { next: 'ESCALATE', cycles };
     case 'TRIAGE':
       if (verdict === 'KNOWN') {
+        if (context.nonImplementableKnown) return { next: 'ESCALATE', cycles };
         const next = cycles + 1;
         return next > MAX_CYCLES ? { next: 'ESCALATE', cycles: next } : { next: 'IMPLEMENT', cycles: next };
       }
@@ -101,14 +128,15 @@ export function nextState(state, verdict, cycles = 0) {
 
 /**
  * Build one run-manifest entry (ADR 0013 §2 + ADR 0014 backend field).
- * @param {{ stage: string, sessionId: string|null, verdict: string|null, costUsd: number|null, ts?: string, backend?: string|null }} p
+ * @param {{ stage: string, sessionId: string|null, verdict: string|null, costUsd: number|null, durationMs?: number|null, ts?: string, backend?: string|null }} p
  */
-export function buildManifestEntry({ stage, sessionId, verdict, costUsd, ts, backend }) {
+export function buildManifestEntry({ stage, sessionId, verdict, costUsd, durationMs, ts, backend }) {
   return {
     stage,
     session_id: sessionId ?? null,
     verdict: verdict ?? null,
     cost_usd: costUsd ?? null,
+    duration_ms: durationMs ?? null,
     ts: ts ?? new Date().toISOString(),
     backend: backend ?? null,
   };
@@ -132,7 +160,7 @@ export function buildManifest(issueNumber, stages) {
 export {
   stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt,
-  parseCodexSessionId, parseBackendFlags, selectBackend,
+  parseCodexSessionId, parseCodexCostUsd, parseBackendFlags, selectBackend,
 };
 
 // --- Side-effectful helpers ---
@@ -175,12 +203,13 @@ function runStageCodex(stage, prompt, cwd) {
   const agentBody = existsSync(agentFile) ? stripFrontmatter(readFileSync(agentFile, 'utf8')) : '';
   const fullPrompt = buildCodexPrompt(agentBody, prompt);
   const lastmsgPath = join(tmpdir(), `lathe-inner-stage-${stage}.txt`);
-  const args = buildCodexArgs(stage, fullPrompt, cwd, lastmsgPath);
+  const args = buildCodexArgs(stage, fullPrompt, cwd, lastmsgPath, REPO_ROOT);
   const r = spawnSync('codex', ['exec', ...args], { encoding: 'utf8', cwd, maxBuffer: 1e8 });
   if (r.status !== 0 && !r.stdout) die(`codex exec failed for stage ${stage}: ${r.stderr || 'no output'}`);
   const sessionId = parseCodexSessionId(r.stdout ?? '');
+  const costUsd = parseCodexCostUsd(r.stdout ?? '');
   const result = existsSync(lastmsgPath) ? readFileSync(lastmsgPath, 'utf8') : '';
-  return { session_id: sessionId, result, total_cost_usd: null, backend: 'codex' };
+  return { session_id: sessionId, result, total_cost_usd: costUsd, backend: 'codex' };
 }
 
 /**
@@ -275,14 +304,15 @@ if (isMain) {
         const sb = stageSandbox(stage);
         const lm = join(tmpdir(), `lathe-inner-stage-${stage}.txt`);
         log(`dry-run: stage=${stage} backend=codex sandbox=${sb} cwd=${cwd}`);
-        log(`dry-run: codex exec '<prompt>' --json -o ${lm} -C ${cwd} -s ${sb}`);
+        const codexArgs = buildCodexArgs(stage, '<prompt>', cwd, lm, REPO_ROOT);
+        log(`dry-run: codex exec ${codexArgs.join(' ')}`);
       } else {
         log(`dry-run: stage=${stage} backend=claude agent=${agent} permission-mode=${permissionMode} allowedTools=${(allowedTools || []).join(',')} cwd=${cwd}`);
         log(`dry-run: claude -p '<prompt>' --agent ${agent} --output-format json --permission-mode ${permissionMode}`);
       }
       log(`dry-run: prompt preview:\n${promptPreview}\n`);
     }
-    log('dry-run: transition plan — PLAN_READY->IMPLEMENT, IMPL_DONE->REVIEW, REVIEW PASS->VERIFY / CHANGES->IMPLEMENT (max 2 cycles), VERIFY GREEN->MERGE / RED->TRIAGE, TRIAGE KNOWN->IMPLEMENT / NOVEL->ESCALATE, missing/unparsable VERDICT->ESCALATE');
+    log('dry-run: transition plan — PLAN_READY->IMPLEMENT, IMPL_DONE->REVIEW, REVIEW PASS->VERIFY / CHANGES->IMPLEMENT (max 2 cycles), VERIFY GREEN->MERGE / RED->TRIAGE, TRIAGE KNOWN->IMPLEMENT only when implementable / P4 Codex sandbox EPERM->ESCALATE / NOVEL->ESCALATE, missing/unparsable VERDICT->ESCALATE');
     process.exit(0);
   }
 
@@ -317,12 +347,14 @@ if (isMain) {
 
     const backend = selectBackend(state, backendFlags);
     log(`stage=${state} backend=${backend} cwd=${cwd} — spawning ${backend}`);
+    const stageStartedAt = Date.now();
     const envelope = runStage(state, prompt, cwd, null, backend);
+    const durationMs = Math.max(1, Date.now() - stageStartedAt);
     const verdict = parseVerdict(envelope.result);
 
     appendManifestEntry(issueNumber, buildManifestEntry({
       stage: state, sessionId: envelope.session_id ?? null,
-      verdict, costUsd: envelope.total_cost_usd ?? null, backend: envelope.backend ?? null,
+      verdict, costUsd: envelope.total_cost_usd ?? null, durationMs, backend: envelope.backend ?? null,
     }));
 
     if (verdict === null) { writeEscalation(issueNumber, state, null, envelope.result ?? ''); state = 'ESCALATE'; break; }
@@ -330,7 +362,9 @@ if (isMain) {
     if (state === 'PLAN' && verdict === 'PLAN_READY') plan = envelope.result;
     if (state === 'REVIEW' && verdict === 'CHANGES') feedback = envelope.result;
     if (state === 'VERIFY' && verdict === 'RED') verifyResult = envelope.result;
-    if (state === 'TRIAGE' && verdict === 'KNOWN') feedback = envelope.result;
+    const nonImplementableKnown =
+      state === 'TRIAGE' && verdict === 'KNOWN' && isCodexSandboxEpermTriageResult(envelope.result);
+    if (state === 'TRIAGE' && verdict === 'KNOWN' && !nonImplementableKnown) feedback = envelope.result;
 
     const receipt = buildReceiptArgs(state, headSha, verdict);
     if (receipt) {
@@ -338,9 +372,10 @@ if (isMain) {
       if (rr.status !== 0) { writeEscalation(issueNumber, state, verdict, `receipt.mjs failed: ${receipt.args.join(' ')}`); state = 'ESCALATE'; break; }
     }
 
-    const { next, cycles: nextCycles } = nextState(state, verdict, cycles);
+    const { next, cycles: nextCycles } = nextState(state, verdict, cycles, { nonImplementableKnown });
     if (next === 'ESCALATE') writeEscalation(issueNumber, state, verdict, envelope.result ?? '');
-    log(`stage=${state} verdict=${verdict} -> next=${next} (cycles=${nextCycles})`);
+    const reason = nonImplementableKnown ? ' non-implementable-known=P4-codex-sandbox-eperm' : '';
+    log(`stage=${state} verdict=${verdict} -> next=${next} (cycles=${nextCycles})${reason}`);
     state = next; cycles = nextCycles;
   }
 

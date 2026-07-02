@@ -26,3 +26,9 @@
 - **切り分け**: (a) エラーが全て module-not-found か、(b) `ls <worktree>/node_modules` が空/欠損か、(c) main（repo root）で同じ `pnpm test` が全緑か。3 点が揃えば env 起因（worktree に pnpm workspace の symlink / `packages/*/dist` が無い）。
 - **対処**: worktree で `pnpm install` 後に再実行。または「branch の責でない」と注記して main 側の緑を根拠に判定する。ゼロから再切り分けしない（毎回同じ結論になる）。
 - **出所**: 2026-07-02 meta-audit（issue #29/#25 の run）。両 VERIFY と #25 IMPLEMENT の verifier が同じ 8 件を毎回再発見していた（session 802d6cb7 seq33 / 89808ce8 seq28）。
+
+## P4 — Codex sandbox EPERM（VERIFY 実行環境の権限不足）
+- **症状**: Codex backend の VERIFY / TRIAGE で、検証対象コードではなく sandbox 制約により EPERM が出る。典型例は `tsc` の `.tsbuildinfo` 書き込み、unit test の temp 書き込み、`next build` の `.next` mkdir、Playwright cache mkdir、`connect EPERM 127.0.0.1:<port>` / `connect EPERM ::1:<port>`。
+- **切り分け**: 同じ変更を `workspace-write` + `sandbox_workspace_write.network_access=true` で再実行できるかを見る。Codex exec 自体が環境 EPERM で起動不能、または localhost 接続だけが EPERM の場合は、コード修正で直らない実行基盤問題として扱う。
+- **対処**: driver の sandbox/backend 設定を確認する。VERIFY は必要に応じて Claude backend fallback（`--backend-verify claude`、既定 fallback を含む）で検証する。sandbox EPERM を `KNOWN` として IMPLEMENT に戻しても、実装コードは改善せず 1 周浪費するだけなので戻さない。TRIAGE はこのパターンを見つけたら `VERDICT: ESCALATE` とする。
+- **出所**: 2026-07-02、issue #33 初 Codex run。VERIFY が read-only sandbox で tsc/unit/next/playwright/localhost を実行して EPERM になり、TRIAGE が環境起因を `KNOWN` と誤分類した。

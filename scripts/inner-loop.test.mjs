@@ -11,6 +11,7 @@ import {
   buildReceiptArgs,
   tailLines,
   MAX_CYCLES,
+  isCodexSandboxEpermTriageResult,
 } from './inner-loop.mjs';
 import { buildStagePrompt, buildPlanPrompt, buildImplementPrompt, buildReviewPrompt, buildVerifyPrompt, buildTriagePrompt } from './inner-loop-prompts.mjs';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -118,6 +119,12 @@ test('nextState: TRIAGE + KNOWN -> IMPLEMENT (cycle increments)', () => {
   const { next, cycles } = nextState('TRIAGE', 'KNOWN', 0);
   assert.equal(next, 'IMPLEMENT');
   assert.equal(cycles, 1);
+});
+
+test('nextState: TRIAGE + KNOWN non-implementable environment failure -> ESCALATE', () => {
+  const { next, cycles } = nextState('TRIAGE', 'KNOWN', 0, { nonImplementableKnown: true });
+  assert.equal(next, 'ESCALATE');
+  assert.equal(cycles, 0);
 });
 
 test('nextState: TRIAGE + KNOWN exceeding MAX_CYCLES -> ESCALATE', () => {
@@ -268,6 +275,14 @@ test('buildStagePrompt: TRIAGE includes verifyResult', () => {
   assert.match(prompt, /KNOWN \| NOVEL \| ESCALATE/);
 });
 
+test('buildTriagePrompt: Codex sandbox EPERM is escalated, not returned as KNOWN', () => {
+  const prompt = buildTriagePrompt({ issueNumber: 7, verifyResult: 'RED: tsc — EPERM writing .tsbuildinfo' });
+  assert.match(prompt, /P4/);
+  assert.match(prompt, /Codex sandbox EPERM/);
+  assert.match(prompt, /VERDICT: ESCALATE/);
+  assert.match(prompt, /VERDICT: KNOWN` で IMPLEMENT に戻してはいけません/);
+});
+
 test('buildStagePrompt: unknown stage throws', () => {
   assert.throws(() => buildStagePrompt('BOGUS', {}), /unknown stage/);
 });
@@ -342,6 +357,7 @@ test('buildManifestEntry: fills defaults for missing optional fields', () => {
   assert.equal(entry.session_id, 'sess-1');
   assert.equal(entry.verdict, 'PLAN_READY');
   assert.equal(entry.cost_usd, 0.05);
+  assert.equal(entry.duration_ms, null);
   assert.ok(entry.ts);
 });
 
@@ -360,6 +376,19 @@ test('buildManifestEntry: backend field is recorded when provided (ADR 0014)', (
 test('buildManifestEntry: backend omitted -> null (backward compatible)', () => {
   const entry = buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', costUsd: 0.01 });
   assert.equal(entry.backend, null);
+});
+
+test('buildManifestEntry: records duration even when cost is null', () => {
+  const entry = buildManifestEntry({
+    stage: 'VERIFY',
+    sessionId: 'exec-session-123',
+    verdict: 'GREEN',
+    costUsd: null,
+    durationMs: 321,
+    backend: 'codex',
+  });
+  assert.equal(entry.cost_usd, null);
+  assert.equal(entry.duration_ms, 321);
 });
 
 test('buildManifest: wraps issue number and stages array', () => {
@@ -479,4 +508,24 @@ test('tailLines: custom n', () => {
 test('tailLines: null/undefined -> empty string', () => {
   assert.equal(tailLines(null), '');
   assert.equal(tailLines(undefined), '');
+});
+
+// --- P4: non-implementable Codex sandbox EPERM triage ---
+
+test('isCodexSandboxEpermTriageResult: detects playbook P4 KNOWN output', () => {
+  const result = [
+    '既知（playbook P4）: Codex sandbox EPERM。',
+    'connect EPERM 127.0.0.1:55432 and .tsbuildinfo write failed.',
+    'VERDICT: KNOWN',
+  ].join('\n');
+  assert.equal(isCodexSandboxEpermTriageResult(result), true);
+});
+
+test('isCodexSandboxEpermTriageResult: does not classify ordinary known failures as P4', () => {
+  const result = [
+    '既知（playbook P1）: cold e2e flake。',
+    'warm rerun passed.',
+    'VERDICT: KNOWN',
+  ].join('\n');
+  assert.equal(isCodexSandboxEpermTriageResult(result), false);
 });

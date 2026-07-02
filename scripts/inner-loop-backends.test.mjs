@@ -7,6 +7,7 @@ import {
   stripFrontmatter,
   buildCodexPrompt,
   parseCodexSessionId,
+  parseCodexCostUsd,
   parseBackendFlags,
   selectBackend,
 } from './inner-loop-backends.mjs';
@@ -25,12 +26,12 @@ test('stageSandbox: REVIEW -> read-only', () => {
   assert.equal(stageSandbox('REVIEW'), 'read-only');
 });
 
-test('stageSandbox: VERIFY -> read-only', () => {
-  assert.equal(stageSandbox('VERIFY'), 'read-only');
+test('stageSandbox: VERIFY -> workspace-write', () => {
+  assert.equal(stageSandbox('VERIFY'), 'workspace-write');
 });
 
-test('stageSandbox: TRIAGE -> read-only', () => {
-  assert.equal(stageSandbox('TRIAGE'), 'read-only');
+test('stageSandbox: TRIAGE -> workspace-write', () => {
+  assert.equal(stageSandbox('TRIAGE'), 'workspace-write');
 });
 
 // --- buildCodexArgs ---
@@ -50,6 +51,21 @@ test('buildCodexArgs: IMPLEMENT uses workspace-write sandbox', () => {
   const args = buildCodexArgs('IMPLEMENT', 'implement it', '/wt', '/tmp/out.txt');
   assert.ok(args.includes('workspace-write'));
   assert.ok(!args.includes('read-only'));
+});
+
+test('buildCodexArgs: workspace-write stages enable sandbox localhost/network access', () => {
+  for (const stage of ['IMPLEMENT', 'VERIFY', 'TRIAGE']) {
+    const args = buildCodexArgs(stage, 'p', '/wt', '/tmp/out.txt');
+    assert.ok(args.includes('-c'), `stage=${stage}: must include config override`);
+    assert.ok(args.includes('sandbox_workspace_write.network_access=true'), `stage=${stage}: must enable network access`);
+  }
+});
+
+test('buildCodexArgs: read-only stages do not enable workspace-write network config', () => {
+  for (const stage of ['PLAN', 'REVIEW']) {
+    const args = buildCodexArgs(stage, 'p', '/repo', '/tmp/out.txt');
+    assert.ok(!args.includes('sandbox_workspace_write.network_access=true'), `stage=${stage}: must not add workspace-write config`);
+  }
 });
 
 test('buildCodexArgs: prompt is first element', () => {
@@ -74,7 +90,7 @@ test('buildCodexArgs: never includes --ephemeral (regression guard)', () => {
 });
 
 test('buildCodexArgs: optional model flag (-m) is appended when provided', () => {
-  const args = buildCodexArgs('PLAN', 'p', '/repo', '/tmp/out.txt', 'gpt-5.4');
+  const args = buildCodexArgs('PLAN', 'p', '/repo', '/tmp/out.txt', undefined, 'gpt-5.4');
   assert.ok(args.includes('-m'));
   assert.ok(args.includes('gpt-5.4'));
 });
@@ -82,6 +98,28 @@ test('buildCodexArgs: optional model flag (-m) is appended when provided', () =>
 test('buildCodexArgs: no -m when model is undefined', () => {
   const args = buildCodexArgs('PLAN', 'p', '/repo', '/tmp/out.txt');
   assert.ok(!args.includes('-m'));
+});
+
+// --- buildCodexArgs: --add-dir <repoRoot>/.git (worktree git-dir writability) ---
+
+test('buildCodexArgs: workspace-write stage with repoRoot adds --add-dir <repoRoot>/.git', () => {
+  for (const stage of ['IMPLEMENT', 'VERIFY', 'TRIAGE']) {
+    const args = buildCodexArgs(stage, 'p', '/wt', '/tmp/out.txt', '/repo');
+    assert.ok(args.includes('--add-dir'), `stage=${stage}: must include --add-dir`);
+    assert.ok(args.includes('/repo/.git'), `stage=${stage}: must grant <repoRoot>/.git`);
+  }
+});
+
+test('buildCodexArgs: read-only stage does not add --add-dir even when repoRoot is provided', () => {
+  for (const stage of ['PLAN', 'REVIEW']) {
+    const args = buildCodexArgs(stage, 'p', '/repo', '/tmp/out.txt', '/repo');
+    assert.ok(!args.includes('--add-dir'), `stage=${stage}: must not include --add-dir`);
+  }
+});
+
+test('buildCodexArgs: workspace-write stage without repoRoot omits --add-dir', () => {
+  const args = buildCodexArgs('IMPLEMENT', 'p', '/wt', '/tmp/out.txt');
+  assert.ok(!args.includes('--add-dir'));
 });
 
 // --- buildClaudeArgs ---
@@ -172,6 +210,40 @@ test('parseCodexSessionId: extracts id from session_meta payload', () => {
   assert.equal(parseCodexSessionId(jsonl), 'rollout-abc123');
 });
 
+test('parseCodexSessionId: extracts id from observed codex exec rollout session_meta payload', () => {
+  const jsonl = [
+    JSON.stringify({
+      timestamp: '2026-06-25T04:36:41.478Z',
+      type: 'session_meta',
+      payload: {
+        session_id: '019efd10-dc20-7171-ad13-bf81c5e1862b',
+        id: '019efd10-dc20-7171-ad13-bf81c5e1862b',
+        cwd: '/Users/cherie/LLMWiki/projects/lathe-ds-wt',
+        originator: 'codex_exec',
+        cli_version: '0.142.1',
+        source: 'exec',
+      },
+    }),
+  ].join('\n');
+  assert.equal(parseCodexSessionId(jsonl), '019efd10-dc20-7171-ad13-bf81c5e1862b');
+});
+
+test('parseCodexSessionId: extracts session_id from codex exec session_configured event', () => {
+  const jsonl = [
+    JSON.stringify({ type: 'turn_started', turn_id: 'turn-1' }),
+    JSON.stringify({ type: 'session_configured', session_id: 'exec-session-123', model_provider_id: 'openai' }),
+  ].join('\n');
+  assert.equal(parseCodexSessionId(jsonl), 'exec-session-123');
+});
+
+test('parseCodexSessionId: extracts thread_id from observed codex exec thread.started event', () => {
+  const jsonl = [
+    JSON.stringify({ type: 'thread.started', thread_id: '019f223b-2f0d-7b92-ad3c-22f5212021c8' }),
+    JSON.stringify({ type: 'turn.started' }),
+  ].join('\n');
+  assert.equal(parseCodexSessionId(jsonl), '019f223b-2f0d-7b92-ad3c-22f5212021c8');
+});
+
 test('parseCodexSessionId: returns null when no session_meta', () => {
   const jsonl = JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'go' } });
   assert.equal(parseCodexSessionId(jsonl), null);
@@ -194,6 +266,21 @@ test('parseCodexSessionId: returns null for empty/null/undefined input', () => {
 test('parseCodexSessionId: session_meta without payload.id -> null', () => {
   const jsonl = JSON.stringify({ type: 'session_meta', payload: { cwd: '/repo' } });
   assert.equal(parseCodexSessionId(jsonl), null);
+});
+
+// --- parseCodexCostUsd ---
+
+test('parseCodexCostUsd: returns null when codex JSONL has no explicit cost', () => {
+  const jsonl = [
+    JSON.stringify({ type: 'session_configured', session_id: 'exec-session-123' }),
+    JSON.stringify({ type: 'token_count', info: { total_token_usage: { total_tokens: 1234 } } }),
+  ].join('\n');
+  assert.equal(parseCodexCostUsd(jsonl), null);
+});
+
+test('parseCodexCostUsd: extracts explicit top-level or payload cost', () => {
+  assert.equal(parseCodexCostUsd(JSON.stringify({ type: 'turn_complete', total_cost_usd: 0.0123 })), 0.0123);
+  assert.equal(parseCodexCostUsd(JSON.stringify({ type: 'result', payload: { cost_usd: 0.0456 } })), 0.0456);
 });
 
 // --- parseBackendFlags ---
@@ -230,9 +317,10 @@ test('parseBackendFlags: stage key is uppercased', () => {
 
 // --- selectBackend ---
 
-test('selectBackend: default is codex when no flags', () => {
+test('selectBackend: default is codex except VERIFY fallback when no flags', () => {
   assert.equal(selectBackend('PLAN', { global: null, stages: {} }), 'codex');
   assert.equal(selectBackend('IMPLEMENT', { global: null, stages: {} }), 'codex');
+  assert.equal(selectBackend('VERIFY', { global: null, stages: {} }), 'claude');
 });
 
 test('selectBackend: global override applies to all stages', () => {
@@ -246,6 +334,7 @@ test('selectBackend: stage override takes precedence over global', () => {
   const flags = { global: 'codex', stages: { PLAN: 'claude' } };
   assert.equal(selectBackend('PLAN', flags), 'claude');
   assert.equal(selectBackend('IMPLEMENT', flags), 'codex');
+  assert.equal(selectBackend('VERIFY', flags), 'codex');
 });
 
 test('selectBackend: stage not in stages.stages falls back to global', () => {
@@ -253,7 +342,8 @@ test('selectBackend: stage not in stages.stages falls back to global', () => {
   assert.equal(selectBackend('REVIEW', flags), 'claude');
 });
 
-test('selectBackend: stage not in stages and no global -> codex', () => {
+test('selectBackend: stage not in stages and no global -> stage default', () => {
   const flags = { global: null, stages: { PLAN: 'claude' } };
   assert.equal(selectBackend('REVIEW', flags), 'codex');
+  assert.equal(selectBackend('VERIFY', flags), 'claude');
 });
