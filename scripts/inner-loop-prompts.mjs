@@ -34,7 +34,8 @@ const PLAN_LOOP_ESCALATION_CONTRACT = [
 const IMPL_LOOP_ESCALATION_CONTRACT = [
   'impl-loop escalation: plan の前提が現実（コードの現状・依存状態）と乖離している場合は、その場で再計画せず ESCALATE してください。',
   '差し戻し指摘が未定義の契約・ロール割当・規約新設の決定を求めている（問題は述べられているが実装解が一意でない）場合は、最小変更を発明せず ESCALATE してください。',
-  '既存条件（VERDICT 不能・周回超過・NOVEL RED・merge 失敗・main dirty）も ESCALATE です。',
+  'VERDICT 不能・周回超過・NOVEL RED・merge 失敗・main dirty は driver が機械的に検知・執行する条件です。あなた（agent）は検査しないでください。',
+  'repo の清浄度判定は agent の仕事ではありません（untracked の扱いを含む定義判断も driver 管轄です）。',
 ].join(' ');
 
 /**

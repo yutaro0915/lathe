@@ -413,6 +413,19 @@ test('buildImplementPrompt: review feedback with undefined design axis escalates
   assert.match(prompt, /最小変更を発明せず ESCALATE/);
 });
 
+test('buildStagePrompt: impl-loop driver-owned escalation conditions are not assigned to the agent', () => {
+  const prompts = [
+    buildPlanPrompt({ issueNumber: 1, issueTitle: 'T', issueBody: 'B' }),
+    buildImplementPrompt({ issueNumber: 1, issueTitle: 'T', issueBody: 'B', plan: 'P' }),
+  ];
+  for (const prompt of prompts) {
+    assert.match(prompt, /driver が機械的に検知・執行/);
+    assert.match(prompt, /あなた（agent）は検査しない/);
+    assert.match(prompt, /repo の清浄度判定は agent の仕事ではありません/);
+    assert.doesNotMatch(prompt, /既存条件（VERDICT 不能・周回超過・NOVEL RED・merge 失敗・main dirty）も ESCALATE です/);
+  }
+});
+
 test('buildStagePrompt: REVIEW includes plan and VERDICT instruction', () => {
   const prompt = buildStagePrompt('REVIEW', { issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
   assert.match(prompt, /plan text/);
