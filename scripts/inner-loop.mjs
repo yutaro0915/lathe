@@ -156,9 +156,11 @@ export function buildManifest(issueNumber, stages) {
 
 /**
  * Permission flags per stage, per ADR 0013 §機構詳細:
- * implementer = acceptEdits (worktree cwd, can edit); read-only stages
- * (planner/reviewer/verifier/test-triage) = dontAsk + allowedTools for the
- * Bash they need (verify/review need to run pnpm/node/git commands).
+ * implementer = acceptEdits (worktree cwd, can edit) + allowedTools for the
+ * git/pnpm/node commands the IMPLEMENT prompt requires (commit, verify);
+ * read-only stages (planner/reviewer/verifier/test-triage) = dontAsk +
+ * allowedTools for the Bash they need (verify/review need to run pnpm/node/git
+ * commands).
  * `--bare` and `--dangerously-skip-permissions` must never be used (ADR: hooks
  * must fire).
  *
@@ -170,7 +172,11 @@ export function stagePermissions(stage) {
     case 'PLAN':
       return { agent: 'planner', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
     case 'IMPLEMENT':
-      return { agent: 'implementer', permissionMode: 'acceptEdits' };
+      return {
+        agent: 'implementer',
+        permissionMode: 'acceptEdits',
+        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', 'Bash(pnpm *)', 'Bash(node *)'],
+      };
     case 'REVIEW':
       return {
         agent: 'reviewer',

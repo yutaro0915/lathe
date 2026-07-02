@@ -216,6 +216,21 @@ test('stagePermissions: IMPLEMENT is acceptEdits (edit-capable)', () => {
   assert.equal(permissionMode, 'acceptEdits');
 });
 
+test('stagePermissions: IMPLEMENT allows git/pnpm/node Bash (needs to commit + verify headlessly)', () => {
+  const { allowedTools } = stagePermissions('IMPLEMENT');
+  assert.ok(allowedTools.some((t) => t.includes('git')));
+  assert.ok(allowedTools.some((t) => t.includes('pnpm')));
+  assert.ok(allowedTools.some((t) => t.includes('node')));
+});
+
+test('stagePermissions: no stage ever uses bypassPermissions or --bare', () => {
+  for (const stage of ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
+    const { permissionMode } = stagePermissions(stage);
+    assert.notEqual(permissionMode, 'bypassPermissions');
+    assert.notEqual(permissionMode, '--bare');
+  }
+});
+
 test('stagePermissions: read-only stages use dontAsk, never bypassPermissions', () => {
   for (const stage of ['PLAN', 'REVIEW', 'VERIFY', 'TRIAGE']) {
     const { permissionMode } = stagePermissions(stage);
