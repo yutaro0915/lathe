@@ -262,7 +262,7 @@ export async function getStats(): Promise<StatsBundle> {
   }>(
     `SELECT COALESCE(model, '(unknown)') model,
             COUNT(*)::int sessions,
-            COALESCE(SUM(token_usage), 0)::int tokens,
+            COALESCE(SUM(token_usage), 0)::float8 tokens,
             SUM(cost_usd)::float8 cost
        FROM sessions
       GROUP BY model
