@@ -268,14 +268,29 @@ export function nextPlanLoopState(state, verdict, cycles = 0) {
 
 /**
  * Build one run-manifest entry (ADR 0013 §2 + ADR 0014 backend field).
- * @param {{ stage: string, sessionId: string|null, verdict: string|null, costUsd: number|null, durationMs?: number|null, ts?: string, backend?: string|null, headSha?: string|null, resultText?: string|null }} p
+ * @param {{ stage: string, sessionId: string|null, verdict: string|null, backendCostUsd?: number|null, backendCostSource?: string|null, costUsd?: number|null, durationMs?: number|null, ts?: string, backend?: string|null, headSha?: string|null, resultText?: string|null, skipped?: boolean }} p
  */
-export function buildManifestEntry({ stage, sessionId, verdict, costUsd, durationMs, ts, backend, headSha, resultText, skipped }) {
+export function buildManifestEntry({
+  stage,
+  sessionId,
+  verdict,
+  backendCostUsd,
+  backendCostSource,
+  costUsd,
+  durationMs,
+  ts,
+  backend,
+  headSha,
+  resultText,
+  skipped,
+}) {
+  const normalizedBackendCostUsd = backendCostUsd !== undefined ? backendCostUsd : costUsd;
   const entry = {
     stage,
     session_id: sessionId ?? null,
     verdict: verdict ?? null,
-    cost_usd: costUsd ?? null,
+    backend_cost_usd: normalizedBackendCostUsd ?? null,
+    backend_cost_source: backendCostSource ?? null,
     duration_ms: durationMs ?? null,
     ts: ts ?? new Date().toISOString(),
     backend: backend ?? null,
@@ -286,12 +301,19 @@ export function buildManifestEntry({ stage, sessionId, verdict, costUsd, duratio
   return entry;
 }
 
+export function backendCostSourceForEnvelope(envelope) {
+  if (envelope?.backend === 'claude') return 'claude.result.total_cost_usd';
+  if (envelope?.backend === 'codex' && envelope.total_cost_usd != null) return 'codex.jsonl.explicit_cost';
+  return null;
+}
+
 export function buildSkippedPlanEntry(approvedPlan) {
   return buildManifestEntry({
     stage: 'PLAN',
     sessionId: null,
     verdict: 'PLAN_READY',
-    costUsd: null,
+    backendCostUsd: null,
+    backendCostSource: null,
     durationMs: null,
     backend: null,
     headSha: null,
@@ -902,7 +924,8 @@ function runPlanLoop(issueNumber, backendFlags) {
       stage: state,
       sessionId: envelope.session_id ?? null,
       verdict,
-      costUsd: envelope.total_cost_usd ?? null,
+      backendCostUsd: envelope.total_cost_usd ?? null,
+      backendCostSource: backendCostSourceForEnvelope(envelope),
       durationMs,
       backend: envelope.backend ?? null,
       resultText: envelope.result ?? '',
@@ -937,7 +960,8 @@ function runPlanLoop(issueNumber, backendFlags) {
     stage: 'ISSUE_CREATE',
     sessionId: null,
     verdict: 'PASS',
-    costUsd: null,
+    backendCostUsd: null,
+    backendCostSource: null,
     backend: null,
     resultText: `created #${created.issueNumber}\n${created.url}`,
   }));
@@ -952,7 +976,8 @@ function runPlanLoop(issueNumber, backendFlags) {
     stage: 'CLOSE_SOURCE',
     sessionId: null,
     verdict: 'PASS',
-    costUsd: null,
+    backendCostUsd: null,
+    backendCostSource: null,
     backend: null,
     resultText: `closed source issue #${issueNumber}`,
   }));
@@ -1104,7 +1129,11 @@ if (isMain) {
 
     appendManifestEntry(issueNumber, buildManifestEntry({
       stage: state, sessionId: envelope.session_id ?? null,
-      verdict, costUsd: envelope.total_cost_usd ?? null, durationMs, backend: envelope.backend ?? null,
+      verdict,
+      backendCostUsd: envelope.total_cost_usd ?? null,
+      backendCostSource: backendCostSourceForEnvelope(envelope),
+      durationMs,
+      backend: envelope.backend ?? null,
       headSha: stageHeadSha, resultText: envelope.result ?? '',
     }));
 

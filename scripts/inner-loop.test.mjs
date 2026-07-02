@@ -22,6 +22,7 @@ import {
   parseApprovedPlanForIssue,
   buildImplementationIssueBody,
   parseGhIssueNumber,
+  backendCostSourceForEnvelope,
   collectReviewHistory,
   buildReviewHistorySummary,
   buildEscalationMarkdown,
@@ -739,29 +740,52 @@ test('stageRequiresFreshMainRebase: IMPLEMENT and REVIEW rebase before spawning 
 // --- manifest entry / manifest shape ---
 
 test('buildManifestEntry: fills defaults for missing optional fields', () => {
-  const entry = buildManifestEntry({ stage: 'PLAN', sessionId: 'sess-1', verdict: 'PLAN_READY', costUsd: 0.05 });
+  const entry = buildManifestEntry({
+    stage: 'PLAN',
+    sessionId: 'sess-1',
+    verdict: 'PLAN_READY',
+    backendCostUsd: 0.05,
+    backendCostSource: 'claude.result.total_cost_usd',
+  });
   assert.equal(entry.stage, 'PLAN');
   assert.equal(entry.session_id, 'sess-1');
   assert.equal(entry.verdict, 'PLAN_READY');
-  assert.equal(entry.cost_usd, 0.05);
+  assert.equal(entry.backend_cost_usd, 0.05);
+  assert.equal(entry.backend_cost_source, 'claude.result.total_cost_usd');
+  assert.equal(Object.hasOwn(entry, 'cost_usd'), false);
   assert.equal(entry.duration_ms, null);
   assert.ok(entry.ts);
 });
 
-test('buildManifestEntry: null sessionId/verdict/costUsd -> null fields (not undefined)', () => {
-  const entry = buildManifestEntry({ stage: 'PLAN', sessionId: null, verdict: null, costUsd: null });
+test('buildManifestEntry: null sessionId/verdict/backend cost -> null fields (not undefined)', () => {
+  const entry = buildManifestEntry({
+    stage: 'PLAN',
+    sessionId: null,
+    verdict: null,
+    backendCostUsd: null,
+    backendCostSource: null,
+  });
   assert.equal(entry.session_id, null);
   assert.equal(entry.verdict, null);
-  assert.equal(entry.cost_usd, null);
+  assert.equal(entry.backend_cost_usd, null);
+  assert.equal(entry.backend_cost_source, null);
+  assert.equal(Object.hasOwn(entry, 'cost_usd'), false);
 });
 
 test('buildManifestEntry: backend field is recorded when provided (ADR 0014)', () => {
-  const entry = buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', costUsd: 0.01, backend: 'codex' });
+  const entry = buildManifestEntry({
+    stage: 'PLAN',
+    sessionId: 's1',
+    verdict: 'PLAN_READY',
+    backendCostUsd: 0.01,
+    backendCostSource: 'codex.jsonl.explicit_cost',
+    backend: 'codex',
+  });
   assert.equal(entry.backend, 'codex');
 });
 
 test('buildManifestEntry: backend omitted -> null (backward compatible)', () => {
-  const entry = buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', costUsd: 0.01 });
+  const entry = buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', backendCostUsd: 0.01 });
   assert.equal(entry.backend, null);
 });
 
@@ -770,12 +794,43 @@ test('buildManifestEntry: records duration even when cost is null', () => {
     stage: 'VERIFY',
     sessionId: 'exec-session-123',
     verdict: 'GREEN',
-    costUsd: null,
+    backendCostUsd: null,
+    backendCostSource: null,
     durationMs: 321,
     backend: 'codex',
   });
-  assert.equal(entry.cost_usd, null);
+  assert.equal(entry.backend_cost_usd, null);
+  assert.equal(entry.backend_cost_source, null);
+  assert.equal(Object.hasOwn(entry, 'cost_usd'), false);
   assert.equal(entry.duration_ms, 321);
+});
+
+test('buildManifestEntry: accepts legacy costUsd input as backend cost without emitting cost_usd', () => {
+  const entry = buildManifestEntry({
+    stage: 'PLAN',
+    sessionId: 's1',
+    verdict: 'PLAN_READY',
+    costUsd: 0.11,
+  });
+
+  assert.equal(entry.backend_cost_usd, 0.11);
+  assert.equal(entry.backend_cost_source, null);
+  assert.equal(Object.hasOwn(entry, 'cost_usd'), false);
+});
+
+test('backendCostSourceForEnvelope: labels backend envelope cost sources', () => {
+  assert.equal(
+    backendCostSourceForEnvelope({ backend: 'claude', total_cost_usd: 0.72 }),
+    'claude.result.total_cost_usd',
+  );
+  assert.equal(
+    backendCostSourceForEnvelope({ backend: 'codex', total_cost_usd: 0.31 }),
+    'codex.jsonl.explicit_cost',
+  );
+  assert.equal(
+    backendCostSourceForEnvelope({ backend: 'codex', total_cost_usd: null }),
+    null,
+  );
 });
 
 test('buildManifestEntry: records resume fields when provided', () => {
@@ -1150,6 +1205,28 @@ test('decideResumeState: legacy PLAN_READY without result_text is not resumable'
 
   assert.equal(result.ok, false);
   assert.match(result.reason, /legacy manifest lacks result_text/);
+});
+
+test('decideResumeState: legacy cost_usd with result_text remains resumable', () => {
+  const result = decideResumeState({
+    stages: [
+      {
+        stage: 'PLAN',
+        session_id: 's-plan',
+        verdict: 'PLAN_READY',
+        cost_usd: 0.01,
+        duration_ms: 1,
+        ts: '2026-07-02T00:00:00.000Z',
+        backend: 'claude',
+        result_text: 'plan text\nVERDICT: PLAN_READY',
+      },
+    ],
+    worktree: cleanWorktree('sha-legacy'),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, 'IMPLEMENT');
+  assert.equal(result.plan, 'plan text\nVERDICT: PLAN_READY');
 });
 
 test('decideResumeState: missing worktree is not resumable', () => {

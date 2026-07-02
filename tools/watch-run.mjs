@@ -24,8 +24,13 @@ const REPO_ROOT = join(__dirname, '..');
 const POLL_INTERVAL_MS = 18000; // 15-20s のレンジ内
 const ESCALATION_HEAD_LINES = 20;
 
-function run(cmd, args) {
-  return spawnSync(cmd, args, { cwd: REPO_ROOT, encoding: 'utf8' });
+function rootOf(deps = {}) {
+  return deps.repoRoot ?? REPO_ROOT;
+}
+
+function run(cmd, args, deps = {}) {
+  if (deps.run) return deps.run(cmd, args, { cwd: rootOf(deps) });
+  return spawnSync(cmd, args, { cwd: rootOf(deps), encoding: 'utf8' });
 }
 
 function sleep(ms) {
@@ -66,26 +71,28 @@ function pidAlive(pid) {
 
 // --- manifest / escalation dump -----------------------------------------
 
-function manifestPathFor(issueNumber) {
-  return join(REPO_ROOT, '.lathe', 'runs', `issue-${issueNumber}.json`);
+function manifestPathFor(issueNumber, repoRoot = REPO_ROOT) {
+  return join(repoRoot, '.lathe', 'runs', `issue-${issueNumber}.json`);
 }
 
-function planManifestPathFor(issueNumber) {
-  return join(REPO_ROOT, '.lathe', 'runs', `plan-${issueNumber}.json`);
+function planManifestPathFor(issueNumber, repoRoot = REPO_ROOT) {
+  return join(repoRoot, '.lathe', 'runs', `plan-${issueNumber}.json`);
 }
 
-function escalationPathFor(issueNumber) {
-  return join(REPO_ROOT, '.lathe', 'runs', `issue-${issueNumber}.escalation.md`);
+function escalationPathFor(issueNumber, repoRoot = REPO_ROOT) {
+  return join(repoRoot, '.lathe', 'runs', `issue-${issueNumber}.escalation.md`);
 }
 
-function planEscalationPathFor(issueNumber) {
-  return join(REPO_ROOT, '.lathe', 'runs', `plan-${issueNumber}.escalation.md`);
+function planEscalationPathFor(issueNumber, repoRoot = REPO_ROOT) {
+  return join(repoRoot, '.lathe', 'runs', `plan-${issueNumber}.escalation.md`);
 }
 
-export function readManifestStages(manifestPath) {
-  if (!existsSync(manifestPath)) return null;
+export function readManifestStages(manifestPath, deps = {}) {
+  const exists = deps.existsSync ?? existsSync;
+  const read = deps.readFileSync ?? readFileSync;
+  if (!exists(manifestPath)) return null;
   try {
-    const data = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const data = JSON.parse(read(manifestPath, 'utf8'));
     return Array.isArray(data.stages) ? data.stages : [];
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
@@ -100,13 +107,14 @@ function formatStageLine(entry) {
   return `  ${stage}: verdict=${verdict} backend=${backend} ts=${ts}`;
 }
 
-function dumpManifest(label, manifestPath) {
+function dumpManifest(label, manifestPath, deps = {}) {
   const lines = [`## manifest (${label}): ${manifestPath}`];
-  if (!existsSync(manifestPath)) {
+  const exists = deps.existsSync ?? existsSync;
+  if (!exists(manifestPath)) {
     lines.push('  (not found)');
     return lines.join('\n');
   }
-  const stages = readManifestStages(manifestPath);
+  const stages = readManifestStages(manifestPath, deps);
   if (stages == null) {
     lines.push('  (not found)');
   } else if (!Array.isArray(stages)) {
@@ -132,18 +140,46 @@ function dumpEscalation(label, escalationPath) {
   return lines.join('\n');
 }
 
-function dumpGitState() {
+export function dumpCostReport(label, manifestPath, deps = {}) {
+  const lines = [`## cost report (${label}): ${manifestPath}`];
+  const exists = deps.existsSync ?? existsSync;
+  if (!exists(manifestPath)) {
+    lines.push('  (manifest not found)');
+    return lines.join('\n');
+  }
+
+  const r = run('node', [
+    '--import',
+    'tsx',
+    'apps/web/scripts/run-manifest-cost-report.ts',
+    '--manifest',
+    manifestPath,
+    '--format',
+    'markdown',
+  ], deps);
+  if (r.status !== 0) {
+    const detail = (r.stderr || r.stdout || `exit ${r.status ?? 'null'}`).trim();
+    lines.push(`  cost report unavailable: ${detail}`);
+    return lines.join('\n');
+  }
+
+  const output = String(r.stdout ?? '').trim();
+  lines.push(output ? output : '  (no output)');
+  return lines.join('\n');
+}
+
+function dumpGitState(deps = {}) {
   const lines = ['## git state (main)'];
-  const log = run('git', ['log', '--oneline', '-2']);
+  const log = run('git', ['log', '--oneline', '-2'], deps);
   lines.push('- git log --oneline -2:');
   lines.push((log.stdout || '(no output)').trim().split('\n').map((l) => `  ${l}`).join('\n'));
 
-  const worktrees = run('git', ['worktree', 'list']);
+  const worktrees = run('git', ['worktree', 'list'], deps);
   const innerLines = (worktrees.stdout || '').split(/\r?\n/).filter((l) => l.includes('inner'));
   lines.push('- git worktree list | grep inner:');
   lines.push(innerLines.length > 0 ? innerLines.map((l) => `  ${l}`).join('\n') : '  (none)');
 
-  const status = run('git', ['status', '--porcelain', '--untracked-files=no']);
+  const status = run('git', ['status', '--porcelain', '--untracked-files=no'], deps);
   const dirty = (status.stdout || '').trim();
   lines.push('- git status --porcelain (tracked only, main-dirty check):');
   lines.push(dirty.length > 0 ? dirty.split('\n').map((l) => `  ${l}`).join('\n') : '  (clean)');
@@ -151,13 +187,18 @@ function dumpGitState() {
   return lines.join('\n');
 }
 
-export function dumpRunState(issueNumber) {
+export function dumpRunState(issueNumber, deps = {}) {
+  const repoRoot = rootOf(deps);
+  const issueManifestPath = manifestPathFor(issueNumber, repoRoot);
+  const planManifestPath = planManifestPathFor(issueNumber, repoRoot);
   const sections = [];
-  sections.push(dumpManifest('issue', manifestPathFor(issueNumber)));
-  sections.push(dumpManifest('plan', planManifestPathFor(issueNumber)));
-  sections.push(dumpEscalation('issue', escalationPathFor(issueNumber)));
-  sections.push(dumpEscalation('plan', planEscalationPathFor(issueNumber)));
-  sections.push(dumpGitState());
+  sections.push(dumpManifest('issue', issueManifestPath, deps));
+  sections.push(dumpCostReport('issue', issueManifestPath, deps));
+  sections.push(dumpManifest('plan', planManifestPath, deps));
+  sections.push(dumpCostReport('plan', planManifestPath, deps));
+  sections.push(dumpEscalation('issue', escalationPathFor(issueNumber, repoRoot)));
+  sections.push(dumpEscalation('plan', planEscalationPathFor(issueNumber, repoRoot)));
+  sections.push(dumpGitState(deps));
   return sections.join('\n\n');
 }
 

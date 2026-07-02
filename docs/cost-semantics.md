@@ -1,6 +1,6 @@
 # Cost Semantics
 
-Updated: 2026-06-11
+Updated: 2026-07-02
 
 This document defines how Lathe computes session cost and records the pricing audit performed before G9 cost anomaly detection.
 
@@ -30,6 +30,33 @@ Not included:
 - Tool flat fees are not currently represented in the observed transcripts and are not added.
 
 Token totals intentionally exclude cache-read/cached-input tokens because the token UI is a "work performed" signal. Cost includes cache reads because they are billed.
+
+## Run Manifest Stage Costs
+
+Inner-loop run manifests (`.lathe/runs/issue-<n>.json` and `plan-<n>.json`) do not define Lathe's operational stage cost.
+
+New manifest stage entries record backend launch accounting as:
+
+- `backend_cost_usd`
+- `backend_cost_source`
+
+For Claude stages, `backend_cost_source` is `claude.result.total_cost_usd`, the `claude -p --output-format json` result envelope field. For Codex stages, `backend_cost_source` is `codex.jsonl.explicit_cost` only when the Codex output exposes an explicit cost value; otherwise it is `null`.
+
+Operational run reporting uses the ingested session row as the primary stage cost:
+
+- `stage_session_cost_usd`
+- `stage_session_cost_source=db.sessions.cost_usd`
+
+This value is Lathe's normal session cost from `sessions.cost_usd`, priced at ingest time from transcript token usage. It is the value to use for decisions such as whether a PLAN, IMPLEMENT, REVIEW, or VERIFY stage was expensive.
+
+Legacy manifests may still contain `cost_usd`. Reports treat that field as backend/envelope accounting and label it `legacy_backend_cost_usd`; it is not silently treated as DB session cost.
+
+Child/subagent cost remains diagnostic in run reports:
+
+- `linked_child_sessions_cost_usd` sums ingested child sessions linked by `sessions.parent_session_id`.
+- `launcher_meta_subagent_cost_usd` sums subagent launcher metadata from `transcript_events.meta->>'costUsd'`.
+
+Neither child diagnostic is folded into the primary `stage_session_cost_usd`; they exist to explain backend-vs-ingest deltas.
 
 ## Pricing Audit
 
