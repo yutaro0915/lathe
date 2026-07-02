@@ -3,8 +3,14 @@
   "id": "meta/unit-tests",
   "title": "unit テストが緑 (pnpm test)",
   "version": "1",
-  "scope": ["packages", "apps/web/lib", "apps/web/components", "apps/web/scripts"],
-  "origin": "agent-workflow(2026-06-29, step3): unit 実行を preflight フラグでなく scoped+tiered rubric に。lib/components/scripts/packages のロジック変更で発火。tier=test。rubric 追加は auditor のみ・別 commit。",
+  "scope": [
+    "packages",
+    "apps/web/lib",
+    "apps/web/components",
+    "apps/web/scripts",
+    "scripts"
+  ],
+  "origin": "agent-workflow(2026-06-29, step3): unit 実行を preflight フラグでなく scoped+tiered rubric に。lib/components/scripts/packages のロジック変更で発火。tier=test。rubric 追加は auditor のみ・別 commit。 / scope に root scripts/ を追加（2026-07-02 meta-audit 第2回 X2: driver 自己変更が gate 素通りの穴・#25/#36 で顕在化。pnpm test は #29 で scripts/**/*.test.mjs を含む）",
   "checks": [
     {
       "id": "unit-suite-green",
@@ -19,7 +25,14 @@
         "tolerance": "exit0 のみ GREEN。スイート全体を回す（変更分だけでない）。e2e は別 rubric。"
       },
       "evidence": "pnpm test の exit code（0=GREEN）。",
-      "examples": { "pass": ["全 unit pass"], "fail": ["どれか fail で非0"] }
+      "examples": {
+        "pass": [
+          "全 unit pass"
+        ],
+        "fail": [
+          "どれか fail で非0"
+        ]
+      }
     }
   ]
 }
