@@ -32,6 +32,7 @@ import {
   buildEscalationMarkdown,
   stageRequiresFreshMainRebase,
   rebaseWorktree,
+  runStageWithUnparsableRetry,
   collectTouchesGroundingReport,
   WORKTREE_DEPS_INSTALL_ARGS,
   setupWorktreeDeps,
@@ -1202,6 +1203,95 @@ test('backendCostSourceForEnvelope: labels backend envelope cost sources', () =>
   );
 });
 
+test('runStageWithUnparsableRetry: records UNPARSABLE then returns successful retry verdict', () => {
+  const results = [
+    'still checking logs without a verdict',
+    'verification passed\nVERDICT: GREEN',
+  ];
+  const entries = [];
+  let calls = 0;
+
+  const outcome = runStageWithUnparsableRetry({
+    runAttempt: () => {
+      const result = results[calls];
+      calls += 1;
+      return {
+        envelope: { session_id: `s-${calls}`, result, total_cost_usd: null, backend: 'codex' },
+        durationMs: calls,
+        headSha: 'sha-verify',
+      };
+    },
+    recordAttempt: ({ envelope, manifestVerdict, durationMs, headSha }) => {
+      entries.push(buildManifestEntry({
+        stage: 'VERIFY',
+        sessionId: envelope.session_id,
+        verdict: manifestVerdict,
+        backendCostUsd: envelope.total_cost_usd,
+        durationMs,
+        backend: envelope.backend,
+        headSha,
+        resultText: envelope.result,
+      }));
+    },
+  });
+
+  assert.equal(outcome.verdict, 'GREEN');
+  assert.equal(calls, 2);
+  assert.deepEqual(entries.map((entry) => entry.verdict), ['UNPARSABLE', 'GREEN']);
+  assert.deepEqual(entries.map((entry) => entry.result_text), results);
+});
+
+test('runStageWithUnparsableRetry: stops after one unparsable retry', () => {
+  const entries = [];
+  let calls = 0;
+
+  const outcome = runStageWithUnparsableRetry({
+    runAttempt: () => {
+      calls += 1;
+      return {
+        envelope: { session_id: `s-${calls}`, result: `attempt ${calls} has no verdict`, total_cost_usd: null, backend: 'codex' },
+        durationMs: calls,
+        headSha: 'sha-verify',
+      };
+    },
+    recordAttempt: ({ envelope, manifestVerdict }) => {
+      entries.push(buildManifestEntry({
+        stage: 'VERIFY',
+        sessionId: envelope.session_id,
+        verdict: manifestVerdict,
+        backendCostUsd: envelope.total_cost_usd,
+        backend: envelope.backend,
+        headSha: 'sha-verify',
+        resultText: envelope.result,
+      }));
+    },
+  });
+
+  assert.equal(outcome.verdict, null);
+  assert.equal(calls, 2);
+  assert.deepEqual(entries.map((entry) => entry.verdict), ['UNPARSABLE', 'UNPARSABLE']);
+});
+
+test('runStageWithUnparsableRetry: does not retry regular verdicts', () => {
+  for (const token of ['ESCALATE', 'RED', 'CHANGES']) {
+    let calls = 0;
+    const outcome = runStageWithUnparsableRetry({
+      runAttempt: () => {
+        calls += 1;
+        return {
+          envelope: { session_id: `s-${token}`, result: `finished\nVERDICT: ${token}`, total_cost_usd: null, backend: 'codex' },
+          durationMs: 1,
+          headSha: 'sha-stage',
+        };
+      },
+      recordAttempt: () => {},
+    });
+
+    assert.equal(outcome.verdict, token);
+    assert.equal(calls, 1, `${token} should not retry`);
+  }
+});
+
 test('buildManifestEntry: records resume fields when provided', () => {
   const entry = buildManifestEntry({
     stage: 'IMPLEMENT',
@@ -1491,6 +1581,192 @@ test('decideResumeState: VERIFY GREEN resumes at MERGE and restamps merge receip
     { stage: 'REVIEW', headSha: 'sha-3', verdict: 'PASS' },
     { stage: 'VERIFY', headSha: 'sha-3', verdict: 'GREEN' },
   ]);
+});
+
+test('decideResumeState: UNPARSABLE attempt followed by success resumes after successful retry', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl',
+        verdict: 'IMPL_DONE',
+        costUsd: 0.02,
+        headSha: 'sha-3',
+        resultText: 'implemented\nVERDICT: IMPL_DONE',
+      }),
+      buildManifestEntry({
+        stage: 'REVIEW',
+        sessionId: 's-review',
+        verdict: 'PASS',
+        costUsd: 0.03,
+        headSha: 'sha-3',
+        resultText: 'review ok\nVERDICT: PASS',
+      }),
+      buildManifestEntry({
+        stage: 'VERIFY',
+        sessionId: 's-verify-1',
+        verdict: 'UNPARSABLE',
+        costUsd: 0.04,
+        headSha: 'sha-3',
+        resultText: 'waiting for background task completion',
+      }),
+      buildManifestEntry({
+        stage: 'VERIFY',
+        sessionId: 's-verify-2',
+        verdict: 'GREEN',
+        costUsd: 0.05,
+        headSha: 'sha-3',
+        resultText: 'green\nVERDICT: GREEN',
+      }),
+    ],
+    worktree: cleanWorktree('sha-3'),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, 'MERGE');
+  assert.deepEqual(result.skipped, ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY']);
+  assert.deepEqual(result.receiptsToStamp, [
+    { stage: 'REVIEW', headSha: 'sha-3', verdict: 'PASS' },
+    { stage: 'VERIFY', headSha: 'sha-3', verdict: 'GREEN' },
+  ]);
+});
+
+test('decideResumeState: IMPLEMENT UNPARSABLE head does not pin resume after successful retry', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl-1',
+        verdict: 'UNPARSABLE',
+        costUsd: 0.02,
+        headSha: 'sha-unparsable-attempt',
+        resultText: 'still running without final verdict',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl-2',
+        verdict: 'IMPL_DONE',
+        costUsd: 0.03,
+        headSha: 'sha-successful-retry',
+        resultText: 'implemented\nVERDICT: IMPL_DONE',
+      }),
+    ],
+    worktree: cleanWorktree('sha-successful-retry'),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, 'REVIEW');
+  assert.deepEqual(result.skipped, ['PLAN', 'IMPLEMENT']);
+});
+
+test('decideResumeState: final UNPARSABLE attempt resumes the same stage for retry', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl',
+        verdict: 'IMPL_DONE',
+        costUsd: 0.02,
+        headSha: 'sha-3',
+        resultText: 'implemented\nVERDICT: IMPL_DONE',
+      }),
+      buildManifestEntry({
+        stage: 'REVIEW',
+        sessionId: 's-review',
+        verdict: 'PASS',
+        costUsd: 0.03,
+        headSha: 'sha-3',
+        resultText: 'review ok\nVERDICT: PASS',
+      }),
+      buildManifestEntry({
+        stage: 'VERIFY',
+        sessionId: 's-verify-1',
+        verdict: 'UNPARSABLE',
+        costUsd: 0.04,
+        headSha: 'sha-3',
+        resultText: 'waiting for background task completion',
+      }),
+    ],
+    worktree: cleanWorktree('sha-3'),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, 'VERIFY');
+  assert.deepEqual(result.skipped, ['PLAN', 'IMPLEMENT', 'REVIEW']);
+  assert.deepEqual(result.receiptsToStamp, [
+    { stage: 'REVIEW', headSha: 'sha-3', verdict: 'PASS' },
+  ]);
+});
+
+test('decideResumeState: two consecutive UNPARSABLE attempts are not resumable for another retry', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl',
+        verdict: 'IMPL_DONE',
+        costUsd: 0.02,
+        headSha: 'sha-3',
+        resultText: 'implemented\nVERDICT: IMPL_DONE',
+      }),
+      buildManifestEntry({
+        stage: 'REVIEW',
+        sessionId: 's-review',
+        verdict: 'PASS',
+        costUsd: 0.03,
+        headSha: 'sha-3',
+        resultText: 'review ok\nVERDICT: PASS',
+      }),
+      buildManifestEntry({
+        stage: 'VERIFY',
+        sessionId: 's-verify-1',
+        verdict: 'UNPARSABLE',
+        costUsd: 0.04,
+        headSha: 'sha-3',
+        resultText: 'first attempt has no verdict',
+      }),
+      buildManifestEntry({
+        stage: 'VERIFY',
+        sessionId: 's-verify-2',
+        verdict: 'UNPARSABLE',
+        costUsd: 0.05,
+        headSha: 'sha-3',
+        resultText: 'retry also has no verdict',
+      }),
+    ],
+    worktree: cleanWorktree('sha-3'),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /unparsable retry exhausted for VERIFY/);
 });
 
 test('decideResumeState: REVIEW CHANGES restores feedback and resumes at IMPLEMENT', () => {

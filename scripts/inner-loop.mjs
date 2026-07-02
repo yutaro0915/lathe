@@ -39,6 +39,8 @@ export const VALID_VERDICT_TOKENS = [
   'PLAN_READY', 'ESCALATE', 'IMPL_DONE', 'PASS', 'CHANGES',
   'GREEN', 'RED', 'KNOWN', 'NOVEL',
 ];
+export const UNPARSABLE_VERDICT = 'UNPARSABLE';
+export const MAX_UNPARSABLE_STAGE_RETRIES = 1;
 
 // Bounded retries: review⇄implement (CHANGES) and triage⇄implement (KNOWN)
 // share one cycle counter — "review⇄implement は 2 周まで" (ADR 0013 §1).
@@ -60,7 +62,7 @@ export function displayStage(stage) {
 
 /**
  * Parse the VERDICT token from a stage's result text (last `VERDICT: <TOKEN>`
- * line wins). Returns null if absent/unparsable — callers must treat as ESCALATE.
+ * line wins). Returns null if absent/unparsable.
  * @param {string} resultText
  * @returns {string | null}
  */
@@ -70,6 +72,41 @@ export function parseVerdict(resultText) {
   if (matches.length === 0) return null;
   const token = matches[matches.length - 1][1];
   return VALID_VERDICT_TOKENS.includes(token) ? token : null;
+}
+
+export function isUnparsableManifestVerdict(verdict) {
+  return verdict === UNPARSABLE_VERDICT;
+}
+
+/**
+ * Run one stage attempt, recording every attempt, and retry once when the
+ * result has no parseable VERDICT. The retry is a fresh backend invocation.
+ * @param {{ runAttempt: Function, recordAttempt: Function, onRetry?: Function, maxRetries?: number }} p
+ * @returns {object & { verdict: string|null, manifestVerdict: string }}
+ */
+export function runStageWithUnparsableRetry({
+  runAttempt,
+  recordAttempt,
+  onRetry,
+  maxRetries = MAX_UNPARSABLE_STAGE_RETRIES,
+} = {}) {
+  if (typeof runAttempt !== 'function') throw new TypeError('runAttempt is required');
+  if (typeof recordAttempt !== 'function') throw new TypeError('recordAttempt is required');
+
+  let unparsableRetries = 0;
+  while (true) {
+    const attempt = runAttempt();
+    const envelope = attempt?.envelope ?? {};
+    const verdict = parseVerdict(envelope.result);
+    const manifestVerdict = verdict ?? UNPARSABLE_VERDICT;
+    recordAttempt({ ...attempt, envelope, verdict, manifestVerdict, unparsableRetries });
+
+    if (verdict !== null) return { ...attempt, envelope, verdict, manifestVerdict };
+    if (unparsableRetries >= maxRetries) return { ...attempt, envelope, verdict: null, manifestVerdict };
+
+    unparsableRetries += 1;
+    onRetry?.({ retriesUsed: unparsableRetries, nextAttempt: unparsableRetries + 1 });
+  }
 }
 
 // Last `n` lines of `text` (default 30), for surfacing real error output in
@@ -442,6 +479,7 @@ function requiresResultText(stage, verdict) {
     (stage === 'VERIFY' && verdict === 'RED') ||
     (stage === 'TRIAGE' && verdict === 'KNOWN') ||
     verdict === 'ESCALATE' ||
+    verdict === UNPARSABLE_VERDICT ||
     verdict === null
   );
 }
@@ -474,6 +512,7 @@ export function decideResumeState({ stages, worktree }) {
   let expectedHeadSha = null;
   const skipped = [];
   const receiptsToStamp = [];
+  let unparsableAttemptsForState = 0;
   const shaMismatch = () => (
     expectedHeadSha && worktree.headSha !== expectedHeadSha
       ? { ok: false, reason: `sha mismatch: manifest head_sha=${expectedHeadSha} worktree HEAD=${worktree.headSha}` }
@@ -511,6 +550,15 @@ export function decideResumeState({ stages, worktree }) {
         receiptsToStamp,
       };
     }
+
+    if (isUnparsableManifestVerdict(verdict)) {
+      unparsableAttemptsForState += 1;
+      if (unparsableAttemptsForState > MAX_UNPARSABLE_STAGE_RETRIES) {
+        return { ok: false, reason: `unparsable retry exhausted for ${entry.stage}` };
+      }
+      continue;
+    }
+    unparsableAttemptsForState = 0;
 
     if (entry.stage === 'PLAN' && verdict === 'PLAN_READY') plan = entry.result_text;
     if (entry.stage === 'REVIEW' && verdict === 'CHANGES') feedback = entry.result_text;
@@ -1084,7 +1132,7 @@ function dryRunPlanLoop(issueNumber, backendFlags) {
   log(`dry-run: ISSUE_CREATE body per block includes Generated from #${issueNumber}, resolved Depends-on:, Touches:, ${APPROVED_PLAN_HEADING}`);
   log('dry-run: ISSUE_CREATE resolves plan#<k> dependencies to earlier created issue numbers');
   log(`dry-run: CLOSE_SOURCE — gh issue close ${issueNumber} --reason completed --comment '<created issue list and rejected candidates>'`);
-  log('dry-run: transition plan — RESEARCH PASS->PLAN, PLAN_READY->PLAN-REVIEW, PLAN-REVIEW PASS->ISSUE_CREATE / CHANGES->PLAN (max 2 cycles), all gh issue create calls -> CLOSE_SOURCE, missing/unparsable VERDICT->ESCALATE');
+  log('dry-run: transition plan — RESEARCH PASS->PLAN, PLAN_READY->PLAN-REVIEW, PLAN-REVIEW PASS->ISSUE_CREATE / CHANGES->PLAN (max 2 cycles), all gh issue create calls -> CLOSE_SOURCE, missing/unparsable VERDICT->same stage retry once then ESCALATE');
 }
 
 function runPlanLoop(issueNumber, backendFlags) {
@@ -1109,26 +1157,33 @@ function runPlanLoop(issueNumber, backendFlags) {
     });
     const backend = selectBackend(state, backendFlags);
     log(`plan-loop stage=${displayStage(state)} backend=${backend} cwd=${REPO_ROOT} — spawning ${backend}`);
-    const stageStartedAt = Date.now();
-    const envelope = runStage(state, prompt, REPO_ROOT, null, backend);
-    const durationMs = Math.max(1, Date.now() - stageStartedAt);
-    const verdict = parseVerdict(envelope.result);
-
-    appendPlanManifestEntry(issueNumber, buildManifestEntry({
-      stage: state,
-      sessionId: envelope.session_id ?? null,
-      verdict,
-      backendCostUsd: envelope.total_cost_usd ?? null,
-      backendCostSource: backendCostSourceForEnvelope(envelope),
-      backendModel: envelope.backend_model ?? null,
-      backendTokenUsage: envelope.backend_token_usage ?? null,
-      durationMs,
-      backend: envelope.backend ?? null,
-      resultText: envelope.result ?? '',
-    }));
+    const stageResult = runStageWithUnparsableRetry({
+      runAttempt: () => {
+        const stageStartedAt = Date.now();
+        const envelope = runStage(state, prompt, REPO_ROOT, null, backend);
+        const durationMs = Math.max(1, Date.now() - stageStartedAt);
+        return { envelope, durationMs };
+      },
+      recordAttempt: ({ envelope, manifestVerdict, durationMs }) => {
+        appendPlanManifestEntry(issueNumber, buildManifestEntry({
+          stage: state,
+          sessionId: envelope.session_id ?? null,
+          verdict: manifestVerdict,
+          backendCostUsd: envelope.total_cost_usd ?? null,
+          backendCostSource: backendCostSourceForEnvelope(envelope),
+          backendModel: envelope.backend_model ?? null,
+          backendTokenUsage: envelope.backend_token_usage ?? null,
+          durationMs,
+          backend: envelope.backend ?? null,
+          resultText: envelope.result ?? '',
+        }));
+      },
+      onRetry: () => log(`plan-loop stage=${displayStage(state)} verdict=${UNPARSABLE_VERDICT} -> retrying same stage once`),
+    });
+    const { envelope, verdict } = stageResult;
 
     if (verdict === null) {
-      writePlanEscalation(issueNumber, state, null, envelope.result ?? '');
+      writePlanEscalation(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? '');
       state = 'ESCALATE';
       break;
     }
@@ -1253,7 +1308,7 @@ if (isMain) {
       });
       logDryRunStage(stage, backendFlags, cwd, promptPreview);
     }
-    log('dry-run: transition plan — PLAN_READY->IMPLEMENT, IMPL_DONE->REVIEW, REVIEW PASS->VERIFY / CHANGES->IMPLEMENT (max 2 cycles), VERIFY GREEN->MERGE / RED->TRIAGE, TRIAGE KNOWN->IMPLEMENT only when implementable / P4 Codex sandbox EPERM->ESCALATE / NOVEL->ESCALATE, missing/unparsable VERDICT->ESCALATE');
+    log('dry-run: transition plan — PLAN_READY->IMPLEMENT, IMPL_DONE->REVIEW, REVIEW PASS->VERIFY / CHANGES->IMPLEMENT (max 2 cycles), VERIFY GREEN->MERGE / RED->TRIAGE, TRIAGE KNOWN->IMPLEMENT only when implementable / P4 Codex sandbox EPERM->ESCALATE / NOVEL->ESCALATE, missing/unparsable VERDICT->same stage retry once then ESCALATE');
     process.exit(0);
   }
 
@@ -1319,25 +1374,32 @@ if (isMain) {
 
     const backend = selectBackend(state, backendFlags);
     log(`stage=${state} backend=${backend} cwd=${cwd} — spawning ${backend}`);
-    const stageStartedAt = Date.now();
-    const envelope = runStage(state, prompt, cwd, null, backend);
-    const durationMs = Math.max(1, Date.now() - stageStartedAt);
-    const verdict = parseVerdict(envelope.result);
-    const stageHeadSha = isWorktreeStage(state) ? worktreeHeadShaOrDie(worktreePath, state) : null;
+    const stageResult = runStageWithUnparsableRetry({
+      runAttempt: () => {
+        const stageStartedAt = Date.now();
+        const envelope = runStage(state, prompt, cwd, null, backend);
+        const durationMs = Math.max(1, Date.now() - stageStartedAt);
+        const stageHeadSha = isWorktreeStage(state) ? worktreeHeadShaOrDie(worktreePath, state) : null;
+        return { envelope, durationMs, stageHeadSha };
+      },
+      recordAttempt: ({ envelope, manifestVerdict, durationMs, stageHeadSha }) => {
+        appendManifestEntry(issueNumber, buildManifestEntry({
+          stage: state, sessionId: envelope.session_id ?? null,
+          verdict: manifestVerdict,
+          backendCostUsd: envelope.total_cost_usd ?? null,
+          backendCostSource: backendCostSourceForEnvelope(envelope),
+          backendModel: envelope.backend_model ?? null,
+          backendTokenUsage: envelope.backend_token_usage ?? null,
+          durationMs,
+          backend: envelope.backend ?? null,
+          headSha: stageHeadSha, resultText: envelope.result ?? '',
+        }));
+      },
+      onRetry: () => log(`stage=${state} verdict=${UNPARSABLE_VERDICT} -> retrying same stage once`),
+    });
+    const { envelope, verdict, stageHeadSha } = stageResult;
 
-    appendManifestEntry(issueNumber, buildManifestEntry({
-      stage: state, sessionId: envelope.session_id ?? null,
-      verdict,
-      backendCostUsd: envelope.total_cost_usd ?? null,
-      backendCostSource: backendCostSourceForEnvelope(envelope),
-      backendModel: envelope.backend_model ?? null,
-      backendTokenUsage: envelope.backend_token_usage ?? null,
-      durationMs,
-      backend: envelope.backend ?? null,
-      headSha: stageHeadSha, resultText: envelope.result ?? '',
-    }));
-
-    if (verdict === null) { writeEscalation(issueNumber, state, null, envelope.result ?? ''); state = 'ESCALATE'; break; }
+    if (verdict === null) { writeEscalation(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? ''); state = 'ESCALATE'; break; }
 
     if (state === 'PLAN' && verdict === 'PLAN_READY') plan = envelope.result;
     if (state === 'REVIEW' && verdict === 'CHANGES') feedback = envelope.result;
