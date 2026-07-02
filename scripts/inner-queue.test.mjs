@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildInnerLoopSpawnSpec,
   DEFER_CAPACITY,
   DEFER_TOUCHES,
   READY_NOW,
@@ -84,6 +85,15 @@ test('planDryRun: reports ready, dependency wait, touch conflict, running, and c
   assert.equal(formatDecision(decisions[2]), 'DEFER_TOUCHES #3 overlaps=#1 path=scripts/a.mjs');
   assert.equal(formatDecision(decisions[3]), 'SKIP_RUNNING #4 worktree=/repo/.claude/worktrees/inner-issue-4');
   assert.equal(formatDecision(decisions[4]), 'DEFER_CAPACITY #5 max=2');
+});
+
+test('buildInnerLoopSpawnSpec: routes child stdout and stderr directly to the log fd', () => {
+  const spec = buildInnerLoopSpawnSpec(issue(54), 123);
+
+  assert.equal(spec.command, process.execPath);
+  assert.deepEqual(spec.args, ['scripts/inner-loop.mjs', '54']);
+  assert.deepEqual(spec.options.stdio, ['ignore', 123, 123]);
+  assert.equal(spec.options.env, process.env);
 });
 
 test('runQueue: unresolved dependency is not spawned in live mode', async () => {

@@ -7,7 +7,7 @@
 //
 // Pure decision helpers are exported for unit tests.
 
-import { createWriteStream, existsSync, mkdirSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { basename, dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
@@ -463,30 +463,55 @@ function detectRunningWorktrees(issues) {
   return running;
 }
 
+export function buildInnerLoopSpawnSpec(issue, logFd) {
+  return {
+    command: process.execPath,
+    args: ['scripts/inner-loop.mjs', String(issue.number)],
+    options: {
+      cwd: REPO_ROOT,
+      env: process.env,
+      stdio: ['ignore', logFd, logFd],
+    },
+  };
+}
+
+function appendQueueLog(logPath, line) {
+  appendFileSync(logPath, `${line}\n`);
+}
+
 function spawnInnerLoop(issue) {
   return new Promise((resolve) => {
     const logPath = join(REPO_ROOT, '.lathe', 'runs', `issue-${issue.number}.log`);
     mkdirSync(dirname(logPath), { recursive: true });
-    const stream = createWriteStream(logPath, { flags: 'a' });
-    stream.write(`[inner-queue] start issue #${issue.number} at ${new Date().toISOString()}\n`);
+    appendQueueLog(logPath, `[inner-queue] start issue #${issue.number} at ${new Date().toISOString()}`);
 
-    const child = spawn(process.execPath, ['scripts/inner-loop.mjs', String(issue.number)], {
-      cwd: REPO_ROOT,
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    child.stdout.pipe(stream, { end: false });
-    child.stderr.pipe(stream, { end: false });
-    child.on('error', (error) => {
-      stream.write(`\n[inner-queue] spawn error: ${error.message}\n`);
-      stream.end();
+    const logFd = openSync(logPath, 'a');
+    const spec = buildInnerLoopSpawnSpec(issue, logFd);
+    let child;
+    try {
+      child = spawn(spec.command, spec.args, spec.options);
+    } catch (error) {
+      closeSync(logFd);
+      appendQueueLog(logPath, `\n[inner-queue] spawn error: ${error.message}`);
       resolve({ status: 1 });
+      return;
+    }
+    closeSync(logFd);
+
+    let settled = false;
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    }
+
+    child.on('error', (error) => {
+      appendQueueLog(logPath, `\n[inner-queue] spawn error: ${error.message}`);
+      finish({ status: 1 });
     });
     child.on('close', (code, signal) => {
-      stream.write(`\n[inner-queue] done issue #${issue.number} status=${code ?? 'null'} signal=${signal ?? 'null'} at ${new Date().toISOString()}\n`);
-      stream.end();
-      resolve({ status: code ?? 1 });
+      appendQueueLog(logPath, `\n[inner-queue] done issue #${issue.number} status=${code ?? 'null'} signal=${signal ?? 'null'} at ${new Date().toISOString()}`);
+      finish({ status: code ?? 1 });
     });
   });
 }
