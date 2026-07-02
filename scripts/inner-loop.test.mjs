@@ -20,7 +20,11 @@ import {
   selectRunPlan,
   parseDriverArgs,
   parseApprovedPlanForIssue,
+  parseApprovedPlanIssueBlocks,
+  resolvePlanIssueDependency,
   buildImplementationIssueBody,
+  createImplementationIssues,
+  buildPlanLoopCloseComment,
   parseGhIssueNumber,
   backendCostSourceForEnvelope,
   collectReviewHistory,
@@ -42,6 +46,7 @@ import {
   buildVerifyPrompt,
   buildTriagePrompt,
 } from './inner-loop-prompts.mjs';
+import { parseIssueRunHints } from './inner-queue.mjs';
 import { chmodSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -180,6 +185,68 @@ test('parseApprovedPlanForIssue: extracts machine-readable issue fields', () => 
   });
 });
 
+test('parseApprovedPlanIssueBlocks: parses multiple issue blocks and rejected candidates', () => {
+  const parsed = parseApprovedPlanIssueBlocks([
+    'Title: fix: first',
+    'Depends-on: none',
+    'Touches: scripts/a.mjs',
+    'Implement first.',
+    '',
+    'Title: fix: second',
+    'Depends-on: plan#1, #77',
+    'Touches: scripts/b.mjs',
+    'Implement second.',
+    '',
+    'Rejected: grounding hook issue — requires undefined contract',
+    'VERDICT: PLAN_READY',
+  ].join('\n'));
+
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.issues.map((issue) => ({
+    index: issue.index,
+    title: issue.title,
+    dependsOn: issue.dependsOn,
+    touches: issue.touches,
+  })), [
+    { index: 1, title: 'fix: first', dependsOn: '', touches: 'scripts/a.mjs' },
+    { index: 2, title: 'fix: second', dependsOn: 'plan#1, #77', touches: 'scripts/b.mjs' },
+  ]);
+  assert.match(parsed.issues[0].approvedPlan, /Implement first\./);
+  assert.match(parsed.issues[1].approvedPlan, /Implement second\./);
+  assert.doesNotMatch(parsed.issues[1].approvedPlan, /VERDICT: PLAN_READY/);
+  assert.deepEqual(parsed.rejected, [
+    { candidate: 'grounding hook issue', reason: 'requires undefined contract' },
+  ]);
+});
+
+test('parseApprovedPlanIssueBlocks: validates required fields per block', () => {
+  const parsed = parseApprovedPlanIssueBlocks([
+    'Title: fix: first',
+    'Depends-on: none',
+    'Touches: scripts/a.mjs',
+    'Implement first.',
+    '',
+    'Title: fix: second',
+    'Depends-on: none',
+    'Implement second.',
+  ].join('\n'));
+
+  assert.equal(parsed.ok, false);
+  assert.match(parsed.error, /block 2/i);
+  assert.match(parsed.error, /Touches:/);
+});
+
+test('resolvePlanIssueDependency: replaces earlier plan-local issue references', () => {
+  const resolved = resolvePlanIssueDependency('plan#1, #77', new Map([[1, 101]]));
+  assert.deepEqual(resolved, { ok: true, dependsOn: '#101, #77' });
+});
+
+test('resolvePlanIssueDependency: rejects unresolved plan-local issue references', () => {
+  const resolved = resolvePlanIssueDependency('plan#2', new Map([[1, 101]]));
+  assert.equal(resolved.ok, false);
+  assert.match(resolved.error, /plan#2/);
+});
+
 test('buildImplementationIssueBody: includes approved plan marker and queue hints', () => {
   const body = buildImplementationIssueBody({
     sourceIssueNumber: 41,
@@ -192,6 +259,57 @@ test('buildImplementationIssueBody: includes approved plan marker and queue hint
   assert.match(body, /^Touches: scripts\/a\.mjs$/m);
   assert.match(body, /^## Plan \(approved\)$/m);
   assert.doesNotMatch(body, /VERDICT: PLAN_READY/);
+});
+
+test('createImplementationIssues: creates every block and resolves plan-local dependencies', () => {
+  const calls = [];
+  const result = createImplementationIssues(41, [
+    'Title: fix: first',
+    'Depends-on: none',
+    'Touches: scripts/a.mjs',
+    'Implement first.',
+    '',
+    'Title: fix: second',
+    'Depends-on: plan#1, #77',
+    'Touches: scripts/b.mjs',
+    'Implement second.',
+    'VERDICT: PLAN_READY',
+  ].join('\n'), {
+    spawnSync: (cmd, args, options) => {
+      calls.push({ cmd, args, options });
+      const issueNumber = 101 + calls.length - 1;
+      return { status: 0, stdout: `https://github.com/yutaro0915/lathe/issues/${issueNumber}\n`, stderr: '' };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues.map((issue) => issue.issueNumber), [101, 102]);
+  assert.deepEqual(calls.map((call) => call.args.slice(0, 2)), [
+    ['issue', 'create'],
+    ['issue', 'create'],
+  ]);
+  assert.match(calls[0].options.input, /^Depends-on: $/m);
+  assert.match(calls[1].options.input, /^Depends-on: #101, #77$/m);
+  assert.doesNotMatch(calls[1].options.input, /^Depends-on: plan#1, #77$/m);
+  assert.deepEqual(parseIssueRunHints(calls[1].options.input).dependsOn, [101, 77]);
+});
+
+test('buildPlanLoopCloseComment: includes created issues and rejected candidates', () => {
+  const comment = buildPlanLoopCloseComment({
+    createdIssues: [
+      { index: 1, issueNumber: 101, title: 'fix: first', url: 'https://github.com/yutaro0915/lathe/issues/101' },
+      { index: 2, issueNumber: 102, title: 'fix: second', url: 'https://github.com/yutaro0915/lathe/issues/102' },
+    ],
+    rejected: [
+      { candidate: 'grounding hook issue', reason: 'requires undefined contract' },
+    ],
+  });
+
+  assert.match(comment, /plan-loop created implementation issues:/);
+  assert.match(comment, /plan#1 -> #101: fix: first/);
+  assert.match(comment, /plan#2 -> #102: fix: second/);
+  assert.match(comment, /Rejected candidates:/);
+  assert.match(comment, /grounding hook issue — requires undefined contract/);
 });
 
 test('parseGhIssueNumber: parses GitHub issue URL', () => {
@@ -500,6 +618,10 @@ test('buildPlanPrompt: plan-loop mode requires Title Depends-on Touches', () => 
   assert.match(prompt, /Title:/);
   assert.match(prompt, /Depends-on:/);
   assert.match(prompt, /Touches:/);
+  assert.match(prompt, /RESEARCH が提示した全 issue 候補/);
+  assert.match(prompt, /起票/);
+  assert.match(prompt, /Rejected:/);
+  assert.match(prompt, /silent drop 禁止/);
   assert.match(prompt, /plan-loop escalation/);
   assert.match(prompt, /最小変更を発明せず ESCALATE/);
   assert.match(prompt, /PLAN_READY \| ESCALATE/);
@@ -517,6 +639,8 @@ test('buildPlanReviewPrompt: includes plan-loop escalation contract and PASS/CHA
   assert.match(prompt, /裁可事項/);
   assert.match(prompt, /目標不成立/);
   assert.match(prompt, /依存衝突/);
+  assert.match(prompt, /処置の無い/);
+  assert.match(prompt, /CHANGES/);
   assert.match(prompt, /PASS \| CHANGES \| ESCALATE/);
 });
 

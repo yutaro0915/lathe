@@ -625,14 +625,103 @@ export function parseApprovedPlanForIssue(planText) {
   return { title, dependsOn, touches };
 }
 
+function parseRejectedCandidateLine(line) {
+  const match = String(line ?? '').match(/^\s*(?:[-*]\s*)?Rejected\s*:\s*(.+?)\s+(?:—|-)\s+(.+?)\s*$/i);
+  if (!match) return null;
+  return { candidate: match[1].trim(), reason: match[2].trim() };
+}
+
+export function parseApprovedPlanIssueBlocks(planText) {
+  const rejected = [];
+  const blockLines = [];
+  let currentBlock = null;
+
+  for (const line of String(planText ?? '').split(/\r?\n/)) {
+    if (/^VERDICT:\s*[A-Z_]+\s*$/.test(line.trim())) continue;
+
+    const rejectedCandidate = parseRejectedCandidateLine(line);
+    if (rejectedCandidate) {
+      rejected.push(rejectedCandidate);
+      continue;
+    }
+
+    if (/^\s*Title\s*:\s*.+$/i.test(line)) {
+      if (currentBlock) blockLines.push(currentBlock);
+      currentBlock = [line];
+      continue;
+    }
+
+    if (currentBlock) currentBlock.push(line);
+  }
+
+  if (currentBlock) blockLines.push(currentBlock);
+  if (blockLines.length === 0) {
+    return { ok: false, error: 'approved plan is missing required "Title:" line' };
+  }
+
+  const issues = [];
+  for (const [zeroBasedIndex, lines] of blockLines.entries()) {
+    const index = zeroBasedIndex + 1;
+    const blockText = lines.join('\n').trim();
+    const parsed = parseApprovedPlanForIssue(blockText);
+    if (!parsed.title) {
+      return { ok: false, error: `approved plan block ${index} is missing required "Title:" line` };
+    }
+    const dependsOnResult = parseDependsOnLine(parsed.dependsOn);
+    if (!dependsOnResult.ok) {
+      return { ok: false, error: `approved plan block ${index}: ${dependsOnResult.error}` };
+    }
+    if (parsed.touches == null) {
+      return { ok: false, error: `approved plan block ${index} is missing required "Touches:" line` };
+    }
+    issues.push({
+      index,
+      title: parsed.title,
+      dependsOn: dependsOnResult.dependsOn,
+      touches: parsed.touches,
+      approvedPlan: stripVerdictLine(blockText),
+    });
+  }
+
+  return { ok: true, issues, rejected };
+}
+
+export function resolvePlanIssueDependency(dependsOn, createdIssueNumbersByPlanIndex) {
+  const unresolved = [];
+  const resolved = String(dependsOn ?? '').replace(/\bplan#(\d+)\b/gi, (token, rawIndex) => {
+    const index = Number(rawIndex);
+    const issueNumber = createdIssueNumbersByPlanIndex.get(index);
+    if (!issueNumber) {
+      unresolved.push(token);
+      return token;
+    }
+    return `#${issueNumber}`;
+  });
+
+  if (unresolved.length > 0) {
+    return { ok: false, error: `unresolved plan-local dependency reference(s): ${unresolved.join(', ')}` };
+  }
+  return { ok: true, dependsOn: resolved };
+}
+
+function replaceApprovedPlanDependsOnLine(approvedPlan, dependsOn) {
+  return String(approvedPlan ?? '').split(/\r?\n/).map((line) => {
+    if (/^\s*Depends-on\s*:/i.test(line)) {
+      return `Depends-on: ${dependsOn ?? ''}`;
+    }
+    return line;
+  }).join('\n');
+}
+
 export function buildImplementationIssueBody({ sourceIssueNumber, approvedPlan, dependsOn, touches }) {
+  const normalizedApprovedPlan = replaceApprovedPlanDependsOnLine(stripVerdictLine(approvedPlan), dependsOn);
   return [
     `Generated from #${sourceIssueNumber}`,
     `Depends-on: ${dependsOn ?? ''}`,
     `Touches: ${touches ?? ''}`,
     '',
     APPROVED_PLAN_HEADING,
-    stripVerdictLine(approvedPlan),
+    normalizedApprovedPlan,
     '',
   ].join('\n');
 }
@@ -645,46 +734,75 @@ export function parseGhIssueNumber(output) {
   return hashMatch ? Number(hashMatch[1]) : null;
 }
 
-function createImplementationIssue(sourceIssueNumber, approvedPlan) {
-  const parsed = parseApprovedPlanForIssue(approvedPlan);
-  if (!parsed.title) {
-    return { ok: false, error: 'approved plan is missing required "Title:" line' };
+export function createImplementationIssues(sourceIssueNumber, approvedPlan, deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
+  const parsedPlan = parseApprovedPlanIssueBlocks(approvedPlan);
+  if (!parsedPlan.ok) {
+    return { ok: false, error: parsedPlan.error };
   }
-  if (parsed.touches == null) {
-    return { ok: false, error: 'approved plan is missing required "Touches:" line' };
+
+  const issues = [];
+  const createdIssueNumbersByPlanIndex = new Map();
+  for (const block of parsedPlan.issues) {
+    const dependsOnResult = resolvePlanIssueDependency(block.dependsOn, createdIssueNumbersByPlanIndex);
+    if (!dependsOnResult.ok) {
+      return { ok: false, error: `approved plan block ${block.index}: ${dependsOnResult.error}` };
+    }
+    const body = buildImplementationIssueBody({
+      sourceIssueNumber,
+      approvedPlan: block.approvedPlan,
+      dependsOn: dependsOnResult.dependsOn,
+      touches: block.touches,
+    });
+    const r = run('gh', ['issue', 'create', '--title', block.title, '--body-file', '-', '--label', 'inner-loop'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      input: body,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (r.status !== 0) {
+      return { ok: false, error: `gh issue create failed for plan#${block.index}: ${r.stderr || r.stdout}` };
+    }
+    const issueNumber = parseGhIssueNumber(r.stdout);
+    if (!issueNumber) {
+      return { ok: false, error: `could not parse created issue number from gh output: ${r.stdout}` };
+    }
+    const created = {
+      index: block.index,
+      issueNumber,
+      url: r.stdout.trim(),
+      body,
+      title: block.title,
+    };
+    issues.push(created);
+    createdIssueNumbersByPlanIndex.set(block.index, issueNumber);
   }
-  const dependsOnResult = parseDependsOnLine(parsed.dependsOn);
-  if (!dependsOnResult.ok) {
-    return { ok: false, error: dependsOnResult.error };
-  }
-  const body = buildImplementationIssueBody({
-    sourceIssueNumber,
-    approvedPlan,
-    dependsOn: dependsOnResult.dependsOn,
-    touches: parsed.touches,
-  });
-  const r = spawnSync('gh', ['issue', 'create', '--title', parsed.title, '--body-file', '-', '--label', 'inner-loop'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    input: body,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  if (r.status !== 0) {
-    return { ok: false, error: `gh issue create failed: ${r.stderr || r.stdout}` };
-  }
-  const issueNumber = parseGhIssueNumber(r.stdout);
-  if (!issueNumber) {
-    return { ok: false, error: `could not parse created issue number from gh output: ${r.stdout}` };
-  }
-  return { ok: true, issueNumber, url: r.stdout.trim(), body, title: parsed.title };
+
+  return { ok: true, issues, rejected: parsedPlan.rejected };
 }
 
-function closeSourceIssue(sourceIssueNumber, createdIssue) {
-  const comment = [
-    `plan-loop created implementation issue #${createdIssue.issueNumber}.`,
-    '',
-    createdIssue.url,
-  ].join('\n');
+export function buildPlanLoopCloseComment({ createdIssues, rejected }) {
+  const lines = ['plan-loop created implementation issues:', ''];
+  for (const issue of createdIssues) {
+    lines.push(`- plan#${issue.index} -> #${issue.issueNumber}: ${issue.title}`);
+    if (issue.url) lines.push(`  ${issue.url}`);
+  }
+  lines.push('', 'Rejected candidates:');
+  if (rejected.length === 0) {
+    lines.push('- none');
+  } else {
+    for (const candidate of rejected) {
+      lines.push(`- ${candidate.candidate} — ${candidate.reason}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function closeSourceIssue(sourceIssueNumber, created) {
+  const comment = buildPlanLoopCloseComment({
+    createdIssues: created.issues,
+    rejected: created.rejected,
+  });
   const r = spawnSync('gh', ['issue', 'close', String(sourceIssueNumber), '--reason', 'completed', '--comment', comment], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
@@ -929,10 +1047,11 @@ function dryRunPlanLoop(issueNumber, backendFlags) {
     });
     logDryRunStage(stage, backendFlags, REPO_ROOT, promptPreview);
   }
-  log('dry-run: ISSUE_CREATE — gh issue create --label inner-loop --body-file -');
-  log(`dry-run: ISSUE_CREATE body includes Generated from #${issueNumber}, Depends-on:, Touches:, ${APPROVED_PLAN_HEADING}`);
-  log(`dry-run: CLOSE_SOURCE — gh issue close ${issueNumber} --reason completed --comment '<created issue>'`);
-  log('dry-run: transition plan — RESEARCH PASS->PLAN, PLAN_READY->PLAN-REVIEW, PLAN-REVIEW PASS->ISSUE_CREATE / CHANGES->PLAN (max 2 cycles), gh issue create -> CLOSE_SOURCE, missing/unparsable VERDICT->ESCALATE');
+  log('dry-run: ISSUE_CREATE — parse all approved issue blocks and run gh issue create --label inner-loop --body-file - for each block');
+  log(`dry-run: ISSUE_CREATE body per block includes Generated from #${issueNumber}, resolved Depends-on:, Touches:, ${APPROVED_PLAN_HEADING}`);
+  log('dry-run: ISSUE_CREATE resolves plan#<k> dependencies to earlier created issue numbers');
+  log(`dry-run: CLOSE_SOURCE — gh issue close ${issueNumber} --reason completed --comment '<created issue list and rejected candidates>'`);
+  log('dry-run: transition plan — RESEARCH PASS->PLAN, PLAN_READY->PLAN-REVIEW, PLAN-REVIEW PASS->ISSUE_CREATE / CHANGES->PLAN (max 2 cycles), all gh issue create calls -> CLOSE_SOURCE, missing/unparsable VERDICT->ESCALATE');
 }
 
 function runPlanLoop(issueNumber, backendFlags) {
@@ -991,7 +1110,7 @@ function runPlanLoop(issueNumber, backendFlags) {
 
   if (state === 'ESCALATE') die(`plan-loop escalated — see .lathe/runs/plan-${issueNumber}.escalation.md`);
 
-  const created = createImplementationIssue(issueNumber, approvedPlan);
+  const created = createImplementationIssues(issueNumber, approvedPlan);
   if (!created.ok) {
     writePlanEscalation(issueNumber, 'ISSUE_CREATE', null, created.error);
     die(`plan-loop issue create failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
@@ -1003,9 +1122,9 @@ function runPlanLoop(issueNumber, backendFlags) {
     backendCostUsd: null,
     backendCostSource: null,
     backend: null,
-    resultText: `created #${created.issueNumber}\n${created.url}`,
+    resultText: created.issues.map((issue) => `created plan#${issue.index} -> #${issue.issueNumber}\n${issue.url}`).join('\n'),
   }));
-  log(`plan-loop created implementation issue #${created.issueNumber}: ${created.url}`);
+  log(`plan-loop created ${created.issues.length} implementation issue(s): ${created.issues.map((issue) => `#${issue.issueNumber}`).join(', ')}`);
 
   const closeResult = closeSourceIssue(issueNumber, created);
   if (!closeResult.ok) {
@@ -1021,7 +1140,7 @@ function runPlanLoop(issueNumber, backendFlags) {
     backend: null,
     resultText: `closed source issue #${issueNumber}`,
   }));
-  log(`plan-loop done — created implementation issue #${created.issueNumber} and closed source issue #${issueNumber}.`);
+  log(`plan-loop done — created implementation issue(s) ${created.issues.map((issue) => `#${issue.issueNumber}`).join(', ')} and closed source issue #${issueNumber}.`);
 }
 
 // --- CLI entrypoint ---
