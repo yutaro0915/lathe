@@ -30,6 +30,12 @@ tmp/
 .vscode/
 .idea/
 .zed/
+.agents/
+.mcp.json
+skills-lock.json
+
+# inner-loop local run state (manifests / logs / escalations / quarantined patches)
+.lathe/
 
 # os / editor cruft
 .DS_Store
