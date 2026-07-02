@@ -46,6 +46,12 @@ export interface IncrementalIngestOptions {
   insertOpts?: InsertBuiltOptions;
 
   /**
+   * Override the Codex rollout files to scan. When omitted, listCodexRollouts()
+   * is called. Passing [] disables Codex rollout ingestion for hermetic tests.
+   */
+  codexRolloutFiles?: string[];
+
+  /**
    * Maximum total number of .jsonl files to process (after global dedup).
    * Defaults to 200. Set to Infinity to process all.
    */
@@ -166,6 +172,13 @@ export function deduplicateByLatestMtime(
   return result;
 }
 
+export function resolveCodexRolloutFiles(
+  codexRolloutFiles: string[] | undefined,
+  discover: () => string[] = listCodexRollouts,
+): string[] {
+  return codexRolloutFiles ?? discover();
+}
+
 // ---------------------------------------------------------------------------
 // Default provider build options
 // ---------------------------------------------------------------------------
@@ -202,6 +215,7 @@ export async function runIncrementalIngest(
     dirs = discoverTranscriptDirs(),
     buildOpts = {},
     insertOpts = { backfillHarness: false },
+    codexRolloutFiles,
     maxFilesPerDir = 200,
     onFile,
   } = opts;
@@ -344,7 +358,7 @@ export async function runIncrementalIngest(
   //  3. Build + upsert stale sessions with replaceBuiltSession (no-wipe).
   // -------------------------------------------------------------------------
 
-  const codexRollouts = listCodexRollouts();
+  const codexRollouts = resolveCodexRolloutFiles(codexRolloutFiles);
   result.codexRolloutsFound = codexRollouts.length;
 
   if (codexRollouts.length > 0) {

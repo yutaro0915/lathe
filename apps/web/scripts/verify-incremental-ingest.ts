@@ -204,6 +204,7 @@ async function main(): Promise<void> {
         await runIncrementalIngest(pool, {
           dirs: [{ dir: bDirPath, latestMtimeMs: Date.now(), latestIngestableMtimeMs: Date.now() }],
           insertOpts: { backfillHarness: false },
+          codexRolloutFiles: [],
         });
 
         const aCountAfter = (
@@ -242,6 +243,7 @@ async function main(): Promise<void> {
         await runIncrementalIngest(pool, {
           dirs: [{ dir: bDirPath, latestMtimeMs: Date.now(), latestIngestableMtimeMs: Date.now() }],
           insertOpts: { backfillHarness: false },
+          codexRolloutFiles: [],
         });
 
         const findingRow = await pool.query<{ id: number }>(
@@ -273,6 +275,7 @@ async function main(): Promise<void> {
         const incrOpts = {
           dirs: [{ dir: cDirPath, latestMtimeMs: Date.now(), latestIngestableMtimeMs: Date.now() }],
           insertOpts: { backfillHarness: false },
+          codexRolloutFiles: [],
         };
 
         await runIncrementalIngest(pool, incrOpts);

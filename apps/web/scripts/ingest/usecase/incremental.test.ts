@@ -9,7 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { codexHeadSessionId, listCodexRollouts } from '../providers/codex';
-import { isStale, deduplicateByLatestMtime } from './incremental';
+import { isStale, deduplicateByLatestMtime, resolveCodexRolloutFiles } from './incremental';
 
 // ---------------------------------------------------------------------------
 // isStale
@@ -116,6 +116,33 @@ test('deduplicateByLatestMtime: latest mtime from third dir wins when interleave
   assert.equal(result.size, 2);
   assert.deepEqual(result.get('x'), { file: '/dir2/x.jsonl', mtime: 800 });
   assert.deepEqual(result.get('y'), { file: '/dir1/y.jsonl', mtime: 900 });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCodexRolloutFiles
+// ---------------------------------------------------------------------------
+
+test('resolveCodexRolloutFiles: explicit empty override bypasses discovery', () => {
+  let discovered = false;
+  const result = resolveCodexRolloutFiles([], () => {
+    discovered = true;
+    throw new Error('discovery should not run');
+  });
+
+  assert.deepEqual(result, []);
+  assert.equal(discovered, false);
+});
+
+test('resolveCodexRolloutFiles: undefined override uses discovery', () => {
+  let discovered = false;
+  const files = ['/tmp/rollout-a.jsonl', '/tmp/rollout-b.jsonl'];
+  const result = resolveCodexRolloutFiles(undefined, () => {
+    discovered = true;
+    return files;
+  });
+
+  assert.equal(discovered, true);
+  assert.deepEqual(result, files);
 });
 
 // ---------------------------------------------------------------------------
