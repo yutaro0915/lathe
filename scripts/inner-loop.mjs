@@ -48,6 +48,7 @@ export const APPROVED_PLAN_HEADING = '## Plan (approved)';
 export const IMPL_LOOP_STAGES = ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE'];
 export const IMPL_LOOP_STAGES_AFTER_PLAN = ['IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE'];
 export const PLAN_LOOP_STAGES = ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'ISSUE_CREATE', 'CLOSE_SOURCE'];
+export const WORKTREE_DEPS_INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline'];
 
 export function displayStage(stage) {
   return stage === 'PLAN_REVIEW' ? 'PLAN-REVIEW' : stage;
@@ -565,6 +566,40 @@ export {
 function die(msg) { process.stderr.write(`inner-loop: error: ${msg}\n`); process.exit(1); }
 function log(msg) { process.stdout.write(`[inner-loop] ${msg}\n`); }
 
+export function setupWorktreeDeps(worktreePath, deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
+  const writeLog = deps.log ?? log;
+  const now = deps.now ?? (() => Date.now());
+  const startedAt = now();
+
+  try {
+    const result = run('pnpm', WORKTREE_DEPS_INSTALL_ARGS, { cwd: worktreePath, stdio: 'inherit' });
+    const durationMs = Math.max(1, now() - startedAt);
+    const status = typeof result?.status === 'number' ? result.status : null;
+    const error = result?.error ? (result.error.message ?? String(result.error)) : null;
+
+    if (status === 0) {
+      writeLog(`worktree deps setup succeeded: pnpm ${WORKTREE_DEPS_INSTALL_ARGS.join(' ')} cwd=${worktreePath} elapsed=${durationMs}ms`);
+      return { ok: true, status, error: null, durationMs };
+    }
+
+    writeLog(
+      `warning: worktree deps setup failed: pnpm ${WORKTREE_DEPS_INSTALL_ARGS.join(' ')} ` +
+      `cwd=${worktreePath} status=${status ?? 'null'} error=${error ?? 'null'} ` +
+      `elapsed=${durationMs}ms; continuing with P3 fallback`,
+    );
+    return { ok: false, status, error, durationMs };
+  } catch (error) {
+    const durationMs = Math.max(1, now() - startedAt);
+    const message = error?.message ?? String(error);
+    writeLog(
+      `warning: worktree deps setup failed: pnpm ${WORKTREE_DEPS_INSTALL_ARGS.join(' ')} ` +
+      `cwd=${worktreePath} status=null error=${message} elapsed=${durationMs}ms; continuing with P3 fallback`,
+    );
+    return { ok: false, status: null, error: message, durationMs };
+  }
+}
+
 function fetchIssue(issueNumber) {
   const r = spawnSync('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,body'], { encoding: 'utf8', cwd: REPO_ROOT });
   if (r.status !== 0) die(`gh issue view failed: ${r.stderr || r.stdout}`);
@@ -659,12 +694,17 @@ function closeSourceIssue(sourceIssueNumber, createdIssue) {
   return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
 
-function prepareWorktree(issueNumber) {
+export function prepareWorktree(issueNumber, deps = {}) {
   const branch = `inner/issue-${issueNumber}`;
   const path = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
-  if (existsSync(path)) die(`worktree already exists at ${path} — refusing to overwrite. Remove it first if you intend to restart.`);
-  const r = spawnSync('git', ['worktree', 'add', path, '-b', branch, 'main'], { stdio: 'inherit', cwd: REPO_ROOT });
+  const pathExists = deps.existsSync ?? existsSync;
+  const run = deps.spawnSync ?? spawnSync;
+  const setupDeps = deps.setupWorktreeDeps ?? setupWorktreeDeps;
+
+  if (pathExists(path)) die(`worktree already exists at ${path} — refusing to overwrite. Remove it first if you intend to restart.`);
+  const r = run('git', ['worktree', 'add', path, '-b', branch, 'main'], { stdio: 'inherit', cwd: REPO_ROOT });
   if (r.status !== 0) die(`git worktree add failed for ${path}`);
+  setupDeps(path);
   return { path, branch };
 }
 
@@ -1043,6 +1083,8 @@ if (isMain) {
     }
     const wtPath = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
     log(`dry-run: would create worktree ${wtPath} on branch inner/issue-${issueNumber}`);
+    log(`dry-run: would run pnpm ${WORKTREE_DEPS_INSTALL_ARGS.join(' ')} in ${wtPath}`);
+    log('dry-run: pnpm install failure would warn and continue with P3 fallback');
     for (const stage of runPlan.stages) {
       if (stage === 'MERGE') {
         log('dry-run: MERGE — node scripts/merge.mjs inner/issue-<n> (from repo root)');

@@ -28,6 +28,9 @@ import {
   buildEscalationMarkdown,
   stageRequiresFreshMainRebase,
   rebaseWorktree,
+  WORKTREE_DEPS_INSTALL_ARGS,
+  setupWorktreeDeps,
+  prepareWorktree,
 } from './inner-loop.mjs';
 import {
   buildStagePrompt,
@@ -39,9 +42,10 @@ import {
   buildVerifyPrompt,
   buildTriagePrompt,
 } from './inner-loop-prompts.mjs';
-import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 // --- parseVerdict ---
 
@@ -223,6 +227,107 @@ test('rebaseWorktree: failed rebase aborts before returning false', () => {
     { cmd: 'git', args: ['-C', '/tmp/wt', 'rebase', 'main'], options: { stdio: 'inherit' } },
     { cmd: 'git', args: ['-C', '/tmp/wt', 'rebase', '--abort'], options: { stdio: 'inherit' } },
   ]);
+});
+
+// --- worktree deps setup ---
+
+test('worktree deps setup runs pnpm install frozen prefer-offline in the worktree cwd', () => {
+  const calls = [];
+  const logs = [];
+  const times = [1000, 1042];
+
+  const result = setupWorktreeDeps('/tmp/lathe-wt', {
+    spawnSync: (cmd, args, options) => {
+      calls.push({ cmd, args, options });
+      return { status: 0 };
+    },
+    now: () => times.shift(),
+    log: (msg) => logs.push(msg),
+  });
+
+  assert.deepEqual(calls, [
+    {
+      cmd: 'pnpm',
+      args: WORKTREE_DEPS_INSTALL_ARGS,
+      options: { cwd: '/tmp/lathe-wt', stdio: 'inherit' },
+    },
+  ]);
+  assert.deepEqual(result, { ok: true, status: 0, error: null, durationMs: 42 });
+  assert.match(logs[0], /worktree deps setup succeeded/);
+  assert.match(logs[0], /elapsed=42ms/);
+});
+
+test('worktree deps setup warns and returns ok false when pnpm install fails', () => {
+  const logs = [];
+  const times = [2000, 2017];
+
+  const result = setupWorktreeDeps('/tmp/lathe-wt', {
+    spawnSync: () => ({ status: 1, error: new Error('offline store miss') }),
+    now: () => times.shift(),
+    log: (msg) => logs.push(msg),
+  });
+
+  assert.deepEqual(result, { ok: false, status: 1, error: 'offline store miss', durationMs: 17 });
+  assert.match(logs[0], /warning: worktree deps setup failed/);
+  assert.match(logs[0], /status=1/);
+  assert.match(logs[0], /error=offline store miss/);
+  assert.match(logs[0], /elapsed=17ms/);
+  assert.match(logs[0], /continuing with P3 fallback/);
+});
+
+test('prepareWorktree creates the git worktree then prepares deps before returning', () => {
+  const events = [];
+  const expectedPath = join(process.cwd(), '.claude', 'worktrees', 'inner-issue-46');
+
+  const result = prepareWorktree(46, {
+    existsSync: () => false,
+    spawnSync: (cmd, args, options) => {
+      events.push({ type: 'spawn', cmd, args, options });
+      return { status: 0 };
+    },
+    setupWorktreeDeps: (worktreePath) => {
+      events.push({ type: 'deps', worktreePath });
+      return { ok: true };
+    },
+  });
+
+  assert.deepEqual(result, { path: expectedPath, branch: 'inner/issue-46' });
+  assert.deepEqual(events, [
+    {
+      type: 'spawn',
+      cmd: 'git',
+      args: ['worktree', 'add', expectedPath, '-b', 'inner/issue-46', 'main'],
+      options: { stdio: 'inherit', cwd: process.cwd() },
+    },
+    { type: 'deps', worktreePath: expectedPath },
+  ]);
+});
+
+test('worktree deps dry-run prints the install step and P3 fallback policy for non-resume impl runs', () => {
+  const fakeBin = join(tmpdir(), `lathe-inner-loop-gh-${process.pid}-${Date.now()}`);
+  mkdirSync(fakeBin, { recursive: true });
+  const fakeGh = join(fakeBin, 'gh');
+  writeFileSync(fakeGh, [
+    '#!/bin/sh',
+    "cat <<'JSON'",
+    '{"number":46,"title":"Issue 46","body":"Body"}',
+    'JSON',
+    '',
+  ].join('\n'), 'utf8');
+  chmodSync(fakeGh, 0o755);
+
+  const result = spawnSync(process.execPath, ['scripts/inner-loop.mjs', '46', '--dry-run'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+  });
+
+  rmSync(fakeBin, { recursive: true, force: true });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /dry-run: would create worktree .*inner-issue-46 on branch inner\/issue-46/);
+  assert.match(result.stdout, /dry-run: would run pnpm install --frozen-lockfile --prefer-offline in .*inner-issue-46/);
+  assert.match(result.stdout, /dry-run: pnpm install failure would warn and continue with P3 fallback/);
 });
 
 // --- nextState: transition table ---
