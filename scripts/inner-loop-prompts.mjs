@@ -27,8 +27,15 @@ function verdictInstruction(tokens) {
   return `最終行に必ず次の形式で verdict を出力してください（他の形式は不可）:\nVERDICT: <TOKEN>\n<TOKEN> は次のいずれか: ${tokens.join(' | ')}`;
 }
 
-const PLAN_LOOP_ESCALATION_CONTRACT = 'plan-loop escalation: ユーザー裁可が必要な設計判断、調査結果による目標不成立・前提矛盾、生成 task の依存が既存 open issue と衝突する場合は ESCALATE してください。';
-const IMPL_LOOP_ESCALATION_CONTRACT = 'impl-loop escalation: plan の前提が現実（コードの現状・依存状態）と乖離している場合は、その場で再計画せず ESCALATE してください。既存条件（VERDICT 不能・周回超過・NOVEL RED・merge 失敗・main dirty）も ESCALATE です。';
+const PLAN_LOOP_ESCALATION_CONTRACT = [
+  'plan-loop escalation: ユーザー裁可が必要な設計判断、調査結果による目標不成立・前提矛盾、生成 task の依存が既存 open issue と衝突する場合は ESCALATE してください。',
+  'PLAN_REVIEW の差し戻し指摘が未定義の契約・ロール割当・規約新設の決定を求めている（問題は述べられているが実装解が一意でない）場合は、CHANGES で planner に押し返さないでください。最小変更を発明せず ESCALATE してください。',
+].join(' ');
+const IMPL_LOOP_ESCALATION_CONTRACT = [
+  'impl-loop escalation: plan の前提が現実（コードの現状・依存状態）と乖離している場合は、その場で再計画せず ESCALATE してください。',
+  '差し戻し指摘が未定義の契約・ロール割当・規約新設の決定を求めている（問題は述べられているが実装解が一意でない）場合は、最小変更を発明せず ESCALATE してください。',
+  '既存条件（VERDICT 不能・周回超過・NOVEL RED・merge 失敗・main dirty）も ESCALATE です。',
+].join(' ');
 
 /**
  * RESEARCH stage prompt — researcher agent, cwd = repo root.
@@ -180,24 +187,34 @@ export function buildPlanReviewPrompt(ctx) {
  * buildReceiptArgs), because an agent-issued `LATHE_AGENT=... node
  * scripts/receipt.mjs ...` command silently fails the Bash allowlist
  * (env-prefixed commands don't prefix-match `Bash(node scripts/receipt.mjs *)`).
- * @param {{ issueNumber: number, plan: string, headSha: string }} ctx
+ * @param {{ issueNumber: number, plan: string, headSha: string, reviewHistory?: string }} ctx
  * @returns {string}
  */
 export function buildReviewPrompt(ctx) {
-  const { issueNumber, plan } = ctx;
-  return [
+  const { issueNumber, plan, reviewHistory } = ctx;
+  const lines = [
     marker(issueNumber, 'REVIEW'),
     '',
     '`.claude/skills/review/SKILL.md` の手順に従い、未コミットではなく main からの branch diff（現在の HEAD）を plan ＋ 該当 rubric に照らしてレビューしてください。',
     'diff は **inline の `git diff main...HEAD`** で取得すること。単純な diff 収集を subagent に委譲しない。',
+    'PLAN と変更全体を一度に照合し、major/blocker は初回で出し切る（逐次開示しない）。major は plan/rubric/明文原則違反に限る。過剰 flag 禁止。',
     '',
     '**receipt（受領証）は driver が刻みます。あなたは発行しないでください**。最終行に `VERDICT: <TOKEN>` のみを出力すること。',
     '',
     '## plan',
     plan ?? '',
-    '',
-    verdictInstruction(['PASS', 'CHANGES', 'ESCALATE']),
-  ].join('\n');
+  ];
+  if (reviewHistory) {
+    lines.push(
+      '',
+      '## 前周までの REVIEW 履歴',
+      reviewHistory,
+      '',
+      '前言と矛盾する新指摘を出す場合は、矛盾する前言を明示的に撤回し、その理由を述べてください。',
+    );
+  }
+  lines.push('', verdictInstruction(['PASS', 'CHANGES', 'ESCALATE']));
+  return lines.join('\n');
 }
 
 /**

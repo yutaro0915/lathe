@@ -22,6 +22,9 @@ import {
   parseApprovedPlanForIssue,
   buildImplementationIssueBody,
   parseGhIssueNumber,
+  collectReviewHistory,
+  buildReviewHistorySummary,
+  buildEscalationMarkdown,
 } from './inner-loop.mjs';
 import {
   buildStagePrompt,
@@ -33,7 +36,7 @@ import {
   buildVerifyPrompt,
   buildTriagePrompt,
 } from './inner-loop-prompts.mjs';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -340,6 +343,10 @@ test('buildResearchPrompt: includes plan-loop escalation contract', () => {
   assert.match(prompt, /裁可/);
   assert.match(prompt, /目標不成立/);
   assert.match(prompt, /依存が既存 open issue と衝突/);
+  assert.match(prompt, /未定義の契約/);
+  assert.match(prompt, /ロール割当/);
+  assert.match(prompt, /規約新設/);
+  assert.match(prompt, /実装解が一意でない/);
   assert.match(prompt, /PASS \| ESCALATE/);
 });
 
@@ -355,6 +362,7 @@ test('buildPlanPrompt: plan-loop mode requires Title Depends-on Touches', () => 
   assert.match(prompt, /Depends-on:/);
   assert.match(prompt, /Touches:/);
   assert.match(prompt, /plan-loop escalation/);
+  assert.match(prompt, /最小変更を発明せず ESCALATE/);
   assert.match(prompt, /PLAN_READY \| ESCALATE/);
 });
 
@@ -376,7 +384,7 @@ test('buildPlanReviewPrompt: includes plan-loop escalation contract and PASS/CHA
 test('buildStagePrompt: IMPLEMENT includes plan and optional feedback', () => {
   const withoutFeedback = buildStagePrompt('IMPLEMENT', { issueNumber: 1, issueTitle: 'T', issueBody: 'B', plan: 'Do X then Y.' });
   assert.match(withoutFeedback, /Do X then Y\./);
-  assert.doesNotMatch(withoutFeedback, /差し戻し指摘/);
+  assert.doesNotMatch(withoutFeedback, /^## 差し戻し指摘/m);
 
   const withFeedback = buildStagePrompt('IMPLEMENT', {
     issueNumber: 1,
@@ -396,10 +404,45 @@ test('buildImplementPrompt: impl-loop premise break escalates without replanning
   assert.match(prompt, /再計画せず ESCALATE/);
 });
 
+test('buildImplementPrompt: review feedback with undefined design axis escalates instead of inventing a minimal change', () => {
+  const prompt = buildImplementPrompt({ issueNumber: 1, issueTitle: 'T', issueBody: 'B', plan: 'P', feedback: 'decide new role owner' });
+  assert.match(prompt, /未定義の契約/);
+  assert.match(prompt, /ロール割当/);
+  assert.match(prompt, /規約新設/);
+  assert.match(prompt, /実装解が一意でない/);
+  assert.match(prompt, /最小変更を発明せず ESCALATE/);
+});
+
 test('buildStagePrompt: REVIEW includes plan and VERDICT instruction', () => {
   const prompt = buildStagePrompt('REVIEW', { issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
   assert.match(prompt, /plan text/);
   assert.match(prompt, /PASS \| CHANGES \| ESCALATE/);
+});
+
+test('buildReviewPrompt: asks for comprehensive first-pass review and limits major findings to explicit grounds', () => {
+  const prompt = buildReviewPrompt({ issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
+  assert.match(prompt, /PLAN と変更全体を一度に照合/);
+  assert.match(prompt, /major\/blocker は初回で出し切る/);
+  assert.match(prompt, /逐次開示しない/);
+  assert.match(prompt, /plan\/rubric\/明文原則違反に限る/);
+  assert.match(prompt, /過剰 flag 禁止/);
+});
+
+test('buildReviewPrompt: includes review history only when provided', () => {
+  const withoutHistory = buildReviewPrompt({ issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
+  assert.doesNotMatch(withoutHistory, /前周までの REVIEW 履歴/);
+
+  const withHistory = buildReviewPrompt({
+    issueNumber: 7,
+    plan: 'plan text',
+    headSha: 'abc123',
+    reviewHistory: '- REVIEW #1 verdict=CHANGES',
+  });
+  assert.match(withHistory, /前周までの REVIEW 履歴/);
+  assert.match(withHistory, /REVIEW #1 verdict=CHANGES/);
+  assert.match(withHistory, /前言と矛盾する新指摘/);
+  assert.match(withHistory, /撤回/);
+  assert.match(withHistory, /理由/);
 });
 
 test('buildStagePrompt: VERIFY includes VERDICT instruction', () => {
@@ -492,6 +535,14 @@ test('buildTriagePrompt: Codex sandbox EPERM is escalated, not returned as KNOWN
   assert.match(prompt, /Codex sandbox EPERM/);
   assert.match(prompt, /VERDICT: ESCALATE/);
   assert.match(prompt, /VERDICT: KNOWN` で IMPLEMENT に戻してはいけません/);
+});
+
+test('implementer agent: ambiguous requirements choose smallest change except undefined design axis from feedback escalates', () => {
+  const agent = readFileSync(new URL('../.claude/agents/implementer.md', import.meta.url), 'utf8');
+  assert.match(agent, /choose the smallest compatible change/);
+  assert.match(agent, /差し戻し/);
+  assert.match(agent, /設計軸が未定義/);
+  assert.match(agent, /ESCALATE/);
 });
 
 test('buildStagePrompt: unknown stage throws', () => {
@@ -676,6 +727,113 @@ test('readManifestStages: stages not an array -> []', () => {
   const result = readManifestStages(path);
   assert.deepEqual(result, []);
   rmSync(dir, { recursive: true, force: true });
+});
+
+// --- review history transport / escalation summary ---
+
+test('collectReviewHistory: extracts all REVIEW entries with verdict, head, ts, excerpt, and contradiction markers', () => {
+  const history = collectReviewHistory([
+    buildManifestEntry({ stage: 'PLAN', sessionId: 's-plan', verdict: 'PLAN_READY', costUsd: 0.01, resultText: 'plan' }),
+    buildManifestEntry({
+      stage: 'REVIEW',
+      sessionId: 's-review-1',
+      verdict: 'CHANGES',
+      costUsd: 0.02,
+      ts: '2026-07-02T00:00:00.000Z',
+      headSha: 'sha-review-1',
+      resultText: 'major: plan と違う\nVERDICT: CHANGES',
+    }),
+    buildManifestEntry({ stage: 'IMPLEMENT', sessionId: 's-impl', verdict: 'IMPL_DONE', costUsd: 0.03, headSha: 'sha-impl', resultText: 'done' }),
+    buildManifestEntry({
+      stage: 'REVIEW',
+      sessionId: 's-review-2',
+      verdict: 'CHANGES',
+      costUsd: 0.04,
+      ts: '2026-07-02T00:10:00.000Z',
+      headSha: 'sha-review-2',
+      resultText: '前言と矛盾するため撤回が必要\nVERDICT: CHANGES',
+    }),
+  ]);
+
+  assert.equal(history.length, 2);
+  assert.deepEqual(history.map((entry) => entry.ordinal), [1, 2]);
+  assert.equal(history[0].verdict, 'CHANGES');
+  assert.equal(history[0].headSha, 'sha-review-1');
+  assert.equal(history[0].ts, '2026-07-02T00:00:00.000Z');
+  assert.match(history[0].excerpt, /major: plan と違う/);
+  assert.equal(history[0].hasContradictionMarker, false);
+  assert.equal(history[1].hasContradictionMarker, true);
+});
+
+test('buildReviewHistorySummary: returns empty without REVIEW entries and a prompt-ready summary with REVIEW entries', () => {
+  assert.equal(buildReviewHistorySummary([]), '');
+
+  const summary = buildReviewHistorySummary([
+    buildManifestEntry({
+      stage: 'REVIEW',
+      sessionId: 's-review-1',
+      verdict: 'CHANGES',
+      costUsd: 0.02,
+      ts: '2026-07-02T00:00:00.000Z',
+      headSha: 'sha-review-1',
+      resultText: 'major: first issue\nVERDICT: CHANGES',
+    }),
+    buildManifestEntry({
+      stage: 'REVIEW',
+      sessionId: 's-review-2',
+      verdict: 'PASS',
+      costUsd: 0.03,
+      ts: '2026-07-02T00:10:00.000Z',
+      headSha: 'sha-review-2',
+      resultText: 'withdraw previous concern\nVERDICT: PASS',
+    }),
+  ]);
+
+  assert.match(summary, /REVIEW #1/);
+  assert.match(summary, /verdict: CHANGES/);
+  assert.match(summary, /head_sha: sha-review-1/);
+  assert.match(summary, /major: first issue/);
+  assert.match(summary, /REVIEW #2/);
+  assert.match(summary, /contradiction_marker: yes/);
+});
+
+test('buildEscalationMarkdown: includes all REVIEW rounds, not only the final stage excerpt', () => {
+  const reviewHistory = collectReviewHistory([
+    buildManifestEntry({
+      stage: 'REVIEW',
+      sessionId: 's-review-1',
+      verdict: 'CHANGES',
+      costUsd: 0.02,
+      ts: '2026-07-02T00:00:00.000Z',
+      headSha: 'sha-review-1',
+      resultText: 'major: first issue\nVERDICT: CHANGES',
+    }),
+    buildManifestEntry({
+      stage: 'REVIEW',
+      sessionId: 's-review-2',
+      verdict: 'ESCALATE',
+      costUsd: 0.03,
+      ts: '2026-07-02T00:10:00.000Z',
+      headSha: 'sha-review-2',
+      resultText: '前言と矛盾\nVERDICT: ESCALATE',
+    }),
+  ]);
+  const markdown = buildEscalationMarkdown({
+    issueNumber: 48,
+    stage: 'REVIEW',
+    verdict: 'ESCALATE',
+    ts: '2026-07-02T00:11:00.000Z',
+    resultExcerpt: 'final reviewer excerpt',
+    reviewHistory,
+  });
+
+  assert.match(markdown, /# escalation — issue #48/);
+  assert.match(markdown, /## REVIEW verdict history/);
+  assert.match(markdown, /REVIEW #1/);
+  assert.match(markdown, /major: first issue/);
+  assert.match(markdown, /REVIEW #2/);
+  assert.match(markdown, /contradiction_marker: yes/);
+  assert.match(markdown, /final reviewer excerpt/);
 });
 
 // --- resume decision ---

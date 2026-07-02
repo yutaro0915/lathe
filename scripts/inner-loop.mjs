@@ -308,6 +308,97 @@ export function readManifestStages(manifestPath) {
   } catch { return []; }
 }
 
+const REVIEW_CONTRADICTION_MARKER_RE = /(矛盾|撤回|前言|contradict|withdraw)/i;
+
+function clippedExcerpt(text, maxChars = 1200) {
+  const value = String(text ?? '').trim();
+  if (value.length <= maxChars) return value;
+  return `...${value.slice(-maxChars)}`;
+}
+
+/**
+ * Extract prior REVIEW results from a manifest so reviewer history travels
+ * symmetrically across review cycles.
+ * @param {object[]} stages
+ * @returns {Array<{ ordinal: number, verdict: string|null, headSha: string|null, ts: string|null, excerpt: string, hasContradictionMarker: boolean }>}
+ */
+export function collectReviewHistory(stages) {
+  if (!Array.isArray(stages)) return [];
+  let ordinal = 0;
+  return stages
+    .filter((entry) => entry?.stage === 'REVIEW')
+    .map((entry) => {
+      ordinal += 1;
+      const resultText = entry.result_text ?? '';
+      return {
+        ordinal,
+        verdict: entry.verdict ?? null,
+        headSha: entry.head_sha ?? null,
+        ts: entry.ts ?? null,
+        excerpt: clippedExcerpt(resultText),
+        hasContradictionMarker: REVIEW_CONTRADICTION_MARKER_RE.test(String(resultText)),
+      };
+    });
+}
+
+function formatReviewHistoryEntries(history) {
+  return history.map((entry) => [
+    `### REVIEW #${entry.ordinal}`,
+    `verdict: ${entry.verdict ?? '(none/unparsable)'}`,
+    `head_sha: ${entry.headSha ?? '(none)'}`,
+    `ts: ${entry.ts ?? '(none)'}`,
+    `contradiction_marker: ${entry.hasContradictionMarker ? 'yes' : 'no'}`,
+    '',
+    '```',
+    entry.excerpt,
+    '```',
+  ].join('\n')).join('\n\n');
+}
+
+/**
+ * Build the REVIEW history block injected into second and later REVIEW prompts.
+ * @param {object[]} stages
+ * @returns {string}
+ */
+export function buildReviewHistorySummary(stages) {
+  const history = collectReviewHistory(stages);
+  if (history.length === 0) return '';
+  return formatReviewHistoryEntries(history);
+}
+
+/**
+ * Build escalation markdown with full REVIEW verdict history for outer recovery.
+ * @param {{ issueNumber: number, stage: string, verdict: string|null, ts?: string, resultExcerpt?: string|null, reviewHistory?: Array<{ ordinal: number, verdict: string|null, headSha: string|null, ts: string|null, excerpt: string, hasContradictionMarker: boolean }> }} p
+ * @returns {string}
+ */
+export function buildEscalationMarkdown({ issueNumber, stage, verdict, ts, resultExcerpt, reviewHistory = [] }) {
+  const lines = [
+    `# escalation — issue #${issueNumber}`,
+    '',
+    `stage: ${stage}`,
+    `verdict: ${verdict ?? '(none/unparsable)'}`,
+    `ts: ${ts ?? new Date().toISOString()}`,
+    '',
+    '## REVIEW verdict history',
+    '',
+  ];
+  if (Array.isArray(reviewHistory) && reviewHistory.length > 0) {
+    lines.push(formatReviewHistoryEntries(reviewHistory));
+  } else {
+    lines.push('(no REVIEW entries recorded)');
+  }
+  lines.push(
+    '',
+    '## result excerpt',
+    '',
+    '```',
+    clippedExcerpt(resultExcerpt, 4000),
+    '```',
+    '',
+  );
+  return lines.join('\n');
+}
+
 // Build the full manifest object for writing.
 export function buildManifest(issueNumber, stages, extra = {}) {
   return { issue: issueNumber, ...extra, stages };
@@ -689,11 +780,14 @@ function appendPlanManifestEntry(issueNumber, entry) {
 function writeEscalation(issueNumber, stage, verdict, resultExcerpt) {
   const p = join(REPO_ROOT, '.lathe', 'runs', `issue-${issueNumber}.escalation.md`);
   mkdirSync(dirname(p), { recursive: true });
-  appendFileSync(p, [
-    `# escalation — issue #${issueNumber}`, '',
-    `stage: ${stage}`, `verdict: ${verdict ?? '(none/unparsable)'}`, `ts: ${new Date().toISOString()}`, '',
-    '## result excerpt', '', '```', (resultExcerpt ?? '').slice(-4000), '```', '',
-  ].join('\n'), 'utf8');
+  const reviewHistory = collectReviewHistory(readManifestStages(manifestPathFor(issueNumber)));
+  appendFileSync(p, buildEscalationMarkdown({
+    issueNumber,
+    stage,
+    verdict,
+    resultExcerpt,
+    reviewHistory,
+  }), 'utf8');
   const cr = spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body',
     `inner-loop escalated at stage ${stage} (verdict: ${verdict ?? 'none'}). See ${p}`],
     { cwd: REPO_ROOT, stdio: 'inherit' });
@@ -891,10 +985,14 @@ if (isMain) {
       }
       const backend = selectBackend(resumeState.state, backendFlags);
       const cwd = stageCwd(resumeState.state, REPO_ROOT, resumeState.worktreePath);
+      const reviewHistory = resumeState.state === 'REVIEW'
+        ? buildReviewHistorySummary(readManifestStages(manifestPathFor(issueNumber)))
+        : '';
       const promptPreview = buildStagePrompt(resumeState.state, {
         issueNumber, issueTitle: '<title>', issueBody: '<body>',
         plan: resumeState.plan, feedback: resumeState.feedback,
         headSha: resumeState.headSha, verifyResult: resumeState.verifyResult,
+        reviewHistory,
       });
       log(`dry-run: stage=${resumeState.state} backend=${backend} cwd=${cwd}`);
       log(`dry-run: prompt preview:\n${promptPreview}\n`);
@@ -977,9 +1075,12 @@ if (isMain) {
       headSha = spawnSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
     }
 
+    const reviewHistory = state === 'REVIEW'
+      ? buildReviewHistorySummary(readManifestStages(manifestPathFor(issueNumber)))
+      : '';
     const prompt = buildStagePrompt(state, {
       issueNumber, issueTitle: issue.title, issueBody: issue.body,
-      plan, feedback, headSha, verifyResult,
+      plan, feedback, headSha, verifyResult, reviewHistory,
     });
 
     const backend = selectBackend(state, backendFlags);
