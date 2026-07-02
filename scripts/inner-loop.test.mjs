@@ -32,6 +32,7 @@ import {
   buildEscalationMarkdown,
   stageRequiresFreshMainRebase,
   rebaseWorktree,
+  collectTouchesGroundingReport,
   WORKTREE_DEPS_INSTALL_ARGS,
   setupWorktreeDeps,
   prepareWorktree,
@@ -312,6 +313,40 @@ test('buildPlanLoopCloseComment: includes created issues and rejected candidates
   assert.match(comment, /grounding hook issue — requires undefined contract/);
 });
 
+test('collectTouchesGroundingReport: returns raw JSON only for status ok', () => {
+  const calls = [];
+  const report = { status: 'ok', generatedAt: '2026-07-03T00:00:00.000Z', targetIssue: null, issues: [], advisoryOpenOverlaps: [] };
+  const result = collectTouchesGroundingReport({
+    spawnSync: (cmd, args, options) => {
+      calls.push({ cmd, args, options });
+      return { status: 0, stdout: `${JSON.stringify(report, null, 2)}\n`, stderr: '' };
+    },
+  });
+
+  assert.equal(result, JSON.stringify(report, null, 2));
+  assert.deepEqual(calls, [
+    {
+      cmd: 'pnpm',
+      args: ['-C', 'apps/web', 'exec', 'tsx', 'scripts/touches-grounding.ts', '--format', 'json'],
+      options: { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 1e8 },
+    },
+  ]);
+});
+
+test('collectTouchesGroundingReport: omits unavailable, invalid, and failing reports', () => {
+  assert.equal(collectTouchesGroundingReport({
+    spawnSync: () => ({ status: 0, stdout: '{"status":"unavailable","generatedAt":"2026-07-03T00:00:00.000Z","reason":"db offline"}', stderr: '' }),
+  }), null);
+
+  assert.equal(collectTouchesGroundingReport({
+    spawnSync: () => ({ status: 0, stdout: 'not json', stderr: '' }),
+  }), null);
+
+  assert.equal(collectTouchesGroundingReport({
+    spawnSync: () => ({ status: 1, stdout: '', stderr: 'boom' }),
+  }), null);
+});
+
 test('parseGhIssueNumber: parses GitHub issue URL', () => {
   assert.equal(parseGhIssueNumber('https://github.com/yutaro0915/lathe/issues/123\n'), 123);
 });
@@ -446,6 +481,20 @@ test('worktree deps dry-run prints the install step and P3 fallback policy for n
   assert.match(result.stdout, /dry-run: would create worktree .*inner-issue-46 on branch inner\/issue-46/);
   assert.match(result.stdout, /dry-run: would run pnpm install --frozen-lockfile --prefer-offline in .*inner-issue-46/);
   assert.match(result.stdout, /dry-run: pnpm install failure would warn and continue with P3 fallback/);
+});
+
+test('plan-loop dry-run prints touches grounding collection and preview placeholder', () => {
+  const result = spawnSync(process.execPath, ['scripts/inner-loop.mjs', '--plan', '46', '--dry-run'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: { ...process.env },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /dry-run: would collect touches grounding report/);
+  assert.match(result.stdout, /unavailable\/non-ok -> omit/);
+  assert.match(result.stdout, /^## touches grounding$/m);
+  assert.match(result.stdout, /<touches grounding JSON/);
 });
 
 // --- nextState: transition table ---
@@ -605,6 +654,33 @@ test('buildResearchPrompt: includes plan-loop escalation contract', () => {
   assert.match(prompt, /規約新設/);
   assert.match(prompt, /実装解が一意でない/);
   assert.match(prompt, /PASS \| ESCALATE/);
+});
+
+test('buildResearchPrompt: includes touches grounding only when provided', () => {
+  const withoutGrounding = buildResearchPrompt({ issueNumber: 42, issueTitle: 'Needs plan', issueBody: 'Investigate.' });
+  assert.doesNotMatch(withoutGrounding, /^## touches grounding$/m);
+
+  const grounding = JSON.stringify({
+    status: 'ok',
+    issues: [{ issueNumber: 40, precision: 0.5, recall: 0.25, missingActual: ['scripts/x.mjs'] }],
+  });
+  const withGrounding = buildResearchPrompt({
+    issueNumber: 42,
+    issueTitle: 'Needs plan',
+    issueBody: 'Investigate.',
+    touchesGrounding: grounding,
+  });
+
+  assert.match(withGrounding, /^## touches grounding$/m);
+  assert.match(withGrounding, /"precision":0\.5/);
+  assert.ok(
+    withGrounding.indexOf('## touches grounding') > withGrounding.indexOf('## source issue #42'),
+    'touches grounding should follow source issue context',
+  );
+  assert.ok(
+    withGrounding.indexOf('plan-loop escalation') > withGrounding.indexOf('## touches grounding'),
+    'touches grounding should precede the escalation contract',
+  );
 });
 
 test('buildPlanPrompt: plan-loop mode requires Title Depends-on Touches', () => {
@@ -907,6 +983,18 @@ test('stagePermissions: IMPLEMENT is acceptEdits (edit-capable)', () => {
 test('stagePermissions: IMPLEMENT allows blanket Bash (worktree cwd + role contract + main-dirty backstop + merge gate)', () => {
   const { allowedTools } = stagePermissions('IMPLEMENT');
   assert.deepEqual(allowedTools, ['Read', 'Grep', 'Glob', 'Bash']);
+});
+
+test('stagePermissions: RESEARCH allowedTools stay read-only and unchanged by grounding injection', () => {
+  const { allowedTools } = stagePermissions('RESEARCH');
+  assert.deepEqual(allowedTools, [
+    'Read',
+    'Grep',
+    'Glob',
+    'Bash(git *)',
+    'Bash(gh issue view *)',
+    'Bash(gh issue list *)',
+  ]);
 });
 
 test('stagePermissions: no stage ever uses bypassPermissions or --bare', () => {

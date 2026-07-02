@@ -49,6 +49,8 @@ export const IMPL_LOOP_STAGES = ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAG
 export const IMPL_LOOP_STAGES_AFTER_PLAN = ['IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE'];
 export const PLAN_LOOP_STAGES = ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'ISSUE_CREATE', 'CLOSE_SOURCE'];
 export const WORKTREE_DEPS_INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline'];
+const TOUCHES_GROUNDING_REPORT_ARGS = ['-C', 'apps/web', 'exec', 'tsx', 'scripts/touches-grounding.ts', '--format', 'json'];
+const TOUCHES_GROUNDING_DRY_RUN_PLACEHOLDER = '<touches grounding JSON from pnpm -C apps/web exec tsx scripts/touches-grounding.ts --format json when status ok; omitted otherwise>';
 
 export function displayStage(stage) {
   return stage === 'PLAN_REVIEW' ? 'PLAN-REVIEW' : stage;
@@ -611,6 +613,22 @@ function fetchIssue(issueNumber) {
   try { return JSON.parse(r.stdout); } catch (e) { die(`could not parse gh issue view output: ${e.message}`); }
 }
 
+export function collectTouchesGroundingReport(deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
+  const r = run('pnpm', TOUCHES_GROUNDING_REPORT_ARGS, { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 1e8 });
+  if (r.status !== 0) return null;
+
+  const stdout = (r.stdout ?? '').trim();
+  if (!stdout) return null;
+
+  try {
+    const report = JSON.parse(stdout);
+    return report?.status === 'ok' ? stdout : null;
+  } catch {
+    return null;
+  }
+}
+
 function stripVerdictLine(text) {
   return String(text ?? '').split(/\r?\n/).filter((line) => !/^VERDICT:\s*[A-Z_]+\s*$/.test(line)).join('\n').trim();
 }
@@ -1048,6 +1066,7 @@ function dryRunPlanLoop(issueNumber, backendFlags) {
   log(`dry-run: plan-loop issue #${issueNumber}`);
   log(`dry-run: manifest ${planManifestPathFor(issueNumber)}`);
   log(`dry-run: would fetch source issue #${issueNumber} via gh issue view`);
+  log(`dry-run: would collect touches grounding report via pnpm ${TOUCHES_GROUNDING_REPORT_ARGS.join(' ')}; unavailable/non-ok -> omit`);
   for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW']) {
     const promptPreview = buildStagePrompt(stage, {
       mode: 'plan-loop',
@@ -1057,6 +1076,7 @@ function dryRunPlanLoop(issueNumber, backendFlags) {
       research: '<research>',
       plan: '<approved plan candidate>',
       feedback: '<plan-review feedback>',
+      touchesGrounding: stage === 'RESEARCH' ? TOUCHES_GROUNDING_DRY_RUN_PLACEHOLDER : undefined,
     });
     logDryRunStage(stage, backendFlags, REPO_ROOT, promptPreview);
   }
@@ -1069,6 +1089,7 @@ function dryRunPlanLoop(issueNumber, backendFlags) {
 
 function runPlanLoop(issueNumber, backendFlags) {
   const issue = fetchIssue(issueNumber);
+  const touchesGrounding = collectTouchesGroundingReport();
   let state = 'RESEARCH';
   let cycles = 0;
   let research = '';
@@ -1084,6 +1105,7 @@ function runPlanLoop(issueNumber, backendFlags) {
       research,
       plan: approvedPlan,
       feedback,
+      touchesGrounding: state === 'RESEARCH' ? touchesGrounding : undefined,
     });
     const backend = selectBackend(state, backendFlags);
     log(`plan-loop stage=${displayStage(state)} backend=${backend} cwd=${REPO_ROOT} — spawning ${backend}`);

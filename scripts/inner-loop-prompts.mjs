@@ -40,12 +40,12 @@ const IMPL_LOOP_ESCALATION_CONTRACT = [
 
 /**
  * RESEARCH stage prompt — researcher agent, cwd = repo root.
- * @param {{ issueNumber: number, issueTitle: string, issueBody: string }} ctx
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, touchesGrounding?: string }} ctx
  * @returns {string}
  */
 export function buildResearchPrompt(ctx) {
-  const { issueNumber, issueTitle, issueBody } = ctx;
-  return [
+  const { issueNumber, issueTitle, issueBody, touchesGrounding } = ctx;
+  const lines = [
     marker(issueNumber, 'RESEARCH'),
     '',
     `以下の needs-plan issue を実装 issue に落とすため、現在のコード・ADR・関連 issue を調査してください。`,
@@ -53,12 +53,19 @@ export function buildResearchPrompt(ctx) {
     `## source issue #${issueNumber}: ${issueTitle}`,
     issueBody ?? '',
     '',
+  ];
+  const grounding = typeof touchesGrounding === 'string' ? touchesGrounding.trim() : '';
+  if (grounding) {
+    lines.push('## touches grounding', grounding, '');
+  }
+  lines.push(
     PLAN_LOOP_ESCALATION_CONTRACT,
     '',
     '調査結果には、実装境界、依存候補、Touches 候補、未解決のリスクを含めてください。',
     '',
     verdictInstruction(['PASS', 'ESCALATE']),
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 /**
