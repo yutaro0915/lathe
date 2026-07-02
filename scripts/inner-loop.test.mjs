@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   parseVerdict,
   nextState,
+  decideResumeState,
   buildManifestEntry,
   buildManifest,
   readManifestStages,
@@ -390,6 +391,19 @@ test('buildManifestEntry: records duration even when cost is null', () => {
   assert.equal(entry.duration_ms, 321);
 });
 
+test('buildManifestEntry: records resume fields when provided', () => {
+  const entry = buildManifestEntry({
+    stage: 'IMPLEMENT',
+    sessionId: 'exec-session-123',
+    verdict: 'IMPL_DONE',
+    costUsd: null,
+    headSha: 'abc123',
+    resultText: 'implementation notes\nVERDICT: IMPL_DONE',
+  });
+  assert.equal(entry.head_sha, 'abc123');
+  assert.equal(entry.result_text, 'implementation notes\nVERDICT: IMPL_DONE');
+});
+
 test('buildManifest: wraps issue number and stages array', () => {
   const stages = [buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', costUsd: 0.1 })];
   const manifest = buildManifest(25, stages);
@@ -440,6 +454,270 @@ test('readManifestStages: stages not an array -> []', () => {
   const result = readManifestStages(path);
   assert.deepEqual(result, []);
   rmSync(dir, { recursive: true, force: true });
+});
+
+// --- resume decision ---
+
+const cleanWorktree = (headSha = 'sha-1') => ({
+  exists: true,
+  branchMatches: true,
+  clean: true,
+  headSha,
+});
+
+test('decideResumeState: PLAN_READY + IMPL_DONE resumes at REVIEW and skips completed stages', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl',
+        verdict: 'IMPL_DONE',
+        costUsd: 0.02,
+        headSha: 'sha-1',
+        resultText: 'implemented\nVERDICT: IMPL_DONE',
+      }),
+    ],
+    worktree: cleanWorktree('sha-1'),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, 'REVIEW');
+  assert.equal(result.plan, 'plan text\nVERDICT: PLAN_READY');
+  assert.deepEqual(result.skipped, ['PLAN', 'IMPLEMENT']);
+  assert.deepEqual(result.receiptsToStamp, []);
+});
+
+test('decideResumeState: REVIEW PASS resumes at VERIFY and restamps review receipt', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl',
+        verdict: 'IMPL_DONE',
+        costUsd: 0.02,
+        headSha: 'sha-2',
+        resultText: 'implemented\nVERDICT: IMPL_DONE',
+      }),
+      buildManifestEntry({
+        stage: 'REVIEW',
+        sessionId: 's-review',
+        verdict: 'PASS',
+        costUsd: 0.03,
+        headSha: 'sha-2',
+        resultText: 'review ok\nVERDICT: PASS',
+      }),
+    ],
+    worktree: cleanWorktree('sha-2'),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, 'VERIFY');
+  assert.deepEqual(result.receiptsToStamp, [{ stage: 'REVIEW', headSha: 'sha-2', verdict: 'PASS' }]);
+});
+
+test('decideResumeState: VERIFY GREEN resumes at MERGE and restamps merge receipts', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl',
+        verdict: 'IMPL_DONE',
+        costUsd: 0.02,
+        headSha: 'sha-3',
+        resultText: 'implemented\nVERDICT: IMPL_DONE',
+      }),
+      buildManifestEntry({
+        stage: 'REVIEW',
+        sessionId: 's-review',
+        verdict: 'PASS',
+        costUsd: 0.03,
+        headSha: 'sha-3',
+        resultText: 'review ok\nVERDICT: PASS',
+      }),
+      buildManifestEntry({
+        stage: 'VERIFY',
+        sessionId: 's-verify',
+        verdict: 'GREEN',
+        costUsd: 0.04,
+        headSha: 'sha-3',
+        resultText: 'green\nVERDICT: GREEN',
+      }),
+    ],
+    worktree: cleanWorktree('sha-3'),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, 'MERGE');
+  assert.deepEqual(result.receiptsToStamp, [
+    { stage: 'REVIEW', headSha: 'sha-3', verdict: 'PASS' },
+    { stage: 'VERIFY', headSha: 'sha-3', verdict: 'GREEN' },
+  ]);
+});
+
+test('decideResumeState: REVIEW CHANGES restores feedback and resumes at IMPLEMENT', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl',
+        verdict: 'IMPL_DONE',
+        costUsd: 0.02,
+        headSha: 'sha-4',
+        resultText: 'implemented\nVERDICT: IMPL_DONE',
+      }),
+      buildManifestEntry({
+        stage: 'REVIEW',
+        sessionId: 's-review',
+        verdict: 'CHANGES',
+        costUsd: 0.03,
+        headSha: 'sha-4',
+        resultText: 'fix this\nVERDICT: CHANGES',
+      }),
+    ],
+    worktree: cleanWorktree('sha-4'),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, 'IMPLEMENT');
+  assert.equal(result.cycles, 1);
+  assert.equal(result.feedback, 'fix this\nVERDICT: CHANGES');
+});
+
+test('decideResumeState: ESCALATE verdict reruns the same stage instead of skipping it', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl',
+        verdict: 'ESCALATE',
+        costUsd: 0.02,
+        headSha: 'sha-5',
+        resultText: 'blocked\nVERDICT: ESCALATE',
+      }),
+    ],
+    worktree: cleanWorktree('sha-5'),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.state, 'IMPLEMENT');
+  assert.deepEqual(result.skipped, ['PLAN']);
+});
+
+test('decideResumeState: legacy PLAN_READY without result_text is not resumable', () => {
+  const result = decideResumeState({
+    stages: [
+      {
+        stage: 'PLAN',
+        session_id: 's-plan',
+        verdict: 'PLAN_READY',
+        cost_usd: 0.01,
+        duration_ms: 1,
+        ts: '2026-07-02T00:00:00.000Z',
+        backend: 'codex',
+      },
+    ],
+    worktree: cleanWorktree('sha-6'),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /legacy manifest lacks result_text/);
+});
+
+test('decideResumeState: missing worktree is not resumable', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+    ],
+    worktree: { exists: false, branchMatches: false, clean: false, headSha: null },
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /missing worktree/);
+});
+
+test('decideResumeState: dirty worktree is not resumable', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+    ],
+    worktree: { exists: true, branchMatches: true, clean: false, headSha: 'sha-7' },
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /dirty worktree/);
+});
+
+test('decideResumeState: sha mismatch is not resumable', () => {
+  const result = decideResumeState({
+    stages: [
+      buildManifestEntry({
+        stage: 'PLAN',
+        sessionId: 's-plan',
+        verdict: 'PLAN_READY',
+        costUsd: 0.01,
+        resultText: 'plan text\nVERDICT: PLAN_READY',
+      }),
+      buildManifestEntry({
+        stage: 'IMPLEMENT',
+        sessionId: 's-impl',
+        verdict: 'IMPL_DONE',
+        costUsd: 0.02,
+        headSha: 'manifest-sha',
+        resultText: 'implemented\nVERDICT: IMPL_DONE',
+      }),
+    ],
+    worktree: cleanWorktree('actual-sha'),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /sha mismatch/);
 });
 
 // --- buildReceiptArgs: driver stamps REVIEW/VERIFY receipts itself ---

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CLI: node scripts/inner-loop.mjs <issue#> [--dry-run] [--backend claude|codex]
+// CLI: node scripts/inner-loop.mjs <issue#> [--resume] [--dry-run] [--backend claude|codex]
 //      [--backend-<stage> claude|codex]
 // inner loop driver — code state machine driving headless named agents
 // (planner/implementer/reviewer/verifier/test-triage) through
@@ -129,9 +129,9 @@ export function nextState(state, verdict, cycles = 0, context = {}) {
 
 /**
  * Build one run-manifest entry (ADR 0013 §2 + ADR 0014 backend field).
- * @param {{ stage: string, sessionId: string|null, verdict: string|null, costUsd: number|null, durationMs?: number|null, ts?: string, backend?: string|null }} p
+ * @param {{ stage: string, sessionId: string|null, verdict: string|null, costUsd: number|null, durationMs?: number|null, ts?: string, backend?: string|null, headSha?: string|null, resultText?: string|null }} p
  */
-export function buildManifestEntry({ stage, sessionId, verdict, costUsd, durationMs, ts, backend }) {
+export function buildManifestEntry({ stage, sessionId, verdict, costUsd, durationMs, ts, backend, headSha, resultText }) {
   return {
     stage,
     session_id: sessionId ?? null,
@@ -140,6 +140,8 @@ export function buildManifestEntry({ stage, sessionId, verdict, costUsd, duratio
     duration_ms: durationMs ?? null,
     ts: ts ?? new Date().toISOString(),
     backend: backend ?? null,
+    head_sha: headSha ?? null,
+    result_text: resultText ?? null,
   };
 }
 
@@ -155,6 +157,127 @@ export function readManifestStages(manifestPath) {
 // Build the full manifest object for writing.
 export function buildManifest(issueNumber, stages) {
   return { issue: issueNumber, stages };
+}
+
+function requiresResultText(stage, verdict) {
+  return (
+    (stage === 'PLAN' && verdict === 'PLAN_READY') ||
+    (stage === 'REVIEW' && verdict === 'CHANGES') ||
+    (stage === 'VERIFY' && verdict === 'RED') ||
+    (stage === 'TRIAGE' && verdict === 'KNOWN') ||
+    verdict === 'ESCALATE' ||
+    verdict === null
+  );
+}
+
+function isWorktreeStage(stage) {
+  return ['IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE'].includes(stage);
+}
+
+/**
+ * Decide where a manifest-backed inner-loop run can resume.
+ * @param {{ stages: object[], worktree: { exists: boolean, branchMatches: boolean, clean: boolean, headSha: string|null } }} p
+ * @returns {{ ok: true, state: string, cycles: number, plan: string, feedback: string|null, verifyResult: string, headSha: string|null, skipped: string[], receiptsToStamp: Array<{stage: string, headSha: string, verdict: string}> } | { ok: false, reason: string }}
+ */
+export function decideResumeState({ stages, worktree }) {
+  if (!Array.isArray(stages) || stages.length === 0) return { ok: false, reason: 'missing manifest or manifest has no stages' };
+  if (!worktree?.exists) return { ok: false, reason: 'missing worktree' };
+  if (!worktree.branchMatches) return { ok: false, reason: 'worktree branch mismatch' };
+  if (!worktree.clean) return { ok: false, reason: 'dirty worktree' };
+  if (!worktree.headSha) return { ok: false, reason: 'could not determine worktree HEAD sha' };
+
+  let state = 'PLAN';
+  let cycles = 0;
+  let plan = '';
+  let feedback = null;
+  let verifyResult = '';
+  let expectedHeadSha = null;
+  const skipped = [];
+  const receiptsToStamp = [];
+  const shaMismatch = () => (
+    expectedHeadSha && worktree.headSha !== expectedHeadSha
+      ? { ok: false, reason: `sha mismatch: manifest head_sha=${expectedHeadSha} worktree HEAD=${worktree.headSha}` }
+      : null
+  );
+
+  for (const entry of stages) {
+    if (!entry || entry.stage !== state) {
+      return { ok: false, reason: `manifest stage order mismatch: expected ${state}, got ${entry?.stage ?? '(missing)'}` };
+    }
+
+    const verdict = entry.verdict ?? null;
+    if (requiresResultText(entry.stage, verdict) && typeof entry.result_text !== 'string') {
+      return { ok: false, reason: `legacy manifest lacks result_text for ${entry.stage}=${verdict ?? '(none)'}` };
+    }
+    if (isWorktreeStage(entry.stage)) {
+      if (typeof entry.head_sha !== 'string' || entry.head_sha.length === 0) {
+        return { ok: false, reason: `legacy manifest lacks head_sha for ${entry.stage}` };
+      }
+      expectedHeadSha = entry.head_sha;
+    }
+
+    if (verdict === 'ESCALATE' || verdict === null) {
+      const mismatch = shaMismatch();
+      if (mismatch) return mismatch;
+      return {
+        ok: true,
+        state: entry.stage,
+        cycles,
+        plan,
+        feedback,
+        verifyResult,
+        headSha: worktree.headSha,
+        skipped,
+        receiptsToStamp,
+      };
+    }
+
+    if (entry.stage === 'PLAN' && verdict === 'PLAN_READY') plan = entry.result_text;
+    if (entry.stage === 'REVIEW' && verdict === 'CHANGES') feedback = entry.result_text;
+    if (entry.stage === 'VERIFY' && verdict === 'RED') verifyResult = entry.result_text;
+    const nonImplementableKnown =
+      entry.stage === 'TRIAGE' && verdict === 'KNOWN' && isCodexSandboxEpermTriageResult(entry.result_text);
+    if (entry.stage === 'TRIAGE' && verdict === 'KNOWN' && !nonImplementableKnown) feedback = entry.result_text;
+
+    const receipt = buildReceiptArgs(entry.stage, entry.head_sha, verdict);
+    if (receipt) receiptsToStamp.push({ stage: entry.stage, headSha: entry.head_sha, verdict });
+
+    const next = nextState(entry.stage, verdict, cycles, { nonImplementableKnown });
+    if (next.next === 'ESCALATE') {
+      const mismatch = shaMismatch();
+      if (mismatch) return mismatch;
+      return {
+        ok: true,
+        state: entry.stage,
+        cycles,
+        plan,
+        feedback,
+        verifyResult,
+        headSha: worktree.headSha,
+        skipped,
+        receiptsToStamp,
+      };
+    }
+    skipped.push(entry.stage);
+    state = next.next;
+    cycles = next.cycles;
+  }
+
+  if (expectedHeadSha && worktree.headSha !== expectedHeadSha) {
+    return { ok: false, reason: `sha mismatch: manifest head_sha=${expectedHeadSha} worktree HEAD=${worktree.headSha}` };
+  }
+
+  return {
+    ok: true,
+    state,
+    cycles,
+    plan,
+    feedback,
+    verifyResult,
+    headSha: worktree.headSha,
+    skipped,
+    receiptsToStamp,
+  };
 }
 
 // Also export backend pure functions so tests can import from one place.
@@ -183,6 +306,74 @@ function prepareWorktree(issueNumber) {
   const r = spawnSync('git', ['worktree', 'add', path, '-b', branch, 'main'], { stdio: 'inherit', cwd: REPO_ROOT });
   if (r.status !== 0) die(`git worktree add failed for ${path}`);
   return { path, branch };
+}
+
+function worktreeForIssue(issueNumber) {
+  return {
+    branch: `inner/issue-${issueNumber}`,
+    path: join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`),
+  };
+}
+
+function gitStdout(args, cwd) {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+
+function inspectResumeWorktree(issueNumber) {
+  const { path, branch } = worktreeForIssue(issueNumber);
+  if (!existsSync(path)) {
+    return { exists: false, branchMatches: false, clean: false, headSha: null, path, branch };
+  }
+  const currentBranch = gitStdout(['-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'], REPO_ROOT);
+  const headSha = gitStdout(['-C', path, 'rev-parse', 'HEAD'], REPO_ROOT);
+  const status = gitStdout(['-C', path, 'status', '--porcelain'], REPO_ROOT);
+  return {
+    exists: true,
+    branchMatches: currentBranch === branch,
+    clean: status === '',
+    headSha,
+    path,
+    branch,
+  };
+}
+
+function resolveResumeState(issueNumber) {
+  const p = manifestPathFor(issueNumber);
+  if (!existsSync(p)) return { ok: false, reason: `missing manifest at ${p}` };
+  const stages = readManifestStages(p);
+  const worktree = inspectResumeWorktree(issueNumber);
+  const decision = decideResumeState({ stages, worktree });
+  if (!decision.ok) return decision;
+  return { ...decision, worktreePath: worktree.path, branch: worktree.branch };
+}
+
+function dieResumeUnavailable(issueNumber, reason) {
+  die(
+    `resume unavailable: ${reason}. ` +
+    `Start from scratch by running without --resume: node scripts/inner-loop.mjs ${issueNumber}. ` +
+    'If a stale worktree/branch exists, remove it intentionally before restarting.',
+  );
+}
+
+function stampReceiptOrDie(issueNumber, worktreePath, stamp) {
+  const receipt = buildReceiptArgs(stamp.stage, stamp.headSha, stamp.verdict);
+  if (!receipt) return;
+  const rr = spawnSync(receipt.command, receipt.args, {
+    cwd: worktreePath,
+    env: { ...process.env, ...receipt.env },
+    stdio: 'inherit',
+  });
+  if (rr.status !== 0) {
+    writeEscalation(issueNumber, 'RESUME', stamp.verdict, `receipt.mjs failed: ${receipt.args.join(' ')}`);
+    die(`resume receipt stamping failed — see .lathe/runs/issue-${issueNumber}.escalation.md`);
+  }
+}
+
+function worktreeHeadShaOrDie(worktreePath, stage) {
+  const head = gitStdout(['-C', worktreePath, 'rev-parse', 'HEAD'], REPO_ROOT);
+  if (!head) die(`could not determine worktree HEAD after stage ${stage}`);
+  return head;
 }
 
 // --- Stage runners (ADR 0014 backend adapters) ---
@@ -278,15 +469,39 @@ const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.arg
 if (isMain) {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
+  const resume = args.includes('--resume');
   const issueArg = args.find((a) => !a.startsWith('--'));
   const issueNumber = Number(issueArg);
   const backendFlags = parseBackendFlags(args);
 
   if (!issueArg || !Number.isInteger(issueNumber) || issueNumber <= 0) {
-    die('usage: node scripts/inner-loop.mjs <issue#> [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]');
+    die('usage: node scripts/inner-loop.mjs <issue#> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]');
   }
 
   if (dryRun) {
+    if (resume) {
+      const resumeState = resolveResumeState(issueNumber);
+      if (!resumeState.ok) dieResumeUnavailable(issueNumber, resumeState.reason);
+      log(`dry-run: resume issue #${issueNumber} from ${manifestPathFor(issueNumber)}`);
+      log(`dry-run: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${resumeState.state} head=${resumeState.headSha ?? '(none)'} cycles=${resumeState.cycles}`);
+      for (const stamp of resumeState.receiptsToStamp) {
+        log(`dry-run: would stamp receipt stage=${stamp.stage} verdict=${stamp.verdict} head=${stamp.headSha}`);
+      }
+      if (resumeState.state === 'MERGE') {
+        log(`dry-run: MERGE — node scripts/merge.mjs ${resumeState.branch} (from repo root)`);
+        process.exit(0);
+      }
+      const backend = selectBackend(resumeState.state, backendFlags);
+      const cwd = stageCwd(resumeState.state, REPO_ROOT, resumeState.worktreePath);
+      const promptPreview = buildStagePrompt(resumeState.state, {
+        issueNumber, issueTitle: '<title>', issueBody: '<body>',
+        plan: resumeState.plan, feedback: resumeState.feedback,
+        headSha: resumeState.headSha, verifyResult: resumeState.verifyResult,
+      });
+      log(`dry-run: stage=${resumeState.state} backend=${backend} cwd=${cwd}`);
+      log(`dry-run: prompt preview:\n${promptPreview}\n`);
+      process.exit(0);
+    }
     log(`dry-run: would fetch issue #${issueNumber} via gh issue view`);
     const wtPath = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
     log(`dry-run: would create worktree ${wtPath} on branch inner/issue-${issueNumber}`);
@@ -318,15 +533,37 @@ if (isMain) {
     process.exit(0);
   }
 
-  const issue = fetchIssue(issueNumber);
-  const { path: worktreePath, branch } = prepareWorktree(issueNumber);
+  let worktreePath;
+  let branch;
+  let state;
+  let cycles;
+  let plan;
+  let feedback;
+  let headSha;
+  let verifyResult;
+  let issue = null;
 
-  let state = 'PLAN';
-  let cycles = 0;
-  let plan = '';
-  let feedback = null;
-  let headSha = null;
-  let verifyResult = '';
+  if (resume) {
+    const resumeState = resolveResumeState(issueNumber);
+    if (!resumeState.ok) dieResumeUnavailable(issueNumber, resumeState.reason);
+    ({ worktreePath, branch, state, cycles, plan, feedback, headSha, verifyResult } = resumeState);
+    log(`resume: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${state} head=${headSha ?? '(none)'} cycles=${cycles}`);
+    for (const stamp of resumeState.receiptsToStamp) {
+      stampReceiptOrDie(issueNumber, worktreePath, stamp);
+    }
+    if (state !== 'MERGE') issue = fetchIssue(issueNumber);
+  } else {
+    issue = fetchIssue(issueNumber);
+    const wt = prepareWorktree(issueNumber);
+    worktreePath = wt.path;
+    branch = wt.branch;
+    state = 'PLAN';
+    cycles = 0;
+    plan = '';
+    feedback = null;
+    headSha = null;
+    verifyResult = '';
+  }
 
   while (state !== 'MERGE' && state !== 'ESCALATE' && state !== 'DONE') {
     const cwd = stageCwd(state, REPO_ROOT, worktreePath);
@@ -353,10 +590,12 @@ if (isMain) {
     const envelope = runStage(state, prompt, cwd, null, backend);
     const durationMs = Math.max(1, Date.now() - stageStartedAt);
     const verdict = parseVerdict(envelope.result);
+    const stageHeadSha = isWorktreeStage(state) ? worktreeHeadShaOrDie(worktreePath, state) : null;
 
     appendManifestEntry(issueNumber, buildManifestEntry({
       stage: state, sessionId: envelope.session_id ?? null,
       verdict, costUsd: envelope.total_cost_usd ?? null, durationMs, backend: envelope.backend ?? null,
+      headSha: stageHeadSha, resultText: envelope.result ?? '',
     }));
 
     if (verdict === null) { writeEscalation(issueNumber, state, null, envelope.result ?? ''); state = 'ESCALATE'; break; }
@@ -368,7 +607,7 @@ if (isMain) {
       state === 'TRIAGE' && verdict === 'KNOWN' && isCodexSandboxEpermTriageResult(envelope.result);
     if (state === 'TRIAGE' && verdict === 'KNOWN' && !nonImplementableKnown) feedback = envelope.result;
 
-    const receipt = buildReceiptArgs(state, headSha, verdict);
+    const receipt = buildReceiptArgs(state, stageHeadSha ?? headSha, verdict);
     if (receipt) {
       const rr = spawnSync(receipt.command, receipt.args, { cwd: worktreePath, env: { ...process.env, ...receipt.env }, stdio: 'inherit' });
       if (rr.status !== 0) { writeEscalation(issueNumber, state, verdict, `receipt.mjs failed: ${receipt.args.join(' ')}`); state = 'ESCALATE'; break; }
