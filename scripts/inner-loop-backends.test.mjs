@@ -15,13 +15,13 @@ import {
   parseDependsOnLine,
 } from './inner-loop-backends.mjs';
 
-// --- stagePermissions: VERIFY/TRIAGE blanket Bash (issue #44) ---
+// --- stagePermissions: IMPLEMENT/VERIFY/TRIAGE blanket Bash (issues #44/#45) ---
 //
 // Verification idioms (`; echo EXIT=$?`, `2>&1 | tail`, `TZ=UTC node …`)
 // compose arbitrary commands and structurally conflict with fine-grained
 // Bash(git *)/Bash(pnpm *)/Bash(node *) allowlists (#36). Containment is
-// worktree cwd, the read-only role contract, the main-dirty backstop, and
-// the merge gate — not the allowlist. PLAN/REVIEW/IMPLEMENT are unchanged.
+// worktree cwd, the stage role contract, the main-dirty backstop, and the
+// merge gate — not the allowlist. PLAN/REVIEW are unchanged.
 
 test('stagePermissions: VERIFY allowedTools includes blanket Bash', () => {
   const { allowedTools } = stagePermissions('VERIFY');
@@ -60,12 +60,11 @@ test('stagePermissions: plan-loop RESEARCH and PLAN_REVIEW only allow read-only 
   }
 });
 
-test('stagePermissions: IMPLEMENT is unchanged (narrow git/pnpm/node Bash, no blanket Bash)', () => {
-  const { allowedTools } = stagePermissions('IMPLEMENT');
-  assert.ok(!allowedTools.includes('Bash'), 'IMPLEMENT must not grant blanket Bash');
-  assert.ok(allowedTools.some((t) => t.includes('git')));
-  assert.ok(allowedTools.some((t) => t.includes('pnpm')));
-  assert.ok(allowedTools.some((t) => t.includes('node')));
+test('stagePermissions: IMPLEMENT grants blanket Bash through worktree containment', () => {
+  const { agent, permissionMode, allowedTools } = stagePermissions('IMPLEMENT');
+  assert.equal(agent, 'implementer');
+  assert.equal(permissionMode, 'acceptEdits');
+  assert.deepEqual(allowedTools, ['Read', 'Grep', 'Glob', 'Bash']);
 });
 
 // --- stageSandbox ---
@@ -204,6 +203,13 @@ test('buildClaudeArgs: IMPLEMENT uses acceptEdits', () => {
   const args = buildClaudeArgs('IMPLEMENT', 'p', null);
   assert.ok(args.includes('acceptEdits'));
   assert.ok(args.includes('implementer'));
+});
+
+test('buildClaudeArgs: IMPLEMENT passes blanket Bash allowedTools', () => {
+  const args = buildClaudeArgs('IMPLEMENT', 'p', null);
+  const allowedToolsIndex = args.indexOf('--allowedTools');
+  assert.notEqual(allowedToolsIndex, -1);
+  assert.equal(args[allowedToolsIndex + 1], 'Read,Grep,Glob,Bash');
 });
 
 test('buildClaudeArgs: includes --resume when resumeSessionId is provided', () => {

@@ -675,11 +675,9 @@ test('stagePermissions: IMPLEMENT is acceptEdits (edit-capable)', () => {
   assert.equal(permissionMode, 'acceptEdits');
 });
 
-test('stagePermissions: IMPLEMENT allows git/pnpm/node Bash (needs to commit + verify headlessly)', () => {
+test('stagePermissions: IMPLEMENT allows blanket Bash (worktree cwd + role contract + main-dirty backstop + merge gate)', () => {
   const { allowedTools } = stagePermissions('IMPLEMENT');
-  assert.ok(allowedTools.some((t) => t.includes('git')));
-  assert.ok(allowedTools.some((t) => t.includes('pnpm')));
-  assert.ok(allowedTools.some((t) => t.includes('node')));
+  assert.deepEqual(allowedTools, ['Read', 'Grep', 'Glob', 'Bash']);
 });
 
 test('stagePermissions: no stage ever uses bypassPermissions or --bare', () => {

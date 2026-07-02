@@ -34,10 +34,13 @@ export function stagePermissions(stage) {
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', ...READ_ONLY_GH_ISSUE_TOOLS],
       };
     case 'IMPLEMENT':
+      // IMPLEMENT needs env-prefixed and compound verification/commit commands
+      // just like VERIFY/TRIAGE (#44/#45). Containment is worktree cwd, the
+      // implementer role contract, the main-dirty backstop, and the merge gate.
       return {
         agent: 'implementer',
         permissionMode: 'acceptEdits',
-        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', 'Bash(pnpm *)', 'Bash(node *)'],
+        allowedTools: ['Read', 'Grep', 'Glob', 'Bash'],
       };
     case 'REVIEW':
       // No receipt.mjs allowedTool: the driver stamps receipts itself (buildReceiptArgs).
