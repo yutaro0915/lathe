@@ -23,7 +23,7 @@ import {
   stagePermissions, stageCwd, buildReceiptArgs,
   stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt,
-  parseCodexSessionId, parseCodexCostUsd, parseBackendFlags, selectBackend,
+  parseCodexSessionId, parseCodexCostUsd, parseCodexCostReport, parseBackendFlags, selectBackend,
   detectMainDirty, parseDependsOnLine,
 } from './inner-loop-backends.mjs';
 
@@ -269,7 +269,7 @@ export function nextPlanLoopState(state, verdict, cycles = 0) {
 
 /**
  * Build one run-manifest entry (ADR 0013 §2 + ADR 0014 backend field).
- * @param {{ stage: string, sessionId: string|null, verdict: string|null, backendCostUsd?: number|null, backendCostSource?: string|null, costUsd?: number|null, durationMs?: number|null, ts?: string, backend?: string|null, headSha?: string|null, resultText?: string|null, skipped?: boolean }} p
+ * @param {{ stage: string, sessionId: string|null, verdict: string|null, backendCostUsd?: number|null, backendCostSource?: string|null, backendModel?: string|null, backendTokenUsage?: object|null, costUsd?: number|null, durationMs?: number|null, ts?: string, backend?: string|null, headSha?: string|null, resultText?: string|null, skipped?: boolean }} p
  */
 export function buildManifestEntry({
   stage,
@@ -277,6 +277,8 @@ export function buildManifestEntry({
   verdict,
   backendCostUsd,
   backendCostSource,
+  backendModel,
+  backendTokenUsage,
   costUsd,
   durationMs,
   ts,
@@ -298,11 +300,14 @@ export function buildManifestEntry({
     head_sha: headSha ?? null,
     result_text: resultText ?? null,
   };
+  if (backendModel != null) entry.backend_model = backendModel;
+  if (backendTokenUsage != null) entry.backend_token_usage = backendTokenUsage;
   if (skipped === true) entry.skipped = true;
   return entry;
 }
 
 export function backendCostSourceForEnvelope(envelope) {
+  if (typeof envelope?.backend_cost_source === 'string' && envelope.backend_cost_source) return envelope.backend_cost_source;
   if (envelope?.backend === 'claude') return 'claude.result.total_cost_usd';
   if (envelope?.backend === 'codex' && envelope.total_cost_usd != null) return 'codex.jsonl.explicit_cost';
   return null;
@@ -557,7 +562,7 @@ export function decideResumeState({ stages, worktree }) {
 export {
   stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt,
-  parseCodexSessionId, parseCodexCostUsd, parseBackendFlags, selectBackend,
+  parseCodexSessionId, parseCodexCostUsd, parseCodexCostReport, parseBackendFlags, selectBackend,
   detectMainDirty,
 };
 
@@ -896,7 +901,7 @@ function worktreeHeadShaOrDie(worktreePath, stage) {
 
 // --- Stage runners (ADR 0014 backend adapters) ---
 
-// Normalized envelope: { session_id, result, total_cost_usd, backend }
+// Normalized envelope: { session_id, result, total_cost_usd, backend, ...backend evidence }
 function runStageClaude(stage, prompt, cwd, resumeSessionId) {
   const args = buildClaudeArgs(stage, prompt, resumeSessionId);
   const r = spawnSync('claude', args, { encoding: 'utf8', cwd, maxBuffer: 1e8 });
@@ -918,9 +923,17 @@ function runStageCodex(stage, prompt, cwd) {
   const r = spawnSync('codex', ['exec', ...args], { encoding: 'utf8', cwd, maxBuffer: 1e8 });
   if (r.status !== 0 && !r.stdout) die(`codex exec failed for stage ${stage}: ${r.stderr || 'no output'}`);
   const sessionId = parseCodexSessionId(r.stdout ?? '');
-  const costUsd = parseCodexCostUsd(r.stdout ?? '');
+  const costReport = parseCodexCostReport(r.stdout ?? '');
   const result = existsSync(lastmsgPath) ? readFileSync(lastmsgPath, 'utf8') : '';
-  return { session_id: sessionId, result, total_cost_usd: costUsd, backend: 'codex' };
+  return {
+    session_id: sessionId,
+    result,
+    total_cost_usd: costReport.costUsd,
+    backend_cost_source: costReport.source,
+    backend_model: costReport.model,
+    backend_token_usage: costReport.tokenUsage,
+    backend: 'codex',
+  };
 }
 
 /**
@@ -930,7 +943,7 @@ function runStageCodex(stage, prompt, cwd) {
  * @param {string} cwd
  * @param {string | null} resumeSessionId  (claude backend only)
  * @param {string} backend  'claude' | 'codex' (default 'codex')
- * @returns {{ session_id: string|null, result: string, total_cost_usd: number|null, backend: string }}
+ * @returns {{ session_id: string|null, result: string, total_cost_usd: number|null, backend: string, backend_cost_source?: string|null, backend_model?: string|null, backend_token_usage?: object|null }}
  */
 function runStage(stage, prompt, cwd, resumeSessionId = null, backend = 'codex') {
   return backend === 'codex'
@@ -1085,6 +1098,8 @@ function runPlanLoop(issueNumber, backendFlags) {
       verdict,
       backendCostUsd: envelope.total_cost_usd ?? null,
       backendCostSource: backendCostSourceForEnvelope(envelope),
+      backendModel: envelope.backend_model ?? null,
+      backendTokenUsage: envelope.backend_token_usage ?? null,
       durationMs,
       backend: envelope.backend ?? null,
       resultText: envelope.result ?? '',
@@ -1293,6 +1308,8 @@ if (isMain) {
       verdict,
       backendCostUsd: envelope.total_cost_usd ?? null,
       backendCostSource: backendCostSourceForEnvelope(envelope),
+      backendModel: envelope.backend_model ?? null,
+      backendTokenUsage: envelope.backend_token_usage ?? null,
       durationMs,
       backend: envelope.backend ?? null,
       headSha: stageHeadSha, resultText: envelope.result ?? '',

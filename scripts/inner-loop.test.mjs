@@ -996,6 +996,8 @@ test('buildManifestEntry: null sessionId/verdict/backend cost -> null fields (no
   assert.equal(entry.verdict, null);
   assert.equal(entry.backend_cost_usd, null);
   assert.equal(entry.backend_cost_source, null);
+  assert.equal(Object.hasOwn(entry, 'backend_model'), false);
+  assert.equal(Object.hasOwn(entry, 'backend_token_usage'), false);
   assert.equal(Object.hasOwn(entry, 'cost_usd'), false);
 });
 
@@ -1009,6 +1011,54 @@ test('buildManifestEntry: backend field is recorded when provided (ADR 0014)', (
     backend: 'codex',
   });
   assert.equal(entry.backend, 'codex');
+});
+
+test('buildManifestEntry: records codex model and token usage without legacy cost_usd', () => {
+  const tokenUsage = {
+    input_tokens: 19943,
+    cached_input_tokens: 4992,
+    output_tokens: 177,
+    reasoning_output_tokens: 170,
+  };
+  const entry = buildManifestEntry({
+    stage: 'IMPLEMENT',
+    sessionId: '019f2492-1a96-7e81-9c7a-484a11d135ef',
+    verdict: 'IMPL_DONE',
+    backendCostUsd: 0.02108125,
+    backendCostSource: 'codex.jsonl.turn.completed.usage',
+    backend: 'codex',
+    backendModel: 'gpt-5-codex',
+    backendTokenUsage: tokenUsage,
+  });
+
+  assert.equal(entry.backend_model, 'gpt-5-codex');
+  assert.deepEqual(entry.backend_token_usage, tokenUsage);
+  assert.equal(Object.hasOwn(entry, 'cost_usd'), false);
+});
+
+test('buildManifestEntry: records observed codex usage evidence when model is unavailable', () => {
+  const tokenUsage = {
+    input_tokens: 19943,
+    cached_input_tokens: 4992,
+    output_tokens: 177,
+    reasoning_output_tokens: 170,
+  };
+  const entry = buildManifestEntry({
+    stage: 'IMPLEMENT',
+    sessionId: '019f2492-1a96-7e81-9c7a-484a11d135ef',
+    verdict: 'IMPL_DONE',
+    backendCostUsd: null,
+    backendCostSource: 'codex.jsonl.turn.completed.usage.unpriced',
+    backend: 'codex',
+    backendModel: null,
+    backendTokenUsage: tokenUsage,
+  });
+
+  assert.equal(entry.backend_cost_usd, null);
+  assert.equal(entry.backend_cost_source, 'codex.jsonl.turn.completed.usage.unpriced');
+  assert.equal(Object.hasOwn(entry, 'backend_model'), false);
+  assert.deepEqual(entry.backend_token_usage, tokenUsage);
+  assert.equal(Object.hasOwn(entry, 'cost_usd'), false);
 });
 
 test('buildManifestEntry: backend omitted -> null (backward compatible)', () => {
@@ -1057,6 +1107,10 @@ test('backendCostSourceForEnvelope: labels backend envelope cost sources', () =>
   assert.equal(
     backendCostSourceForEnvelope({ backend: 'codex', total_cost_usd: null }),
     null,
+  );
+  assert.equal(
+    backendCostSourceForEnvelope({ backend: 'codex', total_cost_usd: null, backend_cost_source: 'codex.jsonl.turn.completed.usage.unpriced' }),
+    'codex.jsonl.turn.completed.usage.unpriced',
   );
 });
 

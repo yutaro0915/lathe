@@ -2,6 +2,7 @@
 // (ADR 0013 §機構詳細 + ADR 0014). Separated from inner-loop.mjs to keep that file
 // under the 500-line guard. All exports are pure functions; no spawnSync here.
 
+import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 
 const READ_ONLY_GH_ISSUE_TOOLS = [
@@ -97,6 +98,76 @@ export function buildReceiptArgs(stage, sha, verdict) {
 }
 
 // --- Backend adapter pure functions (ADR 0014) ---
+
+const PRICING = JSON.parse(readFileSync(new URL('../apps/web/db/pricing.json', import.meta.url), 'utf8'));
+const CLAUDE_RATES = PRICING.claude ?? {};
+const CLAUDE_RATE_KEYS = Object.keys(CLAUDE_RATES).sort((a, b) => b.length - a.length);
+const OPENAI_RATES = PRICING.openai ?? {};
+const OPENAI_RATE_KEYS = Object.keys(OPENAI_RATES).sort((a, b) => b.length - a.length);
+const TIER_RATES = PRICING.tiers ?? {};
+
+const CODEX_EXPLICIT_COST_SOURCE = 'codex.jsonl.explicit_cost';
+const CODEX_TURN_USAGE_SOURCE = 'codex.jsonl.turn.completed.usage';
+const CODEX_TOKEN_COUNT_USAGE_SOURCE = 'codex.jsonl.token_count.total_token_usage';
+
+function finiteNumber(v) {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function tokenNumber(v) {
+  return Math.max(0, finiteNumber(v) ?? 0);
+}
+
+function resolvePricingRate(model) {
+  if (!model || typeof model !== 'string') return null;
+  const m = model.toLowerCase();
+  for (const k of CLAUDE_RATE_KEYS) if (m.startsWith(k)) return CLAUDE_RATES[k];
+  if (m.includes('opus')) return TIER_RATES.opus ?? null;
+  if (m.includes('sonnet')) return TIER_RATES.sonnet ?? null;
+  if (m.includes('haiku')) return TIER_RATES.haiku ?? null;
+  for (const k of OPENAI_RATE_KEYS) if (m.startsWith(k)) return OPENAI_RATES[k];
+  return null;
+}
+
+function normalizeCodexTokenUsage(usage) {
+  if (!usage || typeof usage !== 'object') return null;
+  const hasCostFields = [
+    usage.input_tokens,
+    usage.cached_input_tokens,
+    usage.output_tokens,
+    usage.reasoning_output_tokens,
+  ].some((v) => finiteNumber(v) !== null);
+  if (!hasCostFields) return null;
+  return {
+    input_tokens: tokenNumber(usage.input_tokens),
+    cached_input_tokens: tokenNumber(usage.cached_input_tokens),
+    output_tokens: tokenNumber(usage.output_tokens),
+    reasoning_output_tokens: tokenNumber(usage.reasoning_output_tokens),
+  };
+}
+
+function addCodexTokenUsage(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    input_tokens: a.input_tokens + b.input_tokens,
+    cached_input_tokens: a.cached_input_tokens + b.cached_input_tokens,
+    output_tokens: a.output_tokens + b.output_tokens,
+    reasoning_output_tokens: a.reasoning_output_tokens + b.reasoning_output_tokens,
+  };
+}
+
+function codexCostForUsage(model, usage) {
+  const rate = resolvePricingRate(model);
+  if (!rate || !usage) return null;
+  const input = Math.max(0, usage.input_tokens - usage.cached_input_tokens);
+  return (
+    (input * rate.input +
+      usage.output_tokens * rate.output +
+      usage.cached_input_tokens * rate.cacheRead) /
+    1_000_000
+  );
+}
 
 /**
  * Sandbox mode for a stage's codex exec invocation.
@@ -226,13 +297,22 @@ export function parseCodexSessionId(jsonlText) {
 }
 
 /**
- * Parse an explicit USD cost from codex JSONL when the stream provides one.
- * Codex exec commonly omits dollar cost, so callers must tolerate null.
+ * Parse Codex cost evidence from JSONL. Explicit USD cost wins when present;
+ * otherwise token usage is priced from apps/web/db/pricing.json when the model
+ * is known. Unknown models keep token evidence but leave cost null.
  * @param {string} jsonlText
- * @returns {number | null}
+ * @returns {{ costUsd: number|null, source: string|null, model: string|null, tokenUsage: { input_tokens: number, cached_input_tokens: number, output_tokens: number, reasoning_output_tokens: number }|null }}
  */
-export function parseCodexCostUsd(jsonlText) {
-  if (!jsonlText || typeof jsonlText !== 'string') return null;
+export function parseCodexCostReport(jsonlText) {
+  if (!jsonlText || typeof jsonlText !== 'string') {
+    return { costUsd: null, source: null, model: null, tokenUsage: null };
+  }
+  let explicitCost = null;
+  let turnContextModel = null;
+  let sessionMetaModel = null;
+  let turnCompletedUsage = null;
+  let tokenCountUsage = null;
+
   for (const line of jsonlText.split('\n')) {
     const t = line.trim();
     if (!t) continue;
@@ -240,11 +320,55 @@ export function parseCodexCostUsd(jsonlText) {
       const rec = JSON.parse(t);
       const payload = rec?.payload && typeof rec.payload === 'object' ? rec.payload : {};
       for (const v of [rec.total_cost_usd, rec.cost_usd, payload.total_cost_usd, payload.cost_usd]) {
-        if (typeof v === 'number' && Number.isFinite(v)) return v;
+        const cost = finiteNumber(v);
+        if (cost !== null && explicitCost === null) explicitCost = cost;
+      }
+      if (rec?.type === 'turn_context' && typeof payload.model === 'string' && payload.model) {
+        turnContextModel = payload.model;
+      }
+      if (rec?.type === 'session_meta' && typeof payload.model === 'string' && payload.model) {
+        sessionMetaModel = payload.model;
+      }
+      if (rec?.type === 'turn.completed') {
+        turnCompletedUsage = addCodexTokenUsage(turnCompletedUsage, normalizeCodexTokenUsage(rec.usage ?? payload.usage));
+      }
+      const tokenCount = rec?.type === 'event_msg' && payload.type === 'token_count'
+        ? payload.info?.total_token_usage
+        : rec?.type === 'token_count'
+          ? rec.info?.total_token_usage
+          : null;
+      const normalizedTokenCount = normalizeCodexTokenUsage(tokenCount);
+      if (normalizedTokenCount) {
+        tokenCountUsage = normalizedTokenCount;
       }
     } catch { /* skip malformed lines */ }
   }
-  return null;
+  const model = turnContextModel ?? sessionMetaModel ?? null;
+  const tokenUsage = turnCompletedUsage ?? tokenCountUsage ?? null;
+  const tokenSource = turnCompletedUsage ? CODEX_TURN_USAGE_SOURCE : tokenCountUsage ? CODEX_TOKEN_COUNT_USAGE_SOURCE : null;
+  if (explicitCost !== null) {
+    return { costUsd: explicitCost, source: CODEX_EXPLICIT_COST_SOURCE, model, tokenUsage };
+  }
+  if (!tokenUsage || !tokenSource) {
+    return { costUsd: null, source: null, model, tokenUsage: null };
+  }
+  const derivedCost = codexCostForUsage(model, tokenUsage);
+  return {
+    costUsd: derivedCost,
+    source: derivedCost === null ? `${tokenSource}.unpriced` : tokenSource,
+    model,
+    tokenUsage,
+  };
+}
+
+/**
+ * Parse a USD cost from codex JSONL. Explicit cost is preferred; otherwise
+ * returns a token-derived cost when the stream has usage plus a priceable model.
+ * @param {string} jsonlText
+ * @returns {number | null}
+ */
+export function parseCodexCostUsd(jsonlText) {
+  return parseCodexCostReport(jsonlText).costUsd;
 }
 
 /**
