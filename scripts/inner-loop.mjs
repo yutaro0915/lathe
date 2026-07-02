@@ -8,8 +8,9 @@
 // plan-loop mode drives RESEARCH → PLAN → PLAN-REVIEW → issue create → close.
 // ADR 0013 (adr/0013-inner-loop-driver.md) / ADR 0014 (backend adapter).
 //
-// Pure logic is exported for unit testing; spawnSync wrappers are isolated so
-// tests can inject fakes. Backend pure functions live in inner-loop-backends.mjs.
+// Pure logic is exported for unit testing. Side-effect helpers stay private
+// unless a narrow fake injection point is needed by tests. Backend pure
+// functions live in inner-loop-backends.mjs.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -812,8 +813,13 @@ function writePlanEscalation(issueNumber, stage, verdict, resultExcerpt) {
   if (cr.status !== 0) log(`warning: gh issue comment failed (continuing) for source issue #${issueNumber}`);
 }
 
-function rebaseWorktree(wt) {
-  return spawnSync('git', ['-C', wt, 'rebase', 'main'], { stdio: 'inherit' }).status === 0;
+export function rebaseWorktree(wt, deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
+  const result = run('git', ['-C', wt, 'rebase', 'main'], { stdio: 'inherit' });
+  if (result.status === 0) return true;
+
+  run('git', ['-C', wt, 'rebase', '--abort'], { stdio: 'inherit' });
+  return false;
 }
 
 function runMerge(branch) {

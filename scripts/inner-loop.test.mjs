@@ -26,6 +26,7 @@ import {
   buildReviewHistorySummary,
   buildEscalationMarkdown,
   stageRequiresFreshMainRebase,
+  rebaseWorktree,
 } from './inner-loop.mjs';
 import {
   buildStagePrompt,
@@ -190,6 +191,37 @@ test('buildImplementationIssueBody: includes approved plan marker and queue hint
 
 test('parseGhIssueNumber: parses GitHub issue URL', () => {
   assert.equal(parseGhIssueNumber('https://github.com/yutaro0915/lathe/issues/123\n'), 123);
+});
+
+test('rebaseWorktree: successful rebase runs rebase main and returns true', () => {
+  const calls = [];
+  const result = rebaseWorktree('/tmp/wt', {
+    spawnSync: (cmd, args, options) => {
+      calls.push({ cmd, args, options });
+      return { status: 0 };
+    },
+  });
+
+  assert.equal(result, true);
+  assert.deepEqual(calls, [
+    { cmd: 'git', args: ['-C', '/tmp/wt', 'rebase', 'main'], options: { stdio: 'inherit' } },
+  ]);
+});
+
+test('rebaseWorktree: failed rebase aborts before returning false', () => {
+  const calls = [];
+  const result = rebaseWorktree('/tmp/wt', {
+    spawnSync: (cmd, args, options) => {
+      calls.push({ cmd, args, options });
+      return { status: 1 };
+    },
+  });
+
+  assert.equal(result, false);
+  assert.deepEqual(calls, [
+    { cmd: 'git', args: ['-C', '/tmp/wt', 'rebase', 'main'], options: { stdio: 'inherit' } },
+    { cmd: 'git', args: ['-C', '/tmp/wt', 'rebase', '--abort'], options: { stdio: 'inherit' } },
+  ]);
 });
 
 // --- nextState: transition table ---
