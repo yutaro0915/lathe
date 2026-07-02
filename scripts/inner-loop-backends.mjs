@@ -2,6 +2,8 @@
 // (ADR 0013 §機構詳細 + ADR 0014). Separated from inner-loop.mjs to keep that file
 // under the 500-line guard. All exports are pure functions; no spawnSync here.
 
+import { isAbsolute } from 'node:path';
+
 /**
  * Permission flags per stage (ADR 0013 §機構詳細).
  * --bare / --dangerously-skip-permissions must never be used (hooks must fire).
@@ -99,6 +101,11 @@ export function stageSandbox(stage) {
  * @returns {string[]}
  */
 export function buildCodexArgs(stage, prompt, cwd, lastmsgPath, repoRoot, model) {
+  // Defensive: cwd must be absolute so codex's workspace-write root is unambiguous.
+  // A relative cwd can resolve to the spawn cwd (main root), leaking write access.
+  if (!cwd || !isAbsolute(cwd)) {
+    throw new Error(`buildCodexArgs: cwd must be an absolute path, got: ${JSON.stringify(cwd)}`);
+  }
   const args = [prompt, '--json', '-o', lastmsgPath, '-C', cwd, '-s', stageSandbox(stage)];
   if (stageSandbox(stage) === 'workspace-write') {
     args.push('-c', 'sandbox_workspace_write.network_access=true');
@@ -242,4 +249,32 @@ export function selectBackend(stage, flags) {
   if (flags.global != null) return flags.global;
   if (stage === 'VERIFY') return 'claude';
   return 'codex';
+}
+
+/**
+ * Parse `git status --porcelain` output to detect tracked dirty files.
+ * Untracked entries (??) are excluded to avoid false positives from
+ * node_modules, build artefacts, and other untracked noise.
+ *
+ * This is the pure core of the MERGE-before backstop (issue #39, ADR 0014 §3):
+ * if the main working tree has tracked dirty files after an IMPLEMENT stage,
+ * the sandbox write-isolation has been breached and the driver must escalate
+ * instead of landing the branch.
+ *
+ * @param {string} porcelainText - stdout from `git status --porcelain`
+ * @returns {{ dirty: boolean, paths: string[] }}
+ */
+export function detectMainDirty(porcelainText) {
+  if (!porcelainText || typeof porcelainText !== 'string') return { dirty: false, paths: [] };
+  const paths = [];
+  for (const line of porcelainText.split('\n')) {
+    const trimmed = line.trimEnd();
+    if (!trimmed) continue;
+    // --porcelain format: "XY <path>" — XY is 2 status chars, then a space.
+    // Lines starting with "??" are untracked — skip them.
+    if (trimmed.startsWith('??')) continue;
+    const filePath = trimmed.slice(3); // skip "XY "
+    if (filePath) paths.push(filePath);
+  }
+  return { dirty: paths.length > 0, paths };
 }

@@ -10,6 +10,7 @@ import {
   parseCodexCostUsd,
   parseBackendFlags,
   selectBackend,
+  detectMainDirty,
 } from './inner-loop-backends.mjs';
 
 // --- stageSandbox ---
@@ -346,4 +347,85 @@ test('selectBackend: stage not in stages and no global -> stage default', () => 
   const flags = { global: null, stages: { PLAN: 'claude' } };
   assert.equal(selectBackend('REVIEW', flags), 'codex');
   assert.equal(selectBackend('VERIFY', flags), 'claude');
+});
+
+// --- buildCodexArgs: absolute cwd guard (issue #39) ---
+
+test('buildCodexArgs: throws when cwd is a relative path', () => {
+  assert.throws(
+    () => buildCodexArgs('PLAN', 'prompt', 'relative/path', '/tmp/out.txt'),
+    /cwd must be an absolute path/,
+  );
+});
+
+test('buildCodexArgs: throws when cwd is bare filename (no slash)', () => {
+  assert.throws(
+    () => buildCodexArgs('IMPLEMENT', 'prompt', 'worktree', '/tmp/out.txt'),
+    /cwd must be an absolute path/,
+  );
+});
+
+test('buildCodexArgs: accepts absolute cwd without throwing', () => {
+  assert.doesNotThrow(() => buildCodexArgs('PLAN', 'prompt', '/absolute/path', '/tmp/out.txt'));
+  assert.doesNotThrow(() => buildCodexArgs('IMPLEMENT', 'prompt', '/wt/path', '/tmp/out.txt'));
+});
+
+// --- detectMainDirty (issue #39 backstop) ---
+
+test('detectMainDirty: empty string -> dirty=false', () => {
+  assert.deepEqual(detectMainDirty(''), { dirty: false, paths: [] });
+});
+
+test('detectMainDirty: null/undefined -> dirty=false', () => {
+  assert.deepEqual(detectMainDirty(null), { dirty: false, paths: [] });
+  assert.deepEqual(detectMainDirty(undefined), { dirty: false, paths: [] });
+});
+
+test('detectMainDirty: untracked only (??) -> dirty=false, no paths', () => {
+  const text = '?? node_modules/\n?? dist/\n?? .next/\n';
+  const result = detectMainDirty(text);
+  assert.equal(result.dirty, false);
+  assert.deepEqual(result.paths, []);
+});
+
+test('detectMainDirty: modified tracked file -> dirty=true with path', () => {
+  const text = 'M  apps/web/scripts/ingest/usecase/incremental.ts\n';
+  const result = detectMainDirty(text);
+  assert.equal(result.dirty, true);
+  assert.deepEqual(result.paths, ['apps/web/scripts/ingest/usecase/incremental.ts']);
+});
+
+test('detectMainDirty: multiple tracked changes -> all paths returned', () => {
+  const text = [
+    'M  apps/web/scripts/ingest/usecase/incremental.ts',
+    ' M apps/web/scripts/ingest/usecase/incremental.test.ts',
+    'M  apps/web/scripts/verify-incremental-ingest.ts',
+  ].join('\n') + '\n';
+  const result = detectMainDirty(text);
+  assert.equal(result.dirty, true);
+  assert.equal(result.paths.length, 3);
+});
+
+test('detectMainDirty: mix of tracked and untracked -> only tracked in paths', () => {
+  const text = 'M  tracked.ts\n?? untracked.ts\n D deleted.ts\n';
+  const result = detectMainDirty(text);
+  assert.equal(result.dirty, true);
+  // untracked must be excluded, tracked and deleted must appear
+  assert.ok(result.paths.includes('tracked.ts'));
+  assert.ok(result.paths.includes('deleted.ts'));
+  assert.ok(!result.paths.includes('untracked.ts'));
+});
+
+test('detectMainDirty: deleted tracked file -> dirty=true', () => {
+  const text = ' D apps/web/lib/foo.ts\n';
+  const result = detectMainDirty(text);
+  assert.equal(result.dirty, true);
+  assert.equal(result.paths.length, 1);
+});
+
+test('detectMainDirty: whitespace-only lines are ignored', () => {
+  const text = '\n  \nM  file.ts\n\n';
+  const result = detectMainDirty(text);
+  assert.equal(result.dirty, true);
+  assert.deepEqual(result.paths, ['file.ts']);
 });

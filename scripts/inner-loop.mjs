@@ -21,6 +21,7 @@ import {
   stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt,
   parseCodexSessionId, parseCodexCostUsd, parseBackendFlags, selectBackend,
+  detectMainDirty,
 } from './inner-loop-backends.mjs';
 
 // Re-export stage helpers so existing tests importing from this file keep working.
@@ -161,6 +162,7 @@ export {
   stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt,
   parseCodexSessionId, parseCodexCostUsd, parseBackendFlags, selectBackend,
+  detectMainDirty,
 };
 
 // --- Side-effectful helpers ---
@@ -286,8 +288,8 @@ if (isMain) {
 
   if (dryRun) {
     log(`dry-run: would fetch issue #${issueNumber} via gh issue view`);
-    log(`dry-run: would create worktree .claude/worktrees/inner-issue-${issueNumber} on branch inner/issue-${issueNumber}`);
-    const wtPath = `.claude/worktrees/inner-issue-${issueNumber}`;
+    const wtPath = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
+    log(`dry-run: would create worktree ${wtPath} on branch inner/issue-${issueNumber}`);
     for (const stage of ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE']) {
       if (stage === 'MERGE') {
         log('dry-run: MERGE — node scripts/merge.mjs inner/issue-<n> (from repo root)');
@@ -380,6 +382,22 @@ if (isMain) {
   }
 
   if (state === 'ESCALATE') die(`escalated — see .lathe/runs/issue-${issueNumber}.escalation.md`);
+
+  // Backstop: verify that main working tree has no unexpected tracked changes before
+  // landing the branch.  The codex workspace-write sandbox should have confined writes
+  // to the worktree, but we do NOT rely solely on sandbox enforcement (issue #39,
+  // ADR 0014 §3).  Even if sandbox isolation held, a stray `git checkout` or an
+  // unexpected tool call could dirty main.  Only tracked changes are checked;
+  // untracked files (??) are ignored to avoid false positives from build artefacts.
+  log(`backstop: checking main working tree for unexpected tracked changes before merge...`);
+  const mainStatusR = spawnSync('git', ['-C', REPO_ROOT, 'status', '--porcelain'], { encoding: 'utf8' });
+  const { dirty: mainDirty, paths: dirtyPaths } = detectMainDirty(mainStatusR.stdout ?? '');
+  if (mainDirty) {
+    const excerpt = `main working tree has ${dirtyPaths.length} unexpected tracked change(s) — sandbox write-isolation may have been breached:\n${dirtyPaths.join('\n')}`;
+    writeEscalation(issueNumber, 'MERGE', 'MAIN_DIRTY_BACKSTOP', excerpt);
+    die(`escalated — main has ${dirtyPaths.length} unexpected tracked change(s) before merge. See .lathe/runs/issue-${issueNumber}.escalation.md`);
+  }
+  log(`backstop: main working tree clean — proceeding with merge.`);
 
   log(`merging branch ${branch} onto main`);
   const mergeResult = runMerge(branch);
