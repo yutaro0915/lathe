@@ -1,5 +1,9 @@
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
+import { Pool } from "pg";
+import { closePool, DEFAULT_DATABASE_URL, getPool } from "./postgres";
 import { getSessionEvents, listMcpSessions } from "./sessions";
 import {
   FINDING_BODY_MAX_LENGTH,
@@ -16,6 +20,8 @@ import {
   type FindingEvidenceInput,
   type SubmitFindingInput,
 } from "./service";
+
+const SESSION_CLASSES = ["development", "internal", "auto_review", "synthetic", "sandbox"] as const;
 
 function validFinding(overrides: Partial<SubmitFindingInput> = {}): SubmitFindingInput {
   return {
@@ -34,6 +40,81 @@ function validFinding(overrides: Partial<SubmitFindingInput> = {}): SubmitFindin
     ],
     ...overrides,
   };
+}
+
+let scratchCounter = 0;
+
+function currentDatabaseUrl(): string {
+  return process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
+}
+
+function scratchDatabaseUrl(baseDatabaseUrl: string, schema: string): string {
+  const url = new URL(baseDatabaseUrl);
+  url.searchParams.set("options", `-c search_path=${schema},public`);
+  return url.toString();
+}
+
+function quoteIdentifier(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+async function seedSessionClassFixture(): Promise<void> {
+  const pool = getPool();
+  const schemaSql = readFileSync(join(process.cwd(), "apps", "web", "db", "schema.sql"), "utf8");
+  await pool.query(schemaSql);
+  await pool.query(
+    `INSERT INTO projects (id, display_name, git_remote, cwd_hint)
+     VALUES ('mcp-class-fixture-project', 'MCP class fixture project', NULL, NULL)`,
+  );
+
+  for (const [index, sessionClass] of SESSION_CLASSES.entries()) {
+    await pool.query(
+      `INSERT INTO sessions (
+         id, project_id, project, title, runner, model, status, started_at, ended_at,
+         duration_ms, turn_count, tool_count, edit_count, bash_count, subagent_count,
+         error_count, token_usage, token_in, token_out, git_branch, commit_count,
+         cost_usd, summary, harness_version_id, parent_session_id, spawned_by_seq, seq,
+         session_class
+       )
+       VALUES (
+         $1, 'mcp-class-fixture-project', 'lathe', $2, 'codex', $3, 'done', $4, $5,
+         60000, 1, 1, 0, 1, 0, $6, 42, 24, 18, 'inner/issue-23', 0,
+         0.01, 'fixture session', NULL, NULL, NULL, $7, $8
+       )`,
+      [
+        `mcp-class-${sessionClass}`,
+        `MCP ${sessionClass} session`,
+        sessionClass === "synthetic" ? "<synthetic>" : "gpt-fixture",
+        `2026-06-18T00:0${index}:00.000Z`,
+        `2026-06-18T00:0${index}:30.000Z`,
+        index,
+        index,
+        sessionClass,
+      ],
+    );
+  }
+}
+
+async function withMcpScratchDatabase<T>(fn: () => Promise<T>): Promise<T> {
+  const originalDatabaseUrl = currentDatabaseUrl();
+  const schema = `mcp_service_${process.pid}_${Date.now()}_${scratchCounter++}`.replace(/[^a-zA-Z0-9_]/g, "_");
+  const admin = new Pool({ connectionString: originalDatabaseUrl });
+  await admin.query(`CREATE SCHEMA ${quoteIdentifier(schema)}`);
+
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  await closePool();
+  process.env.DATABASE_URL = scratchDatabaseUrl(originalDatabaseUrl, schema);
+
+  try {
+    await seedSessionClassFixture();
+    return await fn();
+  } finally {
+    await closePool();
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+    await admin.query(`DROP SCHEMA IF EXISTS ${quoteIdentifier(schema)} CASCADE`);
+    await admin.end();
+  }
 }
 
 test("service re-exports pure finding analysis shaping helpers", () => {
@@ -244,6 +325,60 @@ test("submitFinding rejects invalid evidence coordinates before any database que
   }
 });
 
+test("listMcpSessions defaults to development sessions and exposes sessionClass", async () => {
+  await withMcpScratchDatabase(async () => {
+    const result = await listMcpSessions({ limit: 10 });
+    const blankIncludeResult = await listMcpSessions({ limit: 10, includeClasses: [" ", ""] });
+
+    assert.equal(result.total, 1, "default list should count only development sessions");
+    assert.deepEqual(
+      result.sessions.map((s) => s.id),
+      ["mcp-class-development"],
+      "default list should return only development sessions",
+    );
+    assert.equal(result.sessions[0]?.sessionClass, "development", "summary should expose sessionClass");
+    assert.equal(blankIncludeResult.total, 1, "blank includeClasses should fall back to development");
+    assert.deepEqual(blankIncludeResult.sessions.map((s) => s.sessionClass), ["development"]);
+  });
+});
+
+test("listMcpSessions filters one requested session class", async () => {
+  await withMcpScratchDatabase(async () => {
+    const result = await listMcpSessions({ limit: 10, sessionClass: "internal" });
+
+    assert.equal(result.total, 1, "class filter should count only matching sessions");
+    assert.deepEqual(result.sessions.map((s) => s.sessionClass), ["internal"]);
+  });
+});
+
+test("listMcpSessions includeClasses filters multiple requested session classes", async () => {
+  await withMcpScratchDatabase(async () => {
+    const result = await listMcpSessions({
+      limit: 10,
+      sessionClass: "development",
+      includeClasses: [" internal ", "sandbox", "", "internal"],
+    });
+
+    assert.equal(result.total, 2, "includeClasses should count only included classes after normalization");
+    assert.deepEqual(
+      result.sessions.map((s) => s.sessionClass).sort(),
+      ["internal", "sandbox"],
+    );
+  });
+});
+
+test("listMcpSessions includeClasses can opt in to all known session classes", async () => {
+  await withMcpScratchDatabase(async () => {
+    const result = await listMcpSessions({ limit: 10, includeClasses: [...SESSION_CLASSES] });
+
+    assert.equal(result.total, SESSION_CLASSES.length, "including every class should count every fixture session");
+    assert.deepEqual(
+      result.sessions.map((s) => s.sessionClass).sort(),
+      [...SESSION_CLASSES].sort(),
+    );
+  });
+});
+
 test("listMcpSessions returns { total, sessions } shape with triage fields", async () => {
   const result = await listMcpSessions({ limit: 1 });
   // 戻り値の形状確認
@@ -264,6 +399,7 @@ test("listMcpSessions returns { total, sessions } shape with triage fields", asy
     assert.ok("startedAt" in s, "session should have startedAt");
     assert.ok("endedAt" in s, "session should have endedAt");
     assert.ok("parentSessionId" in s, "session should have parentSessionId");
+    assert.ok("sessionClass" in s, "session should have sessionClass");
     assert.ok(typeof s.turnCount === "number", "turnCount should be a number");
     assert.ok(typeof s.errorCount === "number", "errorCount should be a number");
   }

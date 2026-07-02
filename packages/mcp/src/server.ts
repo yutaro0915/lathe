@@ -99,13 +99,15 @@ function createServer(): McpServer {
       'list_sessions',
       {
         title: 'List Lathe sessions',
-        description: 'List session summaries with paging, optional project/runner/model filters, and triage fields (status, turn/tool/error counts, cost, duration). Returns { total, sessions }.',
+        description: 'List session summaries with paging, optional project/runner/model/class filters, and triage fields (status, turn/tool/error counts, cost, duration, class). Returns { total, sessions }.',
         inputSchema: {
           filter: z
             .object({
               project_id: z.string().optional(),
               runner: z.string().optional(),
               model: z.string().optional(),
+              class: z.string().optional(),
+              include_classes: z.array(z.string()).optional(),
               limit: z.number().int().positive().max(200).optional(),
               offset: z.number().int().min(0).optional(),
               order_by: z.enum(['started_at', 'cost_usd', 'error_count', 'turn_count', 'duration_ms']).optional(),
@@ -120,6 +122,8 @@ function createServer(): McpServer {
             projectId: optionalString(filter?.project_id),
             runner: optionalString(filter?.runner),
             model: optionalString(filter?.model),
+            sessionClass: optionalString(filter?.class),
+            includeClasses: filter?.include_classes,
             limit: optionalNumber(filter?.limit),
             offset: optionalNumber(filter?.offset),
             orderBy: optionalString(filter?.order_by),

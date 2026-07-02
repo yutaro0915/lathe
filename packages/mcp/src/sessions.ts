@@ -8,6 +8,8 @@ export interface ListSessionsFilter {
   projectId?: string;
   runner?: string;
   model?: string;
+  sessionClass?: string;
+  includeClasses?: string[];
   limit?: number;
   offset?: number;
   orderBy?: string;
@@ -33,6 +35,7 @@ export interface McpSessionSummary {
   startedAt: string;
   endedAt: string | null;
   parentSessionId: string | null;
+  sessionClass: string;
 }
 
 export interface GetSessionEventsInput {
@@ -66,6 +69,7 @@ interface SessionSummaryRow {
   started_at: string;
   ended_at: string | null;
   parent_session_id: string | null;
+  session_class: string;
 }
 
 interface SpineEventRow {
@@ -93,6 +97,8 @@ export interface SessionRow extends SessionSummaryRow {
   seq: number;
 }
 
+const DEFAULT_SESSION_CLASS = 'development';
+
 function resolveOrderBy(orderBy: string | undefined): string {
   switch (orderBy) {
     case 'cost_usd':
@@ -106,6 +112,15 @@ function resolveOrderBy(orderBy: string | undefined): string {
     default:
       return 'started_at DESC NULLS LAST, id ASC';
   }
+}
+
+function normalizeClassList(values: string[] | undefined): string[] {
+  const classes: string[] = [];
+  for (const value of values ?? []) {
+    const sessionClass = cleanString(value);
+    if (sessionClass && !classes.includes(sessionClass)) classes.push(sessionClass);
+  }
+  return classes;
 }
 
 function toSessionSummary(row: SessionSummaryRow): McpSessionSummary {
@@ -129,6 +144,7 @@ function toSessionSummary(row: SessionSummaryRow): McpSessionSummary {
     startedAt: row.started_at,
     endedAt: row.ended_at,
     parentSessionId: row.parent_session_id,
+    sessionClass: row.session_class,
   };
 }
 
@@ -197,9 +213,16 @@ export async function listMcpSessions(filter: ListSessionsFilter = {}): Promise<
   const projectId = cleanString(filter.projectId);
   const runner = cleanString(filter.runner);
   const model = cleanString(filter.model);
+  const sessionClass = cleanString(filter.sessionClass);
+  const includeClasses = normalizeClassList(filter.includeClasses);
   if (projectId) where.push(`project_id = ${addParam(projectId)}`);
   if (runner) where.push(`runner = ${addParam(runner)}`);
   if (model) where.push(`model = ${addParam(model)}`);
+  if (includeClasses.length > 0) {
+    where.push(`session_class = ANY(${addParam(includeClasses)}::text[])`);
+  } else {
+    where.push(`session_class = ${addParam(sessionClass ?? DEFAULT_SESSION_CLASS)}`);
+  }
 
   const limit = normalizeLimit(filter.limit);
   const offset = cleanNumber(filter.offset, 0);
@@ -207,7 +230,7 @@ export async function listMcpSessions(filter: ListSessionsFilter = {}): Promise<
   const rows = await queryRows<SessionSummaryRow & { __total: number }>(
     `SELECT id,project_id,title,runner,model,cost_usd,harness_version_id,
             status,turn_count,tool_count,edit_count,bash_count,subagent_count,
-            error_count,token_usage,duration_ms,started_at,ended_at,parent_session_id,
+            error_count,token_usage,duration_ms,started_at,ended_at,parent_session_id,session_class,
             COUNT(*) OVER() AS __total
        FROM sessions
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
