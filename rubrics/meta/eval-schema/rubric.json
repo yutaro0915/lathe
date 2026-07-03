@@ -1,0 +1,46 @@
+{
+  "schema_version": "2",
+  "id": "meta/eval-schema",
+  "title": "eval 形式 v1 の必須要素を機械強制する — eval の一級化（ADR 0019 前線 B）",
+  "version": "1",
+  "scope": ["evals", "rubrics/_eval-schema.mjs", "rubrics/_eval-schema.test.mjs"],
+  "origin": "ADR 0019（EDD 前線 B、2026-07-03 ユーザー承認）。入口 handoff: /Users/cherie/LLMWiki/projects/edd-theory/handoff/lathe-rubric-system-decomposition.md §3。理論正本: edd-theory theory.md §中核オブジェクト（eval＝実行可能な問い→受容主張、trials/aggregate は主張の一部）・§開発前線テンプレート（S/C/Y）。条項: eval は負荷の宣言であって記録ではない（実行の裏付けを持たない eval を書かない＝運用規律・監査役レビュー観点、ADR 0019 §決定 4）。",
+  "checks": [
+    {
+      "id": "eval-format-required-fields",
+      "value": "① 何を縛るか: evals/*.md が eval 形式 v1 の必須要素（id=ファイル名一致 / role enum / frontier / S・C・Y / checks・inline_criteria の明示宣言と基準ゼロ禁止 / trials{n>=1, aggregate}）を満たすこと。② なぜ重要か: eval は通過時に受容主張になる。S/C/Y と trials/aggregate が欠けた eval は負荷の再現も主張の精密さも持てず、記録（issue）に退化する。③ 仕組み: _eval-schema.mjs が全 eval を走査し違反を数える。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "node rubrics/_eval-schema.mjs | grep -c '^VIOLATION' || true",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。構造の検査に限る＝checks が指す rubric の実在は meta/bindings（前線 A）が担い、重複させない。負荷が実際に実行されているか（eval の本質）は機械で見えない＝運用規律（ADR 0019 §決定 4）と監査役レビューで担保。限界: S/C/Y の中身の質（観測可能性・一意解釈性）は判定できない。",
+        "exemptions": []
+      },
+      "evidence": "_eval-schema.mjs の VIOLATION 行数。0 で GREEN、1+ で RED（行にファイル名と理由）。",
+      "examples": {
+        "pass": ["全 eval が S/C/Y・checks・inline_criteria・trials を宣言し、id がファイル名と一致"],
+        "fail": ["新 eval が trials 未宣言 → RED", "checks: [] かつ inline_criteria: [] → 判定基準ゼロで RED"]
+      }
+    },
+    {
+      "id": "eval-schema-selfcheck",
+      "value": "① 何を縛るか: eval 検証器自体が 12 欠陥パターンを検出できること。② なぜ重要か: 検証器の silent failure は『検証したつもりで未検証』を生む（_schema.test / bindings-lint-selfcheck と同じ理由）。③ 仕組み: in-memory 負テストを実行し exit code を見る。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "node rubrics/_eval-schema.test.mjs >/dev/null 2>&1; echo $?",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。負テストは in-memory fixture。限界: パターン集合は既知 12 種＝新しい壊れ方は追記が要る。",
+        "exemptions": []
+      },
+      "evidence": "_eval-schema.test.mjs の exit code。0 で GREEN（全 assert 通過）、非 0 で RED。",
+      "examples": {
+        "pass": ["正常 eval 素通り + 12 欠陥パターン検出が全て assert 通過"],
+        "fail": ["validateEval の必須判定を壊す変更 → 負テストが throw → RED"]
+      }
+    }
+  ]
+}
