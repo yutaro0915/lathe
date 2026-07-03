@@ -49,10 +49,14 @@ export const MAX_CYCLES = 2;
 export const APPROVED_PLAN_HEADING = '## Plan (approved)';
 export const IMPL_LOOP_STAGES = ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE'];
 export const IMPL_LOOP_STAGES_AFTER_PLAN = ['IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE', 'MERGE'];
-export const PLAN_LOOP_STAGES = ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'ISSUE_CREATE', 'CLOSE_SOURCE'];
+export const PLAN_LOOP_STAGES = ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'GATE', 'ISSUE_CREATE', 'CLOSE_SOURCE'];
 export const WORKTREE_DEPS_INSTALL_ARGS = ['install', '--frozen-lockfile', '--prefer-offline'];
 const TOUCHES_GROUNDING_REPORT_ARGS = ['-C', 'apps/web', 'exec', 'tsx', 'scripts/touches-grounding.ts', '--format', 'json'];
 const TOUCHES_GROUNDING_DRY_RUN_PLACEHOLDER = '<touches grounding JSON from pnpm -C apps/web exec tsx scripts/touches-grounding.ts --format json when status ok; omitted otherwise>';
+const AUTO_OK_LABEL = 'auto-ok';
+const PENDING_APPROVAL_LABEL = 'pending-approval';
+const PLAN_APPROVED_LABEL = 'plan-approved';
+const PLAN_GATE_LABELS = [PENDING_APPROVAL_LABEL, PLAN_APPROVED_LABEL, AUTO_OK_LABEL];
 
 export function displayStage(stage) {
   return stage === 'PLAN_REVIEW' ? 'PLAN-REVIEW' : stage;
@@ -209,9 +213,6 @@ export function parseDriverArgs(argv) {
   if (!issueArg || !Number.isInteger(issueNumber) || issueNumber <= 0) {
     return { mode, issueNumber: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: 'missing or invalid issue number' };
   }
-  if (mode === 'plan' && resume) {
-    return { mode, issueNumber, dryRun, resume, backendFlags: parseBackendFlags(argv), error: '--resume is only supported for impl-loop' };
-  }
   return { mode, issueNumber, dryRun, resume, backendFlags: parseBackendFlags(argv), error: null };
 }
 
@@ -295,12 +296,14 @@ export function nextPlanLoopState(state, verdict, cycles = 0) {
     case 'PLAN':
       return verdict === 'PLAN_READY' ? { next: 'PLAN_REVIEW', cycles } : { next: 'ESCALATE', cycles };
     case 'PLAN_REVIEW':
-      if (verdict === 'PASS') return { next: 'ISSUE_CREATE', cycles };
+      if (verdict === 'PASS') return { next: 'GATE', cycles };
       if (verdict === 'CHANGES') {
         const next = cycles + 1;
         return next > MAX_CYCLES ? { next: 'ESCALATE', cycles: next } : { next: 'PLAN', cycles: next };
       }
       return { next: 'ESCALATE', cycles };
+    case 'GATE':
+      return verdict === 'PASS' ? { next: 'ISSUE_CREATE', cycles } : { next: 'ESCALATE', cycles };
     default:
       return { next: 'ESCALATE', cycles };
   }
@@ -656,9 +659,85 @@ export function setupWorktreeDeps(worktreePath, deps = {}) {
 }
 
 function fetchIssue(issueNumber) {
-  const r = spawnSync('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,body'], { encoding: 'utf8', cwd: REPO_ROOT });
+  const r = spawnSync('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,body,labels'], { encoding: 'utf8', cwd: REPO_ROOT });
   if (r.status !== 0) die(`gh issue view failed: ${r.stderr || r.stdout}`);
   try { return JSON.parse(r.stdout); } catch (e) { die(`could not parse gh issue view output: ${e.message}`); }
+}
+
+export function issueLabelNames(issue) {
+  if (!Array.isArray(issue?.labels)) return [];
+  return issue.labels
+    .map((label) => (typeof label === 'string' ? label : label?.name))
+    .filter((name) => typeof name === 'string' && name.length > 0);
+}
+
+export function issueHasLabel(issue, labelName) {
+  const wanted = String(labelName ?? '').toLowerCase();
+  return issueLabelNames(issue).some((name) => name.toLowerCase() === wanted);
+}
+
+function ensureGithubLabel(labelName) {
+  const r = spawnSync('gh', ['label', 'create', labelName, '--force'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  if (r.status !== 0) die(`gh label create failed for ${labelName}: ${r.stderr || r.stdout}`);
+}
+
+function ensurePlanGateLabels() {
+  for (const labelName of PLAN_GATE_LABELS) ensureGithubLabel(labelName);
+}
+
+export function buildPlanApprovalRequestComment({ issueNumber, approvedPlan }) {
+  return [
+    'plan-loop is paused before creating implementation issues.',
+    '',
+    '## approved plan',
+    '',
+    String(approvedPlan ?? '').trim(),
+    '',
+    '## approval',
+    '',
+    `承認するには \`${PLAN_APPROVED_LABEL}\` ラベルを付与し \`node scripts/inner-loop.mjs --plan ${issueNumber} --resume\` を実行してください。`,
+    '',
+  ].join('\n');
+}
+
+function postPlanApprovalRequest(issueNumber, approvedPlan) {
+  const body = buildPlanApprovalRequestComment({ issueNumber, approvedPlan });
+  const r = spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body-file', '-'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    input: body,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if (r.status !== 0) die(`gh issue comment failed for plan approval gate: ${r.stderr || r.stdout}`);
+  return body;
+}
+
+function addIssueLabel(issueNumber, labelName) {
+  const r = spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', labelName], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  if (r.status !== 0) die(`gh issue edit --add-label failed for ${labelName}: ${r.stderr || r.stdout}`);
+}
+
+export function resolvePendingPlanGate(stages) {
+  if (!Array.isArray(stages) || stages.length === 0) {
+    return { ok: false, reason: 'missing manifest or manifest has no stages' };
+  }
+  const last = stages.at(-1);
+  if (last?.stage !== 'GATE' || last?.verdict !== 'PENDING_APPROVAL') {
+    return { ok: false, reason: 'manifest tail is not GATE:PENDING_APPROVAL' };
+  }
+  const approvedPlanEntry = [...stages]
+    .reverse()
+    .find((entry) => entry?.stage === 'PLAN' && entry?.verdict === 'PLAN_READY' && typeof entry?.result_text === 'string');
+  if (!approvedPlanEntry) {
+    return { ok: false, reason: 'manifest lacks approved PLAN result_text before pending gate' };
+  }
+  return { ok: true, approvedPlan: approvedPlanEntry.result_text };
 }
 
 export function collectTouchesGroundingReport(deps = {}) {
@@ -1136,14 +1215,104 @@ function dryRunPlanLoop(issueNumber, backendFlags) {
     });
     logDryRunStage(stage, backendFlags, REPO_ROOT, promptPreview);
   }
+  log(`dry-run: GATE — after PLAN-REVIEW PASS, refetch source issue labels: ${AUTO_OK_LABEL} present -> append GATE PASS and continue to ISSUE_CREATE`);
+  log(`dry-run: GATE — ${AUTO_OK_LABEL} absent -> ensure labels ${PLAN_GATE_LABELS.join(', ')}, comment approved plan with resume command, add ${PENDING_APPROVAL_LABEL}, append GATE/PENDING_APPROVAL, exit 0`);
+  log(`dry-run: resume — if manifest tail is GATE/PENDING_APPROVAL and source has ${PLAN_APPROVED_LABEL}, append GATE PASS and continue to ISSUE_CREATE; otherwise print approval pending and exit 2 without changes`);
   log('dry-run: ISSUE_CREATE — parse all approved issue blocks and run gh issue create --label inner-loop --body-file - for each block');
   log(`dry-run: ISSUE_CREATE body per block includes Generated from #${issueNumber}, resolved Depends-on:, Touches:, ${APPROVED_PLAN_HEADING}`);
   log('dry-run: ISSUE_CREATE resolves plan#<k> dependencies to earlier created issue numbers');
   log(`dry-run: CLOSE_SOURCE — gh issue close ${issueNumber} --reason completed --comment '<created issue list and rejected candidates>'`);
-  log('dry-run: transition plan — RESEARCH PASS->PLAN, PLAN_READY->PLAN-REVIEW, PLAN-REVIEW PASS->ISSUE_CREATE / CHANGES->PLAN (max 2 cycles), all gh issue create calls -> CLOSE_SOURCE, missing/unparsable VERDICT->same stage retry once then ESCALATE');
+  log('dry-run: transition plan — RESEARCH PASS->PLAN, PLAN_READY->PLAN-REVIEW, PLAN-REVIEW PASS->GATE, GATE PASS->ISSUE_CREATE / GATE PENDING_APPROVAL->exit 0 / CHANGES->PLAN (max 2 cycles), all gh issue create calls -> CLOSE_SOURCE, missing/unparsable VERDICT->same stage retry once then ESCALATE');
 }
 
-function runPlanLoop(issueNumber, backendFlags) {
+function completePlanLoopIssueCreate(issueNumber, approvedPlan) {
+  const created = createImplementationIssues(issueNumber, approvedPlan);
+  if (!created.ok) {
+    writePlanEscalation(issueNumber, 'ISSUE_CREATE', null, created.error);
+    die(`plan-loop issue create failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
+  }
+  appendPlanManifestEntry(issueNumber, buildManifestEntry({
+    stage: 'ISSUE_CREATE',
+    sessionId: null,
+    verdict: 'PASS',
+    backendCostUsd: null,
+    backendCostSource: null,
+    backend: null,
+    resultText: created.issues.map((issue) => `created plan#${issue.index} -> #${issue.issueNumber}\n${issue.url}`).join('\n'),
+  }));
+  log(`plan-loop created ${created.issues.length} implementation issue(s): ${created.issues.map((issue) => `#${issue.issueNumber}`).join(', ')}`);
+
+  const closeResult = closeSourceIssue(issueNumber, created);
+  if (!closeResult.ok) {
+    writePlanEscalation(issueNumber, 'CLOSE_SOURCE', null, `gh issue close failed\n\n${tailLines(closeResult.output)}`);
+    die(`plan-loop source close failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
+  }
+  appendPlanManifestEntry(issueNumber, buildManifestEntry({
+    stage: 'CLOSE_SOURCE',
+    sessionId: null,
+    verdict: 'PASS',
+    backendCostUsd: null,
+    backendCostSource: null,
+    backend: null,
+    resultText: `closed source issue #${issueNumber}`,
+  }));
+  log(`plan-loop done — created implementation issue(s) ${created.issues.map((issue) => `#${issue.issueNumber}`).join(', ')} and closed source issue #${issueNumber}.`);
+  return 0;
+}
+
+function appendPlanGatePass(issueNumber, resultText) {
+  appendPlanManifestEntry(issueNumber, buildManifestEntry({
+    stage: 'GATE',
+    sessionId: null,
+    verdict: 'PASS',
+    backendCostUsd: null,
+    backendCostSource: null,
+    backend: null,
+    resultText,
+  }));
+}
+
+function handlePlanApprovalGate(issueNumber, issue, approvedPlan) {
+  if (issueHasLabel(issue, AUTO_OK_LABEL)) {
+    appendPlanGatePass(issueNumber, `${AUTO_OK_LABEL} label present on source issue #${issueNumber}`);
+    log(`plan-loop gate passed via ${AUTO_OK_LABEL} label -> next=ISSUE_CREATE`);
+    return 'approved';
+  }
+
+  ensurePlanGateLabels();
+  const commentBody = postPlanApprovalRequest(issueNumber, approvedPlan);
+  addIssueLabel(issueNumber, PENDING_APPROVAL_LABEL);
+  appendPlanManifestEntry(issueNumber, buildManifestEntry({
+    stage: 'GATE',
+    sessionId: null,
+    verdict: 'PENDING_APPROVAL',
+    backendCostUsd: null,
+    backendCostSource: null,
+    backend: null,
+    resultText: commentBody,
+  }));
+  log(`plan-loop pending approval — added ${PENDING_APPROVAL_LABEL}; add ${PLAN_APPROVED_LABEL} and run: node scripts/inner-loop.mjs --plan ${issueNumber} --resume`);
+  return 'pending';
+}
+
+function resumePlanLoop(issueNumber) {
+  const pending = resolvePendingPlanGate(readManifestStages(planManifestPathFor(issueNumber)));
+  if (!pending.ok) die(`plan-loop resume unavailable: ${pending.reason}`);
+
+  const issue = fetchIssue(issueNumber);
+  if (!issueHasLabel(issue, PLAN_APPROVED_LABEL)) {
+    log(`plan-loop approval pending — ${PLAN_APPROVED_LABEL} label not present on source issue #${issueNumber}`);
+    return 2;
+  }
+
+  appendPlanGatePass(issueNumber, `${PLAN_APPROVED_LABEL} label present on source issue #${issueNumber}`);
+  log(`plan-loop gate approved via ${PLAN_APPROVED_LABEL} label -> next=ISSUE_CREATE`);
+  return completePlanLoopIssueCreate(issueNumber, pending.approvedPlan);
+}
+
+function runPlanLoop(issueNumber, backendFlags, options = {}) {
+  if (options.resume) return resumePlanLoop(issueNumber);
+
   const issue = fetchIssue(issueNumber);
   const touchesGrounding = collectTouchesGroundingReport();
   let state = 'RESEARCH';
@@ -1152,7 +1321,7 @@ function runPlanLoop(issueNumber, backendFlags) {
   let approvedPlan = '';
   let feedback = null;
 
-  while (state !== 'ISSUE_CREATE' && state !== 'ESCALATE') {
+  while (state !== 'GATE' && state !== 'ISSUE_CREATE' && state !== 'ESCALATE') {
     const prompt = buildStagePrompt(state, {
       mode: 'plan-loop',
       issueNumber,
@@ -1209,38 +1378,17 @@ function runPlanLoop(issueNumber, backendFlags) {
   }
 
   if (state === 'ESCALATE') die(`plan-loop escalated — see .lathe/runs/plan-${issueNumber}.escalation.md`);
-
-  const created = createImplementationIssues(issueNumber, approvedPlan);
-  if (!created.ok) {
-    writePlanEscalation(issueNumber, 'ISSUE_CREATE', null, created.error);
-    die(`plan-loop issue create failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
+  if (state === 'GATE') {
+    const gateIssue = fetchIssue(issueNumber);
+    const gate = handlePlanApprovalGate(issueNumber, gateIssue, approvedPlan);
+    if (gate === 'pending') return 0;
+    const next = nextPlanLoopState('GATE', 'PASS', cycles);
+    state = next.next;
+    cycles = next.cycles;
   }
-  appendPlanManifestEntry(issueNumber, buildManifestEntry({
-    stage: 'ISSUE_CREATE',
-    sessionId: null,
-    verdict: 'PASS',
-    backendCostUsd: null,
-    backendCostSource: null,
-    backend: null,
-    resultText: created.issues.map((issue) => `created plan#${issue.index} -> #${issue.issueNumber}\n${issue.url}`).join('\n'),
-  }));
-  log(`plan-loop created ${created.issues.length} implementation issue(s): ${created.issues.map((issue) => `#${issue.issueNumber}`).join(', ')}`);
 
-  const closeResult = closeSourceIssue(issueNumber, created);
-  if (!closeResult.ok) {
-    writePlanEscalation(issueNumber, 'CLOSE_SOURCE', null, `gh issue close failed\n\n${tailLines(closeResult.output)}`);
-    die(`plan-loop source close failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
-  }
-  appendPlanManifestEntry(issueNumber, buildManifestEntry({
-    stage: 'CLOSE_SOURCE',
-    sessionId: null,
-    verdict: 'PASS',
-    backendCostUsd: null,
-    backendCostSource: null,
-    backend: null,
-    resultText: `closed source issue #${issueNumber}`,
-  }));
-  log(`plan-loop done — created implementation issue(s) ${created.issues.map((issue) => `#${issue.issueNumber}`).join(', ')} and closed source issue #${issueNumber}.`);
+  if (state === 'ISSUE_CREATE') return completePlanLoopIssueCreate(issueNumber, approvedPlan);
+  return 0;
 }
 
 // --- CLI entrypoint ---
@@ -1252,7 +1400,7 @@ if (isMain) {
   const { mode, issueNumber, dryRun, resume, backendFlags } = parsedArgs;
 
   if (parsedArgs.error) {
-    die(`${parsedArgs.error}\nusage: node scripts/inner-loop.mjs <issue#> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]\n       node scripts/inner-loop.mjs --plan <issue#> [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]`);
+    die(`${parsedArgs.error}\nusage: node scripts/inner-loop.mjs <issue#> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]\n       node scripts/inner-loop.mjs --plan <issue#> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]`);
   }
 
   if (mode === 'plan') {
@@ -1260,8 +1408,8 @@ if (isMain) {
       dryRunPlanLoop(issueNumber, backendFlags);
       process.exit(0);
     }
-    runPlanLoop(issueNumber, backendFlags);
-    process.exit(0);
+    const exitCode = runPlanLoop(issueNumber, backendFlags, { resume });
+    process.exit(exitCode ?? 0);
   }
 
   if (dryRun) {

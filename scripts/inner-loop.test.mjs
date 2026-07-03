@@ -50,7 +50,7 @@ import {
   buildTriagePrompt,
 } from './inner-loop-prompts.mjs';
 import { parseIssueRunHints } from './inner-queue.mjs';
-import { chmodSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -145,7 +145,7 @@ test('selectRunPlan: impl-loop without marker remains backward compatible', () =
 test('selectRunPlan: plan-loop uses ADR 0016 stage sequence', () => {
   const result = selectRunPlan({ mode: 'plan', issueBody: 'needs plan' });
   assert.equal(result.initialState, 'RESEARCH');
-  assert.deepEqual(result.stages, ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'ISSUE_CREATE', 'CLOSE_SOURCE']);
+  assert.deepEqual(result.stages, ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'GATE', 'ISSUE_CREATE', 'CLOSE_SOURCE']);
 });
 
 test('buildSkippedPlanEntry: creates synthetic skipped PLAN_READY manifest entry', () => {
@@ -164,6 +164,14 @@ test('parseDriverArgs: parses --plan mode and backend flags', () => {
   assert.equal(parsed.issueNumber, 41);
   assert.equal(parsed.dryRun, true);
   assert.equal(parsed.backendFlags.stages.PLAN, 'claude');
+});
+
+test('parseDriverArgs: allows --plan --resume for pending approval gates', () => {
+  const parsed = parseDriverArgs(['--plan', '41', '--resume']);
+  assert.equal(parsed.error, null);
+  assert.equal(parsed.mode, 'plan');
+  assert.equal(parsed.issueNumber, 41);
+  assert.equal(parsed.resume, true);
 });
 
 test('parseDriverArgs: parses impl mode with positional issue', () => {
@@ -497,6 +505,330 @@ test('plan-loop dry-run prints touches grounding collection and preview placehol
   assert.match(result.stdout, /unavailable\/non-ok -> omit/);
   assert.match(result.stdout, /^## touches grounding$/m);
   assert.match(result.stdout, /<touches grounding JSON/);
+  assert.match(result.stdout, /dry-run: GATE/);
+  assert.match(result.stdout, /auto-ok/);
+  assert.match(result.stdout, /pending-approval/);
+  assert.match(result.stdout, /plan-approved/);
+});
+
+function planRunManifestPath(issueNumber) {
+  return join(process.cwd(), '.lathe', 'runs', `plan-${issueNumber}.json`);
+}
+
+function planRunEscalationPath(issueNumber) {
+  return join(process.cwd(), '.lathe', 'runs', `plan-${issueNumber}.escalation.md`);
+}
+
+function cleanupPlanRunFiles(issueNumber) {
+  rmSync(planRunManifestPath(issueNumber), { force: true });
+  rmSync(planRunEscalationPath(issueNumber), { force: true });
+}
+
+function readJsonLines(path) {
+  return readFileSync(path, 'utf8')
+    .trim()
+    .split(/\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+function writeExecutable(path, body) {
+  writeFileSync(path, body, 'utf8');
+  chmodSync(path, 0o755);
+}
+
+function setupPlanLoopFakeBin(testId) {
+  const fakeBin = join(tmpdir(), `lathe-plan-loop-${testId}-${process.pid}-${Date.now()}`);
+  mkdirSync(fakeBin, { recursive: true });
+  const logPath = join(fakeBin, 'gh.log');
+
+  writeExecutable(join(fakeBin, 'gh'), `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+let input = '';
+try { input = fs.readFileSync(0, 'utf8'); } catch {}
+if (process.env.LATHE_FAKE_GH_LOG) {
+  fs.appendFileSync(process.env.LATHE_FAKE_GH_LOG, JSON.stringify({ args, input }) + '\\n');
+}
+function labelsFromCsv(csv) {
+  return String(csv || '')
+    .split(',')
+    .map((label) => label.trim())
+    .filter(Boolean)
+    .map((name) => ({ name }));
+}
+function labelsForIssueView() {
+  const sequence = String(process.env.LATHE_FAKE_LABELS_BY_VIEW || '');
+  if (!sequence) return labelsFromCsv(process.env.LATHE_FAKE_LABELS);
+  const calls = process.env.LATHE_FAKE_GH_LOG && fs.existsSync(process.env.LATHE_FAKE_GH_LOG)
+    ? fs.readFileSync(process.env.LATHE_FAKE_GH_LOG, 'utf8')
+      .trim()
+      .split(/\\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+    : [];
+  const viewCount = Math.max(1, calls.filter((call) => call.args[0] === 'issue' && call.args[1] === 'view').length);
+  const byView = sequence.split('|');
+  return labelsFromCsv(byView[Math.min(viewCount - 1, byView.length - 1)]);
+}
+if (args[0] === 'issue' && args[1] === 'view') {
+  const number = Number(args[2] || 0);
+  const labels = labelsForIssueView();
+  process.stdout.write(JSON.stringify({ number, title: 'Source issue', body: 'Source body', labels }) + '\\n');
+  process.exit(0);
+}
+if (args[0] === 'label' && args[1] === 'create') process.exit(0);
+if (args[0] === 'issue' && args[1] === 'comment') process.exit(0);
+if (args[0] === 'issue' && args[1] === 'edit') process.exit(0);
+if (args[0] === 'issue' && args[1] === 'create') {
+  const issue = Number(process.env.LATHE_FAKE_CREATED_ISSUE || '701');
+  process.stdout.write('https://github.com/yutaro0915/lathe/issues/' + issue + '\\n');
+  process.exit(0);
+}
+if (args[0] === 'issue' && args[1] === 'close') process.exit(0);
+process.stderr.write('unexpected gh call: ' + args.join(' ') + '\\n');
+process.exit(1);
+`);
+
+  writeExecutable(join(fakeBin, 'claude'), `#!/usr/bin/env node
+const stage = process.env.LATHE_STAGE;
+const results = {
+  RESEARCH: 'research complete\\nVERDICT: PASS',
+  PLAN: [
+    'Title: feat: gated implementation',
+    'Depends-on: none',
+    'Touches: scripts/inner-loop.mjs',
+    'Implement the gated issue.',
+    'VERDICT: PLAN_READY',
+  ].join('\\n'),
+  PLAN_REVIEW: 'plan review passed\\nVERDICT: PASS',
+};
+if (!results[stage]) {
+  process.stderr.write('unexpected claude stage: ' + stage + '\\n');
+  process.exit(1);
+}
+process.stdout.write(JSON.stringify({ session_id: 'session-' + stage, result: results[stage], total_cost_usd: 0.01 }) + '\\n');
+`);
+
+  writeExecutable(join(fakeBin, 'pnpm'), '#!/bin/sh\nexit 1\n');
+
+  return {
+    fakeBin,
+    logPath,
+    cleanup: () => rmSync(fakeBin, { recursive: true, force: true }),
+  };
+}
+
+function runPlanLoopCli(issueNumber, fake, labels, extraArgs = [], envOverrides = {}) {
+  return spawnSync(process.execPath, ['scripts/inner-loop.mjs', '--plan', String(issueNumber), ...extraArgs], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${fake.fakeBin}:${process.env.PATH}`,
+      LATHE_FAKE_GH_LOG: fake.logPath,
+      LATHE_FAKE_LABELS: labels,
+      LATHE_FAKE_CREATED_ISSUE: '701',
+      ...envOverrides,
+    },
+  });
+}
+
+function writePendingPlanGateManifest(issueNumber, approvedPlan) {
+  mkdirSync(join(process.cwd(), '.lathe', 'runs'), { recursive: true });
+  writeFileSync(planRunManifestPath(issueNumber), JSON.stringify(buildManifest(issueNumber, [
+    buildManifestEntry({
+      stage: 'RESEARCH',
+      sessionId: 'session-RESEARCH',
+      verdict: 'PASS',
+      backendCostUsd: 0.01,
+      backend: 'claude',
+      resultText: 'research complete\nVERDICT: PASS',
+    }),
+    buildManifestEntry({
+      stage: 'PLAN',
+      sessionId: 'session-PLAN',
+      verdict: 'PLAN_READY',
+      backendCostUsd: 0.01,
+      backend: 'claude',
+      resultText: approvedPlan,
+    }),
+    buildManifestEntry({
+      stage: 'PLAN_REVIEW',
+      sessionId: 'session-PLAN_REVIEW',
+      verdict: 'PASS',
+      backendCostUsd: 0.01,
+      backend: 'claude',
+      resultText: 'plan review passed\nVERDICT: PASS',
+    }),
+    buildManifestEntry({
+      stage: 'GATE',
+      sessionId: null,
+      verdict: 'PENDING_APPROVAL',
+      backendCostUsd: null,
+      backend: null,
+      resultText: 'pending approval',
+    }),
+  ], { mode: 'plan-loop' }), null, 2) + '\n', 'utf8');
+}
+
+test('plan-loop gates after PLAN_REVIEW PASS unless source issue has auto-ok', () => {
+  const issueNumber = 59001;
+  cleanupPlanRunFiles(issueNumber);
+  const fake = setupPlanLoopFakeBin('gate-pending');
+
+  try {
+    const result = runPlanLoopCli(issueNumber, fake, '', ['--backend', 'claude']);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /pending approval/i);
+    assert.equal(existsSync(planRunEscalationPath(issueNumber)), false);
+
+    const manifest = JSON.parse(readFileSync(planRunManifestPath(issueNumber), 'utf8'));
+    assert.deepEqual(manifest.stages.map((stage) => [stage.stage, stage.verdict]), [
+      ['RESEARCH', 'PASS'],
+      ['PLAN', 'PLAN_READY'],
+      ['PLAN_REVIEW', 'PASS'],
+      ['GATE', 'PENDING_APPROVAL'],
+    ]);
+    assert.match(manifest.stages.at(-1).result_text, /plan-approved/);
+    assert.match(manifest.stages.at(-1).result_text, /node scripts\/inner-loop\.mjs --plan 59001 --resume/);
+
+    const calls = readJsonLines(fake.logPath);
+    assert.ok(calls.some((call) => call.args.join(' ') === 'label create pending-approval --force'));
+    assert.ok(calls.some((call) => call.args.join(' ') === 'label create plan-approved --force'));
+    assert.ok(calls.some((call) => call.args.join(' ') === 'label create auto-ok --force'));
+    assert.ok(calls.some((call) => call.args[0] === 'issue' && call.args[1] === 'comment' && /Title: feat: gated implementation/.test(call.input)));
+    assert.ok(calls.some((call) => call.args.join(' ') === 'issue edit 59001 --add-label pending-approval'));
+    assert.equal(calls.some((call) => call.args[0] === 'issue' && call.args[1] === 'create'), false);
+  } finally {
+    cleanupPlanRunFiles(issueNumber);
+    fake.cleanup();
+  }
+});
+
+test('plan-loop source issue with auto-ok bypasses approval gate and creates implementation issue', () => {
+  const issueNumber = 59002;
+  cleanupPlanRunFiles(issueNumber);
+  const fake = setupPlanLoopFakeBin('auto-ok');
+
+  try {
+    const result = runPlanLoopCli(issueNumber, fake, 'auto-ok', ['--backend', 'claude']);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const manifest = JSON.parse(readFileSync(planRunManifestPath(issueNumber), 'utf8'));
+    assert.deepEqual(manifest.stages.map((stage) => [stage.stage, stage.verdict]), [
+      ['RESEARCH', 'PASS'],
+      ['PLAN', 'PLAN_READY'],
+      ['PLAN_REVIEW', 'PASS'],
+      ['GATE', 'PASS'],
+      ['ISSUE_CREATE', 'PASS'],
+      ['CLOSE_SOURCE', 'PASS'],
+    ]);
+
+    const calls = readJsonLines(fake.logPath);
+    assert.ok(calls.some((call) => call.args[0] === 'issue' && call.args[1] === 'create'));
+    assert.equal(calls.some((call) => call.args[0] === 'issue' && call.args[1] === 'comment'), false);
+    assert.equal(calls.some((call) => call.args.join(' ') === 'issue edit 59002 --add-label pending-approval'), false);
+  } finally {
+    cleanupPlanRunFiles(issueNumber);
+    fake.cleanup();
+  }
+});
+
+test('plan-loop refetches source labels at GATE before auto-ok bypass', () => {
+  const issueNumber = 59005;
+  cleanupPlanRunFiles(issueNumber);
+  const fake = setupPlanLoopFakeBin('auto-ok-removed-before-gate');
+
+  try {
+    const result = runPlanLoopCli(issueNumber, fake, 'auto-ok', ['--backend', 'claude'], {
+      LATHE_FAKE_LABELS_BY_VIEW: 'auto-ok|',
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /pending approval/i);
+
+    const manifest = JSON.parse(readFileSync(planRunManifestPath(issueNumber), 'utf8'));
+    assert.deepEqual(manifest.stages.map((stage) => [stage.stage, stage.verdict]), [
+      ['RESEARCH', 'PASS'],
+      ['PLAN', 'PLAN_READY'],
+      ['PLAN_REVIEW', 'PASS'],
+      ['GATE', 'PENDING_APPROVAL'],
+    ]);
+
+    const calls = readJsonLines(fake.logPath);
+    assert.equal(calls.filter((call) => call.args[0] === 'issue' && call.args[1] === 'view').length, 2);
+    assert.equal(calls.some((call) => call.args[0] === 'issue' && call.args[1] === 'create'), false);
+  } finally {
+    cleanupPlanRunFiles(issueNumber);
+    fake.cleanup();
+  }
+});
+
+test('plan-loop resume without plan-approved exits 2 and leaves manifest unchanged', () => {
+  const issueNumber = 59003;
+  const approvedPlan = [
+    'Title: feat: gated implementation',
+    'Depends-on: none',
+    'Touches: scripts/inner-loop.mjs',
+    'Implement the gated issue.',
+    'VERDICT: PLAN_READY',
+  ].join('\n');
+  cleanupPlanRunFiles(issueNumber);
+  writePendingPlanGateManifest(issueNumber, approvedPlan);
+  const before = readFileSync(planRunManifestPath(issueNumber), 'utf8');
+  const fake = setupPlanLoopFakeBin('resume-waiting');
+
+  try {
+    const result = runPlanLoopCli(issueNumber, fake, '', ['--resume']);
+
+    assert.equal(result.status, 2, result.stderr || result.stdout);
+    assert.match(`${result.stdout}\n${result.stderr}`, /plan-approved/);
+    assert.equal(readFileSync(planRunManifestPath(issueNumber), 'utf8'), before);
+
+    const calls = readJsonLines(fake.logPath);
+    assert.deepEqual(calls.map((call) => call.args.slice(0, 2)), [['issue', 'view']]);
+  } finally {
+    cleanupPlanRunFiles(issueNumber);
+    fake.cleanup();
+  }
+});
+
+test('plan-loop resume with plan-approved records GATE pass and creates implementation issue', () => {
+  const issueNumber = 59004;
+  const approvedPlan = [
+    'Title: feat: gated implementation',
+    'Depends-on: none',
+    'Touches: scripts/inner-loop.mjs',
+    'Implement the gated issue.',
+    'VERDICT: PLAN_READY',
+  ].join('\n');
+  cleanupPlanRunFiles(issueNumber);
+  writePendingPlanGateManifest(issueNumber, approvedPlan);
+  const fake = setupPlanLoopFakeBin('resume-approved');
+
+  try {
+    const result = runPlanLoopCli(issueNumber, fake, 'plan-approved', ['--resume']);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const manifest = JSON.parse(readFileSync(planRunManifestPath(issueNumber), 'utf8'));
+    assert.deepEqual(manifest.stages.map((stage) => [stage.stage, stage.verdict]), [
+      ['RESEARCH', 'PASS'],
+      ['PLAN', 'PLAN_READY'],
+      ['PLAN_REVIEW', 'PASS'],
+      ['GATE', 'PENDING_APPROVAL'],
+      ['GATE', 'PASS'],
+      ['ISSUE_CREATE', 'PASS'],
+      ['CLOSE_SOURCE', 'PASS'],
+    ]);
+
+    const calls = readJsonLines(fake.logPath);
+    assert.ok(calls.some((call) => call.args[0] === 'issue' && call.args[1] === 'create'));
+  } finally {
+    cleanupPlanRunFiles(issueNumber);
+    fake.cleanup();
+  }
 });
 
 // --- nextState: transition table ---
@@ -612,8 +944,13 @@ test('nextPlanLoopState: PLAN PLAN_READY -> PLAN_REVIEW', () => {
   assert.equal(next, 'PLAN_REVIEW');
 });
 
-test('nextPlanLoopState: PLAN_REVIEW PASS -> ISSUE_CREATE', () => {
+test('nextPlanLoopState: PLAN_REVIEW PASS -> GATE', () => {
   const { next } = nextPlanLoopState('PLAN_REVIEW', 'PASS', 0);
+  assert.equal(next, 'GATE');
+});
+
+test('nextPlanLoopState: GATE PASS -> ISSUE_CREATE', () => {
+  const { next } = nextPlanLoopState('GATE', 'PASS', 0);
   assert.equal(next, 'ISSUE_CREATE');
 });
 
