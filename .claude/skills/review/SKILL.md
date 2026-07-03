@@ -1,6 +1,7 @@
 ---
 name: review
 description: 変更を plan ＋ 該当 rubric に照らしてレビューする観点と手順。設計遵守・抜け・risk を見て指摘＋verdict を返す。reviewer agent が従う。何が違反かの基準は plan と rubric 側＝ここに inline しない。
+grounded_in: []
 ---
 
 # review — 変更のレビュー観点（手順）

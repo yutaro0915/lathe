@@ -1,6 +1,13 @@
 ---
 name: lathe-ui
 description: lathe の UI を作る・変える・直すときの正本手順。新規コンポーネント、レイアウト/配置変更、styling 修正、余白/cramping 調整など UI に触る全作業で最初に読む。再実装・場当たりパッチを禁じ、design.md → tokens/theme → ds primitive →（Storybook）→ feature 合成 のフローを強制する。
+grounded_in:
+  - rubric: apps/web/components/ds-reuse-not-reimplement
+    verified: "1"
+  - rubric: apps/web/components/no-raw-primitives
+    verified: "1"
+  - rubric: apps/web/design-system/design-md-drift
+    verified: "1"
 ---
 
 # lathe UI 開発フロー（正本手順・ガチガチ運用）

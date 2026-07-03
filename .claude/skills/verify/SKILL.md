@@ -1,6 +1,9 @@
 ---
 name: verify
 description: 変更を独立検証して GREEN/RED + evidence を返す不変手順。影響クラスに応じて gate(run.mjs)・unit・storybook・e2e を回す。verifier agent が従う。何を満たすべきか（基準）は rubric 側＝ここに inline しない。
+grounded_in:
+  - rubric: meta/verify-commands-exist
+    verified: "1"
 ---
 
 # verify — 変更の独立検証（不変手順）

@@ -1,6 +1,9 @@
 ---
 name: test-triage
 description: verifier の RED を既知/新規に分類する手順。playbook → git の順で切り分け、既知は対処、新規は evidence＋仮説で OPUS へ。test-triage agent が従う。既知パターンの台帳は design/test-failure-playbook.md＝ここに inline しない。
+grounded_in:
+  - rubric: meta/triage-playbook-exists
+    verified: "1"
 ---
 
 # test-triage — RED の既知 / 新規 切り分け（手順）

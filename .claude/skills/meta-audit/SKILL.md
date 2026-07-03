@@ -1,6 +1,7 @@
 ---
 name: meta-audit
 description: Lathe MCP に接地して問題点を探る事後監査。使える MCP tool と返る情報のマップ＋進め方を簡潔に置くだけ（固定 pipeline にしない）。対象と問いは呼び出し側が渡す。重い/並列の掘削は subagent に委譲してよい。read-only（提案だけ・skill/rubric/コードを自分で変えない）。閾値など変動基準は rubric 側。
+grounded_in: []
 ---
 
 # meta-audit — Lathe データに接地した事後監査
@@ -25,6 +26,7 @@ meta-auditor agent（opus）がこれに従う。**read-only**（skill / rubric 
 - list_sessions の triage → 必要なら背骨 → 必要なら生、と**必要な分だけ降りる**。決め打ちの順序を強制しない。
 - **重い/並列の掘削は subagent に委譲してよい**（自分の文脈を汚さない・扇状に同時調査）。例: suspect が複数なら session ごとに subagent を投げ、各自が背骨→生で掘って小さな結果（問題・evidence 座標・原因仮説・confidence）を返す。**呼ぶか・何個かは状況で判断**（しない選択も含め決め打ちしない）。
 - 数値で取れる基準は rubric（変動層）を参照。取れない定性は judge / skill に残す。
+- **bindings の見直し待ちキューを確認する**: `node rubrics/bindings/lint.mjs --report`（skill の根拠 rubric が改訂され `verified` が古い組＝再検証待ち。staleness は gate でなく結果整合＝ここで拾う。ADR 0018 前線 A）。
 
 ## 出力
 
