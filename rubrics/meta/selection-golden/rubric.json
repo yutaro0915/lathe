@@ -9,7 +9,7 @@
     {
       "id": "select-golden-pass",
       "value": "① 何を縛るか: rubrics/select.mjs の選定ロジック（selectRubrics/buildReverseGraph）が golden test 全 pass すること。合成グラフの規則別ケース（direct-scope/2段以上のdep-closure/declared-edge/invariant/上位集合性/明示指定）と、実グラフの波及ケース（packages/domain/src/index.ts のみの変更で apps/web scope の meta/typecheck が dep-closure で発火＝旧規則では発火しない差分）を固定する。② なぜ重要か: 選定の誤りは harness の誤り（ADR 0021 §7）。scope の二役（意味上の適用範囲と発火条件）を選定層に分離した以上、選定ロジック自体の正しさを機械で固定しないと『どの rubric が発火すべきか』の説明可能性が失われる。上位集合性（旧規則の発火 ⊆ 新規則の発火）が崩れると gate が緩む方向の退行が silent に混入する。③ 仕組み: select.golden.test.mjs の exit code。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "measure",

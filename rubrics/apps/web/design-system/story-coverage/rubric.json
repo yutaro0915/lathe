@@ -9,7 +9,7 @@
     {
       "id": "story-per-primitive",
       "value": "① 何を縛るか: 全 ds primitive(正本=design-system/contracts/*.contract.json と一致)に対応する `design-system/components/<C>.stories.tsx` が存在する。② なぜ重要か: story 欠けの primitive は Storybook で観測されず、variant/state の視覚確認・build 検査から漏れる。新 primitive 追加時の story 忘れを防ぐ。③ 仕組み: contract 名(=primitive の正本リスト。contract-coverage で export と一致保証済)ごとに story ファイル存在を確認、欠落数 eq:0。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

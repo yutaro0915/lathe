@@ -10,7 +10,7 @@
     {
       "id": "i1-no-postgres-leak",
       "value": "生 SQL 発行を lib/db・ingest/db に局所化（route/component/lib/write が @/lib/postgres を直 import しない=I1）。守ると DB アクセスが一元化され、層を跨いだ直叩きが防げる。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",
@@ -28,7 +28,7 @@
     {
       "id": "i2-package-no-app",
       "value": "packages/* が apps/web を import しない（I2）。守ると package が独立し、別プロセス起動・再利用ができる。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

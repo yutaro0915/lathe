@@ -9,7 +9,7 @@
     {
       "id": "preflight-entry-resolves",
       "value": "① 何を縛るか: 集約入口 `scripts/preflight.mjs` と root の `preflight` スクリプト、そして preflight が呼ぶ gate 集約口 `rubrics/run.mjs` が実在する。② なぜ重要か: skill / Stop hook / verifier が単一入口 `pnpm preflight` に依存する設計。入口や土台が消えると検証が黙って空振りし false confidence になる。skill の invariant を検証できる層(rubric)で裏取りする。③ 仕組み: 各要素の実在を確認し欠けた数を数える。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

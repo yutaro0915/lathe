@@ -9,7 +9,7 @@
     {
       "id": "taxonomy-matches-adr",
       "value": "① 何を縛るか: `SESSION_CLASSES`（session-class.ts の canonical 定数）の class 集合と、ADR 0012 決定 §2 の taxonomy 表の class 集合が完全一致する。② なぜ重要か: 型（コード）とドメイン判断（ADR）が乖離すると、コードだけ class を増減して意思決定記録と食い違い、再導出/裁可の根拠が壊れる。片方だけ変えたら RED にして両方を直させる（単一情報源の担保）。③ 仕組み: `check.mjs` が両者を抽出し対称差の要素数を出力（eq:0）。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

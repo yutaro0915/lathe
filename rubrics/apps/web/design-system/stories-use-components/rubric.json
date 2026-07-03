@@ -9,7 +9,7 @@
     {
       "id": "no-fabricated-markup-in-stories",
       "value": "① 何を縛るか: apps/web/design-system の *.stories.tsx は DS 部品を render してデータ/props を渡すだけにし、部品の中身を捏造しない ── 具体的には手書きの `className=\"lds-…\"`（部品が内部で当てる DS class を story が直書きする）と raw landmark `<header>/<nav>/<main>/<aside>`（部品が描くべき構造を story が偽装する）を書かない。② なぜ重要か: Storybook は DS 部品にのみ依存すべき観測層。捏造 markup は (1)本物部品を検証しない＝story の意味が無い (2)DS が撲滅すべき raw markup/class を story 内に複製 (3)実部品の変更に追従せず drift する。AppShell/Header story が mock で実際に陥った穴。③ 仕組み: *.stories.tsx 中の `className=…lds-` と raw landmark 行を grep して数え 0。`getByTestId(\"lds-app\")` のような testid 参照は className でないので誤検出しない。寸法/レイアウト用の素の `<div style>` ラッパは landmark でないので許容。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

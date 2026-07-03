@@ -9,7 +9,7 @@
     {
       "id": "design-md-in-sync",
       "value": "① 何を縛るか: `node scripts/gen-design.mjs` を実行しても DESIGN.md が変化しない＝generated 節が今の tokens.css + contracts と一致している。② なぜ重要か: token や contract を変えたのに DESIGN.md を再生成しないと、説明が実体からズレ SSOT の信頼が崩れる。生成物の drift を機械で禁じる。③ 仕組み: DESIGN.md を退避→再生成→退避版と diff→復元。差があれば 1(=drift)。generated 節は手編集禁止で常に生成器が正本。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

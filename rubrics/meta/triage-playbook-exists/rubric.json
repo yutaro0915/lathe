@@ -9,7 +9,7 @@
     {
       "id": "playbook-resolves",
       "value": "① 何を縛るか: test-triage / verify skill が名指す既知失敗台帳 `design/test-failure-playbook.md` が実在し、参照される pattern 見出し（最低 P1）を含む。② なぜ重要か: skill は検証が難しい層。台帳が消える/空になると triage の『playbook を引く』が空振りし、既知の flake を新規 RED として OPUS へ誤 escalate する（false escalation・時間浪費）。skill の invariant を、検証できる層（rubric）で裏取りする。③ 仕組み: ファイルの実在と P1 見出しの存在を確認し、欠けた数を数える。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

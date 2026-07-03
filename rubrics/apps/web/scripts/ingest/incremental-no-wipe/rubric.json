@@ -26,7 +26,7 @@
     {
       "id": "incremental-invariants-tested",
       "value": "① 何を縛るか: 増分の不変条件テスト(scratch DB integration)が存在する — package.json の verify:incremental スクリプトと verify-incremental-ingest.ts。② なぜ重要か: no-wipe/複数project/冪等/FK の invariant はテストが無いと腐る。テストの存在を gate で固定し、誰かが消したら RED にする。③ 仕組み: スクリプトとファイルの実在を確認し欠けた数を数える。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",
@@ -43,7 +43,7 @@
     {
       "id": "domain-stays-pure",
       "value": "① 何を縛るか: 層分割の核 — ingest/domain/ の非テストファイルが pg/fs/net/http/child_process 等 IO を import しない(純粋・内向き依存)。② なぜ重要か: domain を純粋に保つと単体テスト可能性と層境界が守られる。IO が混入すると repository との責務が崩れテストが DB 依存になる。③ 仕組み: domain の非テスト .ts のうち IO モジュールを import するファイル数を数える。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

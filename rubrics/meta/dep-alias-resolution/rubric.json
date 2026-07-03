@@ -9,7 +9,7 @@
     {
       "id": "resolution-config-present",
       "value": "① 何を縛るか: dep-cruiser の @/ 依存解決を成立させる 3 点 ―― (a) `options.tsConfig` 指定、(b) `tsPreCompilationDeps: true`、(c) `tsconfig.depcruise.json` が存在し `@/` paths を持つ ―― が揃っていること。欠けた数を数え eq:0。② なぜ重要か: この 3 点が依存解決の唯一の正しいやり方で、1 つでも欠けると @/ import が解決されない or エッジが捕捉されず、I1/lib-db/pure-core/feature-internals 等**全ての境界ルールが @/ 経由 import を素通り**する(=gate の装飾化)。実際に過去そうなり、誤コメントで放置された。③ 仕組み: 設定値を grep + ファイル存在で検査。outcome(@/ 未解決数)では tsPreCompilationDeps:false 退行を検知できない(false だと @/ エッジが捕捉されず『未解決』にもならず 0 のまま素通りする)ため、解決を成立させる設定そのものを正本として固定する。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

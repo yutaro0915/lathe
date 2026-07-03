@@ -9,7 +9,7 @@
     {
       "id": "eval-format-required-fields",
       "value": "① 何を縛るか: evals/*.md が eval 形式 v1 の必須要素（id=ファイル名一致 / role enum / frontier / S・C・Y / checks・inline_criteria の明示宣言と基準ゼロ禁止 / trials{n>=1, aggregate}）を満たすこと。② なぜ重要か: eval は通過時に受容主張になる。S/C/Y と trials/aggregate が欠けた eval は負荷の再現も主張の精密さも持てず、記録（issue）に退化する。③ 仕組み: _eval-schema.mjs が全 eval を走査し違反を数える。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",
@@ -27,7 +27,7 @@
     {
       "id": "eval-schema-selfcheck",
       "value": "① 何を縛るか: eval 検証器自体が 12 欠陥パターンを検出できること。② なぜ重要か: 検証器の silent failure は『検証したつもりで未検証』を生む（_schema.test / bindings-lint-selfcheck と同じ理由）。③ 仕組み: in-memory 負テストを実行し exit code を見る。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

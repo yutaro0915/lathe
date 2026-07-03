@@ -9,7 +9,7 @@
     {
       "id": "all-e2e-specs-load",
       "value": "① 何を縛るか: apps/web/e2e の全 playwright spec が load(import/compile/解決) できる。② なぜ重要か: load 不能な spec が 1 つでもあると `playwright test --list` が suite 全体で停止し、テストが『在るのに走らない』false-green になる(pressable.spec.ts 事故)。unit runner(node --test, e2e 非対象)も render-layout-integrity(特定 spec だけ実行)もこの盲点を検出できない。③ 仕組み: `playwright test --list` は全 spec を load するがブラウザ起動も DB 接続もしない(軽い)。全 spec が load できれば exit 0、1 つでも load 失敗で非 0。その exit を 0/1 に正規化して照合。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

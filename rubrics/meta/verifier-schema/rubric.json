@@ -9,7 +9,7 @@
     {
       "id": "verifier-format-required-fields",
       "value": "① 何を縛るか: verifiers/*/verifier.json が形式必須要素（id 一致 / version / kind enum / limits / cmd: run+produces+チャンネルの type・means・extract|source / judge-runner: bindings+error_tolerance+calibration・prompt を持たない）を満たすこと。② なぜ重要か: verifier は複数 rubric が判定を依存する共有基盤。produces（チャンネル契約）が曖昧だと名前結合が壊れ、limits が無いと検査の限界が暗黙化する。③ 仕組み: _verifier-schema.mjs が全 verifier を走査し違反を数える。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",
@@ -27,7 +27,7 @@
     {
       "id": "verifier-schema-selfcheck",
       "value": "① 何を縛るか: verifier 検証器自体が 16 欠陥パターンを検出できること。② なぜ重要か: 検証器の silent failure は『検証したつもりで未検証』を生む（_schema.test / bindings / eval-schema と同じ理由）。③ 仕組み: in-memory 負テストの exit code。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

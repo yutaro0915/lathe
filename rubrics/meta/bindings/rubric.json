@@ -9,7 +9,7 @@
     {
       "id": "bindings-referential-integrity",
       "value": "① 何を縛るか: skill frontmatter の grounded_in と eval の checks が指す rubric id が実在し、版を持ち（v2）、verified が正しい形式であること。加えて rubric の verify.verifier+channel が指す named verifier とその出力チャンネルが実在すること（v2 で追加、ADR 0020）。② なぜ重要か: skill の正しさは根拠 rubric の版に依存する（theory §skill の版と上位規範の変更）。参照が壊れると『どの正しさに対して成功したか』を判別できず、skill が黙って根拠を失う。③ 仕組み: rubrics/bindings/lint.mjs が全 artifact を集計し違反件数を出す。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",
@@ -26,7 +26,7 @@
     {
       "id": "bindings-lint-selfcheck",
       "value": "① 何を縛るか: lint 検証器自体が壊れた結合（6 欠陥パターン）を検出でき、stale を gate に混ぜないこと。② なぜ重要か: 検証器の silent failure は『検証したつもりで未検証』を生む（_schema.test と同じ理由）。③ 仕組み: in-memory 負テストを実行し exit code を見る。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

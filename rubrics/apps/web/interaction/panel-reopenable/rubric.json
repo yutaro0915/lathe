@@ -10,7 +10,7 @@
     {
       "id": "inspector-collapse-expand-toggle",
       "value": "Inspector(Surface RightPanel)を × で閉じると再オープン操作が無く reload まで戻らず(報告1)、応急の reopen レールを足した直後も『閉=× / 開=別レール』と開閉が非対称で UI として破綻していた(報告2、2026-06-19)。これはクリック遷移の不変条件で layout-integrity(静的ジオメトリ)では捕れない=別系統のインタラクション検査が要る。1 つの edge toggle(lds-rp-toggle)で collapse↔expand が同一操作・同一位置で成立することを pin し、『閉じたら戻れない』『開閉が別物』の回帰を機械 gate で塞ぐ。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

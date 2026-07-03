@@ -9,7 +9,7 @@
     {
       "id": "spacing-value-from-token",
       "value": "① 何を縛るか: spacing 値（padding / margin / gap / inset / positioning の top・right・bottom・left）は DS の 4px グリッド token（`var(--sp-4..48)` / `var(--pad-*)`）からのみ。生 px を一切使わない。色 token と対称の規律。② なぜ重要か: 単一ソースが無いと rhythm が崩れ同じ値がリテラルで散る（`12px 14px` 4 箇所手書き事故）。旧スケールは 2px 梯子で実使用の 66% が 4 倍数外＝事実上スケール無しだった。③ 仕組み: 4px グリッドへ全 snap 済みで現在 0。よって ratchet でなく **ハード le:0**（新たな生 spacing px は即 RED）。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

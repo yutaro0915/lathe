@@ -9,7 +9,7 @@
     {
       "id": "no-new-inline-px",
       "value": "① 何を縛るか: apps/web/components + apps/web/app の tsx で、inline style 中の生 px（`style={{ … 12px … }}`）を増やさない。新規 spacing は DS の 4px グリッド token を className 経由で当てる。② なぜ重要か: spacing-from-token は DS css のみ走査＝feature の inline 生 px は gate 外。放置すると 4px グリッド外の値が gate を迂回して増殖する。③ 仕組み: inline style 中の `数字+px` を grep して数え、現状 20 を baseline にした ratchet。増加で即 RED、token/className へ置換して baseline を下げる。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",
@@ -26,7 +26,7 @@
     {
       "id": "no-new-raw-hex",
       "value": "① 何を縛るか: apps/web/components + apps/web/app の tsx で、bare な生 hex 色（`#rrggbb`）を増やさない。色は token（`var(--…)`）経由。② なぜ重要か: token-consistency は DS css/globals のみ＝feature tsx の hex は gate 外＝色ドリフトの盲点。③ 仕組み: `var(...)` を除去してから bare hex を数える＝bare hex は禁止だが `var(--token,#fallback)` の安全 fallback は許容（pre-CSS で token 未ロードでも崩れない正当用途）。0。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

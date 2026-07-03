@@ -9,7 +9,7 @@
     {
       "id": "no-reimplemented-ui",
       "value": "① 何を縛るか: apps/web/components の変更で、共有モジュールが既に提供している UI を feature 内に手書き（再実装）しない。primitive は `design-system/components`（Button / IconButton / Badge / Chip / Segmented / SearchInput / Select / Checkbox / Panel / TabBar / ConfidenceChip / RunnerIcon / MetricStat / MiniBar / Icon）、枠付きスクロール箱は共有 surface `.lds-codebox`、その他既存の共有 component（Surface / DiffViewer / TimeRibbon / Step 等）を使う。② なぜ重要か: 再実装＝場当たりが N 箇所に増殖し、cramping・padding drift・1 fix が全タブに効かない原因になった（subagents の重複等）。『再利用しないと通らない』を merge 条件にする。③ 仕組み: 意味判定なので cmd でなく judge。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "judge",
         "metric": "count",

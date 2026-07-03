@@ -9,7 +9,7 @@
     {
       "id": "no-new-raw-button-input-select",
       "value": "① 何を縛るか: apps/web/components と apps/web/app の TSX/JSX で、raw <button> / <input> / <select> opening tag を増やさない（DS primitive の apps/web/design-system/components は find roots の外＝対象外）。新規 UI は ds Button/IconButton, SearchInput, Select へ寄せる。② なぜ重要か: feature 側に raw control が増えると padding・状態・a11y・見た目が分散し、ds-reuse judge だけでは決定的に止められない。③ 仕組み: grep ratchet。baseline を段階的に締める（58→…→0 達成、Pressable/Button へ置換するたび下げる）。増加は即 RED。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

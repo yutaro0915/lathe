@@ -9,7 +9,7 @@
     {
       "id": "behavior-change-without-tests",
       "value": "テストと実装を同時に育てるための恒久 gate（① 何を縛るか）。apps/web・packages の挙動（計算・分岐・出力・データ整形・パース・API/MCP の振る舞い・UI の操作挙動）を追加/変更したら、同じ変更セットに対応するテスト（pure ロジックなら `*.test.ts`、UI 操作なら e2e `*.spec.ts`）の追加/変更を伴わせる。② なぜ重要か: gate が無ければ新機能がテスト無しで入り、苦労して直したテストピラミッドが再び崩れる。『挙動を変えたらテストも書く』を機械の merge 条件にすると、コードとテストが同じ PR で育つ。挙動変更とリファクタ/設定/型変更の区別は意味解釈が要るため、決定的 cmd でなく judge を採る。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "judge",
         "metric": "count",

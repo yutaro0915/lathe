@@ -9,7 +9,7 @@
     {
       "id": "storybook-build-play",
       "value": "① 何を縛るか: design-system の Storybook が build でき play test を通る。② なぜ重要か: DS primitive の描画/操作の回帰を捕まえる。③ 仕組み: `pnpm -C apps/web test-storybook` の exit が 0。tier=heavy。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "measure",

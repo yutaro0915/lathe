@@ -9,7 +9,7 @@
     {
       "id": "verify-commands-resolve",
       "value": "① 何を縛るか: verify skill が名指す不変コマンド（gate 集約口 `rubrics/run.mjs`、root の `pnpm test`、`apps/web` の `test-storybook` と `e2e`）が実在する。② なぜ重要か: skill は検証が難しい層。これらが rename/削除されると verify skill が黙って壊れ、検証したつもりで未検証になる（false confidence）。skill の invariant を、検証できる層（rubric）で裏取りする。③ 仕組み: 各コマンドの実在を確認し欠けた数を数える。0 で GREEN。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",

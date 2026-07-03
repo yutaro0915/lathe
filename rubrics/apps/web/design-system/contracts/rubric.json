@@ -9,7 +9,7 @@
     {
       "id": "contract-coverage",
       "value": "① 何を縛るか: design-system/components が export する全 primitive(`export function X` ＋ `export { default as X }` の再エクスポート)に、対応する `design-system/contracts/<X>.contract.json` が存在する。② なぜ重要か: contract 無しの primitive があると DESIGN.md/Storybook の派生元が欠け、SSOT が部分的になる。新 primitive 追加時に contract を忘れるのを防ぐ。③ 仕組み: ds export 名を列挙し、各名の contract ファイル存在を確認、欠落数を eq:0。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",
@@ -26,7 +26,7 @@
     {
       "id": "contract-schema-valid",
       "value": "① 何を縛るか: 各 contract.json が必須 field(component / exportedFrom / summary / axes / props(配列) / states(配列) / notes)を満たす。② なぜ重要か: field 欠落の contract は DESIGN.md/Storybook の生成・検証で破綻する。schema を機械固定して骨抜きを防ぐ。③ 仕組み: jq で各 contract の必須 field 充足を検査、不正数を eq:0。",
-      "severity": "major",
+      "severity": "blocker",
       "verify": {
         "kind": "cmd",
         "metric": "count",
