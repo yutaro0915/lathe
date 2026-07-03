@@ -1,0 +1,46 @@
+{
+  "schema_version": "2",
+  "id": "meta/verifier-schema",
+  "title": "verifier.json が必須要素を満たす — named verifier の形式（ADR 0020 前線 C）",
+  "version": "1",
+  "scope": ["verifiers", "rubrics/_verifier-schema.mjs", "rubrics/_verifier-schema.test.mjs"],
+  "origin": "ADR 0020（EDD 前線 C、2026-07-03 ユーザー承認）。入口 handoff: /Users/cherie/LLMWiki/projects/edd-theory/handoff/lathe-rubric-system-decomposition.md §3。理論正本: edd-theory theory.md §verifier の分離と evidence contract（produces は rubric との契約＝名前つきチャンネル。limits は検査の限界の自己申告）。",
+  "checks": [
+    {
+      "id": "verifier-format-required-fields",
+      "value": "① 何を縛るか: verifiers/*/verifier.json が形式必須要素（id 一致 / version / kind enum / limits / cmd: run+produces+チャンネルの type・means・extract|source / judge-runner: bindings+error_tolerance+calibration・prompt を持たない）を満たすこと。② なぜ重要か: verifier は複数 rubric が判定を依存する共有基盤。produces（チャンネル契約）が曖昧だと名前結合が壊れ、limits が無いと検査の限界が暗黙化する。③ 仕組み: _verifier-schema.mjs が全 verifier を走査し違反を数える。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "node rubrics/_verifier-schema.mjs verifiers | grep -c '^VIOLATION' || true",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。形式の検査に限る＝run の中身が正しく動くかは各 verifier の fixtures と前後比較（eval verifier-evidence-sharing-v1）が担う。限界: extract の抽出が意味的に正しいか（正しい行を数えているか）は判定できない。",
+        "exemptions": []
+      },
+      "evidence": "_verifier-schema.mjs の VIOLATION 行数。0 で GREEN、1+ で RED（行に verifier id と理由）。",
+      "examples": {
+        "pass": ["全 verifier.json が id/version/kind/limits と kind 別必須を満たす"],
+        "fail": ["produces 空の verifier → RED", "judge-runner に error_tolerance 無し → RED"]
+      }
+    },
+    {
+      "id": "verifier-schema-selfcheck",
+      "value": "① 何を縛るか: verifier 検証器自体が 16 欠陥パターンを検出できること。② なぜ重要か: 検証器の silent failure は『検証したつもりで未検証』を生む（_schema.test / bindings / eval-schema と同じ理由）。③ 仕組み: in-memory 負テストの exit code。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "node rubrics/_verifier-schema.test.mjs >/dev/null 2>&1; echo $?",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。限界: パターン集合は既知 16 種＝新しい壊れ方は追記が要る。",
+        "exemptions": []
+      },
+      "evidence": "_verifier-schema.test.mjs の exit code。0 で GREEN、非 0 で RED。",
+      "examples": {
+        "pass": ["正常 cmd/judge-runner 素通り + 16 欠陥パターン検出が全て assert 通過"],
+        "fail": ["validateVerifier の必須判定を壊す変更 → 負テストが throw → RED"]
+      }
+    }
+  ]
+}
