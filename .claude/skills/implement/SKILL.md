@@ -1,6 +1,7 @@
 ---
 name: implement
 description: Lathe implementer workflow for bounded code changes in an inner-loop worktree. Keeps the branch current with local main before implementation and review handoff.
+grounded_in: []
 ---
 
 # implement — inner-loop implementation discipline

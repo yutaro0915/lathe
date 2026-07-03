@@ -1,0 +1,44 @@
+{
+  "schema_version": "2",
+  "id": "meta/bindings",
+  "title": "skill ⇄ rubric ⇄ eval の結合が壊れていない — 繋がりの可視化（ADR 0018 前線 A）",
+  "version": "1",
+  "scope": [".claude/skills", "evals", "rubrics"],
+  "origin": "ADR 0018（EDD 前線 A、2026-07-03 ユーザー承認）。入口 handoff: /Users/cherie/LLMWiki/projects/edd-theory/handoff/lathe-rubric-system-decomposition.md。理論正本: edd-theory theory.md §関係の管理（関係は出す側 artifact のメタデータに書き、一覧・見直し待ち・宙に浮きは lint の生成物。gate は参照実在のみ、staleness は結果整合＝見直し待ちキュー）。",
+  "checks": [
+    {
+      "id": "bindings-referential-integrity",
+      "value": "① 何を縛るか: skill frontmatter の grounded_in と eval の checks が指す rubric id が実在し、版を持ち（v2）、verified が正しい形式であること。② なぜ重要か: skill の正しさは根拠 rubric の版に依存する（theory §skill の版と上位規範の変更）。参照が壊れると『どの正しさに対して成功したか』を判別できず、skill が黙って根拠を失う。③ 仕組み: rubrics/bindings/lint.mjs が全 artifact を集計し違反件数を出す。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "node rubrics/bindings/lint.mjs 2>&1 | tail -1",
+        "expect": "eq:0",
+        "tolerance": "gate は参照実在（unknown-rubric / unversioned-rubric / bad-verified / missing-grounded-in / unknown-check / parse-error）のみ。版のずれ（stale）は違反にしない＝ --report の見直し待ちキューに出し meta-audit / outer が消化する（無関係変更の merge を塞がないため。theory: 集約間の整合は結果整合）。限界: 結合の意味的な正しさ（その rubric が本当にその skill の根拠か）は見ない＝監査役のレビュー。"
+      },
+      "evidence": "lint.mjs の最終行 = 違反件数。0 で GREEN、1+ で RED（VIOLATION 行に種別と対象）。",
+      "examples": {
+        "pass": ["全 skill が grounded_in を宣言（空なら []）し、参照先 rubric が実在して version を持つ"],
+        "fail": ["rubric ディレクトリを rename → skill の grounded_in が不存在 id を指す → RED", "新 skill が grounded_in 未宣言 → RED"]
+      }
+    },
+    {
+      "id": "bindings-lint-selfcheck",
+      "value": "① 何を縛るか: lint 検証器自体が壊れた結合（6 欠陥パターン）を検出でき、stale を gate に混ぜないこと。② なぜ重要か: 検証器の silent failure は『検証したつもりで未検証』を生む（_schema.test と同じ理由）。③ 仕組み: in-memory 負テストを実行し exit code を見る。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "node rubrics/bindings/lint.test.mjs >/dev/null 2>&1; echo $?",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。負テストは in-memory fixture（ディスクに fixture を置かない＝_schema 走査を汚染しない）。限界: パターン集合は既知 6 種＝新しい壊れ方は追記が要る。"
+      },
+      "evidence": "lint.test.mjs の exit code。0 で GREEN（全 assert 通過）、非 0 で RED。",
+      "examples": {
+        "pass": ["正常系素通り + 6 欠陥パターン検出 + stale のキュー分離が全て assert 通過"],
+        "fail": ["lint の violation 判定を壊す変更 → 負テストが throw → RED"]
+      }
+    }
+  ]
+}
