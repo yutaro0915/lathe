@@ -32,6 +32,7 @@ import {
   buildEscalationMarkdown,
   stageRequiresFreshMainRebase,
   rebaseWorktree,
+  runStage,
   runStageWithUnparsableRetry,
   collectTouchesGroundingReport,
   WORKTREE_DEPS_INSTALL_ARGS,
@@ -1201,6 +1202,44 @@ test('backendCostSourceForEnvelope: labels backend envelope cost sources', () =>
     backendCostSourceForEnvelope({ backend: 'codex', total_cost_usd: null, backend_cost_source: 'codex.jsonl.turn.completed.usage.unpriced' }),
     'codex.jsonl.turn.completed.usage.unpriced',
   );
+});
+
+test('runStage: claude backend passes LATHE_STAGE env for the stage', () => {
+  const calls = [];
+  const envelope = runStage('VERIFY', 'verify prompt', process.cwd(), null, 'claude', {
+    spawnSync: (cmd, args, options) => {
+      calls.push({ cmd, args, options });
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          session_id: 'claude-session',
+          result: 'verified\nVERDICT: GREEN',
+          total_cost_usd: 0.01,
+        }),
+        stderr: '',
+      };
+    },
+  });
+
+  assert.equal(envelope.backend, 'claude');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, 'claude');
+  assert.equal(calls[0].options.env.LATHE_STAGE, 'VERIFY');
+});
+
+test('runStage: codex backend does not set LATHE_STAGE env', () => {
+  const calls = [];
+  const envelope = runStage('TRIAGE', 'triage prompt', process.cwd(), null, 'codex', {
+    spawnSync: (cmd, args, options) => {
+      calls.push({ cmd, args, options });
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  });
+
+  assert.equal(envelope.backend, 'codex');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, 'codex');
+  assert.equal(Object.hasOwn(calls[0].options, 'env'), false);
 });
 
 test('runStageWithUnparsableRetry: records UNPARSABLE then returns successful retry verdict', () => {

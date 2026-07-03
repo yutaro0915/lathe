@@ -968,9 +968,15 @@ function worktreeHeadShaOrDie(worktreePath, stage) {
 // --- Stage runners (ADR 0014 backend adapters) ---
 
 // Normalized envelope: { session_id, result, total_cost_usd, backend, ...backend evidence }
-function runStageClaude(stage, prompt, cwd, resumeSessionId) {
+function runStageClaude(stage, prompt, cwd, resumeSessionId, deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
   const args = buildClaudeArgs(stage, prompt, resumeSessionId);
-  const r = spawnSync('claude', args, { encoding: 'utf8', cwd, maxBuffer: 1e8 });
+  const r = run('claude', args, {
+    encoding: 'utf8',
+    cwd,
+    maxBuffer: 1e8,
+    env: { ...process.env, LATHE_STAGE: stage },
+  });
   if (r.status !== 0 && !r.stdout) die(`claude -p failed for stage ${stage}: ${r.stderr || 'no output'}`);
   let env;
   try { env = JSON.parse(r.stdout); } catch (e) {
@@ -979,14 +985,15 @@ function runStageClaude(stage, prompt, cwd, resumeSessionId) {
   return { session_id: env.session_id ?? null, result: env.result ?? '', total_cost_usd: env.total_cost_usd ?? null, backend: 'claude' };
 }
 
-function runStageCodex(stage, prompt, cwd) {
+function runStageCodex(stage, prompt, cwd, deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
   const { agent } = stagePermissions(stage);
   const agentFile = join(REPO_ROOT, '.claude', 'agents', `${agent}.md`);
   const agentBody = existsSync(agentFile) ? stripFrontmatter(readFileSync(agentFile, 'utf8')) : '';
   const fullPrompt = buildCodexPrompt(agentBody, prompt);
   const lastmsgPath = join(tmpdir(), `lathe-inner-stage-${stage}.txt`);
   const args = buildCodexArgs(stage, fullPrompt, cwd, lastmsgPath, REPO_ROOT);
-  const r = spawnSync('codex', ['exec', ...args], { encoding: 'utf8', cwd, maxBuffer: 1e8 });
+  const r = run('codex', ['exec', ...args], { encoding: 'utf8', cwd, maxBuffer: 1e8 });
   if (r.status !== 0 && !r.stdout) die(`codex exec failed for stage ${stage}: ${r.stderr || 'no output'}`);
   const sessionId = parseCodexSessionId(r.stdout ?? '');
   const costReport = parseCodexCostReport(r.stdout ?? '');
@@ -1009,12 +1016,13 @@ function runStageCodex(stage, prompt, cwd) {
  * @param {string} cwd
  * @param {string | null} resumeSessionId  (claude backend only)
  * @param {string} backend  'claude' | 'codex' (default 'codex')
+ * @param {{ spawnSync?: Function }} deps
  * @returns {{ session_id: string|null, result: string, total_cost_usd: number|null, backend: string, backend_cost_source?: string|null, backend_model?: string|null, backend_token_usage?: object|null }}
  */
-function runStage(stage, prompt, cwd, resumeSessionId = null, backend = 'codex') {
+export function runStage(stage, prompt, cwd, resumeSessionId = null, backend = 'codex', deps = {}) {
   return backend === 'codex'
-    ? runStageCodex(stage, prompt, cwd)
-    : runStageClaude(stage, prompt, cwd, resumeSessionId);
+    ? runStageCodex(stage, prompt, cwd, deps)
+    : runStageClaude(stage, prompt, cwd, resumeSessionId, deps);
 }
 
 function manifestPathFor(issueNumber) {
