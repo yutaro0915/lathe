@@ -37,6 +37,22 @@ const IMPL_LOOP_ESCALATION_CONTRACT = [
   'VERDICT 不能・周回超過・NOVEL RED・merge 失敗・main dirty は driver が機械的に検知・執行する条件です。あなた（agent）は検査しないでください。',
   'repo の清浄度判定は agent の仕事ではありません（untracked の扱いを含む定義判断も driver 管轄です）。',
 ].join(' ');
+const EXTERNAL_SPACE_PATHS = [
+  '`rubrics/`',
+  '`.claude/skills/`',
+  '`.claude/agents/`',
+  '`.claude/hooks/`',
+  '`design/test-failure-playbook.md`',
+].join('・');
+const PLAN_REVIEW_EXTERNAL_SPACE_CONTRACT = [
+  `plan が次の外部空間パスの編集を含んでいたら approve しないでください: ${EXTERNAL_SPACE_PATHS}。`,
+  '内容の当否に関わらず無条件 CHANGES（CHANGES verdict）にしてください。',
+  '指摘文には「当該変更をスライスから外し、必要なら escalate で監査役に提案せよ」と書いてください。',
+].join(' ');
+const REVIEW_EXTERNAL_SPACE_CONTRACT = [
+  `diff が次の外部空間パスに触れていたら、内容の当否に関わらず無条件 CHANGES（CHANGES verdict）にしてください: ${EXTERNAL_SPACE_PATHS}。`,
+  '指摘文には「当該変更をスライスから外し、必要なら escalate で監査役に提案せよ」と書いてください。',
+].join(' ');
 
 /**
  * RESEARCH stage prompt — researcher agent, cwd = repo root.
@@ -186,6 +202,7 @@ export function buildPlanReviewPrompt(ctx) {
     plan ?? '',
     '',
     PLAN_LOOP_ESCALATION_CONTRACT,
+    PLAN_REVIEW_EXTERNAL_SPACE_CONTRACT,
     '',
     'PASS は各 issue block に Title / Depends-on / Touches と実行可能な scoped plan が揃い、RESEARCH の issue 候補がすべて起票 block または Rejected 行で処置されている場合だけです。RESEARCH の候補で処置の無いものがあれば CHANGES にしてください。修正で足りる場合は CHANGES、裁可事項・目標不成立・依存衝突は ESCALATE してください。',
     '',
@@ -212,6 +229,7 @@ export function buildReviewPrompt(ctx) {
     '現在の HEAD は driver / implementer が rebase 済みにした branch tip であり、merged-main 実体として扱ってください。stale branch を救済しないでください。',
     'diff は **inline の `git diff main...HEAD`** で取得すること。単純な diff 収集を subagent に委譲しない。',
     'PLAN と変更全体を一度に照合し、major/blocker は初回で出し切る（逐次開示しない）。major は plan/rubric/明文原則違反に限る。過剰 flag 禁止。',
+    REVIEW_EXTERNAL_SPACE_CONTRACT,
     '',
     '**receipt（受領証）は driver が刻みます。あなたは発行しないでください**。最終行に `VERDICT: <TOKEN>` のみを出力すること。',
     '',

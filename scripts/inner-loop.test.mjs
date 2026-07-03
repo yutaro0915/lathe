@@ -722,6 +722,34 @@ test('buildPlanReviewPrompt: includes plan-loop escalation contract and PASS/CHA
   assert.match(prompt, /PASS \| CHANGES \| ESCALATE/);
 });
 
+function assertExternalSpaceSeparationContract(prompt) {
+  for (const path of [
+    /rubrics\//,
+    /\.claude\/skills\//,
+    /\.claude\/agents\//,
+    /\.claude\/hooks\//,
+    /design\/test-failure-playbook\.md/,
+  ]) {
+    assert.match(prompt, path);
+  }
+  assert.match(prompt, /内容の当否/);
+  assert.match(prompt, /無条件 CHANGES/);
+  assert.match(prompt, /当該変更をスライスから外し/);
+  assert.match(prompt, /必要なら escalate で監査役に提案せよ/);
+}
+
+test('buildPlanReviewPrompt: rejects external-space edits unconditionally', () => {
+  const prompt = buildPlanReviewPrompt({
+    issueNumber: 42,
+    issueTitle: 'Needs plan',
+    issueBody: 'Investigate.',
+    research: 'Facts.',
+    plan: 'Title: feat\nDepends-on: none\nTouches: rubrics/example.mjs',
+  });
+  assert.match(prompt, /approve しない/);
+  assertExternalSpaceSeparationContract(prompt);
+});
+
 test('buildStagePrompt: IMPLEMENT includes plan and optional feedback', () => {
   const withoutFeedback = buildStagePrompt('IMPLEMENT', { issueNumber: 1, issueTitle: 'T', issueBody: 'B', plan: 'Do X then Y.' });
   assert.match(withoutFeedback, /Do X then Y\./);
@@ -797,6 +825,12 @@ test('buildReviewPrompt: assumes a rebased branch tip as the merged-main artifac
   assert.match(prompt, /branch tip/);
   assert.match(prompt, /merged-main 実体/);
   assert.match(prompt, /stale branch を救済しない/);
+});
+
+test('buildReviewPrompt: marks external-space diffs as unconditional CHANGES', () => {
+  const prompt = buildReviewPrompt({ issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
+  assert.match(prompt, /diff が次の外部空間パスに触れていたら/);
+  assertExternalSpaceSeparationContract(prompt);
 });
 
 test('buildReviewPrompt: includes review history only when provided', () => {
