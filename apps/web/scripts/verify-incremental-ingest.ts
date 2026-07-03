@@ -24,6 +24,7 @@ import '../lib/postgres';
 import { insertBuilt } from './ingest/repository/ingest-writer';
 import { runIncrementalIngest } from './ingest/usecase/incremental';
 import type { Built } from './ingest/built';
+import { verifyRunManifestInvariants } from './verify/run-manifest-invariants';
 import { withScratchDatabase } from './verify/scratch';
 
 // ---------------------------------------------------------------------------
@@ -415,6 +416,11 @@ async function main(): Promise<void> {
             + `session=${String(durationRow?.session_duration_ms)} (${typeof durationRow?.session_duration_ms}), `
             + `event=${String(durationRow?.event_duration_ms)} (${typeof durationRow?.event_duration_ms})`,
         );
+
+        // ------------------------------------------------------------------
+        // Invariant 7: run manifest derived runs/run_stages
+        // ------------------------------------------------------------------
+        await verifyRunManifestInvariants({ pool, tmpDir, verdict });
 
         // ------------------------------------------------------------------
         // Summary

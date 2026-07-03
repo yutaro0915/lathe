@@ -26,6 +26,7 @@ import {
 import { replaceBuiltSession } from '../repository/ingest-writer';
 import type { InsertBuiltOptions } from '../repository/types';
 import type { ProviderBuildOptions } from '../providers/types';
+import { RUN_MANIFEST_SCHEMA_SQL, syncRunManifests } from '../run-manifests';
 import { discoverTranscriptDirs, type TranscriptDir } from './discover-dirs';
 
 // ---------------------------------------------------------------------------
@@ -62,6 +63,9 @@ export interface IncrementalIngestOptions {
    * `action` is 'skip' when the DB record is current, 'upsert' when replaced.
    */
   onFile?: (opts: { file: string; action: 'skip' | 'upsert' | 'error'; error?: Error }) => void;
+
+  /** Override the repository root used for .lathe/runs manifest ingest. */
+  runManifestRepoRoot?: string;
 }
 
 export interface IncrementalIngestResult {
@@ -75,6 +79,8 @@ export interface IncrementalIngestResult {
   codexSkipped: number;
   codexUpserted: number;
   codexErrored: number;
+  runManifestsUpserted: number;
+  runManifestsDeleted: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +224,7 @@ export async function runIncrementalIngest(
     codexRolloutFiles,
     maxFilesPerDir = 200,
     onFile,
+    runManifestRepoRoot,
   } = opts;
 
   // Idempotent migration: ensure session_class column exists before any INSERT.
@@ -234,7 +241,10 @@ export async function runIncrementalIngest(
     CREATE INDEX IF NOT EXISTS idx_attributions_hunk ON attributions(hunk_id);
     CREATE INDEX IF NOT EXISTS idx_attributions_event ON attributions(event_id);
     CREATE INDEX IF NOT EXISTS idx_event_files_event ON event_files(event_id);
+    ${RUN_MANIFEST_SCHEMA_SQL}
   `);
+
+  const runManifestSync = await syncRunManifests(pool, { repoRoot: runManifestRepoRoot });
 
   const providerOpts: ProviderBuildOptions = { ...DEFAULT_BUILD_OPTS, ...buildOpts };
 
@@ -248,6 +258,8 @@ export async function runIncrementalIngest(
     codexSkipped: 0,
     codexUpserted: 0,
     codexErrored: 0,
+    runManifestsUpserted: runManifestSync.runsUpserted,
+    runManifestsDeleted: runManifestSync.runsDeleted,
   };
 
   // -------------------------------------------------------------------------

@@ -21,6 +21,53 @@ CREATE TABLE IF NOT EXISTS projects (
   updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Derived inner-loop run manifests. The source of truth is
+-- `.lathe/runs/*.json`; these tables are rebuildable from those files.
+CREATE TABLE IF NOT EXISTS runs (
+  project_id           TEXT NOT NULL REFERENCES projects(id),
+  run_key              TEXT NOT NULL,
+  manifest_path        TEXT NOT NULL,
+  source_issue_number  INTEGER,
+  loop_kind            TEXT,
+  stage_count          INTEGER NOT NULL DEFAULT 0,
+  last_stage           TEXT,
+  last_verdict         TEXT,
+  started_at           TEXT,
+  ended_at             TEXT,
+  has_escalation       BOOLEAN NOT NULL DEFAULT FALSE,
+  escalation_path      TEXT,
+  manifest_sha256      TEXT NOT NULL,
+  updated_at           TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (project_id, run_key)
+);
+CREATE INDEX IF NOT EXISTS idx_runs_project_updated ON runs(project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_source_issue ON runs(project_id, source_issue_number);
+
+CREATE TABLE IF NOT EXISTS run_stages (
+  project_id              TEXT NOT NULL,
+  run_key                 TEXT NOT NULL,
+  stage_index             INTEGER NOT NULL,
+  stage                   TEXT NOT NULL,
+  session_id              TEXT,
+  verdict                 TEXT,
+  backend                 TEXT,
+  backend_model           TEXT,
+  head_sha                TEXT,
+  duration_ms             BIGINT,
+  ts                      TEXT,
+  skipped                 BOOLEAN NOT NULL DEFAULT FALSE,
+  backend_cost_usd        DOUBLE PRECISION,
+  backend_cost_source     TEXT,
+  legacy_backend_cost_usd DOUBLE PRECISION,
+  backend_token_usage     JSONB,
+  PRIMARY KEY (project_id, run_key, stage_index),
+  FOREIGN KEY (project_id, run_key)
+    REFERENCES runs(project_id, run_key)
+    ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_run_stages_session ON run_stages(session_id);
+CREATE INDEX IF NOT EXISTS idx_run_stages_backend ON run_stages(project_id, backend);
+
 -- Phase 2 persistent harness inventory. The provider binding is deliberately
 -- shallow: path + providers + provider-subset hash, per ADR 0005.
 CREATE TABLE IF NOT EXISTS harness_artifacts (
