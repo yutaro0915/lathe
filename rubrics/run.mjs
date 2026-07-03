@@ -13,10 +13,11 @@
 //        verifier の run は 1 回の run.mjs 呼び出しにつき 1 回だけ実行され（memoize）、チャンネルの
 //        extract（出力を stdin に受ける）か source:"exit" で値を取り出す。判定（evalExpect）は不変。
 //  - --changed では scope[] が変更パスを覆う rubric だけ発火 → 狭い規則が全体に漏れない。RUBRIC_CHANGED_PATHS で check が変更パスを参照できる（slice 封じ込め）。
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { execSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
+import { selectRubrics, buildReverseGraph } from './select.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const VERIFIERS_DIR = join(here, '..', 'verifiers');
@@ -60,13 +61,30 @@ if (tierIdx >= 0) {
   maxTierRank = TIER_RANK[rawArgs[tierIdx + 1]] ?? 2;
   rawArgs.splice(tierIdx, 2);
 }
+// --receipt <path>: 選定 receipt（発火 rubric とその規則・not-run 全列挙）を JSON で書き出す（ADR 0021 前線 D）。
+let receiptPath = null;
+const receiptIdx = rawArgs.indexOf('--receipt');
+if (receiptIdx >= 0) {
+  receiptPath = rawArgs[receiptIdx + 1];
+  rawArgs.splice(receiptIdx, 2);
+}
 const args = rawArgs;
-let selected, changed = [];
+let selected, changed = [], selection = null;
 if (args[0] === '--changed') {
   changed = args.slice(1);
-  selected = all.filter((r) => (r.scope || []).some((s) => changed.some((c) => c === s || c.startsWith(s.endsWith('/') ? s : s + '/'))));
+  // 選定層（rubrics/select.mjs、ADR 0021 前線 D）: 影響集合 = changed ∪ 逆依存の推移閉包。
+  // 発火 = invariant ∨ (scope ∩ 影響集合 ≠ ∅) ∨ declared-edge。旧規則（direct-scope）は上位集合として保持。
+  const graph = buildReverseGraph(changed);
+  selection = selectRubrics({ changed, graph, rubrics: all });
+  const firedIds = new Set(selection.fired.map((f) => f.id));
+  selected = all.filter((r) => firedIds.has(r.id));
   console.log(`changed: ${changed.join(' ')}`);
-  console.log(`→ 発火するルーブリック: ${selected.map((r) => r.id).join(', ') || '(なし — このスコープを覆う規則は無い)'}`);
+  console.log(`→ 発火するルーブリック:`);
+  if (!selection.fired.length) console.log('  (なし — このスコープを覆う規則は無い)');
+  for (const f of selection.fired) {
+    console.log(`  [${f.rule}] ${f.id}${f.via ? ` (via: ${f.via})` : ''}`);
+  }
+  console.log(`→ not-run（未実施、silent skip でなく明示）: ${selection.notRun.join(', ') || '(なし)'}`);
 } else {
   selected = all.filter((r) => args.includes(r.id));
 }
@@ -119,6 +137,19 @@ for (const r of selected) {
   }
 }
 console.log(`\n${failed ? 'RED' : 'GREEN'}: ${total - failed}/${total} checks passed`);
+
+// 選定 receipt の JSON 書き出し（--receipt <path>、ADR 0021 前線 D §6）。
+// --changed 経路（selection が入っている）のときのみ意味を持つ。明示指定モードでは selection は null。
+if (receiptPath) {
+  const receipt = {
+    changed,
+    fired: selection ? selection.fired : selected.map((r) => ({ id: r.id, rule: 'explicit-arg' })),
+    notRun: selection ? selection.notRun : [],
+  };
+  writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
+  console.log(`\n選定 receipt を書き出し: ${receiptPath}`);
+}
+
 process.exit(failed ? 1 : 0);
 
 function evalExpect(expect, out, threw) {

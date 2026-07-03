@@ -33,6 +33,16 @@ export function validateRubric(r, id) {
   if (!Array.isArray(r.scope) || r.scope.length < 1) add('-', 'scope は 1 件以上必須');
   if (!Array.isArray(r.checks) || r.checks.length < 1) { add('-', 'checks は 1 件以上必須'); return out; }
 
+  // --- 選定層向け任意フィールド（ADR 0021 前線 D）---
+  if (r.invariant !== undefined && typeof r.invariant !== 'boolean') add('-', 'invariant は boolean');
+  if (r.edges !== undefined) {
+    if (!Array.isArray(r.edges)) add('-', 'edges は配列');
+    else r.edges.forEach((e, i) => {
+      if (!e || !e.from) add('-', `edges[${i}].from 欠落`);
+      if (!e || !e.reason) add('-', `edges[${i}].reason 欠落`);
+    });
+  }
+
   // --- check レベル ---
   for (const c of r.checks) {
     const cid = c.id || '-';

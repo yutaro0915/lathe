@@ -1,0 +1,27 @@
+{
+  "schema_version": "2",
+  "id": "meta/selection-golden",
+  "title": "発火の選定層（select.mjs）が golden 通り正しく選ぶ（ADR 0021 前線 D）",
+  "version": "1",
+  "scope": ["rubrics"],
+  "origin": "ADR 0021（EDD 前線 D、2026-07-03 ユーザー承認）。入口 handoff: /Users/cherie/LLMWiki/projects/edd-theory/handoff/lathe-rubric-system-decomposition.md §1・§2・§4・§5。理論の正本: edd-theory theory.md §適用の選定（LEDGER-0028）・§run validity の報告語彙（LEDGER-0034）。受け入れ条件: evals/rubric-selection-v1.md。",
+  "checks": [
+    {
+      "id": "select-golden-pass",
+      "value": "① 何を縛るか: rubrics/select.mjs の選定ロジック（selectRubrics/buildReverseGraph）が golden test 全 pass すること。合成グラフの規則別ケース（direct-scope/2段以上のdep-closure/declared-edge/invariant/上位集合性/明示指定）と、実グラフの波及ケース（packages/domain/src/index.ts のみの変更で apps/web scope の meta/typecheck が dep-closure で発火＝旧規則では発火しない差分）を固定する。② なぜ重要か: 選定の誤りは harness の誤り（ADR 0021 §7）。scope の二役（意味上の適用範囲と発火条件）を選定層に分離した以上、選定ロジック自体の正しさを機械で固定しないと『どの rubric が発火すべきか』の説明可能性が失われる。上位集合性（旧規則の発火 ⊆ 新規則の発火）が崩れると gate が緩む方向の退行が silent に混入する。③ 仕組み: select.golden.test.mjs の exit code。0 で GREEN。",
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "measure",
+        "cmd": "node rubrics/select.golden.test.mjs >/dev/null 2>&1; echo $?",
+        "expect": "eq:0",
+        "tolerance": "exit code 0 のみ GREEN。golden の期待集合は明示リストで固定してあるため、選定ロジックや依存グラフの実測値が変わると golden 側の更新が強制される（無言の選定変化を塞ぐ、ADR 0021 §7）。限界: 依存グラフは実行時の .dependency-cruiser.js 設定と対象パス集合に依存する＝設定変更時は golden も追従更新する。"
+      },
+      "evidence": "select.golden.test.mjs の exit code（0=GREEN、非0=RED）。",
+      "examples": {
+        "pass": ["合成グラフの規則別ケース全 assert 通過 かつ 実グラフで meta/typecheck が dep-closure 発火し golden 期待リストと一致"],
+        "fail": ["selectRubrics の発火条件を壊す変更 → 上位集合性 assert が throw → RED", "依存グラフ対象パスを縮小 → packages/domain→apps/web 波及が消える → golden 期待リストと不一致 → RED"]
+      }
+    }
+  ]
+}

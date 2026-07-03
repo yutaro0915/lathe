@@ -31,4 +31,12 @@ assert.equal(validateRubric({ ...good, checks: [{ ...good.checks[0], verify: { k
 assert.ok(has({ ...good, checks: [{ ...good.checks[0], verify: { kind: 'cmd', verifier: 'depcruise', expect: 'le:1', metric: 'count' } }] }, 'x/y', 'channel 必須'), 'channel 欠落を検出');
 assert.ok(has({ ...good, checks: [{ ...good.checks[0], verify: { kind: 'cmd', cmd: 'true', verifier: 'depcruise', channel: 'x', expect: 'eq:0', metric: 'count' } }] }, 'x/y', '同時指定'), 'cmd と verifier の二重指定を検出');
 
-console.log('PASS: _schema.test.mjs — 正常 rubric 素通り + 9 欠陥パターン検出 + 名前結合の受理');
+// 選定層向け任意フィールド（ADR 0021 前線 D）
+assert.equal(validateRubric({ ...good, invariant: true }, 'x/y').length, 0, 'invariant:true は合格');
+assert.ok(has({ ...good, invariant: 'yes' }, 'x/y', 'invariant'), 'invariant が boolean でないと検出');
+assert.equal(validateRubric({ ...good, edges: [{ from: 'apps/web/app/globals.css', reason: 'design token 変更は styling 検査を誘発' }] }, 'x/y').length, 0, 'edges 正常形は合格');
+assert.ok(has({ ...good, edges: [{ reason: 'r' }] }, 'x/y', 'from'), 'edges[].from 欠落を検出');
+assert.ok(has({ ...good, edges: [{ from: 'x' }] }, 'x/y', 'reason'), 'edges[].reason 欠落を検出');
+assert.ok(has({ ...good, edges: 'not-array' }, 'x/y', 'edges'), 'edges が配列でないと検出');
+
+console.log('PASS: _schema.test.mjs — 正常 rubric 素通り + 9 欠陥パターン検出 + 名前結合の受理 + 選定層任意フィールド 5 パターン');
