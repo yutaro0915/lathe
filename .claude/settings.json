@@ -45,6 +45,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node .claude/hooks/verdict-guard.mjs",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "bash .claude/hooks/write-retro.sh",
             "timeout": 10
           },
