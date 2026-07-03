@@ -1,5 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   buildInnerLoopSpawnSpec,
   DEFER_CAPACITY,
@@ -13,6 +17,7 @@ import {
   pathsOverlap,
   planDryRun,
   runQueue,
+  spawnInnerLoop,
 } from './inner-queue.mjs';
 
 function issue(number, body = '') {
@@ -94,6 +99,60 @@ test('buildInnerLoopSpawnSpec: routes child stdout and stderr directly to the lo
   assert.deepEqual(spec.args, ['scripts/inner-loop.mjs', '54']);
   assert.deepEqual(spec.options.stdio, ['ignore', 123, 123]);
   assert.equal(spec.options.env, process.env);
+});
+
+test('spawnInnerLoop: skips closed issue at dispatch without spawning driver', async (t) => {
+  const logRoot = mkdtempSync(join(tmpdir(), 'inner-queue-test-'));
+  t.after(() => rmSync(logRoot, { recursive: true, force: true }));
+
+  let spawned = false;
+  const logs = [];
+  const result = await spawnInnerLoop(issue(60), {
+    logRoot,
+    checkState: async (issueNumber) => {
+      assert.equal(issueNumber, 60);
+      return 'CLOSED';
+    },
+    spawnChild: () => {
+      spawned = true;
+      throw new Error('driver should not spawn');
+    },
+    log: (line) => logs.push(line),
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(spawned, false);
+  assert.deepEqual(logs, ['SKIP_CLOSED #60 (state=CLOSED at dispatch)']);
+});
+
+test('spawnInnerLoop: spawns open issue after dispatch state check', async (t) => {
+  const logRoot = mkdtempSync(join(tmpdir(), 'inner-queue-test-'));
+  t.after(() => rmSync(logRoot, { recursive: true, force: true }));
+
+  let spawnedSpec = null;
+  const result = await spawnInnerLoop(issue(61), {
+    logRoot,
+    checkState: async (issueNumber) => {
+      assert.equal(issueNumber, 61);
+      return 'OPEN';
+    },
+    spawnChild: (command, args, options) => {
+      spawnedSpec = { command, args, options };
+      const child = new EventEmitter();
+      process.nextTick(() => child.emit('close', 0, null));
+      return child;
+    },
+    log: () => {
+      throw new Error('OPEN issue should not log SKIP_CLOSED');
+    },
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(spawnedSpec.command, process.execPath);
+  assert.deepEqual(spawnedSpec.args, ['scripts/inner-loop.mjs', '61']);
+  assert.deepEqual(spawnedSpec.options.stdio.slice(0, 1), ['ignore']);
+  assert.equal(typeof spawnedSpec.options.stdio[1], 'number');
+  assert.equal(spawnedSpec.options.stdio[2], spawnedSpec.options.stdio[1]);
 });
 
 test('runQueue: unresolved dependency is not spawned in live mode', async () => {

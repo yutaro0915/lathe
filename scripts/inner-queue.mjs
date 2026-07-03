@@ -441,6 +441,11 @@ function fetchDependencyStates(issues) {
   return states;
 }
 
+function fetchIssueState(issueNumber) {
+  const data = ghJson(['issue', 'view', String(issueNumber), '--json', 'state']);
+  return data.state;
+}
+
 function detectRunningWorktrees(issues) {
   const running = new Map();
   const issueNumbers = new Set(issues.map((issue) => issue.number));
@@ -479,17 +484,39 @@ function appendQueueLog(logPath, line) {
   appendFileSync(logPath, `${line}\n`);
 }
 
-function spawnInnerLoop(issue) {
+export async function spawnInnerLoop(issue, {
+  checkState = fetchIssueState,
+  spawnChild = spawn,
+  log = (line) => process.stdout.write(`${line}\n`),
+  logRoot = join(REPO_ROOT, '.lathe', 'runs'),
+  now = () => new Date(),
+} = {}) {
+  const logPath = join(logRoot, `issue-${issue.number}.log`);
+  mkdirSync(dirname(logPath), { recursive: true });
+
+  let state;
+  try {
+    state = String(await checkState(issue.number) ?? 'UNKNOWN');
+  } catch (error) {
+    appendQueueLog(logPath, `[inner-queue] state check error before issue #${issue.number}: ${error.message}`);
+    return { status: 1 };
+  }
+
+  if (state !== 'OPEN') {
+    const line = `SKIP_CLOSED #${issue.number} (state=${state} at dispatch)`;
+    log(line);
+    appendQueueLog(logPath, `[inner-queue] ${line}`);
+    return { status: 0 };
+  }
+
   return new Promise((resolve) => {
-    const logPath = join(REPO_ROOT, '.lathe', 'runs', `issue-${issue.number}.log`);
-    mkdirSync(dirname(logPath), { recursive: true });
-    appendQueueLog(logPath, `[inner-queue] start issue #${issue.number} at ${new Date().toISOString()}`);
+    appendQueueLog(logPath, `[inner-queue] start issue #${issue.number} at ${now().toISOString()}`);
 
     const logFd = openSync(logPath, 'a');
     const spec = buildInnerLoopSpawnSpec(issue, logFd);
     let child;
     try {
-      child = spawn(spec.command, spec.args, spec.options);
+      child = spawnChild(spec.command, spec.args, spec.options);
     } catch (error) {
       closeSync(logFd);
       appendQueueLog(logPath, `\n[inner-queue] spawn error: ${error.message}`);
@@ -510,7 +537,7 @@ function spawnInnerLoop(issue) {
       finish({ status: 1 });
     });
     child.on('close', (code, signal) => {
-      appendQueueLog(logPath, `\n[inner-queue] done issue #${issue.number} status=${code ?? 'null'} signal=${signal ?? 'null'} at ${new Date().toISOString()}`);
+      appendQueueLog(logPath, `\n[inner-queue] done issue #${issue.number} status=${code ?? 'null'} signal=${signal ?? 'null'} at ${now().toISOString()}`);
       finish({ status: code ?? 1 });
     });
   });
