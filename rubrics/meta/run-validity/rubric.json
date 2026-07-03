@@ -1,0 +1,27 @@
+{
+  "schema_version": "2",
+  "id": "meta/run-validity",
+  "title": "run validity — 5 値報告語彙の分類・集約が正しい（ADR 0022 前線2）",
+  "version": "1",
+  "scope": ["rubrics/verdict.mjs", "rubrics/verdict.test.mjs", "rubrics/run.mjs"],
+  "origin": "ADR 0022（EDD 前線2、2026-07-03 ユーザー承認）。入口 handoff: /Users/cherie/LLMWiki/projects/edd-theory/handoff/lathe-rubric-system-decomposition.md §4。理論の正本: edd-theory theory.md §run validity（報告語彙・invalid 二分岐帰属・judge 但し書き）・§結果分類。受け入れ条件: evals/run-validity-v1.md。",
+  "checks": [
+    {
+      "id": "verdict-selfcheck",
+      "value": "① 何を縛るか: rubrics/verdict.mjs の分類・集約純関数（classifyCheck/aggregate）が正しく動くこと。severity の判定接続（blocker→fail・major/minor→warn・severity 無し→fail 現状維持既定）、invalid 検知 5 類の procedureFailure 最優先分類、集約優先順位（fail/invalid のいずれか 1 つで停止・warn のみ通過・not-run 非妨害）を負テストで固定する。② なぜ重要か: run.mjs の報告語彙（pass/fail/warn/invalid/not-run）はこの純関数の分類結果に依存する。分類器自体が壊れると『判定不能（invalid）』が『fail』に化ける事故が再発する（2026-07-03 夜間 escalation 8 件中 3 件が実測）。③ 仕組み: verdict.test.mjs の exit code。0 で GREEN。",
+      "severity": "blocker",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "node rubrics/verdict.test.mjs >/dev/null 2>&1; echo $?",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN。負テストは in-memory fixture（_schema.test.mjs / select.golden.test.mjs と同型）。限界: invalid 検知 5 類（ADR §2）は kind 文字列で固定した既知集合＝新しい故障種別は追記が要る。"
+      },
+      "evidence": "verdict.test.mjs の exit code（0=GREEN、非0=RED）。",
+      "examples": {
+        "pass": ["5 値分類（severity 判定接続 + invalid 5 類）・集約優先順位・故障 fixture が全 assert 通過"],
+        "fail": ["classifyCheck の severity 判定接続を壊す変更 → assert throw → RED", "aggregate の停止条件（fail|invalid）を壊す変更 → assert throw → RED"]
+      }
+    }
+  ]
+}

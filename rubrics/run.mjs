@@ -18,6 +18,7 @@ import { execSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 import { selectRubrics, buildReverseGraph } from './select.mjs';
+import { classifyCheck, aggregate } from './verdict.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const VERIFIERS_DIR = join(here, '..', 'verifiers');
@@ -91,7 +92,10 @@ if (args[0] === '--changed') {
 if (!selected.length) { console.error('対象ルーブリック無し'); process.exit(args[0] === '--changed' ? 0 : 2); }
 process.env.RUBRIC_CHANGED_PATHS = JSON.stringify(changed);
 
-let failed = 0, total = 0;
+// VERDICT_LABEL: 表示・summary で使う等幅 5 文字ラベル（ADR 0022 前線2 §4）。
+const VERDICT_LABEL = { pass: 'PASS ', fail: 'FAIL ', warn: 'WARN ', invalid: 'INVLD', 'not-run': 'NORUN' };
+
+const checkRecords = []; // receipt 用: { rubric, check, verdict, attribution?, reason?, detail? }
 for (const r of selected) {
   console.log(`\n# ${r.id} — ${r.title}  [scope: ${(r.scope || []).join(' ')}]`);
   for (const c of r.checks) {
@@ -100,57 +104,101 @@ for (const r of selected) {
     // --tier keeps only checks at or below the requested tier (Stop hook=cmd, merge=heavy).
     const tier = v.tier ?? (v.judge ? 'heavy' : 'cmd');
     if ((TIER_RANK[tier] ?? 2) > maxTierRank) {
-      console.log(`  [SKIP ] ${c.id} (tier=${tier} > requested)`);
+      const reason = `tier=${tier} > requested`;
+      console.log(`  [${VERDICT_LABEL['not-run']}] ${c.id} (reason: ${reason})`);
+      checkRecords.push({ rubric: r.id, check: c.id, verdict: 'not-run', reason });
       continue;
     }
-    total++;
     const how = v.judge ? 'judge' : v.verifier ? `verifier:${v.verifier}#${v.channel}` : 'cmd';
-    let out = '', threw = false;
+    let out = '', threw = false, procedureFailure = null;
     try {
       if (v.verifier && !v.judge) {
-        const { def, out: evidence, exitCode } = runVerifierOnce(v.verifier);
+        let def, evidence, exitCode;
+        try {
+          ({ def, out: evidence, exitCode } = runVerifierOnce(v.verifier));
+        } catch (e) {
+          procedureFailure = { kind: 'verifier-resolution', detail: `verifier "${v.verifier}" の定義解決失敗: ${e.message}` };
+          throw e;
+        }
         const ch = (def.produces || {})[v.channel];
-        if (!ch) throw new Error(`verifier "${v.verifier}" に channel "${v.channel}" が無い`);
-        out = ch.source === 'exit'
-          ? String(exitCode)
-          : execSync(ch.extract, { input: evidence, shell: '/bin/bash', encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], maxBuffer: 1e7 }).trim();
+        if (!ch) {
+          procedureFailure = { kind: 'missing-channel', detail: `verifier "${v.verifier}" に channel "${v.channel}" が無い` };
+          throw new Error(procedureFailure.detail);
+        }
+        try {
+          out = ch.source === 'exit'
+            ? String(exitCode)
+            : execSync(ch.extract, { input: evidence, shell: '/bin/bash', encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], maxBuffer: 1e7 }).trim();
+        } catch (e) {
+          procedureFailure = { kind: 'extract-failure', detail: `channel "${v.channel}" の extract 実行失敗: ${e.message}` };
+          throw e;
+        }
       } else if (v.judge) {
         const art = v.judge.input_cmd
           ? execSync(v.judge.input_cmd, { shell: '/bin/bash', encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1e7 })
           : '';
         const prompt = `${v.judge.prompt}\n\n--- 対象 ---\n${art}\n--- 指示 ---\n違反に当たるものの数を数え、最終行に必ず VERDICT:<整数> だけを出力しろ（前置き・説明は可だが最終行は VERDICT: 形式）。`;
         // judge のモデル束縛は judge-runner が集約（要求クラス間接、ADR 0020）。class 省略時 standard。
-        const binding = judgeBinding(v.class ?? 'standard');
-        if (binding.provider !== 'codex') throw new Error(`judge-runner: provider "${binding.provider}" は未対応（v1 は codex のみ）`);
+        let binding;
+        try {
+          binding = judgeBinding(v.class ?? 'standard');
+          if (binding.provider !== 'codex') throw new Error(`judge-runner: provider "${binding.provider}" は未対応（v1 は codex のみ）`);
+        } catch (e) {
+          procedureFailure = { kind: 'judge-binding-resolution', detail: e.message };
+          throw e;
+        }
         const judgeArgs = ['exec', '--skip-git-repo-check', ...(binding.model ? ['-m', binding.model] : []), prompt];
-        const raw = execFileSync('codex', judgeArgs, { encoding: 'utf8', timeout: 180000, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1e7 });
+        let raw;
+        try {
+          raw = execFileSync('codex', judgeArgs, { encoding: 'utf8', timeout: 180000, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1e7 });
+        } catch (e) {
+          procedureFailure = { kind: 'judge-verdict-missing', detail: `judge 実行失敗/timeout: ${e.message}` };
+          throw e;
+        }
         const ms = raw.match(/VERDICT:\s*(-?\d+)/g);
-        out = ms ? ms[ms.length - 1].replace(/VERDICT:\s*/, '') : (raw.trim().split('\n').pop() || '');
+        if (!ms) {
+          procedureFailure = { kind: 'judge-verdict-missing', detail: 'judge 出力の最終行に VERDICT:<int> が無い' };
+          throw new Error(procedureFailure.detail);
+        }
+        out = ms[ms.length - 1].replace(/VERDICT:\s*/, '');
       } else {
+        // テスト対象コマンド自体の非ゼロ exit（tsc fail 等）は procedureFailure でなく従来どおり判定対象。
         out = execSync(v.cmd, { shell: '/bin/bash', encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1e7 }).trim();
       }
     } catch (e) { threw = true; out = ((e.stdout || '') + (e.stderr || '')).trim(); }
-    const ok = evalExpect(v.expect, out, threw);
-    if (!ok) failed++;
-    console.log(`  [${ok ? 'GREEN' : 'RED  '}] ${c.id} (${how}, expect ${v.expect}) → ${out.split('\n').pop() || '(no output)'}`);
-    if (!ok) console.log(`        ↳ 壊れたドメイン価値: ${c.value || '(value 未記載 = スキーマ違反)'}`);
+    const ok = procedureFailure ? false : evalExpect(v.expect, out, threw);
+    const verdict = classifyCheck({ ok, severity: c.severity, procedureFailure });
+    const label = VERDICT_LABEL[verdict];
+    if (verdict === 'invalid') {
+      console.log(`  [${label}] ${c.id} (${how}) → 帰属=harness ／ ${procedureFailure.kind}: ${procedureFailure.detail}`);
+      checkRecords.push({ rubric: r.id, check: c.id, verdict, attribution: 'harness', detail: `${procedureFailure.kind}: ${procedureFailure.detail}` });
+    } else {
+      console.log(`  [${label}] ${c.id} (${how}, expect ${v.expect}) → ${out.split('\n').pop() || '(no output)'}`);
+      if (verdict === 'fail' || verdict === 'warn') console.log(`        ↳ 壊れたドメイン価値: ${c.value || '(value 未記載 = スキーマ違反)'}`);
+      checkRecords.push({ rubric: r.id, check: c.id, verdict });
+    }
   }
 }
-console.log(`\n${failed ? 'RED' : 'GREEN'}: ${total - failed}/${total} checks passed`);
 
-// 選定 receipt の JSON 書き出し（--receipt <path>、ADR 0021 前線 D §6）。
-// --changed 経路（selection が入っている）のときのみ意味を持つ。明示指定モードでは selection は null。
+const summary = aggregate(checkRecords.map((cr) => cr.verdict));
+console.log(
+  `\nPASS ${summary.counts.pass} / FAIL ${summary.counts.fail} / WARN ${summary.counts.warn} / INVALID ${summary.counts.invalid} / NOT-RUN ${summary.counts.notRun} → ${summary.stop ? '停止' : '通過'}`
+);
+
+// 選定 receipt の JSON 書き出し（--receipt <path>、ADR 0021 前線 D §6・ADR 0022 前線2 §4 で checks を追加）。
+// --changed 経路（selection が入っている）のときのみ選定情報は意味を持つ。明示指定モードでは selection は null。
 if (receiptPath) {
   const receipt = {
     changed,
     fired: selection ? selection.fired : selected.map((r) => ({ id: r.id, rule: 'explicit-arg' })),
     notRun: selection ? selection.notRun : [],
+    checks: checkRecords,
   };
   writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
   console.log(`\n選定 receipt を書き出し: ${receiptPath}`);
 }
 
-process.exit(failed ? 1 : 0);
+process.exit(summary.stop ? 1 : 0);
 
 function evalExpect(expect, out, threw) {
   const last = (out.split('\n').pop() || '').trim();
