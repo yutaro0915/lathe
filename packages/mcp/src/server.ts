@@ -15,6 +15,7 @@ import {
   type VerdictFilter,
 } from '@lathe/domain';
 import { getMcpSessionBundle } from './session-bundle';
+import { getRun, listRuns } from './runs';
 import { getSessionEvents, listMcpSessions } from './sessions';
 import {
   getEvidenceContext,
@@ -130,6 +131,56 @@ function createServer(): McpServer {
           }),
         ),
     );
+
+  server.registerTool(
+    'list_runs',
+    {
+      title: 'List Lathe inner-loop runs',
+      description: 'List project-scoped run summaries from ingested run manifests. Returns { total, runs } with run_key, attempt/escalation fields, and paging.',
+      inputSchema: {
+        filter: z
+          .object({
+            project_id: z.string().optional(),
+            issue_number: z.number().int().positive().optional(),
+            loop_kind: z.string().optional(),
+            run_key_prefix: z.string().optional(),
+            has_escalation: z.boolean().optional(),
+            last_verdict: z.string().optional(),
+            limit: z.number().int().positive().max(200).optional(),
+            offset: z.number().int().min(0).optional(),
+          })
+          .optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ filter }) =>
+      jsonResult(
+        await listRuns({
+          projectId: optionalString(filter?.project_id),
+          issueNumber: optionalNumber(filter?.issue_number),
+          loopKind: optionalString(filter?.loop_kind),
+          runKeyPrefix: optionalString(filter?.run_key_prefix),
+          hasEscalation: typeof filter?.has_escalation === 'boolean' ? filter.has_escalation : undefined,
+          lastVerdict: optionalString(filter?.last_verdict),
+          limit: optionalNumber(filter?.limit),
+          offset: optionalNumber(filter?.offset),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'get_run',
+    {
+      title: 'Get Lathe inner-loop run',
+      description: 'Get one project-scoped run by project_id and run_key, including ordered stages and nullable/missing session status.',
+      inputSchema: {
+        project_id: z.string().min(1),
+        run_key: z.string().min(1),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ project_id, run_key }) => jsonResult(await getRun({ projectId: project_id, runKey: run_key })),
+  );
 
   server.registerTool(
     'get_session_events',

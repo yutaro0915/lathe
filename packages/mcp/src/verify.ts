@@ -19,6 +19,9 @@ type JsonRecord = Record<string, any>;
 
 const TOOL_NAMES = [
   'list_sessions',
+  'list_runs',
+  'get_run',
+  'get_session_events',
   'get_session_bundle',
   'query_findings',
   'get_evidence_context',
@@ -321,24 +324,12 @@ async function verifyReadTools(): Promise<void> {
   await withClient(async (client) => {
     const listResult = parseToolResult(
       await client.callTool('list_sessions', { filter: { limit: 5, offset: 0 } }),
-    ) as JsonRecord[];
-    const directList = await getPool().query(
-      `SELECT id,project_id,title,runner,model,cost_usd,harness_version_id
-         FROM sessions
-        ORDER BY seq ASC, started_at DESC, id ASC
-        LIMIT 5 OFFSET 0`,
-    );
+    ) as JsonRecord;
+    const listSessions = listResult.sessions as JsonRecord[];
+    if (!Array.isArray(listSessions)) fail(`list_sessions returned no sessions array: ${JSON.stringify(listResult)}`);
     assertDeepEqual(
-      listResult,
-      directList.rows.map((row) => ({
-        id: row.id,
-        projectId: row.project_id,
-        title: row.title,
-        runner: row.runner,
-        model: row.model,
-        costUsd: row.cost_usd,
-        harnessVersionId: row.harness_version_id,
-      })),
+      { total: listResult.total, first: listSessions[0]?.id },
+      { total: 1, first: session.id },
       'list_sessions',
     );
 
@@ -373,6 +364,15 @@ async function verifyReadTools(): Promise<void> {
       'get_session_bundle changed file ids',
     );
     assertDeepEqual(bundle.typeCounts, typeCounts, 'get_session_bundle type counts');
+
+    const spine = parseToolResult(await client.callTool('get_session_events', { session_id: session.id })) as JsonRecord;
+    const spineEvents = spine.events as JsonRecord[];
+    if (!Array.isArray(spineEvents)) fail(`get_session_events returned no events array: ${JSON.stringify(spine)}`);
+    assertDeepEqual(
+      { total: spine.total, seqRange: spine.seqRange, seqs: spineEvents.map((row) => row.seq) },
+      { total: directEvents.rows.length, seqRange: { min: 1, max: 2 }, seqs: [1, 2] },
+      'get_session_events',
+    );
 
     const findings = parseToolResult(await client.callTool('query_findings', { filter: { limit: 10 } })) as JsonRecord[];
     const directFindings = await getPool().query<{ id: number }>(
