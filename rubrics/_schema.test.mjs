@@ -26,4 +26,9 @@ assert.ok(has({ ...good, checks: [{ ...good.checks[0], verify: { kind: 'judge', 
 assert.ok(has({ ...good, checks: [{ ...good.checks[0], verify: { kind: 'cmd', cmd: 'true', expect: 'eq:0' } }] }, 'x/y', 'metric'), 'metric 欠落を検出');
 assert.ok(has({ ...good, checks: [{ ...good.checks[0], verify: { kind: 'cmd', cmd: 'true', expect: 'bogus', metric: 'count' } }] }, 'x/y', 'expect'), '不正 expect を検出');
 
-console.log('PASS: _schema.test.mjs — 正常 rubric 素通り + 7 欠陥パターン検出');
+// named verifier への名前結合（ADR 0020 前線 C）
+assert.equal(validateRubric({ ...good, checks: [{ ...good.checks[0], verify: { kind: 'cmd', verifier: 'depcruise', channel: 'I2-package', expect: 'le:1', metric: 'count' } }] }, 'x/y').length, 0, 'verifier+channel の名前結合は合格');
+assert.ok(has({ ...good, checks: [{ ...good.checks[0], verify: { kind: 'cmd', verifier: 'depcruise', expect: 'le:1', metric: 'count' } }] }, 'x/y', 'channel 必須'), 'channel 欠落を検出');
+assert.ok(has({ ...good, checks: [{ ...good.checks[0], verify: { kind: 'cmd', cmd: 'true', verifier: 'depcruise', channel: 'x', expect: 'eq:0', metric: 'count' } }] }, 'x/y', '同時指定'), 'cmd と verifier の二重指定を検出');
+
+console.log('PASS: _schema.test.mjs — 正常 rubric 素通り + 9 欠陥パターン検出 + 名前結合の受理');

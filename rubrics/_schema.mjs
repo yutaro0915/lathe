@@ -43,7 +43,10 @@ export function validateRubric(r, id) {
     const vf = c.verify;
     if (!vf || typeof vf !== 'object') { add(cid, 'verify 欠落'); continue; }
     if (!['cmd', 'judge'].includes(vf.kind)) add(cid, `verify.kind は cmd|judge 必須（現: ${vf.kind}）`);
-    if (vf.kind === 'cmd' && !vf.cmd) add(cid, 'kind=cmd なら verify.cmd 必須');
+    if (vf.kind === 'cmd' && !vf.cmd && !(vf.verifier && vf.channel))
+      add(cid, 'kind=cmd なら verify.cmd か verifier+channel（named verifier への名前結合、ADR 0020）のどちらか必須');
+    if (vf.cmd && vf.verifier) add(cid, 'verify.cmd と verify.verifier の同時指定は不可（実行元が二重になる）');
+    if (vf.verifier && !vf.channel) add(cid, 'verify.verifier には channel 必須（どの出力チャンネルを読むか）');
     if (vf.kind === 'judge' && !(vf.judge && vf.judge.prompt && vf.judge.input_cmd))
       add(cid, 'kind=judge なら verify.judge.{prompt,input_cmd} 必須');
     if (!validExpect(vf.expect)) add(cid, `verify.expect が不正（現: ${vf.expect}）`);

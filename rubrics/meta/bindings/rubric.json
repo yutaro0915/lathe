@@ -2,13 +2,13 @@
   "schema_version": "2",
   "id": "meta/bindings",
   "title": "skill ⇄ rubric ⇄ eval の結合が壊れていない — 繋がりの可視化（ADR 0018 前線 A）",
-  "version": "1",
-  "scope": [".claude/skills", "evals", "rubrics"],
+  "version": "2",
+  "scope": [".claude/skills", "evals", "rubrics", "verifiers"],
   "origin": "ADR 0018（EDD 前線 A、2026-07-03 ユーザー承認）。入口 handoff: /Users/cherie/LLMWiki/projects/edd-theory/handoff/lathe-rubric-system-decomposition.md。理論正本: edd-theory theory.md §関係の管理（関係は出す側 artifact のメタデータに書き、一覧・見直し待ち・宙に浮きは lint の生成物。gate は参照実在のみ、staleness は結果整合＝見直し待ちキュー）。",
   "checks": [
     {
       "id": "bindings-referential-integrity",
-      "value": "① 何を縛るか: skill frontmatter の grounded_in と eval の checks が指す rubric id が実在し、版を持ち（v2）、verified が正しい形式であること。② なぜ重要か: skill の正しさは根拠 rubric の版に依存する（theory §skill の版と上位規範の変更）。参照が壊れると『どの正しさに対して成功したか』を判別できず、skill が黙って根拠を失う。③ 仕組み: rubrics/bindings/lint.mjs が全 artifact を集計し違反件数を出す。0 で GREEN。",
+      "value": "① 何を縛るか: skill frontmatter の grounded_in と eval の checks が指す rubric id が実在し、版を持ち（v2）、verified が正しい形式であること。加えて rubric の verify.verifier+channel が指す named verifier とその出力チャンネルが実在すること（v2 で追加、ADR 0020）。② なぜ重要か: skill の正しさは根拠 rubric の版に依存する（theory §skill の版と上位規範の変更）。参照が壊れると『どの正しさに対して成功したか』を判別できず、skill が黙って根拠を失う。③ 仕組み: rubrics/bindings/lint.mjs が全 artifact を集計し違反件数を出す。0 で GREEN。",
       "severity": "major",
       "verify": {
         "kind": "cmd",

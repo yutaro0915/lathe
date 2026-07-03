@@ -1,18 +1,50 @@
 {
+  "schema_version": "2",
+  "id": "boundaries",
   "title": "層の境界 (I1 生SQL局所化 / I2 package非app依存)",
+  "version": "1",
   "scope": ["apps/web", "packages"],
   "pass_to_task": "生 SQL は lib/db・ingest/db のみ（route/component/lib/write は経由して呼ぶ）。packages/* は apps/web を import しない。",
+  "origin": "監査 2026-06-17 / architecture.md I1-I2。2026-07-03 v2 化＋named verifier（depcruise）への名前結合（ADR 0020 前線 C。判定・閾値は不変、lint:deps の check 間 2 回実行を 1 回に統合）",
   "checks": [
     {
       "id": "i1-no-postgres-leak",
       "value": "生 SQL 発行を lib/db・ingest/db に局所化（route/component/lib/write が @/lib/postgres を直 import しない=I1）。守ると DB アクセスが一元化され、層を跨いだ直叩きが防げる。",
-      "verify": { "cmd": "pnpm lint:deps 2>&1 | grep -c 'I1-postgres' || true", "expect": "eq:0", "means": "depcruise I1 違反警告 = 0" }
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "verifier": "depcruise",
+        "channel": "I1-postgres",
+        "expect": "eq:0",
+        "tolerance": "0 のみ GREEN（v1 の means「depcruise I1 違反警告 = 0」と同値）。限界は verifier 側 limits に自己申告。"
+      },
+      "evidence": "depcruise の I1-postgres チャンネル値（違反件数）。0 で GREEN。",
+      "examples": {
+        "pass": ["route/component が lib/db 経由で DB を呼ぶ"],
+        "fail": ["component が @/lib/postgres を直 import → I1 違反 1+ → RED"]
+      }
     },
     {
       "id": "i2-package-no-app",
       "value": "packages/* が apps/web を import しない（I2）。守ると package が独立し、別プロセス起動・再利用ができる。",
-      "verify": { "cmd": "pnpm lint:deps 2>&1 | grep -c 'I2-package' || true", "expect": "le:1", "means": "depcruise I2 違反 ≤1（verify.ts の postgres 直 import は別 slice へ deferred）" }
+      "severity": "major",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "verifier": "depcruise",
+        "channel": "I2-package",
+        "expect": "le:1",
+        "tolerance": "1 件まで許容（v1 の means と同値・閾値不変）。",
+        "exemptions": [
+          { "target": "I2-package 1 件（verify.ts の postgres 直 import）", "reason": "別 slice へ deferred（v1 means の散文から構造化移設。解消時に expect を eq:0 へ締める）" }
+        ]
+      },
+      "evidence": "depcruise の I2-package チャンネル値（違反件数）。1 以下で GREEN。",
+      "examples": {
+        "pass": ["packages/mcp が packages/domain のみに依存"],
+        "fail": ["packages/* が apps/web の module を import → 2 件目の I2 違反 → RED"]
+      }
     }
-  ],
-  "origin": "監査 2026-06-17 / architecture.md I1-I2"
+  ]
 }

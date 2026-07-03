@@ -1,0 +1,21 @@
+{
+  "id": "depcruise",
+  "version": "1",
+  "kind": "cmd",
+  "run": "pnpm lint:deps 2>&1",
+  "produces": {
+    "I1-postgres": {
+      "type": "count",
+      "means": "生 SQL 局所化違反（route/component/lib/write が @/lib/postgres を直 import）の件数",
+      "extract": "grep -c 'I1-postgres' || true"
+    },
+    "I2-package": {
+      "type": "count",
+      "means": "package→app 依存違反（packages/* が apps/web を import）の件数",
+      "extract": "grep -c 'I2-package' || true"
+    }
+  },
+  "details": "違反行は run 出力に含まれる（dependency-cruiser の警告行。receipt 表示用・判定には使わない）",
+  "limits": "dependency-cruiser の静的解析が届く範囲のみ（動的 import・実行時結合・SQL 文字列の直書きは対象外）。実行は 1 run につき 1 回（従来は boundaries の check ごとに 2 回実行していた重複の解消、ADR 0020）",
+  "fixtures": []
+}

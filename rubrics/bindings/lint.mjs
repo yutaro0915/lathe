@@ -94,8 +94,10 @@ export function parseEvalFile(text) {
 }
 
 // 集計本体。skills=[{name, groundedIn}] / evals=[{file, parsed}] / rubrics=Map<id,{version}>
+// rubricVerifierRefs=[{rubricId, checkId, verifier, channel}]（rubric → named verifier の名前結合、ADR 0020）
+// verifiers=Map<id, Set<channel>>
 // 返り値: { violations: [{kind, detail}], stale, unreferenced, bindings }
-export function computeBindings({ skills, evals, rubrics }) {
+export function computeBindings({ skills, evals, rubrics, rubricVerifierRefs = [], verifiers = new Map() }) {
   const violations = [];
   const stale = [];
   const bindings = [];
@@ -145,6 +147,19 @@ export function computeBindings({ skills, evals, rubrics }) {
     }
   }
 
+  for (const ref of rubricVerifierRefs) {
+    const channels = verifiers.get(ref.verifier);
+    if (!channels) {
+      violations.push({ kind: 'unknown-verifier', detail: `rubric=${ref.rubricId} check=${ref.checkId} verifier=${ref.verifier} が実在しない` });
+      continue;
+    }
+    if (!channels.has(ref.channel)) {
+      violations.push({ kind: 'unknown-channel', detail: `rubric=${ref.rubricId} check=${ref.checkId} verifier=${ref.verifier} に channel=${ref.channel} が無い（produces の名前つきチャンネルのみ結合可）` });
+      continue;
+    }
+    bindings.push({ from: `rubric:${ref.rubricId}#${ref.checkId}`, rubric: null, verifier: ref.verifier, channel: ref.channel, verified: null, current: null, stale: false });
+  }
+
   const unreferenced = [...rubrics.keys()].filter((id) => !referenced.has(id)).sort();
   return { violations, stale, unreferenced, bindings };
 }
@@ -173,6 +188,7 @@ function scanEvals(dir) {
 
 function scanRubrics(dir) {
   const map = new Map();
+  const refs = [];
   const walk = (d, rel) => {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       if (entry.isDirectory()) walk(join(d, entry.name), rel ? `${rel}/${entry.name}` : entry.name);
@@ -180,6 +196,9 @@ function scanRubrics(dir) {
         try {
           const r = JSON.parse(readFileSync(join(d, entry.name), 'utf8'));
           map.set(rel, { version: r.version ?? null });
+          for (const c of Array.isArray(r.checks) ? r.checks : []) {
+            if (c?.verify?.verifier) refs.push({ rubricId: rel, checkId: c.id ?? '-', verifier: c.verify.verifier, channel: c.verify.channel ?? '-' });
+          }
         } catch {
           map.set(rel, { version: null });
         }
@@ -187,6 +206,22 @@ function scanRubrics(dir) {
     }
   };
   if (existsSync(dir)) walk(dir, '');
+  return { map, refs };
+}
+
+function scanVerifiers(dir) {
+  const map = new Map();
+  if (!existsSync(dir)) return map;
+  for (const e of readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory())) {
+    const f = join(dir, e.name, 'verifier.json');
+    if (!existsSync(f)) continue;
+    try {
+      const v = JSON.parse(readFileSync(f, 'utf8'));
+      map.set(e.name, new Set(Object.keys(v.produces ?? {})));
+    } catch {
+      map.set(e.name, new Set());
+    }
+  }
   return map;
 }
 
@@ -200,13 +235,15 @@ if (isMain) {
   const report = args.includes('--report');
   const skills = scanSkills(flag('--skills', '.claude/skills'));
   const evals = scanEvals(flag('--evals', 'evals'));
-  const rubrics = scanRubrics(flag('--rubrics', 'rubrics'));
-  const out = computeBindings({ skills, evals, rubrics });
+  const { map: rubrics, refs: rubricVerifierRefs } = scanRubrics(flag('--rubrics', 'rubrics'));
+  const verifiers = scanVerifiers(flag('--verifiers', 'verifiers'));
+  const out = computeBindings({ skills, evals, rubrics, rubricVerifierRefs, verifiers });
 
   if (report) {
-    console.log('## bindings（skill/eval → rubric）');
+    console.log('## bindings（skill/eval → rubric、rubric → verifier）');
     for (const b of out.bindings) {
-      if (b.rubric == null) console.log(`- ${b.from} → (grounded_in: [] 明示)`);
+      if (b.verifier != null) console.log(`- ${b.from} → verifier:${b.verifier}#${b.channel} [ok]`);
+      else if (b.rubric == null) console.log(`- ${b.from} → (grounded_in: [] 明示)`);
       else if (b.verified != null) console.log(`- ${b.from} → ${b.rubric} verified=${b.verified} current=${b.current} [${b.stale ? 'STALE' : 'ok'}]`);
       else console.log(`- ${b.from} → ${b.rubric} [ok]`);
     }

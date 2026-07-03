@@ -103,4 +103,24 @@ assert.ok(kinds(computeBindings({
   assert.deepEqual(r.stale, [{ skill: 's1', rubric: 'meta/b', verified: '1', current: '2' }], 'stale をキューに出す');
 }
 
-console.log('PASS: lint.test.mjs — 正常系素通り + 6 欠陥パターン検出 + stale のキュー分離');
+// rubric → named verifier のチャンネル実在（ADR 0020 前線 C）
+const verifiers = new Map([['depcruise', new Set(['I1-postgres', 'I2-package'])]]);
+{
+  const r = computeBindings({
+    skills: [], evals: [], rubrics,
+    rubricVerifierRefs: [{ rubricId: 'boundaries', checkId: 'i2', verifier: 'depcruise', channel: 'I2-package' }],
+    verifiers,
+  });
+  assert.equal(r.violations.length, 0, '実在する verifier+channel への結合は違反 0');
+  assert.ok(r.bindings.some((b) => b.verifier === 'depcruise' && b.channel === 'I2-package'), '結合一覧に rubric→verifier が載る');
+}
+assert.ok(kinds(computeBindings({
+  skills: [], evals: [], rubrics,
+  rubricVerifierRefs: [{ rubricId: 'x', checkId: 'c', verifier: 'nope', channel: 'a' }], verifiers,
+})).includes('unknown-verifier'), '不存在 verifier への結合を検出');
+assert.ok(kinds(computeBindings({
+  skills: [], evals: [], rubrics,
+  rubricVerifierRefs: [{ rubricId: 'x', checkId: 'c', verifier: 'depcruise', channel: 'nope' }], verifiers,
+})).includes('unknown-channel'), '不存在 channel への結合を検出');
+
+console.log('PASS: lint.test.mjs — 正常系素通り + 8 欠陥パターン検出 + stale のキュー分離');

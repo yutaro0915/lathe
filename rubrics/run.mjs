@@ -9,6 +9,9 @@
 //  - 機械で検査できない性質も検査方法を作る:
 //      verify.cmd   … shell で測れる性質（grep/lint/test 等）。
 //      verify.judge … 測りにくい性質は agent をジャッジに呼ぶ（input_cmd で対象を集め、codex に違反数を VERDICT:<int> で返させる）。
+//      verify.verifier+channel … named verifier（verifiers/<id>/verifier.json、ADR 0020）への名前結合。
+//        verifier の run は 1 回の run.mjs 呼び出しにつき 1 回だけ実行され（memoize）、チャンネルの
+//        extract（出力を stdin に受ける）か source:"exit" で値を取り出す。判定（evalExpect）は不変。
 //  - --changed では scope[] が変更パスを覆う rubric だけ発火 → 狭い規則が全体に漏れない。RUBRIC_CHANGED_PATHS で check が変更パスを参照できる（slice 封じ込め）。
 import { readFileSync, readdirSync } from 'node:fs';
 import { execSync, execFileSync } from 'node:child_process';
@@ -16,6 +19,20 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const VERIFIERS_DIR = join(here, '..', 'verifiers');
+const verifierCache = new Map(); // id → { def, out, exitCode } — 1 run.mjs 呼び出しにつき 1 実行（ADR 0020）
+function runVerifierOnce(id) {
+  if (verifierCache.has(id)) return verifierCache.get(id);
+  const def = JSON.parse(readFileSync(join(VERIFIERS_DIR, id, 'verifier.json'), 'utf8'));
+  let out = '', exitCode = 0;
+  try {
+    out = execSync(def.run, { shell: '/bin/bash', encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1e7 });
+  } catch (e) { out = ((e.stdout || '') + (e.stderr || '')); exitCode = e.status ?? 1; }
+  console.log(`  [VERIF] ${id} を実行（exit=${exitCode}・以後この run では memoize）`);
+  const entry = { def, out, exitCode };
+  verifierCache.set(id, entry);
+  return entry;
+}
 function findRubrics(dir) {
   const out = [];
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -62,10 +79,17 @@ for (const r of selected) {
       continue;
     }
     total++;
-    const how = v.judge ? 'judge' : 'cmd';
+    const how = v.judge ? 'judge' : v.verifier ? `verifier:${v.verifier}#${v.channel}` : 'cmd';
     let out = '', threw = false;
     try {
-      if (v.judge) {
+      if (v.verifier && !v.judge) {
+        const { def, out: evidence, exitCode } = runVerifierOnce(v.verifier);
+        const ch = (def.produces || {})[v.channel];
+        if (!ch) throw new Error(`verifier "${v.verifier}" に channel "${v.channel}" が無い`);
+        out = ch.source === 'exit'
+          ? String(exitCode)
+          : execSync(ch.extract, { input: evidence, shell: '/bin/bash', encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], maxBuffer: 1e7 }).trim();
+      } else if (v.judge) {
         const art = v.judge.input_cmd
           ? execSync(v.judge.input_cmd, { shell: '/bin/bash', encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1e7 })
           : '';
