@@ -2,7 +2,7 @@
   "schema_version": "2",
   "id": "meta/storybook",
   "title": "Storybook が build & play test を通る (test-storybook)",
-  "version": "1",
+  "version": "2",
   "scope": ["apps/web/design-system"],
   "origin": "agent-workflow(2026-06-29, step3): storybook 検証を preflight フラグでなく scoped+tiered rubric に。design-system 変更で発火。tier=heavy（storybook build を含み重いので merge gate のみ）。rubric 追加は auditor のみ・別 commit。",
   "checks": [
@@ -12,11 +12,12 @@
       "severity": "major",
       "verify": {
         "kind": "cmd",
-        "metric": "count",
+        "metric": "measure",
         "tier": "heavy",
-        "cmd": "pnpm -C apps/web test-storybook",
-        "expect": "exit0",
-        "tolerance": "exit0 のみ GREEN。重い（storybook build）ので heavy=merge gate のみ。"
+        "verifier": "storybook",
+        "channel": "exit",
+        "expect": "eq:0",
+        "tolerance": "exit code 0 のみ GREEN（旧 exit0 と等価・ADR 0020 で named verifier へ）。重い（storybook build）ので heavy=merge gate のみ。"
       },
       "evidence": "test-storybook の exit code（0=GREEN）。",
       "examples": { "pass": ["全 story が build & play pass"], "fail": ["story 崩れ・play 失敗で非0"] }

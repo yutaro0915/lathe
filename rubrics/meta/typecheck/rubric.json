@@ -2,9 +2,9 @@
   "schema_version": "2",
   "id": "meta/typecheck",
   "title": "apps/web が型エラーなしでコンパイルできる (tsc --noEmit)",
-  "version": "1",
+  "version": "2",
   "scope": ["apps/web"],
-  "origin": "agent-workflow(2026-06-29, step3): 検証を rubric に統一。tsc を preflight の命令フラグでなく scoped+tiered rubric にして run.mjs 一本に寄せる。tier=test（Stop hook の cmd では回さず --fast/--full で回す）。rubric 追加は auditor のみ・別 commit。",
+  "origin": "agent-workflow(2026-06-29, step3): 検証を rubric に統一。tsc を preflight の命令フラグでなく scoped+tiered rubric にして run.mjs 一本に寄せる。tier=test（Stop hook の cmd では回さず --fast/--full で回す）。rubric 追加は auditor のみ・別 commit。 / v2: named verifier typecheck へ名前結合（ADR 0020。expect exit0 → exit チャンネル eq:0 の等価変換・判定不変）",
   "checks": [
     {
       "id": "tsc-noemit-clean",
@@ -12,11 +12,12 @@
       "severity": "blocker",
       "verify": {
         "kind": "cmd",
-        "metric": "count",
+        "metric": "measure",
         "tier": "test",
-        "cmd": "pnpm -C apps/web exec tsc --noEmit",
-        "expect": "exit0",
-        "tolerance": "exit0 のみ GREEN。型のみ（実行時挙動は unit/e2e が担保）。"
+        "verifier": "typecheck",
+        "channel": "exit",
+        "expect": "eq:0",
+        "tolerance": "exit code 0 のみ GREEN（旧 exit0 と等価）。型のみ（実行時挙動は unit/e2e が担保）。"
       },
       "evidence": "tsc --noEmit の exit code（0=GREEN）。",
       "examples": { "pass": ["型が通る"], "fail": ["import 解決不能・型不一致で tsc 非0"] }

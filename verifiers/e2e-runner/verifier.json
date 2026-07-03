@@ -1,0 +1,21 @@
+{
+  "id": "e2e-runner",
+  "version": "1",
+  "kind": "cmd",
+  "run": "RPT=\"${TMPDIR:-/tmp}/lathe-e2e-report.json\"; rm -f \"$RPT\"; DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe E2E_PORT=3250 PLAYWRIGHT_JSON_OUTPUT_NAME=\"$RPT\" pnpm -C apps/web exec playwright test --reporter=json >/dev/null 2>&1; cat \"$RPT\"",
+  "produces": {
+    "inspector-toggle-failures": {
+      "type": "count",
+      "means": "session-viewer.spec.ts の『Inspector collapses and re-expands via one consistent edge toggle』の失敗数（0=単一 edge toggle での開閉が成立）",
+      "extract": "node -e 'let d=\"\";process.stdin.on(\"data\",c=>d+=c).on(\"end\",()=>{let j;try{j=JSON.parse(d)}catch(e){console.log(\"parse-error\");return}let n=0;const walk=(s,f)=>{const file=s.file??f;(s.specs??[]).forEach(sp=>{const spFile=sp.file??file??\"\";if(spFile.includes(\"session-viewer.spec.ts\")&&sp.title.includes(\"Inspector collapses and re-expands\")&&sp.ok===false)n++});(s.suites??[]).forEach(x=>walk(x,file))};(j.suites??[]).forEach(s=>walk(s,null));console.log(n)})'"
+    },
+    "layout-integrity-failures": {
+      "type": "count",
+      "means": "layout-integrity.spec.ts（7 surface × 2 幅の描画ジオメトリ不変条件）の失敗 spec 数（0=全て成立）",
+      "extract": "node -e 'let d=\"\";process.stdin.on(\"data\",c=>d+=c).on(\"end\",()=>{let j;try{j=JSON.parse(d)}catch(e){console.log(\"parse-error\");return}let n=0;const walk=(s,f)=>{const file=s.file??f;(s.specs??[]).forEach(sp=>{const spFile=sp.file??file??\"\";if(spFile.includes(\"layout-integrity.spec.ts\")&&sp.ok===false)n++});(s.suites??[]).forEach(x=>walk(x,file))};(j.suites??[]).forEach(s=>walk(s,null));console.log(n)})'"
+    }
+  },
+  "details": "playwright の JSON report（PLAYWRIGHT_JSON_OUTPUT_NAME でファイル出力→cat。[WebServer] ログの stdout 混入で JSON が壊れる問題の回避）。全 spec の結果を含み、束ねていない spec の失敗はチャンネル値に影響しない",
+  "limits": "e2e 全 suite を 1 回で実行（従来の check ごと webServer 起動 2 回→1 回。ただし全 spec 実行のため単一 spec 指定より対象は広い）。scratch DB (55433)・cold flake は playbook P1（対象チャンネルの spec は安定実績）。JSON parse 失敗時は非数値を出し安全側 RED。preflight tier=heavy 構成コマンドの形式化（ADR 0020）",
+  "fixtures": []
+}

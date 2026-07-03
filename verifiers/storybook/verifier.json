@@ -1,0 +1,12 @@
+{
+  "id": "storybook",
+  "version": "1",
+  "kind": "cmd",
+  "run": "pnpm -C apps/web test-storybook 2>&1",
+  "produces": {
+    "exit": { "type": "measure", "means": "test-storybook（build + play test）の終了コード（0=全 story pass）", "source": "exit" }
+  },
+  "details": "落ちた story 名は run 出力に含まれる",
+  "limits": "design-system の story がある範囲のみ（story の無いコンポーネントは対象外＝story-coverage rubric が別途縛る）。重い。preflight tier=heavy 構成コマンドの形式化（ADR 0020）",
+  "fixtures": []
+}

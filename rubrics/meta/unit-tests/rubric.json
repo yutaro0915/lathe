@@ -2,7 +2,7 @@
   "schema_version": "2",
   "id": "meta/unit-tests",
   "title": "unit テストが緑 (pnpm test)",
-  "version": "1",
+  "version": "2",
   "scope": [
     "packages",
     "apps/web/lib",
@@ -18,11 +18,12 @@
       "severity": "blocker",
       "verify": {
         "kind": "cmd",
-        "metric": "count",
+        "metric": "measure",
         "tier": "test",
-        "cmd": "pnpm test",
-        "expect": "exit0",
-        "tolerance": "exit0 のみ GREEN。スイート全体を回す（変更分だけでない）。e2e は別 rubric。"
+        "verifier": "unit-tests",
+        "channel": "exit",
+        "expect": "eq:0",
+        "tolerance": "exit code 0 のみ GREEN（旧 exit0 と等価・ADR 0020 で named verifier へ）。スイート全体を回す（変更分だけでない）。e2e は別 rubric。"
       },
       "evidence": "pnpm test の exit code（0=GREEN）。",
       "examples": {

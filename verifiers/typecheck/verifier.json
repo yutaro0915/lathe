@@ -1,0 +1,12 @@
+{
+  "id": "typecheck",
+  "version": "1",
+  "kind": "cmd",
+  "run": "pnpm -C apps/web exec tsc --noEmit 2>&1",
+  "produces": {
+    "exit": { "type": "measure", "means": "tsc --noEmit の終了コード（0=型エラーなし）", "source": "exit" }
+  },
+  "details": "型エラーの本文は run 出力に含まれる（receipt 表示用・判定には使わない）",
+  "limits": "型のみ（実行時挙動は unit-tests / e2e-runner が担保）。preflight tier=test 構成コマンドの形式化（ADR 0020、前線 D の選定層の下地）",
+  "fixtures": []
+}

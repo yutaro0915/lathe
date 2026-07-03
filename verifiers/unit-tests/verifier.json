@@ -1,0 +1,12 @@
+{
+  "id": "unit-tests",
+  "version": "1",
+  "kind": "cmd",
+  "run": "pnpm test 2>&1",
+  "produces": {
+    "exit": { "type": "measure", "means": "pnpm test（node --test 全スイート）の終了コード（0=全 pass）", "source": "exit" }
+  },
+  "details": "fail したテスト名は run 出力に含まれる（receipt 表示用・判定には使わない）",
+  "limits": "unit のみ（e2e は e2e-runner、実 DB 統合は scratch-integration）。worktree の module-not-found は playbook P3（未ビルド deps）を先に見る。preflight tier=test 構成コマンドの形式化（ADR 0020）",
+  "fixtures": []
+}

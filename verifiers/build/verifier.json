@@ -1,0 +1,12 @@
+{
+  "id": "build",
+  "version": "1",
+  "kind": "cmd",
+  "run": "pnpm -C apps/web build 2>&1",
+  "produces": {
+    "exit": { "type": "measure", "means": "next build の終了コード（0=本番ビルド成功。型・静的生成・route 収集を含む）", "source": "exit" }
+  },
+  "details": "build エラーの本文は run 出力に含まれる",
+  "limits": "本番ビルドの成立のみ（描画の正しさは e2e-runner / storybook）。env 起因の失敗は playbook P2（依存入れ直し）で切り分ける。重い（heavy tier 相当）。preflight tier=heavy 構成コマンドの形式化（ADR 0020）",
+  "fixtures": []
+}

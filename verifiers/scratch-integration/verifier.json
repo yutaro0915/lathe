@@ -1,0 +1,12 @@
+{
+  "id": "scratch-integration",
+  "version": "1",
+  "kind": "cmd",
+  "run": "DATABASE_URL=postgres://lathe:lathe@localhost:55433/lathe pnpm -C apps/web run verify:incremental 2>&1",
+  "produces": {
+    "exit": { "type": "measure", "means": "verify:incremental の終了コード（0=増分 ingest の不変条件が実 DB で全 PASS）", "source": "exit" }
+  },
+  "details": "違反した invariant 名は run 出力に含まれる",
+  "limits": "scratch DB (55433) の起動が前提（消失時は playbook P5: schema.sql 適用＋ingest で修復）。実 DB 挙動のみ＝コードの静的検査は incremental-no-wipe rubric が担う。重い。preflight tier=heavy 構成コマンドの形式化（ADR 0020）",
+  "fixtures": []
+}
