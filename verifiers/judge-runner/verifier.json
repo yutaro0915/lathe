@@ -1,0 +1,18 @@
+{
+  "id": "judge-runner",
+  "version": "1",
+  "kind": "judge-runner",
+  "produces": {
+    "verdict": { "type": "verdict", "means": "judge の違反数判定（VERDICT:<整数> の最終行。evalExpect で expect と照合）" }
+  },
+  "bindings": {
+    "standard": { "provider": "codex", "model": null }
+  },
+  "error_tolerance": "各 rubric の judge.prompt に明示された方針に従う（現行 3 judge は全て『迷ったら通す＝false RED で時間を奪わない』系）。runner 共通の下限: 判定不能・出力不形式は VERDICT 抽出失敗として安全側 RED（silent GREEN にしない）。",
+  "calibration": {
+    "standard": []
+  },
+  "details": "prompt / input_cmd は rubric 側が持つ（handoff §3 確定: runner は判定基準を持たない）。rubric の verify.class（省略時 standard）→ bindings で provider/model を解決。model: null は provider CLI の既定モデル＝2026-07-03 時点の現行挙動と同一。モデル世代交代は本 runner の版上げ＋再校正で行い rubric は不変（名前結合の原則）。新クラス（light 等）は実需時に追加＝固有名 pin は不採用。",
+  "limits": "非決定的判定（LLM judge）。校正 fixture（calibration.standard）は未整備＝導入時点では各 rubric の examples と過去の誤検出記録（例: no-needless-backward-compat の #31 3 連誤検出→696fd04 で prompt 精緻化）が事実上の ground truth。fixture 整備は Assurance 前線の関心。判定者=監査役・周期=誤検出の実発生時（定期校正は未導入）。",
+  "fixtures": []
+}

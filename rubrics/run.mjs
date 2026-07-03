@@ -33,6 +33,13 @@ function runVerifierOnce(id) {
   verifierCache.set(id, entry);
   return entry;
 }
+let judgeRunnerCfg = null;
+function judgeBinding(cls) {
+  if (!judgeRunnerCfg) judgeRunnerCfg = JSON.parse(readFileSync(join(VERIFIERS_DIR, 'judge-runner', 'verifier.json'), 'utf8'));
+  const b = (judgeRunnerCfg.bindings || {})[cls];
+  if (!b) throw new Error(`judge-runner に class "${cls}" の binding が無い（クラス語彙の不足＝runner に追加してから使う）`);
+  return b;
+}
 function findRubrics(dir) {
   const out = [];
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -94,7 +101,11 @@ for (const r of selected) {
           ? execSync(v.judge.input_cmd, { shell: '/bin/bash', encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1e7 })
           : '';
         const prompt = `${v.judge.prompt}\n\n--- 対象 ---\n${art}\n--- 指示 ---\n違反に当たるものの数を数え、最終行に必ず VERDICT:<整数> だけを出力しろ（前置き・説明は可だが最終行は VERDICT: 形式）。`;
-        const raw = execFileSync('codex', ['exec', '--skip-git-repo-check', prompt], { encoding: 'utf8', timeout: 180000, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1e7 });
+        // judge のモデル束縛は judge-runner が集約（要求クラス間接、ADR 0020）。class 省略時 standard。
+        const binding = judgeBinding(v.class ?? 'standard');
+        if (binding.provider !== 'codex') throw new Error(`judge-runner: provider "${binding.provider}" は未対応（v1 は codex のみ）`);
+        const judgeArgs = ['exec', '--skip-git-repo-check', ...(binding.model ? ['-m', binding.model] : []), prompt];
+        const raw = execFileSync('codex', judgeArgs, { encoding: 'utf8', timeout: 180000, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1e7 });
         const ms = raw.match(/VERDICT:\s*(-?\d+)/g);
         out = ms ? ms[ms.length - 1].replace(/VERDICT:\s*/, '') : (raw.trim().split('\n').pop() || '');
       } else {
