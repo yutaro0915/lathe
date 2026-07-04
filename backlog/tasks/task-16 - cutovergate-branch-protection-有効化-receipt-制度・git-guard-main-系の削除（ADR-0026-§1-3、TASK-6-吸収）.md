@@ -6,6 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-07-04 16:08'
+updated_date: '2026-07-04 17:31'
 labels: []
 milestone: m-18
 dependencies:
@@ -22,8 +23,20 @@ ordinal: 19000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 main への直接 push が origin で拒否される（設定内容が repo 内に文書化されている）
-- [ ] #2 receipt.mjs / lathe-receipts 参照 / 再スタンプ / backlog-only guard / git-guard main 系ルールが削除され、テストが GREEN
-- [ ] #3 review の verdict と本文が PR review としてサーバー側に残る
-- [ ] #4 inner-loop が task 1 件を新ゲートで完走する（live-fire）
+- [ ] #1 review の verdict と本文が PR review としてサーバー側に残る
+- [ ] #2 inner-loop が task 1 件を新ゲートで完走する（live-fire）
+- [ ] #3 inner-loop.mjs と merge.mjs が receipt を読まず書かず、review verdict+本文が PR review として投稿される（receipt.mjs ファイル自体は issue #76 の後続 task まで残置）
+- [ ] #4 markTaskDoneInWorktree の receipt 再スタンプと backlog-only guard が削除され、テストが追随して GREEN
 <!-- AC:END -->
+
+
+
+
+
+
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+PdM 裁定 2026-07-05（task-16 escalation 対応・スライス再構成）: (1) .claude/hooks/git-guard.mjs への変更は本スライスから除外（外部空間 = REVIEW blocker。監査役が issue #77 経由の別 PR で起草）。(2) scripts/receipt.mjs / receipt.test.mjs の物理削除も除外（bootstrap: 現行 driver が worktree の receipt.mjs で verdict を刻むため、削除すると driver 自身が crash — 本 run で実証。削除は issue #76 → 後続 task）。(3) 本スライスに残すもの = inner-loop.mjs / merge.mjs の receipt 脱使用（PR review 投稿への置換 — ただし ADR 0028 で required review 不採用、投稿は記録目的）+ markTaskDoneInWorktree の再スタンプ & backlog-only guard 削除 + /tmp reviewBody の finally 掃除。(4) branch protection 実施は issue #77 の最終手順へ移管。(5) 空洞完走の driver 欠陥は issue #78。前回 run は空洞完走検知により破棄済み・worktree/manifest 掃除済み・fresh 再走可。
+<!-- SECTION:NOTES:END -->
