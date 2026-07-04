@@ -1997,7 +1997,7 @@ test('markTaskDoneInWorktree: edits status, commits backlog/, then re-stamps rev
     if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
     if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
     if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-after-done\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\nbacklog/tasks/index.md\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\0backlog/tasks/index.md\0', stderr: '' };
     if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 0, stdout: '', stderr: '' };
     throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
   };
@@ -2017,7 +2017,7 @@ test('markTaskDoneInWorktree: edits status, commits backlog/, then re-stamps rev
   assert.match(commitCall.args.join(' '), /backlog: TASK-1\.2 -> Done/);
 
   const diffCall = calls.find((c) => c.cmd === 'git' && c.args[2] === 'diff');
-  assert.deepEqual(diffCall.args, ['-C', '/worktree/inner-task-1-2', 'diff', '--name-only', 'old-reviewed-sha..new-sha-after-done']);
+  assert.deepEqual(diffCall.args, ['-C', '/worktree/inner-task-1-2', 'diff', '--name-only', '-z', 'old-reviewed-sha..new-sha-after-done']);
 
   const receiptCalls = calls.filter((c) => c.cmd === 'node' && c.args[0] === 'scripts/receipt.mjs');
   assert.equal(receiptCalls.length, 2);
@@ -2057,7 +2057,7 @@ test('markTaskDoneInWorktree: non-backlog Done commit paths fail before receipt 
     if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
     if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
     if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-after-done\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\nscripts/inner-loop.mjs\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\0scripts/inner-loop.mjs\0', stderr: '' };
     if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 0, stdout: '', stderr: '' };
     throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
   };
@@ -2070,6 +2070,40 @@ test('markTaskDoneInWorktree: non-backlog Done commit paths fail before receipt 
   assert.equal(result.ok, false);
   assert.match(result.output, /scripts\/inner-loop\.mjs/);
   assert.equal(calls.some((c) => c.cmd === 'node' && c.args[0] === 'scripts/receipt.mjs'), false);
+});
+
+test('markTaskDoneInWorktree: non-ASCII backlog-only paths (em-dash, Japanese) in -z diff output are accepted', () => {
+  // Regression test: git's default --name-only quotes/octal-escapes non-ASCII
+  // paths (core.quotePath=true by default), which would make the quoted path
+  // fail startsWith('backlog/') and false-reject a legitimate backlog-only
+  // Done commit. This repo's task filenames routinely contain em-dash (—) and
+  // Japanese text, so this guard previously false-RED'd nearly every task.
+  // -z output is never quoted, so the NUL-split parse must accept this case.
+  const calls = [];
+  const nonAsciiPath1 = 'backlog/tasks/task-2 - featmeta-meta-loop-driver-—-SCOPE→PLAN.md';
+  const nonAsciiPath2 = 'backlog/tasks/task-3-日本語タスク名.md';
+  const fakeSpawnSync = (cmd, args) => {
+    calls.push({ cmd, args });
+    if (cmd === 'fake-backlog') return { status: 0, stdout: 'task TASK-2 status -> Done\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-2.md\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-non-ascii\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: `${nonAsciiPath1}\0${nonAsciiPath2}\0`, stderr: '' };
+    if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 0, stdout: '', stderr: '' };
+    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
+  };
+
+  const result = markTaskDoneInWorktree('TASK-2', '/worktree/inner-task-2', 'old-reviewed-sha', {
+    spawnSync: fakeSpawnSync,
+    backlogBin: 'fake-backlog',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.headSha, 'new-sha-non-ascii');
+
+  const receiptCalls = calls.filter((c) => c.cmd === 'node' && c.args[0] === 'scripts/receipt.mjs');
+  assert.equal(receiptCalls.length, 2);
 });
 
 test('markTaskDoneInWorktree: backlog task edit failure short-circuits before any git call', () => {
@@ -2096,7 +2130,7 @@ test('markTaskDoneInWorktree: receipt re-stamp failure is reported (not silently
     if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
     if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
     if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\0', stderr: '' };
     if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 1, stdout: '', stderr: 'receipt.mjs: invalid sha' };
     throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
   };

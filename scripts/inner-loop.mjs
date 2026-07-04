@@ -1442,9 +1442,15 @@ export function markTaskDoneInWorktree(taskId, worktreePath, reviewedHeadSha, de
   const newHeadSha = headResult.status === 0 ? headResult.stdout.trim() : null;
   if (!newHeadSha) return { ok: false, output: 'could not determine worktree HEAD after status=Done commit' };
 
-  const diffResult = run('git', ['-C', worktreePath, 'diff', '--name-only', `${reviewedHeadSha}..${newHeadSha}`], { encoding: 'utf8' });
+  // -z: NUL-terminated output. git never quotes/octal-escapes paths under -z,
+  // unlike the default --name-only output which (with core.quotePath=true, the
+  // default) wraps non-ASCII paths in double quotes with octal escapes — that
+  // would make startsWith('backlog/') below false-reject legitimate backlog-only
+  // Done commits whenever a task filename contains non-ASCII bytes (Japanese
+  // text, em-dash, etc., which is the common case for this repo's task titles).
+  const diffResult = run('git', ['-C', worktreePath, 'diff', '--name-only', '-z', `${reviewedHeadSha}..${newHeadSha}`], { encoding: 'utf8' });
   if (diffResult.status !== 0) return { ok: false, output: `git diff Done commit paths failed: ${diffResult.stderr || diffResult.stdout}` };
-  const changedPaths = (diffResult.stdout ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const changedPaths = (diffResult.stdout ?? '').split('\0').map((line) => line.trim()).filter(Boolean);
   const nonBacklogPaths = changedPaths.filter((path) => !path.startsWith('backlog/'));
   if (nonBacklogPaths.length > 0) {
     return { ok: false, output: `Done commit contains non-backlog paths; refusing receipt re-stamp: ${nonBacklogPaths.join(', ')}` };
