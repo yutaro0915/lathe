@@ -4,10 +4,10 @@ title: 'Refactor: SessionViewer 本体を関心ごとの custom hook に分解'
 status: To Do
 assignee: []
 created_date: '2026-07-04 13:16'
-updated_date: '2026-07-04 14:56'
+updated_date: '2026-07-04 16:32'
 labels:
   - migrated
-milestone: m-18
+milestone: m-12
 dependencies: []
 references:
   - gh#21

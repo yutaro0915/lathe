@@ -4,12 +4,12 @@ title: Phase2-a 基盤 — manifest unit keying + ingest loopKind 'task'
 status: Done
 assignee: []
 created_date: '2026-07-04 10:45'
-updated_date: '2026-07-04 14:56'
+updated_date: '2026-07-04 16:38'
 labels:
   - phase-2
   - rewire
   - foundation
-milestone: m-18
+milestone: m-11
 dependencies: []
 references:
   - adr/0023-derived-runs-from-manifest.md
