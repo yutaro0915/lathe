@@ -1,10 +1,10 @@
 ---
 id: TASK-8
 title: 'test: expand unit coverage for mcp service + analyst analysis (pure seams)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 13:16'
-updated_date: '2026-07-04 14:56'
+updated_date: '2026-07-04 21:30'
 labels:
   - migrated
 milestone: m-18
