@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash, decideLock, splitCommitMessage, buildPrCreateArgs, buildPrMergeArgs, buildPrChecksWatchArgs, buildPrMergeFallbackArgs } from './merge.mjs';
+import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash, decideLock, splitCommitMessage, buildPrCreateArgs, buildPrMergeArgs, buildPrChecksWatchArgs, buildPrMergeFallbackArgs, checksNotRegistered, buildPrChecksArgs, waitForChecksRegistered } from './merge.mjs';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -373,4 +373,74 @@ test('buildPrMergeFallbackArgs: --squash flag is present', () => {
 test('buildPrMergeFallbackArgs: --delete-branch flag is present', () => {
   const args = buildPrMergeFallbackArgs({ branch: 'feat/foo' });
   assert.ok(args.includes('--delete-branch'), '--delete-branch must be present');
+});
+
+// --- checksNotRegistered ---
+
+test('checksNotRegistered: gh "no checks reported" stdout → true', () => {
+  assert.equal(checksNotRegistered({ stdout: "no checks reported on the 'inner/task-27' branch" }), true);
+});
+
+test('checksNotRegistered: case-insensitive match on stderr', () => {
+  assert.equal(checksNotRegistered({ stderr: 'No Checks Reported' }), true);
+});
+
+test('checksNotRegistered: check names in output → false', () => {
+  assert.equal(checksNotRegistered({ stdout: 'CI / test\tpass' }), false);
+});
+
+test('checksNotRegistered: empty output → false (checks are registered)', () => {
+  assert.equal(checksNotRegistered({ stdout: '', stderr: '' }), false);
+});
+
+// --- buildPrChecksArgs ---
+
+test('buildPrChecksArgs: returns [pr, checks, branch] without --watch', () => {
+  assert.deepEqual(buildPrChecksArgs({ branch: 'inner/task-27' }), ['pr', 'checks', 'inner/task-27']);
+});
+
+test('buildPrChecksArgs: does NOT include --watch', () => {
+  assert.ok(!buildPrChecksArgs({ branch: 'feat/foo' }).includes('--watch'));
+});
+
+// --- waitForChecksRegistered ---
+
+test('waitForChecksRegistered: no-checks → present after 2 retries → {registered:true}', async () => {
+  const noChecks = { status: 0, stdout: "no checks reported on the 'x' branch", stderr: '' };
+  const hasChecks = { status: 0, stdout: 'CI\tpass', stderr: '' };
+  const calls = [noChecks, noChecks, hasChecks];
+  let sleepCount = 0;
+  const result = await waitForChecksRegistered({
+    runChecks: () => calls.shift(),
+    sleep: async () => { sleepCount++; },
+    intervalMs: 0,
+    maxAttempts: 10,
+  });
+  assert.deepEqual(result, { registered: true });
+  assert.equal(sleepCount, 2);
+});
+
+test('waitForChecksRegistered: all no-checks → timedOut after maxAttempts', async () => {
+  const noChecks = { status: 0, stdout: "no checks reported on the 'x' branch", stderr: '' };
+  let sleepCount = 0;
+  const result = await waitForChecksRegistered({
+    runChecks: () => ({ ...noChecks }),
+    sleep: async () => { sleepCount++; },
+    intervalMs: 0,
+    maxAttempts: 3,
+  });
+  assert.deepEqual(result, { registered: false, timedOut: true });
+  assert.equal(sleepCount, 3);
+});
+
+test('waitForChecksRegistered: checks present immediately → {registered:true} with no sleep', async () => {
+  let sleepCount = 0;
+  const result = await waitForChecksRegistered({
+    runChecks: () => ({ status: 0, stdout: 'CI\tpass', stderr: '' }),
+    sleep: async () => { sleepCount++; },
+    intervalMs: 0,
+    maxAttempts: 5,
+  });
+  assert.deepEqual(result, { registered: true });
+  assert.equal(sleepCount, 0);
 });
