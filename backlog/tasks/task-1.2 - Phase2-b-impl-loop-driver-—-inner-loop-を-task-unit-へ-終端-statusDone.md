@@ -4,11 +4,12 @@ title: Phase2-b impl-loop driver — inner-loop を task unit へ + 終端 statu
 status: Done
 assignee: []
 created_date: '2026-07-04 10:45'
-updated_date: '2026-07-04 14:03'
+updated_date: '2026-07-04 14:56'
 labels:
   - phase-2
   - rewire
   - driver
+milestone: m-18
 dependencies:
   - TASK-1.1
 references:
