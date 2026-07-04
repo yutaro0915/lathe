@@ -1,10 +1,10 @@
 ---
 id: TASK-1.3
 title: Phase2-c inner-queue backlog移行 + plan-loop task化 + open issue 移送
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-04 10:45'
-updated_date: '2026-07-04 12:38'
+updated_date: '2026-07-04 13:18'
 labels:
   - phase-2
   - rewire

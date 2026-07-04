@@ -1,5 +1,7 @@
 # Agent Workflow — lathe の変更を回す開発フロー（正本）
 
+> **⚠ 実行単位の移行（2026-07-04・[ADR 0025](../adr/0025-task-substrate-backlog-md.md)）**: 開発の実行単位は **GitHub Issue → Backlog.md task** へ移行済み（Phase 2 完了、正本は `backlog/tasks/`）。本書中の「issue」は原則 **Backlog.md task** と読み替える（`node_modules/.bin/backlog task ...`／worktree `inner-task-<slug>`／manifest `.lathe/runs/task-<slug>.json`／ingest `loop_kind='task'`）。outer の「issue 化」は「`backlog task create`」、queue は `backlog sequence`、plan-loop の起票も task。**GitHub Issues は外部レポート窓口へ降格**（実行単位ではない）。残: 新 driver の live-fire e2e（AC#5）。
+
 > status: revised 2026-07-01（**outer loop / inner loop の二層**に整理。旧「OPUS」表記は**モデル名の役割への誤用**なので役割名へ改めた）
 > **二つのループ**（model ⟂ role。**opus はモデル名であって役割名ではない**＝ADR 0005 / 0009「agent をエンティティ化しない・runner/model は記録属性」）:
 > - **outer loop（監督の役割）**: Lathe で開発全体を **meta-audit（監視）→ 問題を issue 化 → inner loop へ渡す**。**rubric を管理**し、品質問題を rubric に落とす。inner からの**エスカレーション**（設計判断・詰まり）を rubric との関係で捌く。**実装・調査・review・verify・merge・grep はしない**。詳細分解（family: 感知診断=meta-loop / ACT / 前進 / 検証の 4 系統・meta-loop の to-be・監査プロファイル）は [outer-loop-family.md](./outer-loop-family.md)（2026-07-04）。
