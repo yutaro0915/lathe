@@ -48,3 +48,18 @@ outer 前進 loop・plan-loop（ISSUE_CREATE）・meta ACT 系は「issue を投
 2. intake driver の実装 task を起票（inner loop で実装。受付 issue の template / label 設計を含む）
 3. plan-loop / meta ACT 系の起票先切替（別 task・小粒）
 4. 移行完了までの暫定運用: 新規起票は**単一の outer セッションに限定**する（並行起票の自粛）
+
+## 追記（2026-07-05 PdM 裁定・登記の判断ゼロ化）
+
+初期実装（LLM routine による登記＋起票規律検査）を**廃止**し、登記を GitHub Action
+（`.github/workflows/intake.yml`・deterministic）に置換する。契機: routine が**実在しない
+テンプレの必須フィールド（priority）を発明**して #80 を却下した——判断する主体を
+機械的役割に置くと規則を発明する。変更点:
+
+- §2 の「起票規律検査 → 却下記録」を削除。**却下はしない**。priority・採否の triage は
+  PdM が backlog 盤面で行う（起票規律＝意味・効能の事前共有は、起票する**側**の規律のまま）
+- 単一 writer は Action の concurrency group で保証（PID lock を置換。「remote に信頼境界を
+  置く」ADR 0026 の原則が登記にも前倒しで実現）
+- issue form テンプレは必須でなくなった（Action は本文をそのまま写す）。TASK-19 は
+  duplicate-ID CI check のみへ再スコープ
+- 登記機械の自己制限: backlog/ 配下以外への書き込みを diff の機械検査（`-z`）で拒否

@@ -20,6 +20,7 @@
 | **rubric 管理（ACT）** | outer（監査役が起草） | 品質基準の欠落・誤り（多くは meta の finding 経由） | rubric / skill / 統治文書の改訂を**起草** | **改訂の起草 + ゲート経由の landing**（直接 main 書き込み特権は無い） | inner への起草委譲（外部空間の判断は inner に許されない） |
 | **感知（meta-loop）** | driver `scripts/meta-loop.mjs`（read-only） | cadence／escalation クラスタ／PdM 指示 | SCOPE→GROUND→DIAGNOSE→REPORT。§結果分類 13 行へ写像 | **finding + 判断記録**（`.lathe/meta/`）。起票・改訂は ACT 系へ渡す | 起票・rubric 更新・コード修正 |
 | **harness-hotfix（緊急路）** | outer（監査役）+ PdM | **gate 自体の故障**でループが回らない（例: guard の false-RED が全 task を止める） | 最小修正を起草する | **PdM の明示承認 → それでも生きているゲートは全て通す → 事後 incident 記録（ADR）付きの着地** | 承認なしの迂回・記録なしの着地 |
+| **intake（登記）** | GitHub Action（deterministic・単一 writer、ADR 0027 追記） | `task-request` label の到着 | issue を到着順に backlog task へ写す（判断ゼロ） | **task 起票（issue close＋task 参照）** | 却下・triage（PdM が盤面で行う）・実装・issue の実行単位化 |
 
 補足:
 - outer の終端に「実装」は**存在しない**。これが 2026-07-04 事故（ADR 0026 契機）の教訓。

@@ -4,7 +4,7 @@ title: intake 基盤の実装 — issue form テンプレ + duplicate-ID CI chec
 status: To Do
 assignee: []
 created_date: '2026-07-04 17:07'
-updated_date: '2026-07-04 17:07'
+updated_date: '2026-07-04 18:02'
 labels:
   - loop
   - intake
@@ -25,9 +25,12 @@ ADR 0027（accepted・PR #67）の intake loop を稼働させる repo 側の実
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 .github/ISSUE_TEMPLATE/task-request.yml（issue form・必須: 目的/意味・効能=PdM 共有の参照/AC/labels/priority/deps・label task-request 自動付与）
-- [ ] #2 CI に duplicate-task-ID check（backlog/tasks 内の ID 重複で RED。並走 intake PR の再採番を機械強制）
-- [ ] #3 design/loops.md に intake loop の行を追加（ADR 0027 §4 の表・loop 追加承認は ADR が兼ねる）
-- [ ] #4 design/runbooks/ に intake 運用（routine の指示文正本・フィルター/権限/model=haiku の設定記録）
-- [ ] #5 起票元の切替は別 task（plan-loop / meta ACT の issue 投函化）＝本 task のスコープ外
+- [ ] #1 CI に duplicate-task-ID check（backlog/tasks 内の ID 重複で RED。並走 intake PR の再採番を機械強制）
+- [ ] #2 起票元の切替は別 task（plan-loop / meta ACT の issue 投函化）＝本 task のスコープ外
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+再スコープ（ADR 0027 追記・2026-07-05 PdM 裁定）: 登記は LLM routine から GitHub Action（.github/workflows/intake.yml・判断ゼロ）に置換済み。issue form テンプレ・routine 指示文正本・loops.md 行は不要化/実施済み（feat/intake-action PR）。残スコープ = duplicate-task-ID CI check のみ。
+<!-- SECTION:NOTES:END -->
