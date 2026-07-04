@@ -1,0 +1,21 @@
+{
+  "id": "run-health",
+  "version": "1",
+  "target": "inner / plan loop の運行の健全性",
+  "grounding": [
+    "mcp:list_runs",
+    "mcp:get_run",
+    "mcp:list_sessions",
+    "file:.lathe/runs/*.json",
+    "file:.lathe/runs/*.escalation.md"
+  ],
+  "questions": [
+    "escalation の率と再発パターン（同型の escalation が繰り返していないか）",
+    "差し戻し cycle の分布（REVIEW CHANGES → IMPLEMENT の往復が多い issue はどれか）",
+    "invalid（判定不能）の頻度と帰属（harness 起因が集中していないか）",
+    "stage cost / duration の逸脱（特定 stage・backend が異常に高くないか）"
+  ],
+  "cadence": "10 run ごと、または escalation が 3 連続でクラスタした時",
+  "depth_budget": "suspect 上限 5・fan-out 上限 4",
+  "notes": "cost 監査はここに畳む（独立プロファイルにしない）。自己適用: manifest の loop_kind=meta が ingest されれば、meta-loop 自身の run もこのプロファイルの監査対象になる。ADR 0024。"
+}

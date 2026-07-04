@@ -1,0 +1,20 @@
+{
+  "id": "gate-effectiveness",
+  "version": "1",
+  "target": "rubric / verifier / eval の効き（正しさの検査機構が仕事をしているか）",
+  "grounding": [
+    "cmd:node rubrics/bindings/lint.mjs --report",
+    "cmd:node rubrics/run.mjs --changed <paths>",
+    "file:.git/lathe-receipts/*.json",
+    "mcp:query_findings"
+  ],
+  "questions": [
+    "false GREEN は無いか（通っているが通るべきでない変更・検査の穴）",
+    "false RED / judge 誤検出は無いか（正しい成果物が却下されている・judge の校正ずれ）",
+    "版見直し待ちキュー（bindings --report の stale）と宙に浮き rubric の棚卸し",
+    "reactive に太った schema・重複した記録（例: #63 manifest の telemetry 重複）は無いか"
+  ],
+  "cadence": "rubric / verifier / eval の改訂後、または週次",
+  "depth_budget": "suspect 上限 5・fan-out 上限 4",
+  "notes": "judge 型 verifier のサンプリング人間監査（校正ずれの検出）を含む。stale queue の消化はここの定常項目（meta-audit の sweep に癒着させない・cadence 独立）。ADR 0024。"
+}
