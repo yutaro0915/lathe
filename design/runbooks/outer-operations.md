@@ -61,7 +61,15 @@ worktree 実装者の「GREEN」報告を鵜呑みにしない。実測での誤
 - 背景: 2026-06-30 の data-loss 事故。ingest 履歴 DB は再生成不能な実行記録であり、
   rubric 上も「実行記録ファイル一般」の exemption（judge 誤検出 #31/#60 の裁定）が対応する。
 
-## 5. 本 runbook の変更
+## 5. intake（task の起票方法）
+
+新規 task の発行は **GitHub Issue に `task-request` label を付ける**だけ（ADR 0027 追記）。
+`.github/workflows/intake.yml` が到着順に backlog task へ写し、issue を close する。
+却下は無い——priority（label `p0-urgent`/`p1-high`/`p3-low`、無指定は medium）や採否の
+triage は PdM が backlog 盤面で行う。`backlog task create` を直接呼ばない
+（登記の単一 writer は Action。ID 衝突の再発防止）。
+
+## 6. 本 runbook の変更
 
 統治文書（外部空間）。改訂の起草は監査役、landing はゲート経由（ADR 0026 §3）。
 セッション外 memory への書き込み・参照は行わない（同 §4）。
