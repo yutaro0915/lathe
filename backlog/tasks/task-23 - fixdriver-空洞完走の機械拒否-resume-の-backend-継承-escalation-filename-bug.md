@@ -1,9 +1,10 @@
 ---
 id: TASK-23
 title: 'fix(driver): 空洞完走の機械拒否 + resume の backend 継承 + escalation filename bug'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 18:06'
+updated_date: '2026-07-04 19:24'
 labels: []
 dependencies: []
 priority: medium
