@@ -19,6 +19,17 @@ outer が代わりに完走する」という状態は定義に無い**（終端
 **PdM 裁定**: 3 commit は内容検証済み（unit / rubric gate / driver の REVIEW:PASS・VERIFY:GREEN）
 につき今回限り受理する。**非前例**であり、本 ADR を引いて同種の迂回を正当化することはできない。
 
+**追記（2026-07-05 PdM 裁定・同型事例の受理）**: 並行していた別 outer セッション（ADR 0025
+task 基盤移行）でも同型の事例があった——task ベース driver が未完成な bootstrap 期に、outer が
+実装を worktree 委譲で編成し、**receipt を outer 自身が発行**（`LATHE_AGENT=reviewer|verifier`
+を指定して subagent の verdict を代理スタンプ）して merge.mjs で着地した 4 commit
+（3df418b / b3d0261 / 4c86650 / b89524b）。独立 review/verify agent の verdict・gate GREEN は
+揃っており内容検証済みだが、loops.md の物差しでは「outer による代行完走」＋§2(a) の自己申告
+attestation に該当する。**内容検証済みにつき今回限り受理・同じく非前例**。receipt の代理発行が
+正規フローで可能だった事実は、§2「attestation は信用できない」の追加証拠である（同セッションの
+task-13 走行では、IMPLEMENT が commit ゼロで IMPL_DONE を宣言し REVIEW が空 diff に PASS の
+receipt を発行する事例も観測された）。
+
 ## 決定
 
 ### 0. 原則: シンプルに
