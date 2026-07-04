@@ -18,6 +18,7 @@
 //   node tools/wbs.mjs task status <id> <status>
 
 import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import {
   existsSync,
   mkdirSync,
@@ -34,12 +35,17 @@ const __dirname = dirname(__filename);
 const REPO_ROOT = dirname(__dirname);
 
 export const DEFAULT_TASKS_PATH = join(REPO_ROOT, '.lathe', 'wbs', 'tasks.json');
+export const DEFAULT_SERVE_PORT = 7787;
 
 const RECENT_DONE_LIMIT = 12;
 const TITLE_MAX = 72;
 const SUMMARY_MAX = 140;
 const UNPHASED = 'Unphased';
 const TASK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const DEFAULT_HTMX_PATH = join(__dirname, 'htmx.min.js');
+const DEFAULT_GITHUB_REPO_URL = 'https://github.com/yutaro0915/lathe';
+const DEFAULT_CACHE_TTL_MS = 20_000;
+const BOARD_POLL_INTERVAL_SECONDS = 30;
 
 const SECTION_DEFS = [
   ['running', 'RUNNING', 'running'],
@@ -687,12 +693,485 @@ export function renderTaskList(store) {
   return lines.join('\n');
 }
 
+// --- serve mode -----------------------------------------------------------
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
+function sectionCssClass(sectionKey) {
+  return sectionKey.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
+
+function encodePathSegment(value) {
+  return encodeURIComponent(String(value ?? ''));
+}
+
+function renderPage(classification, options = {}) {
+  return [
+    '<!doctype html>',
+    '<html lang="ja">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<title>Lathe WBS</title>',
+    '<script src="/htmx.min.js"></script>',
+    `<style>${renderServeCss()}</style>`,
+    '</head>',
+    '<body>',
+    '<header class="topbar">',
+    '<div>',
+    '<h1>Lathe WBS</h1>',
+    '</div>',
+    '</header>',
+    '<main class="layout">',
+    renderTaskForm(),
+    renderBoardHtml(classification, options),
+    '</main>',
+    '</body>',
+    '</html>',
+  ].join('\n');
+}
+
+function renderServeCss() {
+  return `
+:root {
+  color-scheme: light;
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --text: #1c2430;
+  --muted: #667085;
+  --line: #d7dde6;
+  --running: #0f766e;
+  --approval: #9a3412;
+  --ready: #2563eb;
+  --wait: #a16207;
+  --plan: #7c3aed;
+  --unqueued: #475569;
+  --done: #15803d;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+a { color: #155eef; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.topbar {
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+  padding: 16px 20px;
+}
+.topbar h1 { margin: 0; font-size: 22px; }
+.layout {
+  display: grid;
+  gap: 16px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.task-form, .board {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+.task-form h2, .phase h2 { margin: 0 0 12px; font-size: 16px; }
+.task-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(220px, 2fr) minmax(180px, 1.3fr) minmax(180px, 1.3fr) minmax(140px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+  background: #ffffff;
+}
+button {
+  min-height: 32px;
+  border: 1px solid #b9c2d0;
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover { background: #eef2f7; }
+.primary {
+  border-color: #155eef;
+  background: #155eef;
+  color: #ffffff;
+}
+.primary:hover { background: #0f4bc7; }
+.totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.pill--running { color: var(--running); }
+.pill--pending-approval { color: var(--approval); }
+.pill--ready { color: var(--ready); }
+.pill--wait-dep { color: var(--wait); }
+.pill--needs-plan { color: var(--plan); }
+.pill--unqueued { color: var(--unqueued); }
+.pill--done-recent { color: var(--done); }
+.phase {
+  border-top: 2px solid #c7d2fe;
+  padding-top: 12px;
+  margin-top: 14px;
+}
+.phase:first-of-type { margin-top: 0; }
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.lane {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 76px;
+  background: #fbfcfe;
+}
+.lane h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.lane--running h3 { color: var(--running); }
+.lane--pending-approval h3 { color: var(--approval); }
+.lane--ready h3 { color: var(--ready); }
+.lane--wait-dep h3 { color: var(--wait); }
+.lane--needs-plan h3 { color: var(--plan); }
+.lane--unqueued h3 { color: var(--unqueued); }
+.lane--done-recent h3 { color: var(--done); }
+.empty { margin: 10px; color: var(--muted); }
+.item {
+  margin: 8px;
+  padding: 9px;
+  border: 1px solid #e2e8f0;
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.item--issue { border-left-color: #64748b; }
+.item--task { border-left-color: #155eef; }
+.item-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-weight: 700;
+}
+.item-ref { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.summary { margin: 6px 0 0; color: #344054; }
+.meta { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.task-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.task-actions form { margin: 0; }
+@media (max-width: 820px) {
+  .task-grid { grid-template-columns: 1fr; }
+  .layout { padding: 10px; }
+}
+`;
+}
+
+function renderTaskForm() {
+  return [
+    '<section class="task-form">',
+    '<h2>Local task</h2>',
+    '<form class="task-grid" hx-post="/tasks" hx-target="#wbs-board" hx-swap="outerHTML">',
+    '<label>ID<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="tool-ui"></label>',
+    '<label>Title<input name="title" required placeholder="Build WBS serve mode"></label>',
+    '<label>Description<input name="description" placeholder="Short plain-language note"></label>',
+    '<label>Phase<input name="phase" placeholder="Phase 2: AI analysis"></label>',
+    '<label>Depends<input name="depends" placeholder="#21 task:foo"></label>',
+    '<button class="primary" type="submit">Add</button>',
+    '</form>',
+    '</section>',
+  ].join('\n');
+}
+
+export function renderBoardHtml(classification, options = {}) {
+  const phases = Array.isArray(classification?.phases) ? classification.phases : [];
+  const totals = classification?.totals ?? totalsFor(classification ?? emptyFlatSections());
+  const githubRepoUrl = String(options.githubRepoUrl ?? DEFAULT_GITHUB_REPO_URL).replace(/\/+$/, '');
+  const phaseBlocks = phases.length > 0
+    ? phases.map((phase) => renderPhaseHtml(phase, githubRepoUrl)).join('\n')
+    : renderPhaseHtml({ phase: UNPHASED, sections: emptyFlatSections() }, githubRepoUrl);
+
+  return [
+    `<section id="wbs-board" class="board" hx-get="/board" hx-trigger="every ${BOARD_POLL_INTERVAL_SECONDS}s" hx-swap="outerHTML">`,
+    renderTotalsHtml(totals),
+    phaseBlocks,
+    '</section>',
+  ].join('\n');
+}
+
+function renderTotalsHtml(totals) {
+  const pills = SECTION_DEFS.map(([key, title]) => {
+    const klass = sectionCssClass(key);
+    return `<span class="pill pill--${klass}">${escapeHtml(title)} ${Number(totals[key] ?? 0)}</span>`;
+  });
+  return `<div class="totals">${pills.join('')}</div>`;
+}
+
+function renderPhaseHtml(phase, githubRepoUrl) {
+  const lanes = SECTION_DEFS.map(([sectionKey, title]) => (
+    renderLaneHtml(sectionKey, title, phase.sections?.[sectionKey] ?? [], githubRepoUrl)
+  )).join('\n');
+  return [
+    '<section class="phase">',
+    `<h2>Phase: ${escapeHtml(phase.phase)}</h2>`,
+    `<div class="lanes">${lanes}</div>`,
+    '</section>',
+  ].join('\n');
+}
+
+function renderLaneHtml(sectionKey, title, rows, githubRepoUrl) {
+  const klass = sectionCssClass(sectionKey);
+  const body = rows.length === 0
+    ? '<p class="empty">(none)</p>'
+    : rows.map((item) => renderItemHtml(item, githubRepoUrl)).join('\n');
+  return [
+    `<section class="lane lane--${klass}">`,
+    `<h3><span>${escapeHtml(title)}</span><span>${rows.length}</span></h3>`,
+    body,
+    '</section>',
+  ].join('\n');
+}
+
+function renderItemHtml(item, githubRepoUrl) {
+  const ref = item.kind === 'issue'
+    ? `<a class="item-ref" href="${escapeAttr(githubRepoUrl)}/issues/${Number(item.number)}" target="_blank" rel="noreferrer">issue:${Number(item.number)}</a>`
+    : `<span class="item-ref">task:${escapeHtml(item.id)}</span>`;
+  const metadata = itemMetadata(item);
+  return [
+    `<article class="item item--${escapeAttr(item.kind)}">`,
+    `<div class="item-title">${ref}<span>${escapeHtml(truncateTitle(item.title))}</span></div>`,
+    item.summary ? `<p class="summary">つまり: ${escapeHtml(truncateText(item.summary, SUMMARY_MAX))}</p>` : '',
+    metadata ? `<p class="meta">${escapeHtml(metadata)}</p>` : '',
+    item.kind === 'task' ? renderTaskStatusForms(item) : '',
+    '</article>',
+  ].filter(Boolean).join('\n');
+}
+
+function itemMetadata(item) {
+  const extras = [];
+  if (item.kind === 'task') extras.push(`status: ${item.status}`);
+  if (item.worktreePath) extras.push(`worktree: ${basename(item.worktreePath)}`);
+  if (!item.worktreePath && item.manifest) extras.push('manifest open');
+  if (Array.isArray(item.waitingOn) && item.waitingOn.length > 0) extras.push(`依存: ${item.waitingOn.join(', ')}`);
+  return extras.join(' / ');
+}
+
+function renderTaskStatusForms(item) {
+  return [
+    '<div class="task-actions">',
+    ...['todo', 'doing', 'done'].map((status) => [
+      `<form hx-post="/tasks/${encodePathSegment(item.id)}/status" hx-target="#wbs-board" hx-swap="outerHTML">`,
+      `<input type="hidden" name="status" value="${status}">`,
+      `<button type="submit"${item.status === status ? ' disabled' : ''}>${status}</button>`,
+      '</form>',
+    ].join('')),
+    '</div>',
+  ].join('\n');
+}
+
+function createCachedSnapshotReader(options = {}) {
+  const taskFilePath = options.taskFilePath ?? DEFAULT_TASKS_PATH;
+  const cacheTtlMs = Number.isFinite(options.cacheTtlMs) ? Math.max(0, options.cacheTtlMs) : DEFAULT_CACHE_TTL_MS;
+  const nowMs = options.nowMs ?? (() => Date.now());
+  const issuesProvider = options.issuesProvider ?? fetchIssues;
+  const worktreeProvider = options.worktreeProvider ?? (() => parseRunningWorktrees(fetchWorktreeListing()));
+  const manifestsProvider = options.manifestsProvider ?? (() => readRunManifests(join(REPO_ROOT, '.lathe', 'runs')));
+  let cached = null;
+
+  return async function readSnapshot({ forceRefresh = false } = {}) {
+    const now = nowMs();
+    if (forceRefresh || cached == null || now >= cached.expiresAt) {
+      cached = {
+        issues: await Promise.resolve(issuesProvider()),
+        runningWorktrees: await Promise.resolve(worktreeProvider()),
+        manifests: await Promise.resolve(manifestsProvider()),
+        expiresAt: now + cacheTtlMs,
+      };
+    }
+
+    const localTasks = loadTaskStore(taskFilePath).tasks;
+    return classifyItems({
+      issues: cached.issues,
+      localTasks,
+      runningWorktrees: cached.runningWorktrees,
+      manifests: cached.manifests,
+    });
+  };
+}
+
+async function readForm(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 64 * 1024) throw Object.assign(new Error('request body too large'), { statusCode: 413 });
+    chunks.push(chunk);
+  }
+  return new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
+}
+
+function writeResponse(res, statusCode, body, contentType) {
+  res.writeHead(statusCode, {
+    'content-type': contentType,
+    'cache-control': 'no-store',
+  });
+  res.end(body);
+}
+
+function writeHtml(res, body, statusCode = 200) {
+  writeResponse(res, statusCode, body, 'text/html; charset=utf-8');
+}
+
+function writeText(res, body, statusCode = 200) {
+  writeResponse(res, statusCode, body, 'text/plain; charset=utf-8');
+}
+
+function writeMethodNotAllowed(res) {
+  writeText(res, 'method not allowed\n', 405);
+}
+
+function handleServeError(res, err) {
+  const statusCode = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
+  const message = err instanceof Error ? err.message : String(err);
+  writeHtml(res, `<section class="board"><p class="summary"><strong>error:</strong> ${escapeHtml(message)}</p></section>`, statusCode);
+}
+
+export function createWbsRequestHandler(options = {}) {
+  const taskFilePath = options.taskFilePath ?? DEFAULT_TASKS_PATH;
+  const htmxPath = options.htmxPath ?? DEFAULT_HTMX_PATH;
+  const githubRepoUrl = options.githubRepoUrl ?? DEFAULT_GITHUB_REPO_URL;
+  const readSnapshot = createCachedSnapshotReader({ ...options, taskFilePath });
+
+  return async function wbsRequestHandler(req, res) {
+    try {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+
+      if ((req.method === 'GET' || req.method === 'HEAD') && url.pathname === '/htmx.min.js') {
+        writeResponse(res, 200, req.method === 'HEAD' ? '' : readFileSync(htmxPath, 'utf8'), 'text/javascript; charset=utf-8');
+        return;
+      }
+
+      if (req.method === 'GET' && url.pathname === '/') {
+        const classification = await readSnapshot();
+        writeHtml(res, renderPage(classification, { githubRepoUrl }));
+        return;
+      }
+
+      if (req.method === 'GET' && url.pathname === '/board') {
+        const classification = await readSnapshot();
+        writeHtml(res, renderBoardHtml(classification, { githubRepoUrl }));
+        return;
+      }
+
+      if (url.pathname === '/tasks' && req.method !== 'POST') {
+        writeMethodNotAllowed(res);
+        return;
+      }
+
+      if (req.method === 'POST' && url.pathname === '/tasks') {
+        const form = await readForm(req);
+        const next = addLocalTask(loadTaskStore(taskFilePath), {
+          id: form.get('id'),
+          title: form.get('title'),
+          description: form.get('description') ?? '',
+          phase: form.get('phase') ?? null,
+          deps: [form.get('depends') ?? ''],
+          status: 'todo',
+        });
+        saveTaskStore(taskFilePath, next);
+        const classification = await readSnapshot();
+        writeHtml(res, renderBoardHtml(classification, { githubRepoUrl }));
+        return;
+      }
+
+      const statusMatch = url.pathname.match(/^\/tasks\/([^/]+)\/status$/);
+      if (statusMatch) {
+        if (req.method !== 'POST') {
+          writeMethodNotAllowed(res);
+          return;
+        }
+        const id = decodeURIComponent(statusMatch[1]);
+        const form = await readForm(req);
+        const status = form.get('status');
+        const next = setLocalTaskStatus(loadTaskStore(taskFilePath), id, status);
+        saveTaskStore(taskFilePath, next);
+        const classification = await readSnapshot();
+        writeHtml(res, renderBoardHtml(classification, { githubRepoUrl }));
+        return;
+      }
+
+      writeText(res, 'not found\n', 404);
+    } catch (err) {
+      handleServeError(res, err);
+    }
+  };
+}
+
+export async function startWbsServer(options = {}) {
+  const port = options.port ?? DEFAULT_SERVE_PORT;
+  const host = '127.0.0.1';
+  const handler = options.handler ?? createWbsRequestHandler(options);
+  const server = createServer(handler);
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  return {
+    server,
+    host,
+    port: address.port,
+    url: `http://${host}:${address.port}`,
+  };
+}
+
 // --- CLI ------------------------------------------------------------------
 
 function usage() {
   return [
     'usage:',
     '  node tools/wbs.mjs [--json] [--tasks <path>]',
+    '  node tools/wbs.mjs serve [--port <n>]',
     '  node tools/wbs.mjs task list [--json] [--file <path>]',
     '  node tools/wbs.mjs task add <id> --title <title> [--desc <text>] [--status <status>] [--phase <phase>] [--depends <refs>] [--file <path>]',
     '  node tools/wbs.mjs task status <id> <status> [--file <path>]',
@@ -807,9 +1286,48 @@ function parseBoardArgs(argv) {
   return { asJson: Boolean(opts.json), tasksFilePath: taskFileFrom(opts) };
 }
 
-function main(argv) {
+function parseServeArgs(argv) {
+  const opts = { port: DEFAULT_SERVE_PORT };
+  for (let i = 0; i < argv.length;) {
+    const arg = argv[i];
+    if (arg === '--help' || arg === 'help') {
+      opts.help = true;
+      i += 1;
+      continue;
+    }
+    if (arg === '--port' || arg.startsWith('--port=')) {
+      const { value, nextIndex } = readFlagValue(argv, i, arg);
+      const port = Number(value);
+      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`invalid port: ${value}`);
+      opts.port = port;
+      i = nextIndex;
+      continue;
+    }
+    throw new Error(`unknown serve argument: ${arg}`);
+  }
+  return opts;
+}
+
+async function runServeCommand(argv, streams = {}) {
+  const stdout = streams.stdout ?? process.stdout;
+  const opts = parseServeArgs(argv);
+  if (opts.help) {
+    stdout.write(`${usage()}\n`);
+    return null;
+  }
+  const started = await startWbsServer({ port: opts.port });
+  stdout.write(`wbs serve: ${started.url}\n`);
+  return started;
+}
+
+async function main(argv) {
   if (argv[0] === 'task') {
     runTaskCommand(argv.slice(1));
+    return;
+  }
+
+  if (argv[0] === 'serve') {
+    await runServeCommand(argv.slice(1));
     return;
   }
 
@@ -830,11 +1348,9 @@ function main(argv) {
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
-  try {
-    main(process.argv.slice(2));
-  } catch (err) {
+  main(process.argv.slice(2)).catch((err) => {
     process.stderr.write(`wbs: ${err instanceof Error ? err.message : String(err)}\n`);
     process.stderr.write(`${usage()}\n`);
     process.exit(1);
-  }
+  });
 }

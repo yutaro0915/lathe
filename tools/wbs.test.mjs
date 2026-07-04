@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,12 +8,14 @@ import { tmpdir } from 'node:os';
 import {
   addLocalTask,
   classifyItems,
+  createWbsRequestHandler,
   createEmptyTaskStore,
   loadTaskStore,
   parseDependencyRefs,
   renderBoard,
   saveTaskStore,
   setLocalTaskStatus,
+  startWbsServer,
   toJson,
 } from './wbs.mjs';
 
@@ -30,6 +33,20 @@ function issue(number, title, overrides = {}) {
     milestone: null,
     ...overrides,
   };
+}
+
+async function withTestServer(handler, callback) {
+  const server = createServer(handler);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    return await callback(baseUrl, server);
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((err) => (err ? reject(err) : resolve()));
+    });
+  }
 }
 
 test('task store: missing file loads empty and save creates .lathe/wbs/tasks.json', () => {
@@ -210,4 +227,169 @@ test('renderBoard: groups items by phase and displays plain-language summaries',
   const json = toJson(classified);
   assert.equal(json.phases[0].sections.ready[0].kind, 'task');
   assert.equal(json.phases[0].sections.needs_plan[0].kind, 'issue');
+});
+
+test('serve: renders an htmx-backed HTML board with phase groups and local htmx asset', async () => {
+  const path = tmpStorePath();
+  try {
+    saveTaskStore(path, {
+      version: 1,
+      tasks: [
+        {
+          id: 'phase2',
+          title: 'Phase 2 umbrella',
+          description: 'Track the phase before GitHub issues exist.',
+          status: 'todo',
+          phase: 'Phase 2: AI analysis',
+          deps: [],
+        },
+      ],
+    });
+
+    const handler = createWbsRequestHandler({
+      taskFilePath: path,
+      cacheTtlMs: 60_000,
+      issuesProvider: () => [
+        issue(21, 'Plan analyst engine', {
+          labels: [{ name: 'needs-plan' }],
+          body: 'Draft the analyst engine before implementation.',
+          milestone: { title: 'Phase 2: AI analysis' },
+        }),
+      ],
+      worktreeProvider: () => new Map(),
+      manifestsProvider: () => new Map(),
+    });
+
+    await withTestServer(handler, async (baseUrl) => {
+      const page = await fetch(`${baseUrl}/`);
+      assert.equal(page.status, 200);
+      assert.match(page.headers.get('content-type'), /text\/html/);
+      const html = await page.text();
+      assert.match(html, /<script src="\/htmx\.min\.js"><\/script>/);
+      assert.match(html, /hx-get="\/board"/);
+      assert.match(html, /Phase 2: AI analysis/);
+      assert.match(html, /READY/);
+      assert.match(html, /NEEDS-PLAN/);
+      assert.match(html, /つまり: Track the phase before GitHub issues exist\./);
+      assert.match(html, /href="https:\/\/github\.com\/yutaro0915\/lathe\/issues\/21"/);
+
+      const htmx = await fetch(`${baseUrl}/htmx.min.js`);
+      assert.equal(htmx.status, 200);
+      assert.match(htmx.headers.get('content-type'), /javascript/);
+      assert.match(await htmx.text(), /htmx/i);
+
+      const htmxHead = await fetch(`${baseUrl}/htmx.min.js`, { method: 'HEAD' });
+      assert.equal(htmxHead.status, 200);
+      assert.match(htmxHead.headers.get('content-type'), /javascript/);
+    });
+  } finally {
+    rmSync(join(path, '..', '..', '..'), { recursive: true, force: true });
+  }
+});
+
+test('serve: adds a local task and updates status without writing to GitHub', async () => {
+  const path = tmpStorePath();
+  let issuesReads = 0;
+  try {
+    const handler = createWbsRequestHandler({
+      taskFilePath: path,
+      cacheTtlMs: 60_000,
+      issuesProvider: () => {
+        issuesReads += 1;
+        return [
+          issue(31, 'Plan next slice', {
+            labels: [{ name: 'needs-plan' }],
+            body: 'Create the plan before implementation.',
+            milestone: { title: 'Phase 2: AI analysis' },
+          }),
+        ];
+      },
+      worktreeProvider: () => new Map(),
+      manifestsProvider: () => new Map(),
+    });
+
+    await withTestServer(handler, async (baseUrl) => {
+      const add = await fetch(`${baseUrl}/tasks`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          id: 'web-ui',
+          title: 'Wire WBS UI',
+          description: 'Expose local task edits through serve mode.',
+          phase: 'Phase 2: AI analysis',
+          depends: '',
+        }),
+      });
+      assert.equal(add.status, 200);
+      assert.match(await add.text(), /task:web-ui/);
+      assert.equal(loadTaskStore(path).tasks[0].status, 'todo');
+
+      const doing = await fetch(`${baseUrl}/tasks/web-ui/status`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ status: 'doing' }),
+      });
+      assert.equal(doing.status, 200);
+      assert.match(await doing.text(), /RUNNING 1/);
+      assert.equal(loadTaskStore(path).tasks[0].status, 'doing');
+
+      const done = await fetch(`${baseUrl}/tasks/web-ui/status`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ status: 'done' }),
+      });
+      assert.equal(done.status, 200);
+      assert.match(await done.text(), /DONE \(recent\) 1/);
+      assert.equal(loadTaskStore(path).tasks[0].status, 'done');
+    });
+
+    assert.equal(issuesReads, 1);
+  } finally {
+    rmSync(join(path, '..', '..', '..'), { recursive: true, force: true });
+  }
+});
+
+test('serve: reuses cached issue data across board polls within the TTL', async () => {
+  const path = tmpStorePath();
+  let issuesReads = 0;
+  try {
+    const handler = createWbsRequestHandler({
+      taskFilePath: path,
+      cacheTtlMs: 60_000,
+      issuesProvider: () => {
+        issuesReads += 1;
+        return [issue(44, 'Cached issue', { labels: [{ name: 'inner-loop' }], body: 'Depends-on: none' })];
+      },
+      worktreeProvider: () => new Map(),
+      manifestsProvider: () => new Map(),
+    });
+
+    await withTestServer(handler, async (baseUrl) => {
+      assert.equal((await fetch(`${baseUrl}/board`)).status, 200);
+      assert.equal((await fetch(`${baseUrl}/board`)).status, 200);
+    });
+
+    assert.equal(issuesReads, 1);
+  } finally {
+    rmSync(join(path, '..', '..', '..'), { recursive: true, force: true });
+  }
+});
+
+test('serve: startWbsServer binds only to 127.0.0.1', async () => {
+  const started = await startWbsServer({
+    port: 0,
+    handler: (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    },
+  });
+  try {
+    assert.equal(started.host, '127.0.0.1');
+    assert.equal(started.server.address().address, '127.0.0.1');
+    assert.equal((await fetch(`${started.url}/`)).status, 200);
+  } finally {
+    await new Promise((resolve, reject) => {
+      started.server.close((err) => (err ? reject(err) : resolve()));
+    });
+  }
 });
