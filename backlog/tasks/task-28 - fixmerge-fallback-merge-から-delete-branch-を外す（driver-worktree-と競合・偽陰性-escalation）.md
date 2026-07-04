@@ -3,9 +3,10 @@ id: TASK-28
 title: >-
   fix(merge): fallback merge から --delete-branch を外す（driver worktree と競合・偽陰性
   escalation）
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 20:11'
+updated_date: '2026-07-04 20:22'
 labels: []
 dependencies: []
 priority: medium
