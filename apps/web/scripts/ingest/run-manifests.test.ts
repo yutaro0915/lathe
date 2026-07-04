@@ -221,3 +221,81 @@ test('deriveRunManifestRows: task-1-2 (dotted TASK-1.2 slug) also classifies as 
     fs.rmSync(repoRoot, { recursive: true, force: true });
   }
 });
+
+test('deriveRunManifestRows: meta-<profile>-NNN run keys classify as loopKind "meta" with null sourceIssueNumber (ADR 0024 gap#3 / TASK-3)', () => {
+  const repoRoot = makeTmpRepo('lathe-meta-loop');
+  try {
+    const manifestPath = writeManifest(repoRoot, 'meta-run-health-001.json', {
+      loop_kind: 'meta',
+      profile: 'run-health',
+      run_key: 'meta-run-health-001',
+      serial: 1,
+      stages: [
+        {
+          stage: 'SCOPE',
+          session_id: 's-scope',
+          verdict: 'SCOPED',
+          backend: 'claude',
+          backend_model: 'claude-opus-4-5',
+          duration_ms: 120,
+          ts: '2026-07-05T00:00:00.000Z',
+          backend_cost_usd: 0.01,
+          backend_cost_source: 'claude.usage',
+        },
+        {
+          stage: 'GROUND',
+          session_id: 's-ground',
+          verdict: 'GROUNDED',
+          backend: 'claude',
+          backend_model: 'claude-opus-4-5',
+          duration_ms: 240,
+          ts: '2026-07-05T00:01:00.000Z',
+          backend_cost_usd: 0.02,
+          backend_cost_source: 'claude.usage',
+        },
+        {
+          stage: 'DIAGNOSE',
+          session_id: 's-diagnose',
+          verdict: 'DIAGNOSED',
+          backend: 'claude',
+          backend_model: 'claude-opus-4-5',
+          duration_ms: 180,
+          ts: '2026-07-05T00:02:00.000Z',
+          backend_cost_usd: 0.015,
+          backend_cost_source: 'claude.usage',
+        },
+        {
+          stage: 'REPORT',
+          session_id: 's-report',
+          verdict: 'REPORTED',
+          backend: 'claude',
+          backend_model: 'claude-opus-4-5',
+          duration_ms: 90,
+          ts: '2026-07-05T00:03:00.000Z',
+          backend_cost_usd: 0.008,
+          backend_cost_source: 'claude.usage',
+        },
+      ],
+    });
+
+    const rows = deriveRunManifestRows({ repoRoot, projectId: 'project:meta', manifestPath });
+
+    assert.equal(rows.run.runKey, 'meta-run-health-001');
+    assert.equal(rows.run.loopKind, 'meta');
+    assert.equal(rows.run.sourceIssueNumber, null);
+    assert.equal(rows.run.stageCount, 4);
+    assert.equal(rows.run.lastStage, 'REPORT');
+    assert.equal(rows.run.lastVerdict, 'REPORTED');
+    assert.equal(rows.run.hasEscalation, false);
+
+    assert.equal(rows.stages.length, 4);
+    assert.equal(rows.stages[0].stage, 'SCOPE');
+    assert.equal(rows.stages[1].stage, 'GROUND');
+    assert.equal(rows.stages[2].stage, 'DIAGNOSE');
+    assert.equal(rows.stages[3].stage, 'REPORT');
+    assert.equal(rows.stages[0].verdict, 'SCOPED');
+    assert.equal(rows.stages[3].verdict, 'REPORTED');
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
