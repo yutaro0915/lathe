@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash, decideLock, splitCommitMessage, buildPrCreateArgs, buildPrMergeArgs } from './merge.mjs';
+import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash, decideLock, splitCommitMessage, buildPrCreateArgs, buildPrMergeArgs, buildPrChecksWatchArgs, buildPrMergeFallbackArgs } from './merge.mjs';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -338,5 +338,39 @@ test('buildPrMergeArgs: --squash flag is present', () => {
 
 test('buildPrMergeArgs: --delete-branch flag is present', () => {
   const args = buildPrMergeArgs({ branch: 'feat/foo' });
+  assert.ok(args.includes('--delete-branch'), '--delete-branch must be present');
+});
+
+// --- buildPrChecksWatchArgs ---
+
+test('buildPrChecksWatchArgs: returns correct gh argv', () => {
+  const args = buildPrChecksWatchArgs({ branch: 'inner/task-26' });
+  assert.deepEqual(args, ['pr', 'checks', 'inner/task-26', '--watch']);
+});
+
+test('buildPrChecksWatchArgs: branch name is the third element', () => {
+  const args = buildPrChecksWatchArgs({ branch: 'feat/foo' });
+  assert.equal(args[2], 'feat/foo');
+});
+
+// --- buildPrMergeFallbackArgs ---
+
+test('buildPrMergeFallbackArgs: returns correct gh argv (no --auto)', () => {
+  const args = buildPrMergeFallbackArgs({ branch: 'inner/task-26' });
+  assert.deepEqual(args, ['pr', 'merge', 'inner/task-26', '--squash', '--delete-branch']);
+});
+
+test('buildPrMergeFallbackArgs: does NOT include --auto (CI green already confirmed before call)', () => {
+  const args = buildPrMergeFallbackArgs({ branch: 'feat/foo' });
+  assert.ok(!args.includes('--auto'), '--auto must NOT be present in fallback (branch protection not required)');
+});
+
+test('buildPrMergeFallbackArgs: --squash flag is present', () => {
+  const args = buildPrMergeFallbackArgs({ branch: 'feat/foo' });
+  assert.ok(args.includes('--squash'), '--squash must be present');
+});
+
+test('buildPrMergeFallbackArgs: --delete-branch flag is present', () => {
+  const args = buildPrMergeFallbackArgs({ branch: 'feat/foo' });
   assert.ok(args.includes('--delete-branch'), '--delete-branch must be present');
 });

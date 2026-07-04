@@ -163,6 +163,30 @@ export function buildPrMergeArgs({ branch }) {
 }
 
 /**
+ * Build argv array for `gh pr checks --watch`.
+ * Used as the fallback when --auto is not available (branch protection disabled).
+ * Blocks until all required checks complete.
+ *
+ * @param {{ branch: string }} p
+ * @returns {string[]}
+ */
+export function buildPrChecksWatchArgs({ branch }) {
+  return ['pr', 'checks', branch, '--watch'];
+}
+
+/**
+ * Build argv array for `gh pr merge --squash --delete-branch` (no --auto).
+ * Used as the fallback merge after CI checks pass when branch protection is disabled.
+ * Must only be called after `gh pr checks --watch` exits 0 (CI green).
+ *
+ * @param {{ branch: string }} p
+ * @returns {string[]}
+ */
+export function buildPrMergeFallbackArgs({ branch }) {
+  return ['pr', 'merge', branch, '--squash', '--delete-branch'];
+}
+
+/**
  * Pure function: decide what to do with a PID lock file.
  *
  * Mirrors the ingest incremental lock semantics:
@@ -421,7 +445,10 @@ if (isMain) {
     die(`gh pr create failed for ${branch}`);
   }
 
-  // 4c. Arm auto-merge (squash) — CI rubric-gate will complete the landing
+  // 4c. Arm auto-merge (squash) — primary: --auto (works when branch protection is enabled).
+  //     Fallback: when --auto cannot be armed (branch protection disabled), wait for CI
+  //     checks to complete via `gh pr checks --watch`, then merge directly without --auto.
+  //     Gate is preserved: fallback merge only runs after CI green (checks exit 0).
   const prMergeArgs = buildPrMergeArgs({ branch });
   const prMergeResult = spawnSync('gh', prMergeArgs, {
     stdio: 'inherit',
@@ -429,7 +456,30 @@ if (isMain) {
     env: { ...process.env, LATHE_MERGE: '1' },
   });
   if (prMergeResult.status !== 0) {
-    die(`gh pr merge --auto failed for ${branch}`);
+    // --auto failed (branch protection disabled) — fall back to checks-then-merge.
+    // CI gate preserved: refuse if checks non-zero; merge only after CI green.
+    process.stdout.write(`merge: --auto not available for ${branch} — falling back to checks-then-merge\n`);
+
+    const checksArgs = buildPrChecksWatchArgs({ branch });
+    const checksResult = spawnSync('gh', checksArgs, {
+      stdio: 'inherit',
+      cwd,
+      env: { ...process.env, LATHE_MERGE: '1' },
+    });
+    if (checksResult.status !== 0) {
+      die(`CI checks failed for ${branch} — refusing to merge`);
+    }
+
+    // CI is green — merge directly (no --auto, branch protection not required).
+    const fallbackArgs = buildPrMergeFallbackArgs({ branch });
+    const fallbackResult = spawnSync('gh', fallbackArgs, {
+      stdio: 'inherit',
+      cwd,
+      env: { ...process.env, LATHE_MERGE: '1' },
+    });
+    if (fallbackResult.status !== 0) {
+      die(`gh pr merge (fallback) failed for ${branch}`);
+    }
   }
 
   // 5. Clean up consumed receipts (only the head sha receipt).
