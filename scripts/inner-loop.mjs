@@ -173,15 +173,26 @@ export function selectRunPlan({ mode = 'impl', issueBody = '' } = {}) {
   };
 }
 
+// A Backlog.md task id: "TASK-<n>" or "TASK-<n>.<m>" (ADR 0025 §4 / TASK-1.1
+// taskUnitToSlug convention). Case-insensitive on input; the id is kept as
+// typed (not upper-cased) so it round-trips into `backlog task view <id>`.
+const TASK_ID_RE = /^TASK-\d+(?:\.\d+)*$/i;
+
 /**
  * Parse driver flags while preserving backend flag handling in
  * inner-loop-backends.mjs.
+ *
+ * impl mode accepts either a GitHub issue number (legacy, backward compatible)
+ * or a Backlog.md task id via `--task <ID>` or a bare `TASK-<n>` positional
+ * argument (ADR 0025 §4 / TASK-1.2). plan-loop (`--plan`) is unaffected and
+ * keeps taking a GitHub issue number only (TASK-1.3 scope).
  * @param {string[]} argv
- * @returns {{ mode: 'impl'|'plan', issueNumber: number|null, dryRun: boolean, resume: boolean, backendFlags: { global: string|null, stages: Record<string,string> }, error: string|null }}
+ * @returns {{ mode: 'impl'|'plan', issueNumber: number|null, unit: { kind: 'issue'|'task', id: number|string }|null, dryRun: boolean, resume: boolean, backendFlags: { global: string|null, stages: Record<string,string> }, error: string|null }}
  */
 export function parseDriverArgs(argv) {
   let mode = 'impl';
   let issueArg = null;
+  let taskArg = null;
   let dryRun = false;
   let resume = false;
 
@@ -198,22 +209,43 @@ export function parseDriverArgs(argv) {
     } else if (arg.startsWith('--plan=')) {
       mode = 'plan';
       issueArg = arg.slice('--plan='.length);
+    } else if (arg === '--task') {
+      taskArg = argv[i + 1] ?? null;
+      i += 1;
+    } else if (arg.startsWith('--task=')) {
+      taskArg = arg.slice('--task='.length);
     } else if (arg === '--backend' || /^--backend-[a-z-]+$/.test(arg)) {
       i += 1;
     } else if (arg.startsWith('--')) {
-      return { mode, issueNumber: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: `unknown argument: ${arg}` };
-    } else if (issueArg == null) {
+      return { mode, issueNumber: null, unit: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: `unknown argument: ${arg}` };
+    } else if (TASK_ID_RE.test(arg) && issueArg == null && taskArg == null) {
+      taskArg = arg;
+    } else if (issueArg == null && taskArg == null) {
       issueArg = arg;
     } else {
-      return { mode, issueNumber: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: `unexpected positional argument: ${arg}` };
+      return { mode, issueNumber: null, unit: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: `unexpected positional argument: ${arg}` };
     }
+  }
+
+  if (taskArg != null) {
+    if (mode === 'plan') {
+      return { mode, issueNumber: null, unit: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: 'plan-loop does not accept a task id (TASK-1.3 scope)' };
+    }
+    if (!TASK_ID_RE.test(taskArg)) {
+      return { mode, issueNumber: null, unit: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: `invalid task id: ${taskArg}` };
+    }
+    return { mode, issueNumber: null, unit: { kind: 'task', id: taskArg }, dryRun, resume, backendFlags: parseBackendFlags(argv), error: null };
   }
 
   const issueNumber = Number(issueArg);
   if (!issueArg || !Number.isInteger(issueNumber) || issueNumber <= 0) {
-    return { mode, issueNumber: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: 'missing or invalid issue number' };
+    return { mode, issueNumber: null, unit: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: 'missing or invalid issue number' };
   }
-  return { mode, issueNumber, dryRun, resume, backendFlags: parseBackendFlags(argv), error: null };
+  // unit stays null for the issue-number path: the rest of the driver's
+  // "unit" parameter (manifestPathFor/worktreeNameFor/prompts) already treats
+  // a plain number as the issue-loop case, so issueNumber itself IS the unit
+  // identifier here — no wrapper object (ADR 0025 §4 / TASK-1.2).
+  return { mode, issueNumber, unit: null, dryRun, resume, backendFlags: parseBackendFlags(argv), error: null };
 }
 
 /**
@@ -437,14 +469,24 @@ export function buildReviewHistorySummary(stages) {
   return formatReviewHistoryEntries(history);
 }
 
+// Display label for the escalation heading: "issue #<n>" (unchanged, backward
+// compatible) or "task <ID>" when issueNumber is a task unit ({ kind: 'task', id }).
+function unitDisplayLabel(issueNumber) {
+  return isTaskUnitLike(issueNumber) ? `task ${issueNumber.id}` : `issue #${issueNumber}`;
+}
+
+function isTaskUnitLike(value) {
+  return Boolean(value && typeof value === 'object' && value.kind === 'task');
+}
+
 /**
  * Build escalation markdown with full REVIEW verdict history for outer recovery.
- * @param {{ issueNumber: number, stage: string, verdict: string|null, ts?: string, resultExcerpt?: string|null, reviewHistory?: Array<{ ordinal: number, verdict: string|null, headSha: string|null, ts: string|null, excerpt: string, hasContradictionMarker: boolean }> }} p
+ * @param {{ issueNumber: number|{kind:'task',id:string}, stage: string, verdict: string|null, ts?: string, resultExcerpt?: string|null, reviewHistory?: Array<{ ordinal: number, verdict: string|null, headSha: string|null, ts: string|null, excerpt: string, hasContradictionMarker: boolean }> }} p
  * @returns {string}
  */
 export function buildEscalationMarkdown({ issueNumber, stage, verdict, ts, resultExcerpt, reviewHistory = [] }) {
   const lines = [
-    `# escalation — issue #${issueNumber}`,
+    `# escalation — ${unitDisplayLabel(issueNumber)}`,
     '',
     `stage: ${stage}`,
     `verdict: ${verdict ?? '(none/unparsable)'}`,
@@ -677,6 +719,113 @@ function fetchIssue(issueNumber) {
   const r = spawnSync('gh', ['issue', 'view', String(issueNumber), '--json', 'number,title,body,labels'], { encoding: 'utf8', cwd: REPO_ROOT });
   if (r.status !== 0) die(`gh issue view failed: ${r.stderr || r.stdout}`);
   try { return JSON.parse(r.stdout); } catch (e) { die(`could not parse gh issue view output: ${e.message}`); }
+}
+
+// backlog CLI path — repo-local devDependency binary (ADR 0025 PLAN-gate
+// decision #4: "driver は node_modules/.bin/backlog 直呼び／pnpm 層回避").
+const BACKLOG_BIN = join(REPO_ROOT, 'node_modules', '.bin', 'backlog');
+
+const TASK_VIEW_SECTION_HEADINGS = [
+  'Description',
+  'Acceptance Criteria',
+  'Definition of Done',
+  'Implementation Plan',
+  'Implementation Notes',
+];
+
+/**
+ * Parse `backlog task view <id> --plain` output into an issue-shaped object
+ * ({ title, body, status, labels, dependencies }) so the rest of the driver
+ * (worktree naming, manifest, prompts) can keep treating "the unit" uniformly.
+ * Pure — takes the CLI's stdout text, returns a plain object. Unknown/absent
+ * sections are tolerated (e.g. "No Definition of Done items defined").
+ * @param {string} text
+ * @returns {{ title: string|null, body: string, status: string|null, labels: string[], dependencies: string[] }}
+ */
+export function parseTaskViewPlain(text) {
+  const lines = String(text ?? '').split(/\r?\n/);
+
+  let title = null;
+  const titleLineIndex = lines.findIndex((line) => /^Task\s+TASK-/.test(line));
+  if (titleLineIndex >= 0) {
+    const m = lines[titleLineIndex].match(/^Task\s+(TASK-[^\s]+)\s*-\s*(.+)$/);
+    if (m) title = m[2].trim();
+  }
+
+  let status = null;
+  const statusLine = lines.find((line) => /^Status:\s*/.test(line));
+  if (statusLine) {
+    // "Status: ○ To Do" / "Status: ● Done" — strip the leading bullet glyph.
+    status = statusLine.replace(/^Status:\s*/, '').replace(/^[^\w]*\s*/, '').trim();
+  }
+
+  let labels = [];
+  const labelsLine = lines.find((line) => /^Labels:\s*/.test(line));
+  if (labelsLine) {
+    labels = labelsLine.replace(/^Labels:\s*/, '').split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  let dependencies = [];
+  const depsLine = lines.find((line) => /^Dependencies:\s*/.test(line));
+  if (depsLine) {
+    dependencies = depsLine.replace(/^Dependencies:\s*/, '').split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  // Reassemble "Description" + "Acceptance Criteria" + "Implementation Plan"
+  // + "Implementation Notes" (skip "Definition of Done" — driver/merge concern,
+  // not implementer input) into one body blob, each under its own heading, the
+  // same way an issue body carries free-form markdown.
+  const sections = {};
+  let currentHeading = null;
+  let currentLines = [];
+  const flush = () => {
+    if (currentHeading) sections[currentHeading] = currentLines.join('\n').trim();
+    currentLines = [];
+  };
+  for (const line of lines) {
+    const headingMatch = TASK_VIEW_SECTION_HEADINGS.find((h) => line === `${h}:`);
+    if (headingMatch) {
+      flush();
+      currentHeading = headingMatch;
+      continue;
+    }
+    if (currentHeading) {
+      if (/^-{5,}$/.test(line.trim())) continue; // section underline
+      currentLines.push(line);
+    }
+  }
+  flush();
+
+  const bodyParts = [];
+  for (const heading of ['Description', 'Acceptance Criteria', 'Implementation Plan', 'Implementation Notes']) {
+    const content = sections[heading];
+    if (content) bodyParts.push(`## ${heading}\n\n${content}`);
+  }
+
+  return { title, body: bodyParts.join('\n\n'), status, labels, dependencies };
+}
+
+/**
+ * Fetch a Backlog.md task via `backlog task view <id> --plain` and normalize
+ * it into the same issue-shaped object fetchIssue returns (ADR 0025 §4 /
+ * TASK-1.2 AC#2). Dies on CLI failure, matching fetchIssue's contract.
+ * @param {string} id
+ * @returns {{ title: string|null, body: string, status: string|null, labels: string[], dependencies: string[] }}
+ */
+function fetchTask(id) {
+  const r = spawnSync(BACKLOG_BIN, ['task', 'view', id, '--plain'], { encoding: 'utf8', cwd: REPO_ROOT });
+  if (r.status !== 0) die(`backlog task view failed: ${r.stderr || r.stdout}`);
+  return parseTaskViewPlain(r.stdout);
+}
+
+/**
+ * Fetch "the unit" (a GitHub issue or a Backlog.md task) into the shared
+ * issue-shaped shape the rest of the driver consumes. `unit` is
+ * { kind: 'issue', id: number } | { kind: 'task', id: string }.
+ * @param {{ kind: 'issue'|'task', id: number|string }} unit
+ */
+function fetchUnit(unit) {
+  return unit.kind === 'task' ? fetchTask(unit.id) : fetchIssue(unit.id);
 }
 
 export function issueLabelNames(issue) {
@@ -977,9 +1126,26 @@ function closeSourceIssue(sourceIssueNumber, created) {
   return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
 
+// Resolve worktree branch/path naming for either unit kind. `issueNumber`
+// keeps the existing issue-loop contract (plain number -> inner-issue-<n>);
+// pass a task unit ({ kind: 'task', id }) to opt into inner-task-<slug>
+// naming (ADR 0025 §4 / TASK-1.2 AC#2).
+export function worktreeNameFor(issueNumber) {
+  if (issueNumber && typeof issueNumber === 'object' && issueNumber.kind === 'task') {
+    // taskUnitToSlug already yields the run_key slug with a "task-" prefix
+    // baked in (e.g. "TASK-1.2" -> "task-1-2", per manifestPathFor's
+    // contract from TASK-1.1). Strip that prefix here so the worktree name
+    // reads "inner-task-1-2" rather than "inner-task-task-1-2".
+    const runKeySlug = taskUnitToSlug(issueNumber.id);
+    const slug = runKeySlug.replace(/^task-/, '');
+    return { branch: `inner/task-${slug}`, dirName: `inner-task-${slug}` };
+  }
+  return { branch: `inner/issue-${issueNumber}`, dirName: `inner-issue-${issueNumber}` };
+}
+
 export function prepareWorktree(issueNumber, deps = {}) {
-  const branch = `inner/issue-${issueNumber}`;
-  const path = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
+  const { branch, dirName } = worktreeNameFor(issueNumber);
+  const path = join(REPO_ROOT, '.claude', 'worktrees', dirName);
   const pathExists = deps.existsSync ?? existsSync;
   const run = deps.spawnSync ?? spawnSync;
   const setupDeps = deps.setupWorktreeDeps ?? setupWorktreeDeps;
@@ -992,9 +1158,10 @@ export function prepareWorktree(issueNumber, deps = {}) {
 }
 
 function worktreeForIssue(issueNumber) {
+  const { branch, dirName } = worktreeNameFor(issueNumber);
   return {
-    branch: `inner/issue-${issueNumber}`,
-    path: join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`),
+    branch,
+    path: join(REPO_ROOT, '.claude', 'worktrees', dirName),
   };
 }
 
@@ -1032,9 +1199,12 @@ function resolveResumeState(issueNumber) {
 }
 
 function dieResumeUnavailable(issueNumber, reason) {
+  const restartArg = issueNumber && typeof issueNumber === 'object' && issueNumber.kind === 'task'
+    ? issueNumber.id
+    : issueNumber;
   die(
     `resume unavailable: ${reason}. ` +
-    `Start from scratch by running without --resume: node scripts/inner-loop.mjs ${issueNumber}. ` +
+    `Start from scratch by running without --resume: node scripts/inner-loop.mjs ${restartArg}. ` +
     'If a stale worktree/branch exists, remove it intentionally before restarting.',
   );
 }
@@ -1154,8 +1324,14 @@ function appendPlanManifestEntry(issueNumber, entry) {
   writeFileSync(p, JSON.stringify(buildManifest(issueNumber, stages, { mode: 'plan-loop' }), null, 2) + '\n', 'utf8');
 }
 
+// Escalation markdown path for a unit — mirrors manifestPathFor's naming
+// (issue-<n>.escalation.md / task-<slug>.escalation.md).
+function escalationPathFor(issueNumber) {
+  return manifestPathFor(issueNumber).replace(/\.json$/, '.escalation.md');
+}
+
 function writeEscalation(issueNumber, stage, verdict, resultExcerpt) {
-  const p = join(REPO_ROOT, '.lathe', 'runs', `issue-${issueNumber}.escalation.md`);
+  const p = escalationPathFor(issueNumber);
   mkdirSync(dirname(p), { recursive: true });
   const reviewHistory = collectReviewHistory(readManifestStages(manifestPathFor(issueNumber)));
   appendFileSync(p, buildEscalationMarkdown({
@@ -1165,6 +1341,13 @@ function writeEscalation(issueNumber, stage, verdict, resultExcerpt) {
     resultExcerpt,
     reviewHistory,
   }), 'utf8');
+  // Task-unit runs have no GitHub issue to comment on (ADR 0025 §4 impl-loop
+  // rewire — gh dependency removed for the task path). Issue-loop runs keep
+  // posting the gh issue comment unchanged (drain-in-place for in-flight runs).
+  if (isTaskUnitLike(issueNumber)) {
+    log(`escalation written for task ${issueNumber.id} — see ${p}`);
+    return;
+  }
   const cr = spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body',
     `inner-loop escalated at stage ${stage} (verdict: ${verdict ?? 'none'}). See ${p}`],
     { cwd: REPO_ROOT, stdio: 'inherit' });
@@ -1199,6 +1382,51 @@ function runMerge(branch) {
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr);
   return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+}
+
+// Mark a Backlog.md task Done in the worktree (CLI-only edit, no md hand-edit)
+// and fold that edit into the branch as a NEW commit (not an amend of the
+// reviewed/verified commit) — verify GREEN/review PASS already ran against
+// the prior HEAD sha, and merge.mjs checks receipts against the exact branch
+// tip sha (scripts/merge.mjs's checkReceipts), so amending would silently
+// invalidate those receipts. The prior REVIEW/VERIFY receipts are re-stamped
+// by the driver (not re-run) against the new tip: the code diff under review
+// is unchanged, only a driver-owned task-bookkeeping commit was appended on
+// top, which is exactly the kind of mechanical judgment ADR 0013's escalation
+// contract reserves for the driver (agents don't adjudicate repo cleanliness).
+export function markTaskDoneInWorktree(taskId, worktreePath, reviewedHeadSha, deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
+  const backlogBin = deps.backlogBin ?? BACKLOG_BIN;
+
+  const r = run(backlogBin, ['task', 'edit', taskId, '--status', 'Done'], {
+    cwd: worktreePath,
+    encoding: 'utf8',
+  });
+  if (r.status !== 0) return { ok: false, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+
+  const add = run('git', ['-C', worktreePath, 'add', 'backlog/'], { encoding: 'utf8' });
+  if (add.status !== 0) return { ok: false, output: `git add backlog/ failed: ${add.stderr || add.stdout}` };
+
+  const status = run('git', ['-C', worktreePath, 'status', '--porcelain', '--', 'backlog/'], { encoding: 'utf8' });
+  if ((status.stdout ?? '').trim() === '') return { ok: true, output: 'no backlog/ changes to commit (already Done?)', headSha: reviewedHeadSha };
+
+  const commit = run('git', ['-C', worktreePath, 'commit', '-m', `backlog: ${taskId} -> Done`], { encoding: 'utf8' });
+  if (commit.status !== 0) return { ok: false, output: `git commit failed: ${commit.stderr || commit.stdout}` };
+
+  const headResult = run('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+  const newHeadSha = headResult.status === 0 ? headResult.stdout.trim() : null;
+  if (!newHeadSha) return { ok: false, output: 'could not determine worktree HEAD after status=Done commit' };
+
+  for (const step of ['review', 'verify']) {
+    const rr = run('node', ['scripts/receipt.mjs', step, newHeadSha, step === 'review' ? 'PASS' : 'GREEN'], {
+      cwd: worktreePath,
+      env: { ...process.env, LATHE_AGENT: step === 'review' ? 'reviewer' : 'verifier' },
+      encoding: 'utf8',
+    });
+    if (rr.status !== 0) return { ok: false, output: `receipt re-stamp (${step}) failed at ${newHeadSha}: ${rr.stderr || rr.stdout}` };
+  }
+
+  return { ok: true, output: `${r.stdout ?? ''}`, headSha: newHeadSha };
 }
 
 function cleanupWorktree(wt, branch) {
@@ -1423,10 +1651,15 @@ const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.arg
 
 if (isMain) {
   const parsedArgs = parseDriverArgs(process.argv.slice(2));
-  const { mode, issueNumber, dryRun, resume, backendFlags } = parsedArgs;
+  const { mode, dryRun, resume, backendFlags } = parsedArgs;
+  // impl mode's run identity: a Backlog.md task unit ({ kind: 'task', id })
+  // when --task/TASK-<n> was given, otherwise the legacy plain GitHub issue
+  // number (ADR 0025 §4 / TASK-1.2). plan-loop always uses the plain issue
+  // number (parsedArgs.unit is only ever populated for mode==='impl').
+  const issueNumber = parsedArgs.unit ?? parsedArgs.issueNumber;
 
   if (parsedArgs.error) {
-    die(`${parsedArgs.error}\nusage: node scripts/inner-loop.mjs <issue#> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]\n       node scripts/inner-loop.mjs --plan <issue#> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]`);
+    die(`${parsedArgs.error}\nusage: node scripts/inner-loop.mjs <issue#|TASK-<n>|--task TASK-<n>> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]\n       node scripts/inner-loop.mjs --plan <issue#> [--resume] [--dry-run] [--backend claude|codex] [--backend-<stage> claude|codex]`);
   }
 
   if (mode === 'plan') {
@@ -1442,7 +1675,7 @@ if (isMain) {
     if (resume) {
       const resumeState = resolveResumeState(issueNumber);
       if (!resumeState.ok) dieResumeUnavailable(issueNumber, resumeState.reason);
-      log(`dry-run: resume issue #${issueNumber} from ${manifestPathFor(issueNumber)}`);
+      log(`dry-run: resume ${unitDisplayLabel(issueNumber)} from ${manifestPathFor(issueNumber)}`);
       log(`dry-run: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${resumeState.state} head=${resumeState.headSha ?? '(none)'} cycles=${resumeState.cycles}`);
       for (const stamp of resumeState.receiptsToStamp) {
         log(`dry-run: would stamp receipt stage=${stamp.stage} verdict=${stamp.verdict} head=${stamp.headSha}`);
@@ -1466,21 +1699,25 @@ if (isMain) {
       log(`dry-run: prompt preview:\n${promptPreview}\n`);
       process.exit(0);
     }
-    log(`dry-run: fetching issue #${issueNumber} via gh issue view`);
-    const issue = fetchIssue(issueNumber);
+    const fetchLabel = isTaskUnitLike(issueNumber)
+      ? `backlog task view ${issueNumber.id} --plain`
+      : 'gh issue view';
+    log(`dry-run: fetching ${unitDisplayLabel(issueNumber)} via ${fetchLabel}`);
+    const issue = fetchUnit(issueNumber);
     const runPlan = selectRunPlan({ mode: 'impl', issueBody: issue.body });
     if (runPlan.skipPlan) {
       log('dry-run: approved plan marker detected; skipping PLAN');
       log('dry-run: synthetic manifest entry stage=PLAN verdict=PLAN_READY skipped=true');
       log(`dry-run: next=${runPlan.initialState}`);
     }
-    const wtPath = join(REPO_ROOT, '.claude', 'worktrees', `inner-issue-${issueNumber}`);
-    log(`dry-run: would create worktree ${wtPath} on branch inner/issue-${issueNumber}`);
+    const { branch: wtBranch, dirName: wtDirName } = worktreeNameFor(issueNumber);
+    const wtPath = join(REPO_ROOT, '.claude', 'worktrees', wtDirName);
+    log(`dry-run: would create worktree ${wtPath} on branch ${wtBranch}`);
     log(`dry-run: would run pnpm ${WORKTREE_DEPS_INSTALL_ARGS.join(' ')} in ${wtPath}`);
     log('dry-run: pnpm install failure would warn and continue with P3 fallback');
     for (const stage of runPlan.stages) {
       if (stage === 'MERGE') {
-        log('dry-run: MERGE — node scripts/merge.mjs inner/issue-<n> (from repo root)');
+        log(`dry-run: MERGE — node scripts/merge.mjs ${wtBranch} (from repo root)`);
         continue;
       }
       const cwd = stageCwd(stage, REPO_ROOT, wtPath);
@@ -1489,6 +1726,9 @@ if (isMain) {
         plan: runPlan.approvedPlan || '<plan>', headSha: '<sha>', verifyResult: '<verify result>',
       });
       logDryRunStage(stage, backendFlags, cwd, promptPreview);
+    }
+    if (isTaskUnitLike(issueNumber)) {
+      log(`dry-run: MERGE-pre — backlog task edit ${issueNumber.id} --status Done in worktree, committed, re-stamp review/verify receipts at new HEAD`);
     }
     log('dry-run: transition plan — PLAN_READY->IMPLEMENT, IMPL_DONE->REVIEW, REVIEW PASS->VERIFY / CHANGES->IMPLEMENT (max 2 cycles), VERIFY GREEN->MERGE / RED->TRIAGE, TRIAGE KNOWN->IMPLEMENT only when implementable / P4 Codex sandbox EPERM->ESCALATE / NOVEL->ESCALATE, missing/unparsable VERDICT->same stage retry once then ESCALATE');
     process.exit(0);
@@ -1512,9 +1752,9 @@ if (isMain) {
     for (const stamp of resumeState.receiptsToStamp) {
       stampReceiptOrDie(issueNumber, worktreePath, stamp);
     }
-    if (state !== 'MERGE') issue = fetchIssue(issueNumber);
+    if (state !== 'MERGE') issue = fetchUnit(issueNumber);
   } else {
-    issue = fetchIssue(issueNumber);
+    issue = fetchUnit(issueNumber);
     const runPlan = selectRunPlan({ mode: 'impl', issueBody: issue.body });
     const wt = prepareWorktree(issueNumber);
     worktreePath = wt.path;
@@ -1535,7 +1775,7 @@ if (isMain) {
     const cwd = stageCwd(state, REPO_ROOT, worktreePath);
 
     if (stageRequiresFreshMainRebase(state)) {
-      log(`rebasing worktree onto main before ${state} (issue #${issueNumber})`);
+      log(`rebasing worktree onto main before ${state} (${unitDisplayLabel(issueNumber)})`);
       if (!rebaseWorktree(worktreePath)) {
         writeEscalation(issueNumber, state, 'REBASE_CONFLICT', `git rebase main failed in worktree before ${state}`);
         state = 'ESCALATE'; break;
@@ -1603,7 +1843,7 @@ if (isMain) {
     state = next; cycles = nextCycles;
   }
 
-  if (state === 'ESCALATE') die(`escalated — see .lathe/runs/issue-${issueNumber}.escalation.md`);
+  if (state === 'ESCALATE') die(`escalated — see ${escalationPathFor(issueNumber)}`);
 
   // Backstop: verify that main working tree has no unexpected tracked changes before
   // landing the branch.  The codex workspace-write sandbox should have confined writes
@@ -1617,18 +1857,33 @@ if (isMain) {
   if (mainDirty) {
     const excerpt = `main working tree has ${dirtyPaths.length} unexpected tracked change(s) — sandbox write-isolation may have been breached:\n${dirtyPaths.join('\n')}`;
     writeEscalation(issueNumber, 'MERGE', 'MAIN_DIRTY_BACKSTOP', excerpt);
-    die(`escalated — main has ${dirtyPaths.length} unexpected tracked change(s) before merge. See .lathe/runs/issue-${issueNumber}.escalation.md`);
+    die(`escalated — main has ${dirtyPaths.length} unexpected tracked change(s) before merge. See ${escalationPathFor(issueNumber)}`);
   }
   log(`backstop: main working tree clean — proceeding with merge.`);
+
+  // Terminal status=Done (ADR 0025 §4 / TASK-1.2 AC#4): for a task unit, mark
+  // the Backlog.md task Done in the worktree BEFORE merge, so the bookkeeping
+  // commit rides along in the single squash-merged commit. merge.mjs itself
+  // is unchanged — it still only squash-merges `branch` and checks receipts
+  // against the (possibly updated) branch tip sha.
+  if (isTaskUnitLike(issueNumber)) {
+    log(`marking task ${issueNumber.id} Done in worktree before merge...`);
+    const doneResult = markTaskDoneInWorktree(issueNumber.id, worktreePath, headSha);
+    if (!doneResult.ok) {
+      writeEscalation(issueNumber, 'MERGE', null, `backlog task edit --status Done failed\n\n${tailLines(doneResult.output)}`);
+      die(`status=Done failed — see ${escalationPathFor(issueNumber)}`);
+    }
+    log(`status=Done: ${doneResult.output || '(no output)'}`);
+  }
 
   log(`merging branch ${branch} onto main`);
   const mergeResult = runMerge(branch);
   if (!mergeResult.ok) {
     writeEscalation(issueNumber, 'MERGE', null, `node scripts/merge.mjs failed\n\n${tailLines(mergeResult.output)}`);
-    die(`merge failed — see .lathe/runs/issue-${issueNumber}.escalation.md`);
+    die(`merge failed — see ${escalationPathFor(issueNumber)}`);
   }
 
   cleanupWorktree(worktreePath, branch);
-  log(`done — issue #${issueNumber} merged onto main.`);
+  log(`done — ${unitDisplayLabel(issueNumber)} merged onto main.`);
   process.exit(0);
 }

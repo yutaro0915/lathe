@@ -9,14 +9,38 @@
 // from the envelope's `result` field.
 
 /**
+ * True when `issueNumber` is actually a Backlog.md task unit
+ * ({ kind: 'task', id }) rather than a plain GitHub issue number
+ * (ADR 0025 §4 / TASK-1.2). Kept local to this module — inner-loop.mjs has
+ * its own copy for its own call sites (no shared import to keep the two
+ * files' pure-function boundaries independent, per ADR 0013's split).
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isTaskUnit(value) {
+  return Boolean(value && typeof value === 'object' && value.kind === 'task');
+}
+
+/**
+ * Display label for "the unit" in prompts: "issue #<n>" (unchanged, backward
+ * compatible) or "task <ID>" for a Backlog.md task unit.
+ * @param {number|{kind:'task',id:string}} issueNumber
+ * @returns {string}
+ */
+function unitLabel(issueNumber) {
+  return isTaskUnit(issueNumber) ? `task ${issueNumber.id}` : `issue #${issueNumber}`;
+}
+
+/**
  * Common issue/stage marker line, per ADR 0013 §2: "段 prompt に issue #<n> / stage: <STAGE>
- * マーカーを入れる（title に乗る保険）".
- * @param {number} issueNumber
+ * マーカーを入れる（title に乗る保険）". Accepts a task unit the same way
+ * (ADR 0025 §4 / TASK-1.2): "task TASK-1 / stage: <STAGE>".
+ * @param {number|{kind:'task',id:string}} issueNumber
  * @param {string} stage
  * @returns {string}
  */
 function marker(issueNumber, stage) {
-  return `issue #${issueNumber} / stage: ${stage}`;
+  return `${unitLabel(issueNumber)} / stage: ${stage}`;
 }
 
 /**
@@ -131,7 +155,7 @@ export function buildPlanPrompt(ctx) {
     '',
     `以下の issue を実装するための scoped implementation plan を作成してください。`,
     '',
-    `## issue #${issueNumber}: ${issueTitle}`,
+    `## ${unitLabel(issueNumber)}: ${issueTitle}`,
     issueBody ?? '',
     '',
     '受け入れ基準・対象ファイル・検証方法（gate/tier）を明示してください。',
@@ -149,14 +173,33 @@ export function buildPlanPrompt(ctx) {
  * @param {{ issueNumber: number, issueTitle: string, issueBody: string, plan: string, feedback?: string }} ctx
  * @returns {string}
  */
+// Worktree dir/branch name literals for the IMPLEMENT prompt's role contract
+// — mirrors inner-loop.mjs's worktreeNameFor (ADR 0025 §4 / TASK-1.2). Kept
+// local (not imported) for the same reason `marker`/`isTaskUnit` are local:
+// this module's pure prompt builders stay independent of inner-loop.mjs's
+// side-effectful worktree code.
+function worktreeLiteralsFor(issueNumber) {
+  if (isTaskUnit(issueNumber)) {
+    // Mirror taskUnitToSlug (inner-loop.mjs, TASK-1.1) then strip the
+    // resulting "task-" prefix, matching inner-loop.mjs's worktreeNameFor:
+    // "TASK-1.2" -> run_key slug "task-1-2" -> worktree slug "1-2" ->
+    // "inner-task-1-2" (not "inner-task-task-1-2").
+    const runKeySlug = String(issueNumber.id).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const slug = runKeySlug.replace(/^task-/, '');
+    return { dirName: `inner-task-${slug}`, branch: `inner/task-${slug}` };
+  }
+  return { dirName: `inner-issue-${issueNumber}`, branch: `inner/issue-${issueNumber}` };
+}
+
 export function buildImplementPrompt(ctx) {
   const { issueNumber, issueTitle, issueBody, plan, feedback } = ctx;
+  const { dirName, branch } = worktreeLiteralsFor(issueNumber);
   const lines = [
     marker(issueNumber, 'IMPLEMENT'),
     '',
-    `以下の plan に従って issue #${issueNumber}: ${issueTitle} を実装してください。`,
+    `以下の plan に従って ${unitLabel(issueNumber)}: ${issueTitle} を実装してください。`,
     '',
-    `あなたは implementer です。既に worktree \`inner-issue-${issueNumber}\`（branch \`inner/issue-${issueNumber}\`）の**中**に居ます。その場で編集してください。**ネストした subagent を spawn しない・main（repo root）に書かない・別 worktree を切らない**。`,
+    `あなたは implementer です。既に worktree \`${dirName}\`（branch \`${branch}\`）の**中**に居ます。その場で編集してください。**ネストした subagent を spawn しない・main（repo root）に書かない・別 worktree を切らない**。`,
     '`.claude/skills/implement/SKILL.md` に従ってください。着手前に `git rebase main` で current local `main` に合わせ、pristine な開始状態だけ `git reset --hard main` を使えます。編集後・コミット後に `reset --hard main` で成果物を消す運用は禁止です。review handoff 前にも `git rebase main` し、競合したら `ESCALATE` してください。',
     '',
     '## issue',

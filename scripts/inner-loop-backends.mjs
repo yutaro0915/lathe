@@ -5,6 +5,9 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 
+// plan-loop RESEARCH / PLAN_REVIEW still read source GitHub issues — plan-loop's
+// gh issue create/close rewire to Backlog.md is TASK-1.3 scope, out of bounds
+// here (ADR 0025 §4 / TASK-1.2 prompt: "plan-loop … 動作を壊さない").
 const READ_ONLY_GH_ISSUE_TOOLS = [
   'Bash(gh issue view *)',
   'Bash(gh issue list *)',

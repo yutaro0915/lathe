@@ -10,6 +10,8 @@ import {
   buildManifest,
   taskUnitToSlug,
   manifestPathFor,
+  parseTaskViewPlain,
+  worktreeNameFor,
   readManifestStages,
   stagePermissions,
   stageCwd,
@@ -40,6 +42,7 @@ import {
   WORKTREE_DEPS_INSTALL_ARGS,
   setupWorktreeDeps,
   prepareWorktree,
+  markTaskDoneInWorktree,
 } from './inner-loop.mjs';
 import {
   buildStagePrompt,
@@ -182,6 +185,53 @@ test('parseDriverArgs: parses impl mode with positional issue', () => {
   assert.equal(parsed.mode, 'impl');
   assert.equal(parsed.issueNumber, 41);
   assert.equal(parsed.resume, true);
+  assert.equal(parsed.unit, null);
+});
+
+// --- parseDriverArgs: task unit acceptance (ADR 0025 §4 / TASK-1.2 AC#1) ---
+
+test('parseDriverArgs: accepts a bare TASK-<n> positional argument', () => {
+  const parsed = parseDriverArgs(['TASK-1']);
+  assert.equal(parsed.error, null);
+  assert.equal(parsed.mode, 'impl');
+  assert.equal(parsed.issueNumber, null);
+  assert.deepEqual(parsed.unit, { kind: 'task', id: 'TASK-1' });
+});
+
+test('parseDriverArgs: accepts a dotted TASK-<n>.<m> positional argument', () => {
+  const parsed = parseDriverArgs(['TASK-1.2', '--resume']);
+  assert.equal(parsed.error, null);
+  assert.deepEqual(parsed.unit, { kind: 'task', id: 'TASK-1.2' });
+  assert.equal(parsed.resume, true);
+});
+
+test('parseDriverArgs: accepts --task <ID> flag form', () => {
+  const parsed = parseDriverArgs(['--task', 'TASK-1.2', '--dry-run']);
+  assert.equal(parsed.error, null);
+  assert.deepEqual(parsed.unit, { kind: 'task', id: 'TASK-1.2' });
+  assert.equal(parsed.dryRun, true);
+});
+
+test('parseDriverArgs: accepts --task=<ID> flag form', () => {
+  const parsed = parseDriverArgs(['--task=TASK-3']);
+  assert.equal(parsed.error, null);
+  assert.deepEqual(parsed.unit, { kind: 'task', id: 'TASK-3' });
+});
+
+test('parseDriverArgs: task id is case-insensitive on input but preserved as typed', () => {
+  const parsed = parseDriverArgs(['task-1.2']);
+  assert.equal(parsed.error, null);
+  assert.deepEqual(parsed.unit, { kind: 'task', id: 'task-1.2' });
+});
+
+test('parseDriverArgs: rejects --task on plan-loop (TASK-1.3 scope, not this task)', () => {
+  const parsed = parseDriverArgs(['--plan', '41', '--task', 'TASK-1']);
+  assert.match(parsed.error, /plan-loop does not accept a task id/);
+});
+
+test('parseDriverArgs: rejects an invalid --task value', () => {
+  const parsed = parseDriverArgs(['--task', 'not-a-task-id']);
+  assert.match(parsed.error, /invalid task id/);
 });
 
 test('parseApprovedPlanForIssue: extracts machine-readable issue fields', () => {
@@ -1241,6 +1291,19 @@ test('buildImplementPrompt: worktree name reflects issueNumber', () => {
   assert.match(prompt42, /inner\/issue-42/);
 });
 
+// --- buildImplementPrompt: task unit worktree naming (ADR 0025 §4 / TASK-1.2) ---
+
+test('buildImplementPrompt: task unit uses inner-task-<slug> worktree naming, not issue naming', () => {
+  const prompt = buildImplementPrompt({
+    issueNumber: { kind: 'task', id: 'TASK-1.2' },
+    issueTitle: 'T', issueBody: 'B', plan: 'P',
+  });
+  assert.match(prompt, /inner-task-1-2/);
+  assert.match(prompt, /inner\/task-1-2/);
+  assert.doesNotMatch(prompt, /inner-issue-/);
+  assert.match(prompt, /task TASK-1\.2/);
+});
+
 // --- F3: REVIEW/VERIFY prompt に receipt 非発行契約 ---
 
 test('buildReviewPrompt: instructs agent not to issue receipt', () => {
@@ -1264,6 +1327,12 @@ test('buildVerifyPrompt: instructs agent not to issue receipt', () => {
 test('buildPlanPrompt: contains impact-scaled rigor hint', () => {
   const prompt = buildPlanPrompt({ issueNumber: 42, issueTitle: 'T', issueBody: 'B' });
   assert.match(prompt, /軽量 plan/);
+});
+
+test('buildPlanPrompt: task unit heading reads "task <ID>", not "issue #[object Object]" (impl-loop, not plan-loop mode)', () => {
+  const prompt = buildPlanPrompt({ issueNumber: { kind: 'task', id: 'TASK-1.2' }, issueTitle: 'T', issueBody: 'B' });
+  assert.match(prompt, /## task TASK-1\.2: T/);
+  assert.doesNotMatch(prompt, /\[object Object\]/);
 });
 
 // --- I2: REVIEW prompt に inline diff 指定 ---
@@ -1345,6 +1414,23 @@ test('direct builder exports match buildStagePrompt dispatch', () => {
   assert.equal(buildReviewPrompt(ctx), buildStagePrompt('REVIEW', ctx));
   assert.equal(buildVerifyPrompt(ctx), buildStagePrompt('VERIFY', ctx));
   assert.equal(buildTriagePrompt(ctx), buildStagePrompt('TRIAGE', ctx));
+});
+
+// impl-loop stages (PLAN/IMPLEMENT/REVIEW/VERIFY/TRIAGE) all take a task
+// unit as `issueNumber` at runtime once the driver dispatches on a task run
+// (ADR 0025 §4 / TASK-1.2). None of them should ever stringify the unit
+// object directly — a prior bug (caught by manual dry-run smoke test) let
+// buildPlanPrompt's non-plan-loop branch fall through to `issue #${issueNumber}`
+// unguarded, producing "issue #[object Object]" in real agent prompts.
+test('impl-loop stage prompts never leak "[object Object]" for a task unit', () => {
+  const ctx = {
+    issueNumber: { kind: 'task', id: 'TASK-1.2' },
+    issueTitle: 'T', issueBody: 'B', plan: 'P', headSha: 'sha1', verifyResult: 'V',
+  };
+  for (const stage of ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
+    const prompt = buildStagePrompt(stage, ctx);
+    assert.doesNotMatch(prompt, /\[object Object\]/, `stage ${stage} leaked [object Object]`);
+  }
 });
 
 // --- stagePermissions ---
@@ -1773,6 +1859,183 @@ test('manifestPathFor: issue-loop call sites are unaffected by the task unit bra
   assert.match(p, /\.lathe\/runs\/issue-25\.json$/);
 });
 
+// --- parseTaskViewPlain (ADR 0025 §4 / TASK-1.2 AC#2) ---
+// Fixture text mirrors real `backlog task view <id> --plain` output
+// (verified against backlog.md 1.47.1 during implementation).
+
+const TASK_VIEW_PLAIN_FIXTURE = [
+  'File: /repo/backlog/tasks/task-1.2 - Phase2-b impl-loop driver.md',
+  '',
+  'Task TASK-1.2 - Phase2-b impl-loop driver — inner-loop を task unit へ + 終端 status=Done',
+  '==================================================',
+  '',
+  'Status: ○ To Do',
+  'Priority: High',
+  'Ordinal: 3000',
+  'Created: 2026-07-04 10:45',
+  'Labels: phase-2, rewire, driver',
+  'Parent: TASK-1 - Phase 2 — inner-loop の実行単位を GitHub issue から Backlog.md task へ rewire',
+  'Dependencies: TASK-1.1',
+  'References: adr/0025-task-substrate-backlog-md.md',
+  '',
+  'Description:',
+  '--------------------------------------------------',
+  'impl-loop の driver 一族を issue→task へ付け替え。merge.mjs は無改変。ADR 0025 §4。',
+  '',
+  'Acceptance Criteria:',
+  '--------------------------------------------------',
+  '- [ ] #1 parseDriverArgs が task id を受理',
+  '- [ ] #2 fetchTask = backlog task view --plain',
+  '',
+  'Definition of Done:',
+  '--------------------------------------------------',
+  'No Definition of Done items defined',
+  '',
+  'Implementation Plan:',
+  '--------------------------------------------------',
+  'parseDriverArgs/fetchTask/worktree命名 → marker/worktree literal',
+].join('\n');
+
+test('parseTaskViewPlain: extracts title/status/labels/dependencies from real backlog --plain output', () => {
+  const parsed = parseTaskViewPlain(TASK_VIEW_PLAIN_FIXTURE);
+  assert.equal(parsed.title, 'Phase2-b impl-loop driver — inner-loop を task unit へ + 終端 status=Done');
+  assert.equal(parsed.status, 'To Do');
+  assert.deepEqual(parsed.labels, ['phase-2', 'rewire', 'driver']);
+  assert.deepEqual(parsed.dependencies, ['TASK-1.1']);
+});
+
+test('parseTaskViewPlain: body concatenates Description + Acceptance Criteria + Implementation Plan, excludes Definition of Done boilerplate', () => {
+  const parsed = parseTaskViewPlain(TASK_VIEW_PLAIN_FIXTURE);
+  assert.match(parsed.body, /## Description/);
+  assert.match(parsed.body, /issue→task へ付け替え/);
+  assert.match(parsed.body, /## Acceptance Criteria/);
+  assert.match(parsed.body, /#1 parseDriverArgs が task id を受理/);
+  assert.match(parsed.body, /## Implementation Plan/);
+  assert.match(parsed.body, /parseDriverArgs\/fetchTask\/worktree命名/);
+  assert.doesNotMatch(parsed.body, /No Definition of Done items defined/);
+});
+
+test('parseTaskViewPlain: no dependencies line -> empty array (not a parse error)', () => {
+  const noDeps = TASK_VIEW_PLAIN_FIXTURE.split('\n').filter((line) => !line.startsWith('Dependencies:')).join('\n');
+  const parsed = parseTaskViewPlain(noDeps);
+  assert.deepEqual(parsed.dependencies, []);
+});
+
+test('parseTaskViewPlain: empty/garbage input does not throw and returns empty body', () => {
+  assert.doesNotThrow(() => parseTaskViewPlain(''));
+  assert.doesNotThrow(() => parseTaskViewPlain(null));
+  const parsed = parseTaskViewPlain('not a task view at all');
+  assert.equal(parsed.title, null);
+  assert.equal(parsed.body, '');
+});
+
+// --- worktreeNameFor (ADR 0025 §4 / TASK-1.2 AC#2) ---
+
+test('worktreeNameFor: task unit resolves to inner-task-<slug> naming', () => {
+  const named = worktreeNameFor({ kind: 'task', id: 'TASK-1.2' });
+  assert.deepEqual(named, { branch: 'inner/task-1-2', dirName: 'inner-task-1-2' });
+});
+
+test('worktreeNameFor: plain issue number is unaffected (backward compatible)', () => {
+  const named = worktreeNameFor(46);
+  assert.deepEqual(named, { branch: 'inner/issue-46', dirName: 'inner-issue-46' });
+});
+
+// --- markTaskDoneInWorktree (ADR 0025 §4 / TASK-1.2 AC#4) ---
+
+test('markTaskDoneInWorktree: edits status, commits backlog/, then re-stamps review PASS + verify GREEN receipts at the new HEAD', () => {
+  const calls = [];
+  const fakeSpawnSync = (cmd, args, options) => {
+    calls.push({ cmd, args, options });
+    if (cmd === 'fake-backlog') return { status: 0, stdout: 'task TASK-1.2 status -> Done\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-after-done\n', stderr: '' };
+    if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 0, stdout: '', stderr: '' };
+    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
+  };
+
+  const result = markTaskDoneInWorktree('TASK-1.2', '/worktree/inner-task-1-2', 'old-reviewed-sha', {
+    spawnSync: fakeSpawnSync,
+    backlogBin: 'fake-backlog',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.headSha, 'new-sha-after-done');
+
+  const editCall = calls.find((c) => c.cmd === 'fake-backlog');
+  assert.deepEqual(editCall.args, ['task', 'edit', 'TASK-1.2', '--status', 'Done']);
+
+  const commitCall = calls.find((c) => c.cmd === 'git' && c.args[2] === 'commit');
+  assert.match(commitCall.args.join(' '), /backlog: TASK-1\.2 -> Done/);
+
+  const receiptCalls = calls.filter((c) => c.cmd === 'node' && c.args[0] === 'scripts/receipt.mjs');
+  assert.equal(receiptCalls.length, 2);
+  assert.deepEqual(receiptCalls[0].args, ['scripts/receipt.mjs', 'review', 'new-sha-after-done', 'PASS']);
+  assert.equal(receiptCalls[0].options.env.LATHE_AGENT, 'reviewer');
+  assert.deepEqual(receiptCalls[1].args, ['scripts/receipt.mjs', 'verify', 'new-sha-after-done', 'GREEN']);
+  assert.equal(receiptCalls[1].options.env.LATHE_AGENT, 'verifier');
+});
+
+test('markTaskDoneInWorktree: no backlog/ diff after edit -> no commit, no receipt re-stamp (idempotent re-run)', () => {
+  const calls = [];
+  const fakeSpawnSync = (cmd, args) => {
+    calls.push({ cmd, args });
+    if (cmd === 'fake-backlog') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: '', stderr: '' };
+    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
+  };
+
+  const result = markTaskDoneInWorktree('TASK-1.2', '/worktree/inner-task-1-2', 'already-reviewed-sha', {
+    spawnSync: fakeSpawnSync,
+    backlogBin: 'fake-backlog',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.headSha, 'already-reviewed-sha');
+  assert.equal(calls.some((c) => c.cmd === 'git' && c.args[2] === 'commit'), false);
+  assert.equal(calls.some((c) => c.cmd === 'node'), false);
+});
+
+test('markTaskDoneInWorktree: backlog task edit failure short-circuits before any git call', () => {
+  const calls = [];
+  const fakeSpawnSync = (cmd, args) => {
+    calls.push({ cmd, args });
+    return { status: 1, stdout: '', stderr: 'backlog: task not found' };
+  };
+
+  const result = markTaskDoneInWorktree('TASK-999', '/worktree/inner-task-999', 'sha', {
+    spawnSync: fakeSpawnSync,
+    backlogBin: 'fake-backlog',
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.output, /task not found/);
+  assert.equal(calls.length, 1);
+});
+
+test('markTaskDoneInWorktree: receipt re-stamp failure is reported (not silently swallowed)', () => {
+  const fakeSpawnSync = (cmd, args) => {
+    if (cmd === 'fake-backlog') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha\n', stderr: '' };
+    if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 1, stdout: '', stderr: 'receipt.mjs: invalid sha' };
+    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
+  };
+
+  const result = markTaskDoneInWorktree('TASK-1.2', '/worktree/inner-task-1-2', 'old-sha', {
+    spawnSync: fakeSpawnSync,
+    backlogBin: 'fake-backlog',
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.output, /receipt re-stamp \(review\) failed/);
+});
+
 // --- readManifestStages ---
 
 function makeTempDir(testId) {
@@ -1922,6 +2185,17 @@ test('buildEscalationMarkdown: includes all REVIEW rounds, not only the final st
   assert.match(markdown, /REVIEW #2/);
   assert.match(markdown, /contradiction_marker: yes/);
   assert.match(markdown, /final reviewer excerpt/);
+});
+
+test('buildEscalationMarkdown: task unit heading reads "task <ID>", not "issue #[object Object]"', () => {
+  const markdown = buildEscalationMarkdown({
+    issueNumber: { kind: 'task', id: 'TASK-1.2' },
+    stage: 'VERIFY',
+    verdict: 'RED',
+    resultExcerpt: 'unit test failed',
+  });
+  assert.match(markdown, /# escalation — task TASK-1\.2/);
+  assert.doesNotMatch(markdown, /\[object Object\]/);
 });
 
 // --- resume decision ---
