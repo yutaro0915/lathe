@@ -3,9 +3,10 @@ id: TASK-25
 title: >-
   docs/skill: ADR 0029 の周知経路を実装 — AGENTS.md 起票ルール + ISSUE_TEMPLATE + 起票元切替 +
   skill 更新
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 18:17'
+updated_date: '2026-07-04 22:47'
 labels: []
 dependencies: []
 priority: medium
@@ -32,3 +33,10 @@ ordinal: 26000
 ---
 intake: issue #91 <- @yutaro0915
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+mechanical 分（監査役 authoring）を PR #109 で着地: (a) AGENTS.md の起票記述を intake（gh issue --label task-request）へ + loops.md ポインタ / (c-meta) runbook §3 更新 / (b) .github/ISSUE_TEMPLATE/task-request.md。(d) skill 更新は lathe-loop に起票言及なしで moot。
+【PdM 判断待ちで温存】(c)-plan-loop の ISSUE_CREATE 切替: plan-loop 終端の再定義 + inner-loop.test.mjs の 36 契約点の再設計を伴う loop 設計判断（自律実装から除外）。本 task の残作業はこの 1 点のみ。
+<!-- SECTION:NOTES:END -->
