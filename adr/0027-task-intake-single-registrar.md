@@ -1,6 +1,6 @@
 # ADR 0027: task intake の単一受付と登記 loop — 起票の直列化
 
-- status: proposed（設計は 2026-07-05 PdM 発案・壁打ちで方向承認。accepted 化は本 PR review で）
+- status: accepted（2026-07-05 PdM 承認・PR #67）
 - date: 2026-07-05
 - 関連: ADR 0025（task 基盤・Issues の外部窓口降格）／ADR 0026（単一着地ゲート・信頼境界は remote・loops 台帳）／[design/loops.md](../design/loops.md)
 
