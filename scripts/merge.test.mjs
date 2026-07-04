@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash, decideLock } from './merge.mjs';
+import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash, decideLock, splitCommitMessage, buildPrCreateArgs, buildPrMergeArgs } from './merge.mjs';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -256,4 +256,87 @@ test('cleanupFailedSquash: squash 衝突後に working tree がクリーンに�
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+// --- splitCommitMessage ---
+
+test('splitCommitMessage: subject + body → splits correctly', () => {
+  const msg = 'feat(ci): add PR-based landing\n\nSwitches to gh pr create + auto-merge.\n\nCo-Authored-By: Claude <noreply@anthropic.com>';
+  const { subject, body } = splitCommitMessage(msg);
+  assert.equal(subject, 'feat(ci): add PR-based landing');
+  assert.equal(body, 'Switches to gh pr create + auto-merge.\n\nCo-Authored-By: Claude <noreply@anthropic.com>');
+});
+
+test('splitCommitMessage: subject only → body falls back to subject', () => {
+  const msg = 'feat(ci): subject only';
+  const { subject, body } = splitCommitMessage(msg);
+  assert.equal(subject, 'feat(ci): subject only');
+  assert.equal(body, 'feat(ci): subject only');
+});
+
+test('splitCommitMessage: empty string → empty subject, body falls back to subject', () => {
+  const { subject, body } = splitCommitMessage('');
+  assert.equal(subject, '');
+  assert.equal(body, '');
+});
+
+test('splitCommitMessage: trims subject line', () => {
+  const { subject } = splitCommitMessage('  feat: trimmed  \n\nbody text');
+  assert.equal(subject, 'feat: trimmed');
+});
+
+// --- buildPrCreateArgs ---
+
+test('buildPrCreateArgs: returns correct gh argv', () => {
+  const args = buildPrCreateArgs({
+    base: 'main',
+    head: 'inner/task-15',
+    title: 'feat(ci): PR-based landing',
+    body: 'Body text here.',
+  });
+  assert.deepEqual(args, [
+    'pr', 'create',
+    '--base', 'main',
+    '--head', 'inner/task-15',
+    '--title', 'feat(ci): PR-based landing',
+    '--body', 'Body text here.',
+  ]);
+});
+
+test('buildPrCreateArgs: multi-line body is preserved as-is (no shell escaping needed for spawnSync)', () => {
+  const body = 'Line one.\n\nLine two.';
+  const args = buildPrCreateArgs({ base: 'main', head: 'feat', title: 'feat: x', body });
+  assert.equal(args[args.indexOf('--body') + 1], body);
+});
+
+// AC #2 verification: git merge --squash no longer appears in buildPrCreateArgs / buildPrMergeArgs output
+test('buildPrCreateArgs: does not include squash merge git args', () => {
+  const args = buildPrCreateArgs({ base: 'main', head: 'feat', title: 't', body: 'b' });
+  assert.ok(!args.includes('merge'), 'should not contain "merge" git sub-command');
+  assert.ok(!args.includes('--squash') || args[0] !== 'git', 'should not be a local git squash call');
+});
+
+// --- buildPrMergeArgs ---
+
+test('buildPrMergeArgs: returns correct gh argv', () => {
+  const args = buildPrMergeArgs({ branch: 'inner/task-15' });
+  assert.deepEqual(args, [
+    'pr', 'merge', 'inner/task-15',
+    '--auto', '--squash', '--delete-branch',
+  ]);
+});
+
+test('buildPrMergeArgs: --auto flag is present (ensures CI gate controls landing)', () => {
+  const args = buildPrMergeArgs({ branch: 'feat/foo' });
+  assert.ok(args.includes('--auto'), '--auto must be present');
+});
+
+test('buildPrMergeArgs: --squash flag is present', () => {
+  const args = buildPrMergeArgs({ branch: 'feat/foo' });
+  assert.ok(args.includes('--squash'), '--squash must be present');
+});
+
+test('buildPrMergeArgs: --delete-branch flag is present', () => {
+  const args = buildPrMergeArgs({ branch: 'feat/foo' });
+  assert.ok(args.includes('--delete-branch'), '--delete-branch must be present');
 });

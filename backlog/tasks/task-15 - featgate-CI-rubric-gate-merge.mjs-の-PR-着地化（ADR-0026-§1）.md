@@ -1,9 +1,10 @@
 ---
 id: TASK-15
 title: 'feat(gate): CI rubric-gate + merge.mjs の PR 着地化（ADR 0026 §1）'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 16:07'
+updated_date: '2026-07-04 17:29'
 labels: []
 milestone: m-18
 dependencies: []
@@ -24,3 +25,9 @@ ordinal: 18000
 - [ ] #3 inner-loop の MERGE 段が新 merge.mjs 経由で task を完走する（manifest 契約不変）
 - [ ] #4 CI の rubric-gate が same-SHA push で no-op しない（TASK-6 の再現条件で GREEN/RED が正しく出る）
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+再着地の経緯: inner loop で完走（REVIEW:PASS/VERIFY:GREEN）後、並行 outer セッションとの main 分岐により push 漏れ。ci.yml + ci-changed-paths は #73（harness-hotfix・ADR 0028）が上書きしたため破棄し、merge.mjs の PR 着地化（+テスト）のみ本 PR で再着地。AC の CI 系項目は #73 が満たす。
+<!-- SECTION:NOTES:END -->
