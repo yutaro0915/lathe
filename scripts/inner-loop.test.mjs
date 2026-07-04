@@ -1997,6 +1997,7 @@ test('markTaskDoneInWorktree: edits status, commits backlog/, then re-stamps rev
     if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
     if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
     if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-after-done\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\nbacklog/tasks/index.md\n', stderr: '' };
     if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 0, stdout: '', stderr: '' };
     throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
   };
@@ -2014,6 +2015,9 @@ test('markTaskDoneInWorktree: edits status, commits backlog/, then re-stamps rev
 
   const commitCall = calls.find((c) => c.cmd === 'git' && c.args[2] === 'commit');
   assert.match(commitCall.args.join(' '), /backlog: TASK-1\.2 -> Done/);
+
+  const diffCall = calls.find((c) => c.cmd === 'git' && c.args[2] === 'diff');
+  assert.deepEqual(diffCall.args, ['-C', '/worktree/inner-task-1-2', 'diff', '--name-only', 'old-reviewed-sha..new-sha-after-done']);
 
   const receiptCalls = calls.filter((c) => c.cmd === 'node' && c.args[0] === 'scripts/receipt.mjs');
   assert.equal(receiptCalls.length, 2);
@@ -2044,6 +2048,30 @@ test('markTaskDoneInWorktree: no backlog/ diff after edit -> no commit, no recei
   assert.equal(calls.some((c) => c.cmd === 'node'), false);
 });
 
+test('markTaskDoneInWorktree: non-backlog Done commit paths fail before receipt re-stamp', () => {
+  const calls = [];
+  const fakeSpawnSync = (cmd, args) => {
+    calls.push({ cmd, args });
+    if (cmd === 'fake-backlog') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
+    if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-after-done\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\nscripts/inner-loop.mjs\n', stderr: '' };
+    if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 0, stdout: '', stderr: '' };
+    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
+  };
+
+  const result = markTaskDoneInWorktree('TASK-1.2', '/worktree/inner-task-1-2', 'old-reviewed-sha', {
+    spawnSync: fakeSpawnSync,
+    backlogBin: 'fake-backlog',
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.output, /scripts\/inner-loop\.mjs/);
+  assert.equal(calls.some((c) => c.cmd === 'node' && c.args[0] === 'scripts/receipt.mjs'), false);
+});
+
 test('markTaskDoneInWorktree: backlog task edit failure short-circuits before any git call', () => {
   const calls = [];
   const fakeSpawnSync = (cmd, args) => {
@@ -2068,6 +2096,7 @@ test('markTaskDoneInWorktree: receipt re-stamp failure is reported (not silently
     if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
     if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
     if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha\n', stderr: '' };
+    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\n', stderr: '' };
     if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 1, stdout: '', stderr: 'receipt.mjs: invalid sha' };
     throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
   };

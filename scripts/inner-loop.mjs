@@ -1442,6 +1442,14 @@ export function markTaskDoneInWorktree(taskId, worktreePath, reviewedHeadSha, de
   const newHeadSha = headResult.status === 0 ? headResult.stdout.trim() : null;
   if (!newHeadSha) return { ok: false, output: 'could not determine worktree HEAD after status=Done commit' };
 
+  const diffResult = run('git', ['-C', worktreePath, 'diff', '--name-only', `${reviewedHeadSha}..${newHeadSha}`], { encoding: 'utf8' });
+  if (diffResult.status !== 0) return { ok: false, output: `git diff Done commit paths failed: ${diffResult.stderr || diffResult.stdout}` };
+  const changedPaths = (diffResult.stdout ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const nonBacklogPaths = changedPaths.filter((path) => !path.startsWith('backlog/'));
+  if (nonBacklogPaths.length > 0) {
+    return { ok: false, output: `Done commit contains non-backlog paths; refusing receipt re-stamp: ${nonBacklogPaths.join(', ')}` };
+  }
+
   for (const step of ['review', 'verify']) {
     const rr = run('node', ['scripts/receipt.mjs', step, newHeadSha, step === 'review' ? 'PASS' : 'GREEN'], {
       cwd: worktreePath,

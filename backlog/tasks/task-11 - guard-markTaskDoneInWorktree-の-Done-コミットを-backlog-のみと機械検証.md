@@ -1,9 +1,10 @@
 ---
 id: TASK-11
 title: 'guard: markTaskDoneInWorktree の Done コミットを backlog/ のみと機械検証'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 13:42'
+updated_date: '2026-07-04 13:58'
 labels:
   - phase-2
   - guard
