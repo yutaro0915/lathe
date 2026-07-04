@@ -2,7 +2,7 @@
 
 > status: revised 2026-07-01（**outer loop / inner loop の二層**に整理。旧「OPUS」表記は**モデル名の役割への誤用**なので役割名へ改めた）
 > **二つのループ**（model ⟂ role。**opus はモデル名であって役割名ではない**＝ADR 0005 / 0009「agent をエンティティ化しない・runner/model は記録属性」）:
-> - **outer loop（監督の役割）**: Lathe で開発全体を **meta-audit（監視）→ 問題を issue 化 → inner loop へ渡す**。**rubric を管理**し、品質問題を rubric に落とす。inner からの**エスカレーション**（設計判断・詰まり）を rubric との関係で捌く。**実装・調査・review・verify・merge・grep はしない**。
+> - **outer loop（監督の役割）**: Lathe で開発全体を **meta-audit（監視）→ 問題を issue 化 → inner loop へ渡す**。**rubric を管理**し、品質問題を rubric に落とす。inner からの**エスカレーション**（設計判断・詰まり）を rubric との関係で捌く。**実装・調査・review・verify・merge・grep はしない**。詳細分解（family: 感知診断=meta-loop / ACT / 前進 / 検証の 4 系統・meta-loop の to-be・監査プロファイル）は [outer-loop-family.md](./outer-loop-family.md)（2026-07-04）。
 > - **inner loop（1 issue の実装ループ）**: named agent が **PLAN → RESEARCH → IMPLEMENT → REVIEW → VERIFY →（RED なら test-triage）→ MERGE（`scripts/merge.mjs` receipt ゲート）** を回し **自律で完走**。設計判断・詰まりだけ outer へエスカレーション。
 >
 > **なぜ二層を分けるか**: outer と inner を 1 セッションに混ぜると、履歴が絡んで meta-audit が効かず・どの段が悪いか検証できず・フローが安定しない（2026-07-01 の反省: outer が inner の research/plan/review/verify に手を突っ込んで二層を潰した）。**別ループ・別セッション**にすれば、各 inner loop は綺麗な単一セッション（meta-audit 可能）に、outer loop は綺麗な監視ログになる。
