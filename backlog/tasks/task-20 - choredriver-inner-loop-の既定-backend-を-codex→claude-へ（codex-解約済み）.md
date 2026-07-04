@@ -1,9 +1,10 @@
 ---
 id: TASK-20
 title: 'chore(driver): inner-loop の既定 backend を codex→claude へ（codex 解約済み）'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 18:04'
+updated_date: '2026-07-04 18:33'
 labels: []
 dependencies: []
 priority: medium
