@@ -403,8 +403,7 @@ export function parseBackendFlags(argv) {
 export function selectBackend(stage, flags) {
   if (flags.stages[stage] != null) return flags.stages[stage];
   if (flags.global != null) return flags.global;
-  if (stage === 'VERIFY') return 'claude';
-  return 'codex';
+  return 'claude';
 }
 
 /**

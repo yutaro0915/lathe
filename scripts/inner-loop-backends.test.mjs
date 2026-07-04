@@ -502,11 +502,11 @@ test('parseBackendFlags: hyphenated stage key maps to underscore stage name', ()
 
 // --- selectBackend ---
 
-test('selectBackend: default is codex except VERIFY fallback when no flags', () => {
-  assert.equal(selectBackend('RESEARCH', { global: null, stages: {} }), 'codex');
-  assert.equal(selectBackend('PLAN', { global: null, stages: {} }), 'codex');
-  assert.equal(selectBackend('PLAN_REVIEW', { global: null, stages: {} }), 'codex');
-  assert.equal(selectBackend('IMPLEMENT', { global: null, stages: {} }), 'codex');
+test('selectBackend: default is claude for all stages when no flags', () => {
+  assert.equal(selectBackend('RESEARCH', { global: null, stages: {} }), 'claude');
+  assert.equal(selectBackend('PLAN', { global: null, stages: {} }), 'claude');
+  assert.equal(selectBackend('PLAN_REVIEW', { global: null, stages: {} }), 'claude');
+  assert.equal(selectBackend('IMPLEMENT', { global: null, stages: {} }), 'claude');
   assert.equal(selectBackend('VERIFY', { global: null, stages: {} }), 'claude');
 });
 
@@ -529,9 +529,9 @@ test('selectBackend: stage not in stages.stages falls back to global', () => {
   assert.equal(selectBackend('REVIEW', flags), 'claude');
 });
 
-test('selectBackend: stage not in stages and no global -> stage default', () => {
+test('selectBackend: stage not in stages and no global -> claude default', () => {
   const flags = { global: null, stages: { PLAN: 'claude' } };
-  assert.equal(selectBackend('REVIEW', flags), 'codex');
+  assert.equal(selectBackend('REVIEW', flags), 'claude');
   assert.equal(selectBackend('VERIFY', flags), 'claude');
 });
 

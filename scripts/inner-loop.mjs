@@ -1304,11 +1304,11 @@ function runStageCodex(stage, prompt, cwd, deps = {}) {
  * @param {string} prompt
  * @param {string} cwd
  * @param {string | null} resumeSessionId  (claude backend only)
- * @param {string} backend  'claude' | 'codex' (default 'codex')
+ * @param {string} backend  'claude' | 'codex' (default 'claude')
  * @param {{ spawnSync?: Function }} deps
  * @returns {{ session_id: string|null, result: string, total_cost_usd: number|null, backend: string, backend_cost_source?: string|null, backend_model?: string|null, backend_token_usage?: object|null }}
  */
-export function runStage(stage, prompt, cwd, resumeSessionId = null, backend = 'codex', deps = {}) {
+export function runStage(stage, prompt, cwd, resumeSessionId = null, backend = 'claude', deps = {}) {
   return backend === 'codex'
     ? runStageCodex(stage, prompt, cwd, deps)
     : runStageClaude(stage, prompt, cwd, resumeSessionId, deps);
