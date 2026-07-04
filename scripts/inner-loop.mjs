@@ -723,7 +723,10 @@ function fetchIssue(issueNumber) {
 
 // backlog CLI path — repo-local devDependency binary (ADR 0025 PLAN-gate
 // decision #4: "driver は node_modules/.bin/backlog 直呼び／pnpm 層回避").
-const BACKLOG_BIN = join(REPO_ROOT, 'node_modules', '.bin', 'backlog');
+// LATHE_FAKE_BACKLOG_BIN lets CLI-level tests (spawning this file as a real
+// subprocess, e.g. plan-loop's ISSUE_CREATE) point at a fake bin — the
+// absolute node_modules/.bin path is not shadowable via PATH like `gh` is.
+const BACKLOG_BIN = process.env.LATHE_FAKE_BACKLOG_BIN || join(REPO_ROOT, 'node_modules', '.bin', 'backlog');
 
 const TASK_VIEW_SECTION_HEADINGS = [
   'Description',
@@ -1000,16 +1003,16 @@ export function parseApprovedPlanIssueBlocks(planText) {
   return { ok: true, issues, rejected };
 }
 
-export function resolvePlanIssueDependency(dependsOn, createdIssueNumbersByPlanIndex) {
+export function resolvePlanTaskDependency(dependsOn, createdTaskIdsByPlanIndex) {
   const unresolved = [];
   const resolved = String(dependsOn ?? '').replace(/\bplan#(\d+)\b/gi, (token, rawIndex) => {
     const index = Number(rawIndex);
-    const issueNumber = createdIssueNumbersByPlanIndex.get(index);
-    if (!issueNumber) {
+    const taskId = createdTaskIdsByPlanIndex.get(index);
+    if (!taskId) {
       unresolved.push(token);
       return token;
     }
-    return `#${issueNumber}`;
+    return taskId;
   });
 
   if (unresolved.length > 0) {
@@ -1027,7 +1030,27 @@ function replaceApprovedPlanDependsOnLine(approvedPlan, dependsOn) {
   }).join('\n');
 }
 
-export function buildImplementationIssueBody({ sourceIssueNumber, approvedPlan, dependsOn, touches }) {
+// Extract TASK-<n> tokens from a resolved Depends-on value for
+// `backlog task create --depends-on` (ADR 0025 §4 / TASK-1.3). Only
+// TASK-shaped tokens are forwarded — `backlog task create` hard-fails if any
+// --depends-on id does not already exist, so a stray legacy GitHub issue
+// reference (e.g. "#77", pre-dating ADR 0025) must not break task creation.
+// Such tokens still ride along in the Description's Depends-on: line for a
+// human to read; they are just not passed to the native dependency flag.
+export function extractBacklogTaskDependencyIds(dependsOn) {
+  const ids = [];
+  const seen = new Set();
+  for (const match of String(dependsOn ?? '').matchAll(/\bTASK-[^\s,]+/gi)) {
+    const id = match[0].toUpperCase();
+    if (!seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+export function buildImplementationTaskDescription({ sourceIssueNumber, approvedPlan, dependsOn, touches }) {
   const normalizedApprovedPlan = replaceApprovedPlanDependsOnLine(stripVerdictLine(approvedPlan), dependsOn);
   return [
     `Generated from #${sourceIssueNumber}`,
@@ -1040,66 +1063,68 @@ export function buildImplementationIssueBody({ sourceIssueNumber, approvedPlan, 
   ].join('\n');
 }
 
-export function parseGhIssueNumber(output) {
+// Parse the task id from `backlog task create --plain` stdout, e.g.
+// "Task TASK-12 - some title\n==========...". Mirrors parseTaskViewPlain's
+// title-line contract (TASK-1.2) so both entry points share the same shape.
+export function parseBacklogCreatedTaskId(output) {
   const text = String(output ?? '');
-  const urlMatch = text.match(/\/issues\/(\d+)\b/);
-  if (urlMatch) return Number(urlMatch[1]);
-  const hashMatch = text.match(/#(\d+)\b/);
-  return hashMatch ? Number(hashMatch[1]) : null;
+  const match = text.match(/^Task\s+(TASK-[^\s]+)\s*-/m);
+  return match ? match[1] : null;
 }
 
-export function createImplementationIssues(sourceIssueNumber, approvedPlan, deps = {}) {
+export function createImplementationTasks(sourceIssueNumber, approvedPlan, deps = {}) {
   const run = deps.spawnSync ?? spawnSync;
   const parsedPlan = parseApprovedPlanIssueBlocks(approvedPlan);
   if (!parsedPlan.ok) {
     return { ok: false, error: parsedPlan.error };
   }
 
-  const issues = [];
-  const createdIssueNumbersByPlanIndex = new Map();
+  const tasks = [];
+  const createdTaskIdsByPlanIndex = new Map();
   for (const block of parsedPlan.issues) {
-    const dependsOnResult = resolvePlanIssueDependency(block.dependsOn, createdIssueNumbersByPlanIndex);
+    const dependsOnResult = resolvePlanTaskDependency(block.dependsOn, createdTaskIdsByPlanIndex);
     if (!dependsOnResult.ok) {
       return { ok: false, error: `approved plan block ${block.index}: ${dependsOnResult.error}` };
     }
-    const body = buildImplementationIssueBody({
+    const description = buildImplementationTaskDescription({
       sourceIssueNumber,
       approvedPlan: block.approvedPlan,
       dependsOn: dependsOnResult.dependsOn,
       touches: block.touches,
     });
-    const r = run('gh', ['issue', 'create', '--title', block.title, '--body-file', '-', '--label', 'inner-loop'], {
+    const backlogDependsOn = extractBacklogTaskDependencyIds(dependsOnResult.dependsOn);
+    const args = ['task', 'create', block.title, '--description', description, '--labels', 'inner-loop', '--plain'];
+    for (const depId of backlogDependsOn) args.push('--depends-on', depId);
+    const r = run(BACKLOG_BIN, args, {
       cwd: REPO_ROOT,
       encoding: 'utf8',
-      input: body,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     if (r.status !== 0) {
-      return { ok: false, error: `gh issue create failed for plan#${block.index}: ${r.stderr || r.stdout}` };
+      return { ok: false, error: `backlog task create failed for plan#${block.index}: ${r.stderr || r.stdout}` };
     }
-    const issueNumber = parseGhIssueNumber(r.stdout);
-    if (!issueNumber) {
-      return { ok: false, error: `could not parse created issue number from gh output: ${r.stdout}` };
+    const taskId = parseBacklogCreatedTaskId(r.stdout);
+    if (!taskId) {
+      return { ok: false, error: `could not parse created task id from backlog output: ${r.stdout}` };
     }
     const created = {
       index: block.index,
-      issueNumber,
-      url: r.stdout.trim(),
-      body,
+      taskId,
+      output: r.stdout.trim(),
+      description,
       title: block.title,
     };
-    issues.push(created);
-    createdIssueNumbersByPlanIndex.set(block.index, issueNumber);
+    tasks.push(created);
+    createdTaskIdsByPlanIndex.set(block.index, taskId);
   }
 
-  return { ok: true, issues, rejected: parsedPlan.rejected };
+  return { ok: true, tasks, rejected: parsedPlan.rejected };
 }
 
-export function buildPlanLoopCloseComment({ createdIssues, rejected }) {
-  const lines = ['plan-loop created implementation issues:', ''];
-  for (const issue of createdIssues) {
-    lines.push(`- plan#${issue.index} -> #${issue.issueNumber}: ${issue.title}`);
-    if (issue.url) lines.push(`  ${issue.url}`);
+export function buildPlanLoopCloseComment({ createdTasks, rejected }) {
+  const lines = ['plan-loop created implementation tasks:', ''];
+  for (const task of createdTasks) {
+    lines.push(`- plan#${task.index} -> ${task.taskId}: ${task.title}`);
   }
   lines.push('', 'Rejected candidates:');
   if (rejected.length === 0) {
@@ -1114,7 +1139,7 @@ export function buildPlanLoopCloseComment({ createdIssues, rejected }) {
 
 function closeSourceIssue(sourceIssueNumber, created) {
   const comment = buildPlanLoopCloseComment({
-    createdIssues: created.issues,
+    createdTasks: created.tasks,
     rejected: created.rejected,
   });
   const r = spawnSync('gh', ['issue', 'close', String(sourceIssueNumber), '--reason', 'completed', '--comment', comment], {
@@ -1472,15 +1497,15 @@ function dryRunPlanLoop(issueNumber, backendFlags) {
   log(`dry-run: GATE — after PLAN-REVIEW PASS, refetch source issue labels: ${AUTO_OK_LABEL} present -> append GATE PASS and continue to ISSUE_CREATE`);
   log(`dry-run: GATE — ${AUTO_OK_LABEL} absent -> ensure labels ${PLAN_GATE_LABELS.join(', ')}, comment approved plan with resume command, add ${PENDING_APPROVAL_LABEL}, append GATE/PENDING_APPROVAL, exit 0`);
   log(`dry-run: resume — if manifest tail is GATE/PENDING_APPROVAL and source has ${PLAN_APPROVED_LABEL}, append GATE PASS and continue to ISSUE_CREATE; otherwise print approval pending and exit 2 without changes`);
-  log('dry-run: ISSUE_CREATE — parse all approved issue blocks and run gh issue create --label inner-loop --body-file - for each block');
-  log(`dry-run: ISSUE_CREATE body per block includes Generated from #${issueNumber}, resolved Depends-on:, Touches:, ${APPROVED_PLAN_HEADING}`);
-  log('dry-run: ISSUE_CREATE resolves plan#<k> dependencies to earlier created issue numbers');
-  log(`dry-run: CLOSE_SOURCE — gh issue close ${issueNumber} --reason completed --comment '<created issue list and rejected candidates>'`);
-  log('dry-run: transition plan — RESEARCH PASS->PLAN, PLAN_READY->PLAN-REVIEW, PLAN-REVIEW PASS->GATE, GATE PASS->ISSUE_CREATE / GATE PENDING_APPROVAL->exit 0 / CHANGES->PLAN (max 2 cycles), all gh issue create calls -> CLOSE_SOURCE, missing/unparsable VERDICT->same stage retry once then ESCALATE');
+  log('dry-run: ISSUE_CREATE — parse all approved issue blocks and run backlog task create --labels inner-loop --description <desc> [--depends-on TASK-<n> ...] --plain for each block');
+  log(`dry-run: ISSUE_CREATE description per block includes Generated from #${issueNumber}, resolved Depends-on:, Touches:, ${APPROVED_PLAN_HEADING}`);
+  log('dry-run: ISSUE_CREATE resolves plan#<k> dependencies to earlier created Backlog.md task ids (TASK-shaped deps forwarded to --depends-on; other tokens stay body-only)');
+  log(`dry-run: CLOSE_SOURCE — gh issue close ${issueNumber} --reason completed --comment '<created task list and rejected candidates>'`);
+  log('dry-run: transition plan — RESEARCH PASS->PLAN, PLAN_READY->PLAN-REVIEW, PLAN-REVIEW PASS->GATE, GATE PASS->ISSUE_CREATE / GATE PENDING_APPROVAL->exit 0 / CHANGES->PLAN (max 2 cycles), all backlog task create calls -> CLOSE_SOURCE, missing/unparsable VERDICT->same stage retry once then ESCALATE');
 }
 
 function completePlanLoopIssueCreate(issueNumber, approvedPlan) {
-  const created = createImplementationIssues(issueNumber, approvedPlan);
+  const created = createImplementationTasks(issueNumber, approvedPlan);
   if (!created.ok) {
     writePlanEscalation(issueNumber, 'ISSUE_CREATE', null, created.error);
     die(`plan-loop issue create failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
@@ -1492,9 +1517,9 @@ function completePlanLoopIssueCreate(issueNumber, approvedPlan) {
     backendCostUsd: null,
     backendCostSource: null,
     backend: null,
-    resultText: created.issues.map((issue) => `created plan#${issue.index} -> #${issue.issueNumber}\n${issue.url}`).join('\n'),
+    resultText: created.tasks.map((task) => `created plan#${task.index} -> ${task.taskId}\n${task.output}`).join('\n'),
   }));
-  log(`plan-loop created ${created.issues.length} implementation issue(s): ${created.issues.map((issue) => `#${issue.issueNumber}`).join(', ')}`);
+  log(`plan-loop created ${created.tasks.length} implementation task(s): ${created.tasks.map((task) => task.taskId).join(', ')}`);
 
   const closeResult = closeSourceIssue(issueNumber, created);
   if (!closeResult.ok) {
@@ -1510,7 +1535,7 @@ function completePlanLoopIssueCreate(issueNumber, approvedPlan) {
     backend: null,
     resultText: `closed source issue #${issueNumber}`,
   }));
-  log(`plan-loop done — created implementation issue(s) ${created.issues.map((issue) => `#${issue.issueNumber}`).join(', ')} and closed source issue #${issueNumber}.`);
+  log(`plan-loop done — created implementation task(s) ${created.tasks.map((task) => task.taskId).join(', ')} and closed source issue #${issueNumber}.`);
   return 0;
 }
 

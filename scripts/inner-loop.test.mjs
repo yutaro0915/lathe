@@ -25,11 +25,12 @@ import {
   parseDriverArgs,
   parseApprovedPlanForIssue,
   parseApprovedPlanIssueBlocks,
-  resolvePlanIssueDependency,
-  buildImplementationIssueBody,
-  createImplementationIssues,
+  resolvePlanTaskDependency,
+  extractBacklogTaskDependencyIds,
+  buildImplementationTaskDescription,
+  createImplementationTasks,
   buildPlanLoopCloseComment,
-  parseGhIssueNumber,
+  parseBacklogCreatedTaskId,
   backendCostSourceForEnvelope,
   collectReviewHistory,
   buildReviewHistorySummary,
@@ -54,7 +55,7 @@ import {
   buildVerifyPrompt,
   buildTriagePrompt,
 } from './inner-loop-prompts.mjs';
-import { parseIssueRunHints } from './inner-queue.mjs';
+import { parseTaskRunHints } from './inner-queue.mjs';
 import { chmodSync, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -299,34 +300,46 @@ test('parseApprovedPlanIssueBlocks: validates required fields per block', () => 
   assert.match(parsed.error, /Touches:/);
 });
 
-test('resolvePlanIssueDependency: replaces earlier plan-local issue references', () => {
-  const resolved = resolvePlanIssueDependency('plan#1, #77', new Map([[1, 101]]));
-  assert.deepEqual(resolved, { ok: true, dependsOn: '#101, #77' });
+test('resolvePlanTaskDependency: replaces earlier plan-local issue references with created task ids', () => {
+  const resolved = resolvePlanTaskDependency('plan#1, #77', new Map([[1, 'TASK-101']]));
+  assert.deepEqual(resolved, { ok: true, dependsOn: 'TASK-101, #77' });
 });
 
-test('resolvePlanIssueDependency: rejects unresolved plan-local issue references', () => {
-  const resolved = resolvePlanIssueDependency('plan#2', new Map([[1, 101]]));
+test('resolvePlanTaskDependency: rejects unresolved plan-local issue references', () => {
+  const resolved = resolvePlanTaskDependency('plan#2', new Map([[1, 'TASK-101']]));
   assert.equal(resolved.ok, false);
   assert.match(resolved.error, /plan#2/);
 });
 
-test('buildImplementationIssueBody: includes approved plan marker and queue hints', () => {
-  const body = buildImplementationIssueBody({
+test('extractBacklogTaskDependencyIds: forwards only TASK-shaped tokens for --depends-on', () => {
+  assert.deepEqual(extractBacklogTaskDependencyIds('TASK-101, #77'), ['TASK-101']);
+  assert.deepEqual(extractBacklogTaskDependencyIds('TASK-1, TASK-1, TASK-2'), ['TASK-1', 'TASK-2']);
+  assert.deepEqual(extractBacklogTaskDependencyIds(''), []);
+  assert.deepEqual(extractBacklogTaskDependencyIds('#77'), []);
+});
+
+test('buildImplementationTaskDescription: includes approved plan marker and queue hints', () => {
+  const body = buildImplementationTaskDescription({
     sourceIssueNumber: 41,
-    approvedPlan: 'Title: feat: x\nDepends-on: #38\nTouches: scripts/a.mjs\nDo X.\nVERDICT: PLAN_READY',
-    dependsOn: '#38',
+    approvedPlan: 'Title: feat: x\nDepends-on: TASK-38\nTouches: scripts/a.mjs\nDo X.\nVERDICT: PLAN_READY',
+    dependsOn: 'TASK-38',
     touches: 'scripts/a.mjs',
   });
   assert.match(body, /Generated from #41/);
-  assert.match(body, /^Depends-on: #38$/m);
+  assert.match(body, /^Depends-on: TASK-38$/m);
   assert.match(body, /^Touches: scripts\/a\.mjs$/m);
   assert.match(body, /^## Plan \(approved\)$/m);
   assert.doesNotMatch(body, /VERDICT: PLAN_READY/);
 });
 
-test('createImplementationIssues: creates every block and resolves plan-local dependencies', () => {
+test('parseBacklogCreatedTaskId: parses task id from backlog task create --plain output', () => {
+  assert.equal(parseBacklogCreatedTaskId('Task TASK-12 - some title\n==========\n'), 'TASK-12');
+  assert.equal(parseBacklogCreatedTaskId('no task line here'), null);
+});
+
+test('createImplementationTasks: creates every block via backlog task create and resolves plan-local dependencies', () => {
   const calls = [];
-  const result = createImplementationIssues(41, [
+  const result = createImplementationTasks(41, [
     'Title: fix: first',
     'Depends-on: none',
     'Touches: scripts/a.mjs',
@@ -340,37 +353,36 @@ test('createImplementationIssues: creates every block and resolves plan-local de
   ].join('\n'), {
     spawnSync: (cmd, args, options) => {
       calls.push({ cmd, args, options });
-      const issueNumber = 101 + calls.length - 1;
-      return { status: 0, stdout: `https://github.com/yutaro0915/lathe/issues/${issueNumber}\n`, stderr: '' };
+      const taskId = `TASK-${101 + calls.length - 1}`;
+      return { status: 0, stdout: `Task ${taskId} - title\n==========\n`, stderr: '' };
     },
   });
 
   assert.equal(result.ok, true);
-  assert.deepEqual(result.issues.map((issue) => issue.issueNumber), [101, 102]);
-  assert.deepEqual(calls.map((call) => call.args.slice(0, 2)), [
-    ['issue', 'create'],
-    ['issue', 'create'],
-  ]);
-  assert.match(calls[0].options.input, /^Depends-on: $/m);
-  assert.match(calls[1].options.input, /^Depends-on: #101, #77$/m);
-  assert.doesNotMatch(calls[1].options.input, /^Depends-on: plan#1, #77$/m);
-  assert.deepEqual(parseIssueRunHints(calls[1].options.input).dependsOn, [101, 77]);
+  assert.deepEqual(result.tasks.map((task) => task.taskId), ['TASK-101', 'TASK-102']);
+  assert.deepEqual(calls.map((call) => call.args[0]), ['task', 'task']);
+  assert.deepEqual(calls.map((call) => call.args[1]), ['create', 'create']);
+  assert.match(calls[0].args.join(' '), /--description Generated from #41\nDepends-on: \n/);
+  assert.doesNotMatch(calls[0].args.join(' '), /--depends-on/);
+  assert.match(calls[1].args.join(' '), /Depends-on: TASK-101, #77/);
+  assert.doesNotMatch(calls[1].args.join(' '), /Depends-on: plan#1, #77/);
+  assert.deepEqual(calls[1].args.slice(calls[1].args.indexOf('--depends-on'), calls[1].args.indexOf('--depends-on') + 2), ['--depends-on', 'TASK-101']);
 });
 
-test('buildPlanLoopCloseComment: includes created issues and rejected candidates', () => {
+test('buildPlanLoopCloseComment: includes created tasks and rejected candidates', () => {
   const comment = buildPlanLoopCloseComment({
-    createdIssues: [
-      { index: 1, issueNumber: 101, title: 'fix: first', url: 'https://github.com/yutaro0915/lathe/issues/101' },
-      { index: 2, issueNumber: 102, title: 'fix: second', url: 'https://github.com/yutaro0915/lathe/issues/102' },
+    createdTasks: [
+      { index: 1, taskId: 'TASK-101', title: 'fix: first' },
+      { index: 2, taskId: 'TASK-102', title: 'fix: second' },
     ],
     rejected: [
       { candidate: 'grounding hook issue', reason: 'requires undefined contract' },
     ],
   });
 
-  assert.match(comment, /plan-loop created implementation issues:/);
-  assert.match(comment, /plan#1 -> #101: fix: first/);
-  assert.match(comment, /plan#2 -> #102: fix: second/);
+  assert.match(comment, /plan-loop created implementation tasks:/);
+  assert.match(comment, /plan#1 -> TASK-101: fix: first/);
+  assert.match(comment, /plan#2 -> TASK-102: fix: second/);
   assert.match(comment, /Rejected candidates:/);
   assert.match(comment, /grounding hook issue — requires undefined contract/);
 });
@@ -409,8 +421,23 @@ test('collectTouchesGroundingReport: omits unavailable, invalid, and failing rep
   }), null);
 });
 
-test('parseGhIssueNumber: parses GitHub issue URL', () => {
-  assert.equal(parseGhIssueNumber('https://github.com/yutaro0915/lathe/issues/123\n'), 123);
+// Fixture text mirrors real `backlog task create --plain` output (verified
+// against backlog.md 1.47.1 during TASK-1.3 implementation).
+const BACKLOG_TASK_CREATE_PLAIN_FIXTURE = [
+  'File: /repo/backlog/tasks/task-101 - fix-first.md',
+  '',
+  'Task TASK-101 - fix: first',
+  '==================================================',
+  '',
+  'Status: ○ To Do',
+  'Ordinal: 1000',
+  'Created: 2026-07-04 12:41',
+  'Labels: inner-loop',
+  '',
+].join('\n');
+
+test('parseBacklogCreatedTaskId: parses task id from real backlog task create --plain output', () => {
+  assert.equal(parseBacklogCreatedTaskId(BACKLOG_TASK_CREATE_PLAIN_FIXTURE), 'TASK-101');
 });
 
 test('rebaseWorktree: successful rebase runs rebase main and returns true', () => {
@@ -642,6 +669,22 @@ process.stderr.write('unexpected gh call: ' + args.join(' ') + '\\n');
 process.exit(1);
 `);
 
+  writeExecutable(join(fakeBin, 'backlog'), `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (process.env.LATHE_FAKE_GH_LOG) {
+  fs.appendFileSync(process.env.LATHE_FAKE_GH_LOG, JSON.stringify({ args, input: '' }) + '\\n');
+}
+if (args[0] === 'task' && args[1] === 'create') {
+  const taskId = 'TASK-' + (process.env.LATHE_FAKE_CREATED_TASK || '701');
+  const title = args[2] || '';
+  process.stdout.write('Task ' + taskId + ' - ' + title + '\\n==========\\n');
+  process.exit(0);
+}
+process.stderr.write('unexpected backlog call: ' + args.join(' ') + '\\n');
+process.exit(1);
+`);
+
   writeExecutable(join(fakeBin, 'claude'), `#!/usr/bin/env node
 const stage = process.env.LATHE_STAGE;
 const results = {
@@ -681,6 +724,8 @@ function runPlanLoopCli(issueNumber, fake, labels, extraArgs = [], envOverrides 
       LATHE_FAKE_GH_LOG: fake.logPath,
       LATHE_FAKE_LABELS: labels,
       LATHE_FAKE_CREATED_ISSUE: '701',
+      LATHE_FAKE_CREATED_TASK: '701',
+      LATHE_FAKE_BACKLOG_BIN: join(fake.fakeBin, 'backlog'),
       ...envOverrides,
     },
   });
@@ -779,7 +824,7 @@ test('plan-loop source issue with auto-ok bypasses approval gate and creates imp
     ]);
 
     const calls = readJsonLines(fake.logPath);
-    assert.ok(calls.some((call) => call.args[0] === 'issue' && call.args[1] === 'create'));
+    assert.ok(calls.some((call) => call.args[0] === 'task' && call.args[1] === 'create'));
     assert.equal(calls.some((call) => call.args[0] === 'issue' && call.args[1] === 'comment'), false);
     assert.equal(calls.some((call) => call.args.join(' ') === 'issue edit 59002 --add-label pending-approval'), false);
   } finally {
@@ -876,7 +921,7 @@ test('plan-loop resume with plan-approved records GATE pass and creates implemen
     ]);
 
     const calls = readJsonLines(fake.logPath);
-    assert.ok(calls.some((call) => call.args[0] === 'issue' && call.args[1] === 'create'));
+    assert.ok(calls.some((call) => call.args[0] === 'task' && call.args[1] === 'create'));
   } finally {
     cleanupPlanRunFiles(issueNumber);
     fake.cleanup();

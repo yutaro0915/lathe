@@ -12,34 +12,33 @@ import {
   SKIP_RUNNING,
   WAIT_DEP,
   formatDecision,
-  parseIssueRunHints,
-  parseInnerIssueWorktrees,
+  parseTaskRunHints,
+  parseInnerTaskWorktrees,
+  parseTaskListPlain,
+  parseSequenceListPlain,
   pathsOverlap,
   planDryRun,
   runQueue,
   spawnInnerLoop,
 } from './inner-queue.mjs';
 
-function issue(number, body = '') {
-  return { number, title: `issue ${number}`, body };
+function task(id, body = '', dependencies = []) {
+  return { id, title: `task ${id}`, body, dependencies };
 }
 
-test('parseIssueRunHints: Depends-on and Touches lines are parsed case-insensitively and de-duped', () => {
-  const hints = parseIssueRunHints([
-    'Intro #999 should not count.',
-    'Depends-on: #37, #0, #37, text, #12',
-    'depends-ON: #13',
+test('parseTaskRunHints: Touches lines are parsed case-insensitively and de-duped', () => {
+  const hints = parseTaskRunHints([
+    'Intro mentions should not count.',
     'Touches: scripts/inner-loop.mjs, apps/web/lib/, scripts/inner-loop.mjs',
     'touches: packages/shared/src',
   ].join('\n'));
 
-  assert.deepEqual(hints.dependsOn, [37, 12, 13]);
   assert.deepEqual(hints.touches, ['scripts/inner-loop.mjs', 'apps/web/lib/', 'packages/shared/src']);
 });
 
-test('parseIssueRunHints: non-heading mentions are ignored', () => {
-  const hints = parseIssueRunHints('Body text Depends-on: #1\n- Touches: scripts/x.mjs');
-  assert.deepEqual(hints, { dependsOn: [], touches: [] });
+test('parseTaskRunHints: non-heading mentions are ignored', () => {
+  const hints = parseTaskRunHints('Body text\n- Touches: scripts/x.mjs');
+  assert.deepEqual(hints, { touches: [] });
 });
 
 test('pathsOverlap: exact and parent-child matches overlap only at segment boundaries', () => {
@@ -49,34 +48,60 @@ test('pathsOverlap: exact and parent-child matches overlap only at segment bound
   assert.equal(pathsOverlap('scripts/inner-loop.mjs', 'scripts/merge.mjs'), false);
 });
 
-test('parseInnerIssueWorktrees: extracts inner issue worktrees from git porcelain output', () => {
-  const running = parseInnerIssueWorktrees([
+test('parseInnerTaskWorktrees: extracts inner task worktrees from git porcelain output', () => {
+  const running = parseInnerTaskWorktrees([
     'worktree /repo',
     'HEAD abc',
     'branch refs/heads/main',
     '',
-    'worktree /repo/.claude/worktrees/inner-issue-38',
+    'worktree /repo/.claude/worktrees/inner-task-1-2',
     'HEAD def',
-    'branch refs/heads/inner/issue-38',
+    'branch refs/heads/inner/task-1-2',
     '',
     'worktree /tmp/other-worktree',
   ].join('\n'));
 
-  assert.deepEqual([...running.entries()], [[38, '/repo/.claude/worktrees/inner-issue-38']]);
+  assert.deepEqual([...running.entries()], [['1-2', '/repo/.claude/worktrees/inner-task-1-2']]);
+});
+
+test('parseTaskListPlain: extracts task ids and titles from grouped-by-status plain output', () => {
+  const tasks = parseTaskListPlain([
+    'To Do:',
+    '  [HIGH] TASK-1 - Phase 2 rewire',
+    '  TASK-2 - feat(meta): meta-loop driver',
+  ].join('\n'));
+
+  assert.deepEqual(tasks, [
+    { id: 'TASK-1', title: 'Phase 2 rewire' },
+    { id: 'TASK-2', title: 'feat(meta): meta-loop driver' },
+  ]);
+});
+
+test('parseSequenceListPlain: returns only Sequence 1 task ids as dependency-ready', () => {
+  const ready = parseSequenceListPlain([
+    'Sequence 1:',
+    '  TASK-1 - first',
+    '  TASK-3 - third',
+    '',
+    'Sequence 2:',
+    '  TASK-2 - second',
+  ].join('\n'));
+
+  assert.deepEqual([...ready], ['TASK-1', 'TASK-3']);
 });
 
 test('planDryRun: reports ready, dependency wait, touch conflict, running, and capacity', () => {
-  const issues = [
-    issue(1, 'Touches: scripts/a.mjs'),
-    issue(2, 'Depends-on: #99\nTouches: scripts/b.mjs'),
-    issue(3, 'Touches: scripts/a.mjs'),
-    issue(4, 'Touches: scripts/c.mjs'),
-    issue(5, 'Touches: scripts/d.mjs'),
+  const tasks = [
+    task('TASK-1', 'Touches: scripts/a.mjs'),
+    task('TASK-2', 'Touches: scripts/b.mjs', ['TASK-99']),
+    task('TASK-3', 'Touches: scripts/a.mjs'),
+    task('TASK-4', 'Touches: scripts/c.mjs'),
+    task('TASK-5', 'Touches: scripts/d.mjs'),
   ];
-  const states = new Map([[99, 'OPEN']]);
-  const running = new Map([[4, '/repo/.claude/worktrees/inner-issue-4']]);
+  const readyTaskIds = new Set(['TASK-1', 'TASK-3', 'TASK-4', 'TASK-5']);
+  const running = new Map([['TASK-4', '/repo/.claude/worktrees/inner-task-4']]);
 
-  const decisions = planDryRun({ issues, dependencyStates: states, runningWorktrees: running, max: 2 });
+  const decisions = planDryRun({ tasks, readyTaskIds, runningWorktrees: running, max: 2 });
 
   assert.deepEqual(decisions.map((d) => d.status), [
     READY_NOW,
@@ -85,33 +110,33 @@ test('planDryRun: reports ready, dependency wait, touch conflict, running, and c
     SKIP_RUNNING,
     DEFER_CAPACITY,
   ]);
-  assert.equal(formatDecision(decisions[0]), 'READY_NOW #1');
-  assert.equal(formatDecision(decisions[1]), 'WAIT_DEP #2 unresolved=#99');
-  assert.equal(formatDecision(decisions[2]), 'DEFER_TOUCHES #3 overlaps=#1 path=scripts/a.mjs');
-  assert.equal(formatDecision(decisions[3]), 'SKIP_RUNNING #4 worktree=/repo/.claude/worktrees/inner-issue-4');
-  assert.equal(formatDecision(decisions[4]), 'DEFER_CAPACITY #5 max=2');
+  assert.equal(formatDecision(decisions[0]), 'READY_NOW TASK-1');
+  assert.equal(formatDecision(decisions[1]), 'WAIT_DEP TASK-2 unresolved=TASK-99');
+  assert.equal(formatDecision(decisions[2]), 'DEFER_TOUCHES TASK-3 overlaps=TASK-1 path=scripts/a.mjs');
+  assert.equal(formatDecision(decisions[3]), 'SKIP_RUNNING TASK-4 worktree=/repo/.claude/worktrees/inner-task-4');
+  assert.equal(formatDecision(decisions[4]), 'DEFER_CAPACITY TASK-5 max=2');
 });
 
 test('buildInnerLoopSpawnSpec: routes child stdout and stderr directly to the log fd', () => {
-  const spec = buildInnerLoopSpawnSpec(issue(54), 123);
+  const spec = buildInnerLoopSpawnSpec(task('TASK-54'), 123);
 
   assert.equal(spec.command, process.execPath);
-  assert.deepEqual(spec.args, ['scripts/inner-loop.mjs', '54']);
+  assert.deepEqual(spec.args, ['scripts/inner-loop.mjs', '--task', 'TASK-54']);
   assert.deepEqual(spec.options.stdio, ['ignore', 123, 123]);
   assert.equal(spec.options.env, process.env);
 });
 
-test('spawnInnerLoop: skips closed issue at dispatch without spawning driver', async (t) => {
+test('spawnInnerLoop: skips task no longer To Do at dispatch without spawning driver', async (t) => {
   const logRoot = mkdtempSync(join(tmpdir(), 'inner-queue-test-'));
   t.after(() => rmSync(logRoot, { recursive: true, force: true }));
 
   let spawned = false;
   const logs = [];
-  const result = await spawnInnerLoop(issue(60), {
+  const result = await spawnInnerLoop(task('TASK-60'), {
     logRoot,
-    checkState: async (issueNumber) => {
-      assert.equal(issueNumber, 60);
-      return 'CLOSED';
+    checkState: async (taskId) => {
+      assert.equal(taskId, 'TASK-60');
+      return 'Done';
     },
     spawnChild: () => {
       spawned = true;
@@ -122,19 +147,19 @@ test('spawnInnerLoop: skips closed issue at dispatch without spawning driver', a
 
   assert.equal(result.status, 0);
   assert.equal(spawned, false);
-  assert.deepEqual(logs, ['SKIP_CLOSED #60 (state=CLOSED at dispatch)']);
+  assert.deepEqual(logs, ['SKIP_NOT_TODO TASK-60 (status=Done at dispatch)']);
 });
 
-test('spawnInnerLoop: spawns open issue after dispatch state check', async (t) => {
+test('spawnInnerLoop: spawns To Do task after dispatch state check', async (t) => {
   const logRoot = mkdtempSync(join(tmpdir(), 'inner-queue-test-'));
   t.after(() => rmSync(logRoot, { recursive: true, force: true }));
 
   let spawnedSpec = null;
-  const result = await spawnInnerLoop(issue(61), {
+  const result = await spawnInnerLoop(task('TASK-61'), {
     logRoot,
-    checkState: async (issueNumber) => {
-      assert.equal(issueNumber, 61);
-      return 'OPEN';
+    checkState: async (taskId) => {
+      assert.equal(taskId, 'TASK-61');
+      return 'To Do';
     },
     spawnChild: (command, args, options) => {
       spawnedSpec = { command, args, options };
@@ -143,13 +168,13 @@ test('spawnInnerLoop: spawns open issue after dispatch state check', async (t) =
       return child;
     },
     log: () => {
-      throw new Error('OPEN issue should not log SKIP_CLOSED');
+      throw new Error('To Do task should not log SKIP_NOT_TODO');
     },
   });
 
   assert.equal(result.status, 0);
   assert.equal(spawnedSpec.command, process.execPath);
-  assert.deepEqual(spawnedSpec.args, ['scripts/inner-loop.mjs', '61']);
+  assert.deepEqual(spawnedSpec.args, ['scripts/inner-loop.mjs', '--task', 'TASK-61']);
   assert.deepEqual(spawnedSpec.options.stdio.slice(0, 1), ['ignore']);
   assert.equal(typeof spawnedSpec.options.stdio[1], 'number');
   assert.equal(spawnedSpec.options.stdio[2], spawnedSpec.options.stdio[1]);
@@ -159,12 +184,12 @@ test('runQueue: unresolved dependency is not spawned in live mode', async () => 
   const spawned = [];
   const logs = [];
   const result = await runQueue({
-    issues: [issue(10, 'Depends-on: #37\nTouches: scripts/x.mjs')],
-    dependencyStates: new Map([[37, 'OPEN']]),
+    tasks: [task('TASK-10', 'Touches: scripts/x.mjs', ['TASK-37'])],
+    readyTaskIds: new Set(),
     runningWorktrees: new Map(),
     max: 2,
-    spawnIssue: async (candidate) => {
-      spawned.push(candidate.number);
+    spawnTask: async (candidate) => {
+      spawned.push(candidate.id);
       return { status: 0 };
     },
     log: (line) => logs.push(line),
@@ -173,7 +198,7 @@ test('runQueue: unresolved dependency is not spawned in live mode', async () => 
   assert.deepEqual(spawned, []);
   assert.deepEqual(result.launched, []);
   assert.equal(result.failed, 0);
-  assert.ok(logs.includes('WAIT_DEP #10 unresolved=#37'));
+  assert.ok(logs.includes('WAIT_DEP TASK-10 unresolved=TASK-37'));
 });
 
 test('runQueue: circuit breaker stops dispatch after three consecutive failures', async () => {
@@ -181,19 +206,19 @@ test('runQueue: circuit breaker stops dispatch after three consecutive failures'
   const logs = [];
 
   const result = await runQueue({
-    issues: [issue(1), issue(2), issue(3), issue(4), issue(5)],
-    dependencyStates: new Map(),
+    tasks: [task('TASK-1'), task('TASK-2'), task('TASK-3'), task('TASK-4'), task('TASK-5')],
+    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']),
     runningWorktrees: new Map(),
     max: 1,
-    spawnIssue: async (candidate) => {
-      spawned.push(candidate.number);
+    spawnTask: async (candidate) => {
+      spawned.push(candidate.id);
       return { status: 1 };
     },
     log: (line) => logs.push(line),
   });
 
-  assert.deepEqual(spawned, [1, 2, 3]);
-  assert.deepEqual(result.launched, [1, 2, 3]);
+  assert.deepEqual(spawned, ['TASK-1', 'TASK-2', 'TASK-3']);
+  assert.deepEqual(result.launched, ['TASK-1', 'TASK-2', 'TASK-3']);
   assert.equal(result.failed, 3);
   assert.ok(logs.includes('CIRCUIT_OPEN after 3 consecutive failures — dispatch halted'));
 });
@@ -203,46 +228,46 @@ test('runQueue: circuit breaker stops dispatch before replenishing default paral
   const logs = [];
 
   const result = await runQueue({
-    issues: [issue(1), issue(2), issue(3), issue(4), issue(5)],
-    dependencyStates: new Map(),
+    tasks: [task('TASK-1'), task('TASK-2'), task('TASK-3'), task('TASK-4'), task('TASK-5')],
+    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']),
     runningWorktrees: new Map(),
-    spawnIssue: async (candidate) => {
-      spawned.push(candidate.number);
+    spawnTask: async (candidate) => {
+      spawned.push(candidate.id);
       return { status: 1 };
     },
     log: (line) => logs.push(line),
   });
 
-  assert.deepEqual(spawned, [1, 2, 3]);
-  assert.deepEqual(result.launched, [1, 2, 3]);
+  assert.deepEqual(spawned, ['TASK-1', 'TASK-2', 'TASK-3']);
+  assert.deepEqual(result.launched, ['TASK-1', 'TASK-2', 'TASK-3']);
   assert.equal(result.failed, 3);
   assert.ok(logs.includes('CIRCUIT_OPEN after 3 consecutive failures — dispatch halted'));
 });
 
 test('runQueue: successful completion resets consecutive failure count', async () => {
   const statuses = new Map([
-    [1, 1],
-    [2, 0],
-    [3, 1],
-    [4, 1],
+    ['TASK-1', 1],
+    ['TASK-2', 0],
+    ['TASK-3', 1],
+    ['TASK-4', 1],
   ]);
   const spawned = [];
   const logs = [];
 
   const result = await runQueue({
-    issues: [issue(1), issue(2), issue(3), issue(4)],
-    dependencyStates: new Map(),
+    tasks: [task('TASK-1'), task('TASK-2'), task('TASK-3'), task('TASK-4')],
+    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4']),
     runningWorktrees: new Map(),
     max: 1,
-    spawnIssue: async (candidate) => {
-      spawned.push(candidate.number);
-      return { status: statuses.get(candidate.number) };
+    spawnTask: async (candidate) => {
+      spawned.push(candidate.id);
+      return { status: statuses.get(candidate.id) };
     },
     log: (line) => logs.push(line),
   });
 
-  assert.deepEqual(spawned, [1, 2, 3, 4]);
-  assert.deepEqual(result.launched, [1, 2, 3, 4]);
+  assert.deepEqual(spawned, ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4']);
+  assert.deepEqual(result.launched, ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4']);
   assert.equal(result.failed, 3);
   assert.ok(!logs.some((line) => line.startsWith('CIRCUIT_OPEN ')));
 });
@@ -252,20 +277,20 @@ test('runQueue: maxFailures 0 disables the circuit breaker', async () => {
   const logs = [];
 
   const result = await runQueue({
-    issues: [issue(1), issue(2), issue(3), issue(4), issue(5)],
-    dependencyStates: new Map(),
+    tasks: [task('TASK-1'), task('TASK-2'), task('TASK-3'), task('TASK-4'), task('TASK-5')],
+    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']),
     runningWorktrees: new Map(),
     max: 1,
     maxFailures: 0,
-    spawnIssue: async (candidate) => {
-      spawned.push(candidate.number);
+    spawnTask: async (candidate) => {
+      spawned.push(candidate.id);
       return { status: 1 };
     },
     log: (line) => logs.push(line),
   });
 
-  assert.deepEqual(spawned, [1, 2, 3, 4, 5]);
-  assert.deepEqual(result.launched, [1, 2, 3, 4, 5]);
+  assert.deepEqual(spawned, ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']);
+  assert.deepEqual(result.launched, ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']);
   assert.equal(result.failed, 5);
   assert.ok(!logs.some((line) => line.startsWith('CIRCUIT_OPEN ')));
 });
@@ -277,43 +302,43 @@ test('runQueue: overlapping Touches are not active at the same time and start af
   const concurrentSnapshots = [];
 
   const queuePromise = runQueue({
-    issues: [
-      issue(1, 'Touches: scripts/a.mjs'),
-      issue(2, 'Touches: scripts/a.mjs'),
-      issue(3, 'Touches: scripts/b.mjs'),
+    tasks: [
+      task('TASK-1', 'Touches: scripts/a.mjs'),
+      task('TASK-2', 'Touches: scripts/a.mjs'),
+      task('TASK-3', 'Touches: scripts/b.mjs'),
     ],
-    dependencyStates: new Map(),
+    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3']),
     runningWorktrees: new Map(),
     max: 2,
-    spawnIssue: (candidate) => {
-      started.push(candidate.number);
-      active.add(candidate.number);
-      concurrentSnapshots.push([...active].sort((a, b) => a - b));
+    spawnTask: (candidate) => {
+      started.push(candidate.id);
+      active.add(candidate.id);
+      concurrentSnapshots.push([...active].sort());
       return new Promise((resolve) => {
-        resolvers.set(candidate.number, () => {
-          active.delete(candidate.number);
+        resolvers.set(candidate.id, () => {
+          active.delete(candidate.id);
           resolve({ status: 0 });
         });
       });
     },
   });
 
-  await waitUntil(() => started.includes(1) && started.includes(3));
-  assert.deepEqual(started, [1, 3]);
-  assert.ok(!started.includes(2), 'issue #2 must wait while #1 with overlapping Touches is active');
+  await waitUntil(() => started.includes('TASK-1') && started.includes('TASK-3'));
+  assert.deepEqual(started, ['TASK-1', 'TASK-3']);
+  assert.ok(!started.includes('TASK-2'), 'TASK-2 must wait while TASK-1 with overlapping Touches is active');
 
-  resolvers.get(1)();
-  await waitUntil(() => started.includes(2));
-  assert.deepEqual(started, [1, 3, 2]);
+  resolvers.get('TASK-1')();
+  await waitUntil(() => started.includes('TASK-2'));
+  assert.deepEqual(started, ['TASK-1', 'TASK-3', 'TASK-2']);
   assert.ok(
-    concurrentSnapshots.every((snapshot) => !(snapshot.includes(1) && snapshot.includes(2))),
-    'issues with overlapping Touches must not be active together',
+    concurrentSnapshots.every((snapshot) => !(snapshot.includes('TASK-1') && snapshot.includes('TASK-2'))),
+    'tasks with overlapping Touches must not be active together',
   );
 
-  resolvers.get(2)();
-  resolvers.get(3)();
+  resolvers.get('TASK-2')();
+  resolvers.get('TASK-3')();
   const result = await queuePromise;
-  assert.deepEqual(result.launched, [1, 3, 2]);
+  assert.deepEqual(result.launched, ['TASK-1', 'TASK-3', 'TASK-2']);
   assert.equal(result.failed, 0);
 });
 

@@ -28,9 +28,14 @@ export type GroundingReport = GroundingOkReport | GroundingUnavailableReport;
 type CliArgs = { issueNumber: number | null; format: Format };
 type ActualRowsByIssue = Map<number, string[]>;
 type RunHints = { dependsOn: number[]; touches: string[] };
-type QueueHintsParser = (body: string | null | undefined) => RunHints;
 type QueueOverlap = (a: string, b: string) => boolean;
-type QueueHelpers = { parseIssueRunHints: QueueHintsParser; pathsOverlap: QueueOverlap };
+// Only pathsOverlap is shared with scripts/inner-queue.mjs now. Depends-on
+// parsing for GitHub issue bodies (this file's own concern — Issues remain a
+// report-only channel post ADR 0025, not Backlog.md tasks) has no home left
+// in inner-queue.mjs (TASK-1.3 narrowed its exported parser to Touches-only,
+// since task dependency resolution moved to `backlog sequence`), so it is
+// self-contained here via fallbackParseIssueRunHints below.
+type QueueHelpers = { pathsOverlap: QueueOverlap };
 type PgPool = { query<T>(sql: string): Promise<{ rows: T[] }>; end(): Promise<void> };
 type PgPoolConstructor = new (config: { connectionString: string; connectionTimeoutMillis: number }) => PgPool;
 
@@ -88,7 +93,6 @@ function fallbackPathsOverlap(leftPath: string, rightPath: string): boolean {
 }
 
 let queueHelpers: QueueHelpers = {
-  parseIssueRunHints: fallbackParseIssueRunHints,
   pathsOverlap: fallbackPathsOverlap,
 };
 let queueHelpersLoadedFromInnerQueue = false;
@@ -98,14 +102,13 @@ export async function loadQueueHelpers(): Promise<void> {
   // @ts-ignore - repo-level ESM helper is JS-only but intentionally shared here.
   const module = await import('../../../scripts/inner-queue.mjs') as QueueHelpers;
   queueHelpers = {
-    parseIssueRunHints: module.parseIssueRunHints,
     pathsOverlap: module.pathsOverlap,
   };
   queueHelpersLoadedFromInnerQueue = true;
 }
 
 function parseHints(body: string | null | undefined): RunHints {
-  return queueHelpers.parseIssueRunHints(body);
+  return fallbackParseIssueRunHints(body);
 }
 
 function touchPathsOverlap(left: string, right: string): boolean {
