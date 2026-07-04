@@ -66,6 +66,20 @@ rolling wave の Phase 計画（[ROADMAP.md](../ROADMAP.md)）は人間可読の
   - **（2026-07-04 実施・PASS）** backlog.md 1.47.1 install → `backlog init --agent-instructions none`（正本 CLAUDE.md/AGENTS.md 無改変・`auto_commit:false` で main 無汚染）。検証: task md が AC/Plan/DoD/`dependencies`/`milestone` を1枚に保持（§1）／`sequence` が依存から実行順を計算＝inner-queue 源（§4）／`milestone add`＋`board -m` グルーピング実在（§3）／`mcp start` が `task_create/edit/list/complete`・`milestone_*` を公開（§6）／`browser`（:6420）GET/ 200・`/api/tasks` JSON／`--plain` 機械可読。GitHub Issues 同期は非存在を再確認（§2 の降格が妥当）。運用メモ: `board export <file>` は project-relative 解決（絶対パス不可）。
 - Phase 2: rewire 後、**Backlog.md task 1 本を inner loop で PLAN→MERGE 完走**し、manifest が lathe に ingest され `loop_kind` が正しく分類され、`scripts/merge.mjs` の receipt ゲートが従来どおり効くことを確認（＝観測コア不変の証明）。
 
+## Phase 2 PLAN-gate 決定（2026-07-04・inner-loop rewire）
+
+planner が実コードに接地した実装計画（`inner-loop.mjs`/`inner-queue.mjs`/`merge.mjs`/`apps/web/scripts/ingest/run-manifests.ts` の path:line）を PdM がレビューし裁可。TASK-1 を **3子タスク**へ分解（依存 1.1→1.2→1.3、実装は別 inner-loop セッションで）:
+
+- **TASK-1.1 基盤** — manifest を `run_key=task-<slug>.json`＋`unit{kind,id}` に、ingest の `loopKind` に `task` 分岐追加（`issue-`/`plan-` は無改変＝退行ゼロ）。ここで観測コア不変を先に固定。
+- **TASK-1.2 impl-loop driver** — fetch（`gh`→`backlog task view --plain`）・worktree（`inner-task-<slug>`）・prompts/backends を task へ。終端で `backlog task edit --status Done`（`merge.mjs` は無改変）。
+- **TASK-1.3 queue + plan-loop** — inner-queue を `backlog sequence`/`dependencies` へ、plan-loop の `gh issue create`→`backlog task create`、走行中以外の open issue を task へ移送。
+
+裁可した論点:
+1. **plan-loop を今回スコープに含む**（ISSUE_CREATE→task_create）。
+2. **後方互換**: 走行中の issue run のみ旧フローで drain、それ以外は task へ切替（永続 dual-mode shim は作らない）。
+3. **DB 識別**: task run は `source_issue_number=NULL`・`run_key` で識別。`schema.sql` 無変更（ADR 0023 の派生テーブル契約を維持）。
+4. **既定（軽微）**: driver は `node_modules/.bin/backlog` 直呼び（pnpm 層回避）／status=Done は worktree 内で立て squash に載せる／Touches は当面 description 行を継続 parse。
+
 ## 却下した代替
 
 - **wbs だけ廃止し GitHub Issues を残す**（Q2 の当初案）: Backlog.md に GH 同期がなく、片方向 sync を自前保守する羽目になる＝動機 (a) と衝突。substrate を移さない限り Backlog.md の利点（統合 md・MCP・board）が得られない。
@@ -76,6 +90,6 @@ rolling wave の Phase 計画（[ROADMAP.md](../ROADMAP.md)）は人間可読の
 ## スコープ外 / 未決
 
 - ROADMAP.md の Backlog.md への完全畳み込み（§3 で最小結合に留置）。
-- 既存 open GitHub issue の移送方針（一括変換 vs drain 後変換）＝移行時に PdM 判断。
+- 既存 open GitHub issue の移送: **決定済**（走行中以外を task へ移送・走行中は旧フローで drain。下記 PLAN-gate 決定 §2）。
 - `backlog/` 配置（既定は repo root）と public repo での可視性の最終確認。
 - Backlog.md task と findings backlog（ADR 0007/0008）の接続 UX（finding→task 化の自動化）＝感知系（ADR 0024 meta-loop）実証後の別 ADR。
