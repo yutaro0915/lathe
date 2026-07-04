@@ -13,6 +13,7 @@
     "test": "TZ=UTC node --import tsx --test \"packages/*/src/**/*.test.ts\" \"apps/web/lib/**/*.test.ts\" \"apps/web/components/**/*.test.ts\" \"apps/web/scripts/**/*.test.ts\" \"scripts/**/*.test.mjs\""
   },
   "devDependencies": {
+    "backlog.md": "^1.47.1",
     "dependency-cruiser": "^16.10.4",
     "oxlint": "^0.16.12",
     "tsx": "^4.22.4"
