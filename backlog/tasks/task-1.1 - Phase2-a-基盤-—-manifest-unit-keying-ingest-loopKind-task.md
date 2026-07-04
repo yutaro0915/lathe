@@ -1,9 +1,10 @@
 ---
 id: TASK-1.1
 title: Phase2-a 基盤 — manifest unit keying + ingest loopKind 'task'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 10:45'
+updated_date: '2026-07-04 11:08'
 labels:
   - phase-2
   - rewire
