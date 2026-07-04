@@ -1,38 +1,21 @@
+# CI = 単一ゲート（ADR 0026/0028）。検査の内容は rubrics/run.mjs（単一入口）に委ねる:
+#   scope（変更パス）が「どれを」・tier が「どこまで」を決める。CI に検査を手書きしない。
+#
+# tier=test（旧 merge.mjs backstop と同等）: tsc / unit / cmd 系のみ。
+# heavy（e2e / storybook / integration / judge）を CI で回さない理由:
+#   - e2e は ingest 済み実データ前提（2026-06-23 決定を維持）
+#   - judge は LLM key を CI に置くまで skip（RUBRIC_SKIP_JUDGE=1）
+#   → heavy は verifier 段（ローカル）の責務のまま。CI 昇格は #69 / TASK-16 系で再訪。
+#
+# Postgres service: unit に DB 接続テストが含まれるため（schema-only で 680/680 GREEN を
+# 2026-07-05 に実測）。データの seed は不要（テストが自前で fixture を作る）。
 name: ci
 
 on:
-  push:
-    branches: [main, "loop/**"]
   pull_request:
 
 jobs:
-  static:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: tsc
-        run: pnpm -F web exec tsc --noEmit
-      - name: lint (dependency-cruiser + oxlint)
-        run: pnpm lint
-      - name: rubric schema self-test
-        run: node rubrics/_schema.test.mjs
-      - name: rubric gates (changed vs main)
-        run: |
-          git fetch origin main --depth=1 || true
-          CHANGED=$(git diff --name-only origin/main...HEAD | tr '\n' ' ')
-          if [ -n "$CHANGED" ]; then node rubrics/run.mjs --changed $CHANGED; fi
-      - name: unit tests (node:test + tsx)
-        run: pnpm test
-
-  verify:
+  gate:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -50,8 +33,11 @@ jobs:
           --health-retries 12
     env:
       DATABASE_URL: postgres://lathe:lathe@localhost:55432/lathe
+      RUBRIC_SKIP_JUDGE: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -60,32 +46,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: apply schema
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends postgresql-client
           psql "$DATABASE_URL" -f apps/web/db/schema.sql
-      - name: verify (MCP + finding-depth)
+      - name: gate (rubrics/run.mjs --changed, tier=test)
         run: |
-          pnpm -F @lathe/mcp verify
-          pnpm -F web exec tsx scripts/verify-finding-depth.ts
-
-  storybook:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: install chromium
-        run: pnpm -F web exec playwright install chromium
-      - name: storybook a11y and interaction tests
-        run: pnpm -F web test-storybook
-
-  # e2e は CI で動かさない（2026-06-23 決定）。
-  #   理由: e2e の webServer は「Postgres は ingest 済み」前提で、session 詳細テスト
-  #   (diff / session-viewer / sessions / stats) が取り込み済みの実データに依存する。
-  #   CI のまっさら DB ではそのデータが無く、全テスト分の合成 fixture を作るのは現時点で
-  #   過剰投資 (YAGNI)。また実データ検証の代わりにもならない。
-  #   → e2e は「ローカルの関所」として、ingest 済み DB に対し `pnpm -F web e2e` で回す。
-  #   CI は高速・自己充足・再現可能なチェック (static / verify) だけを管理する。
+          git fetch origin ${{ github.base_ref }} --depth=1 || true
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | tr '\n' ' ')
+          if [ -z "$CHANGED" ]; then echo "no changed paths"; exit 0; fi
+          node rubrics/run.mjs --changed $CHANGED --tier test
