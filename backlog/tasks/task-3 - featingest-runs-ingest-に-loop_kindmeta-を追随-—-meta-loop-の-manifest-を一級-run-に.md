@@ -3,10 +3,10 @@ id: TASK-3
 title: >-
   feat(ingest): runs ingest に loop_kind=meta を追随 — meta-loop の manifest を一級 run
   に
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 10:57'
-updated_date: '2026-07-04 14:56'
+updated_date: '2026-07-04 16:24'
 labels:
   - meta-loop
 milestone: m-18
