@@ -108,7 +108,7 @@ export function buildPrCreateArgs({ base, head, title, body }) {
 
 /** @param {{branch:string}} p @returns {string[]} argv for gh pr merge --auto --squash */
 export function buildPrMergeArgs({ branch }) {
-  return ['pr', 'merge', branch, '--auto', '--squash', '--delete-branch'];
+  return ['pr', 'merge', branch, '--auto', '--squash'];
 }
 
 /** @param {{branch:string}} p @returns {string[]} argv for gh pr checks --watch (blocks until done) */
@@ -118,7 +118,7 @@ export function buildPrChecksWatchArgs({ branch }) {
 
 /** @param {{branch:string}} p @returns {string[]} argv for gh pr merge --squash (no --auto, after CI green) */
 export function buildPrMergeFallbackArgs({ branch }) {
-  return ['pr', 'merge', branch, '--squash', '--delete-branch'];
+  return ['pr', 'merge', branch, '--squash'];
 }
 
 /** True if gh output indicates checks are not yet registered (race after gh pr create).

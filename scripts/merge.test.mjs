@@ -322,7 +322,7 @@ test('buildPrMergeArgs: returns correct gh argv', () => {
   const args = buildPrMergeArgs({ branch: 'inner/task-15' });
   assert.deepEqual(args, [
     'pr', 'merge', 'inner/task-15',
-    '--auto', '--squash', '--delete-branch',
+    '--auto', '--squash',
   ]);
 });
 
@@ -336,9 +336,9 @@ test('buildPrMergeArgs: --squash flag is present', () => {
   assert.ok(args.includes('--squash'), '--squash must be present');
 });
 
-test('buildPrMergeArgs: --delete-branch flag is present', () => {
+test('buildPrMergeArgs: --delete-branch flag is NOT present (driver worktree owns local branch cleanup)', () => {
   const args = buildPrMergeArgs({ branch: 'feat/foo' });
-  assert.ok(args.includes('--delete-branch'), '--delete-branch must be present');
+  assert.ok(!args.includes('--delete-branch'), '--delete-branch must NOT be present');
 });
 
 // --- buildPrChecksWatchArgs ---
@@ -357,7 +357,7 @@ test('buildPrChecksWatchArgs: branch name is the third element', () => {
 
 test('buildPrMergeFallbackArgs: returns correct gh argv (no --auto)', () => {
   const args = buildPrMergeFallbackArgs({ branch: 'inner/task-26' });
-  assert.deepEqual(args, ['pr', 'merge', 'inner/task-26', '--squash', '--delete-branch']);
+  assert.deepEqual(args, ['pr', 'merge', 'inner/task-26', '--squash']);
 });
 
 test('buildPrMergeFallbackArgs: does NOT include --auto (CI green already confirmed before call)', () => {
@@ -370,9 +370,9 @@ test('buildPrMergeFallbackArgs: --squash flag is present', () => {
   assert.ok(args.includes('--squash'), '--squash must be present');
 });
 
-test('buildPrMergeFallbackArgs: --delete-branch flag is present', () => {
+test('buildPrMergeFallbackArgs: --delete-branch flag is NOT present (driver worktree owns local branch cleanup)', () => {
   const args = buildPrMergeFallbackArgs({ branch: 'feat/foo' });
-  assert.ok(args.includes('--delete-branch'), '--delete-branch must be present');
+  assert.ok(!args.includes('--delete-branch'), '--delete-branch must NOT be present');
 });
 
 // --- checksNotRegistered ---
