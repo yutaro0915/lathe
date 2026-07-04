@@ -131,6 +131,7 @@ function sourceIssueNumber(runKey: string, manifest: JsonObject): number | null 
 function loopKind(runKey: string): string | null {
   if (/^issue-\d+(?:\.attempt\d+)?$/.test(runKey)) return 'issue';
   if (/^plan-\d+(?:\.attempt\d+)?$/.test(runKey)) return 'plan';
+  if (/^meta-/.test(runKey)) return 'meta';
   if (/^task-/.test(runKey)) return 'task';
   return null;
 }
