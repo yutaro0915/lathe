@@ -46,7 +46,7 @@ worktree 実装者の「GREEN」報告を鵜呑みにしない。実測での誤
 
 ## 3. 起票規約（PdM authority）
 
-起票（= backlog task create）は PdM の理解のもとで行う。
+起票（= `gh issue create --label task-request`。intake Action が登記する＝§5 参照）は PdM の理解のもとで行う。
 
 - **新規機能・アーキテクチャ判断・重要ドメイン判断**: 起票**前**に、意味と効能を平文で
   説明し PdM の承認を得る（何をするか → 計画 → 承認、に必ず人間を挟む）。
