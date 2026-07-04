@@ -1,9 +1,10 @@
 ---
 id: TASK-24
 title: 'hardening(intake): catch-up sweep + merge の checks 待ち厳密化'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 18:15'
+updated_date: '2026-07-04 20:06'
 labels: []
 dependencies: []
 priority: medium
