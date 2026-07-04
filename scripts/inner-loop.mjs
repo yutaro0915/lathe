@@ -24,7 +24,8 @@ import {
   stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt,
   parseCodexSessionId, parseCodexCostUsd, parseCodexCostReport, parseBackendFlags, selectBackend,
-  detectMainDirty, parseDependsOnLine,
+  detectMainDirty, parseDependsOnLine, resolveResumeBackend,
+  detectHollowImplement, detectRedundantReview,
 } from './inner-loop-backends.mjs';
 
 // Re-export stage helpers so existing tests importing from this file keep working.
@@ -1244,7 +1245,7 @@ function stampReceiptOrDie(issueNumber, worktreePath, stamp) {
   });
   if (rr.status !== 0) {
     writeEscalation(issueNumber, 'RESUME', stamp.verdict, `receipt.mjs failed: ${receipt.args.join(' ')}`);
-    die(`resume receipt stamping failed — see .lathe/runs/issue-${issueNumber}.escalation.md`);
+    die(`resume receipt stamping failed — see ${escalationPathFor(issueNumber)}`);
   }
 }
 
@@ -1825,6 +1826,17 @@ if (isMain) {
       headSha = spawnSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
     }
 
+    if (state === 'REVIEW') {
+      if (detectRedundantReview({ headSha, stages: readManifestStages(manifestPathFor(issueNumber)) })) {
+        writeEscalation(issueNumber, 'REVIEW', null, `redundant review on identical head_sha: ${headSha}`);
+        state = 'ESCALATE'; break;
+      }
+    }
+
+    const implementBaseSha = state === 'IMPLEMENT'
+      ? (spawnSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim() || null)
+      : null;
+
     const reviewHistory = state === 'REVIEW'
       ? buildReviewHistorySummary(readManifestStages(manifestPathFor(issueNumber)))
       : '';
@@ -1833,7 +1845,10 @@ if (isMain) {
       plan, feedback, headSha, verifyResult, reviewHistory,
     });
 
-    const backend = selectBackend(state, backendFlags);
+    const fallback = resume
+      ? (resolveResumeBackend(readManifestStages(manifestPathFor(issueNumber))) ?? 'claude')
+      : 'claude';
+    const backend = selectBackend(state, backendFlags, fallback);
     log(`stage=${state} backend=${backend} cwd=${cwd} — spawning ${backend}`);
     const stageResult = runStageWithUnparsableRetry({
       runAttempt: () => {
@@ -1861,6 +1876,11 @@ if (isMain) {
     const { envelope, verdict, stageHeadSha } = stageResult;
 
     if (verdict === null) { writeEscalation(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? ''); state = 'ESCALATE'; break; }
+
+    if (detectHollowImplement({ verdict, baseSha: implementBaseSha, headSha: stageHeadSha })) {
+      writeEscalation(issueNumber, 'IMPLEMENT', verdict, 'hollow completion: zero new commits');
+      state = 'ESCALATE'; break;
+    }
 
     if (state === 'PLAN' && verdict === 'PLAN_READY') plan = envelope.result;
     if (state === 'REVIEW' && verdict === 'CHANGES') feedback = envelope.result;
