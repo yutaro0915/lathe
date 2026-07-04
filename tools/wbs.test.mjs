@@ -243,6 +243,22 @@ test('serve: renders an htmx-backed HTML board with phase groups and local htmx 
           phase: 'Phase 2: AI analysis',
           deps: [],
         },
+        {
+          id: 'blocked-followup',
+          title: 'Blocked follow-up',
+          description: 'Wait for analyst plan.',
+          status: 'todo',
+          phase: 'Phase 2: AI analysis',
+          deps: ['issue:21'],
+        },
+        {
+          id: 'done-note',
+          title: 'Completed note',
+          description: 'Already done.',
+          status: 'done',
+          phase: 'Phase 2: AI analysis',
+          deps: [],
+        },
       ],
     });
 
@@ -268,10 +284,26 @@ test('serve: renders an htmx-backed HTML board with phase groups and local htmx 
       assert.match(html, /<script src="\/htmx\.min\.js"><\/script>/);
       assert.match(html, /hx-get="\/board"/);
       assert.match(html, /Phase 2: AI analysis/);
+      assert.match(html, /\.layout \{\n\s+display: grid;\n\s+gap: 12px;\n\s+width: 100%;\n\s+max-width: none;/);
+      assert.match(html, /<div class="phase-root" aria-label="Phase parent breakdown">[\s\S]*<span class="phase-progress">1\/4 done<\/span>/);
+      assert.match(html, /<div class="phase-bar" aria-hidden="true"><span style="width:25%"><\/span><\/div>/);
+      assert.match(html, /<div class="phase-flow" aria-label="Left-to-right work lifecycle">/);
+      assert.doesNotMatch(html, /<section class="lane[^"]*lane--running"[^>]*data-state="running"/);
+      assert.match(html, /data-flow-step="3" data-state="ready"[\s\S]*data-flow-step="4" data-state="waitDep"[\s\S]*data-flow-step="5" data-state="needsPlan"[\s\S]*data-flow-step="7" data-state="doneRecent"/);
       assert.match(html, /READY/);
       assert.match(html, /NEEDS-PLAN/);
-      assert.match(html, /つまり: Track the phase before GitHub issues exist\./);
-      assert.match(html, /href="https:\/\/github\.com\/yutaro0915\/lathe\/issues\/21"/);
+      assert.doesNotMatch(html, /つまり:/);
+      assert.doesNotMatch(html, /Track the phase before GitHub issues exist\./);
+      assert.doesNotMatch(html, /Draft the analyst engine before implementation\./);
+      assert.doesNotMatch(html, /status: todo/);
+      assert.match(html, /<span class="meta-chip meta-chip--dep">depends: issue:21<\/span>/);
+      assert.match(html, /<a class="item item--issue item--needs-plan item-link" href="https:\/\/github\.com\/yutaro0915\/lathe\/issues\/21" target="_blank" rel="noreferrer"/);
+      assert.doesNotMatch(html, /<div class="item-line">/);
+      assert.match(html, /<article class="item item--task item--ready">\n<div class="item-meta-row">[\s\S]*<span class="item-ref">task:phase2<\/span>[\s\S]*<div class="task-actions" aria-label="Change task status">[\s\S]*<\/div><\/div>\n<div class="item-title-row"><span class="item-title">Phase 2 umbrella<\/span><\/div>/);
+      assert.match(html, /<div class="item-meta-row">[^\n]*<span class="item-ref">issue:21<\/span>[^\n]*<\/div>\n<div class="item-title-row"><span class="item-title">Plan analyst engine<\/span><\/div>/);
+      assert.match(html, /<span class="state-badge state-badge--ready" title="READY" aria-label="READY"><span class="state-dot"><\/span><span class="state-code">READY<\/span><\/span>/);
+      assert.match(html, /<div class="task-actions" aria-label="Change task status">[\s\S]*<button type="submit">doing<\/button>[\s\S]*<button type="submit">done<\/button>[\s\S]*<\/div>/);
+      assert.doesNotMatch(html, /<button type="submit" disabled>todo<\/button>/);
 
       const htmx = await fetch(`${baseUrl}/htmx.min.js`);
       assert.equal(htmx.status, 200);
@@ -281,6 +313,56 @@ test('serve: renders an htmx-backed HTML board with phase groups and local htmx 
       const htmxHead = await fetch(`${baseUrl}/htmx.min.js`, { method: 'HEAD' });
       assert.equal(htmxHead.status, 200);
       assert.match(htmxHead.headers.get('content-type'), /javascript/);
+    });
+  } finally {
+    rmSync(join(path, '..', '..', '..'), { recursive: true, force: true });
+  }
+});
+
+test('serve: issue cards are whole-card links and summaries are omitted from cards', async () => {
+  const path = tmpStorePath();
+  try {
+    saveTaskStore(path, {
+      version: 1,
+      tasks: [
+        {
+          id: 'local-ready',
+          title: 'Local ready task',
+          description: 'Do not render this local task card description.',
+          status: 'todo',
+          phase: null,
+          deps: [],
+        },
+      ],
+    });
+
+    const handler = createWbsRequestHandler({
+      taskFilePath: path,
+      cacheTtlMs: 60_000,
+      issuesProvider: () => [
+        issue(52, 'Clickable issue card', {
+          labels: [{ name: 'inner-loop' }],
+          body: 'Depends-on: none\n\nDo not render this issue body summary.',
+          milestone: null,
+        }),
+      ],
+      worktreeProvider: () => new Map(),
+      manifestsProvider: () => new Map(),
+      githubRepoUrl: 'https://github.example.test/acme/repo',
+    });
+
+    await withTestServer(handler, async (baseUrl) => {
+      const page = await fetch(`${baseUrl}/board`);
+      assert.equal(page.status, 200);
+      const html = await page.text();
+      assert.match(html, /Phase: Unphased/);
+      assert.match(html, /<a class="item item--issue item--ready item-link" href="https:\/\/github\.example\.test\/acme\/repo\/issues\/52" target="_blank" rel="noreferrer"/);
+      assert.match(html, /<span class="item-ref">issue:52<\/span>/);
+      assert.match(html, /<article class="item item--task item--ready">/);
+      assert.match(html, /<span class="phase-progress">0\/2 done<\/span>/);
+      assert.doesNotMatch(html, /つまり:/);
+      assert.doesNotMatch(html, /Do not render this issue body summary\./);
+      assert.doesNotMatch(html, /Do not render this local task card description\./);
     });
   } finally {
     rmSync(join(path, '..', '..', '..'), { recursive: true, force: true });

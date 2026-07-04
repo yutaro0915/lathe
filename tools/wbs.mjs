@@ -764,51 +764,52 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font: 13px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 a { color: #155eef; text-decoration: none; }
 a:hover { text-decoration: underline; }
 .topbar {
   border-bottom: 1px solid var(--line);
   background: #ffffff;
-  padding: 16px 20px;
+  padding: 9px 14px;
 }
-.topbar h1 { margin: 0; font-size: 22px; }
+.topbar h1 { margin: 0; font-size: 18px; }
 .layout {
   display: grid;
-  gap: 16px;
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 16px;
+  gap: 12px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 12px 14px 16px;
 }
 .task-form, .board {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 14px;
+  padding: 10px;
 }
-.task-form h2, .phase h2 { margin: 0 0 12px; font-size: 16px; }
+.task-form h2 { margin: 0 0 8px; font-size: 14px; }
 .task-grid {
   display: grid;
-  grid-template-columns: minmax(120px, 0.8fr) minmax(220px, 2fr) minmax(180px, 1.3fr) minmax(180px, 1.3fr) minmax(140px, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: minmax(90px, 0.6fr) minmax(190px, 1.7fr) minmax(160px, 1.2fr) minmax(150px, 1.1fr) minmax(130px, 1fr) auto;
+  gap: 6px;
   align-items: end;
 }
-label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+label { display: grid; gap: 3px; color: var(--muted); font-size: 11px; }
 input {
   width: 100%;
-  min-height: 34px;
+  min-height: 28px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 4px 7px;
   color: var(--text);
   background: #ffffff;
 }
 button {
-  min-height: 32px;
+  min-height: 28px;
   border: 1px solid #b9c2d0;
   border-radius: 6px;
-  padding: 5px 10px;
+  padding: 4px 8px;
   background: #ffffff;
   color: var(--text);
   cursor: pointer;
@@ -823,15 +824,15 @@ button:hover { background: #eef2f7; }
 .totals {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 14px;
+  gap: 6px;
+  margin: 0 0 10px;
 }
 .pill {
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 3px 8px;
+  padding: 2px 7px;
   background: #ffffff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 .pill--running { color: var(--running); }
@@ -842,64 +843,213 @@ button:hover { background: #eef2f7; }
 .pill--unqueued { color: var(--unqueued); }
 .pill--done-recent { color: var(--done); }
 .phase {
-  border-top: 2px solid #c7d2fe;
-  padding-top: 12px;
-  margin-top: 14px;
+  border-top: 1px solid #cfd7e6;
+  padding-top: 8px;
+  margin-top: 10px;
 }
 .phase:first-of-type { margin-top: 0; }
-.lanes {
+.phase-root {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 10px;
-}
-.lane {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  min-height: 76px;
-  background: #fbfcfe;
-}
-.lane h3 {
-  display: flex;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 8px 12px;
   align-items: center;
-  justify-content: space-between;
-  margin: 0;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 13px;
-}
-.lane--running h3 { color: var(--running); }
-.lane--pending-approval h3 { color: var(--approval); }
-.lane--ready h3 { color: var(--ready); }
-.lane--wait-dep h3 { color: var(--wait); }
-.lane--needs-plan h3 { color: var(--plan); }
-.lane--unqueued h3 { color: var(--unqueued); }
-.lane--done-recent h3 { color: var(--done); }
-.empty { margin: 10px; color: var(--muted); }
-.item {
-  margin: 8px;
-  padding: 9px;
-  border: 1px solid #e2e8f0;
-  border-left-width: 4px;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  border: 1px solid #cfd7e6;
+  border-left: 5px solid #344054;
   border-radius: 6px;
   background: #ffffff;
 }
-.item--issue { border-left-color: #64748b; }
-.item--task { border-left-color: #155eef; }
+.phase-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+}
+.phase-progress {
+  color: #344054;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.phase-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4e7ec;
+}
+.phase-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #15803d;
+}
+.phase-flow {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  align-items: start;
+  padding-bottom: 2px;
+}
+.lane {
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--state);
+  border-radius: 6px;
+  flex: 0 1 250px;
+  min-width: 168px;
+  max-width: 280px;
+  background: var(--state-bg);
+}
+.lane--running, .item--running, .state-badge--running { --state: var(--running); --state-bg: #ecfdfa; }
+.lane--pending-approval, .item--pending-approval, .state-badge--pending-approval { --state: var(--approval); --state-bg: #fff7ed; }
+.lane--ready, .item--ready, .state-badge--ready { --state: var(--ready); --state-bg: #eff6ff; }
+.lane--wait-dep, .item--wait-dep, .state-badge--wait-dep { --state: var(--wait); --state-bg: #fffbeb; }
+.lane--needs-plan, .item--needs-plan, .state-badge--needs-plan { --state: var(--plan); --state-bg: #f5f3ff; }
+.lane--unqueued, .item--unqueued, .state-badge--unqueued { --state: var(--unqueued); --state-bg: #f8fafc; }
+.lane--done-recent, .item--done-recent, .state-badge--done-recent { --state: var(--done); --state-bg: #f0fdf4; }
+.lane h3 {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 4px;
+  align-items: center;
+  margin: 0;
+  padding: 4px 5px;
+  border-bottom: 1px solid color-mix(in srgb, var(--state) 25%, var(--line));
+  color: var(--state);
+  font-size: 10px;
+  line-height: 1.2;
+}
+.lane-step {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--state);
+  color: #ffffff;
+  font-size: 9px;
+}
+.lane-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+.lane-count {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.phase-empty { margin: 0; color: var(--muted); font-size: 11px; }
+.item {
+  display: block;
+  margin: 4px;
+  padding: 3px 5px;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid var(--state);
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.15;
+}
+.item-link:hover {
+  border-color: color-mix(in srgb, var(--state) 42%, #e2e8f0);
+  box-shadow: 0 1px 4px rgb(16 24 40 / 0.12);
+  text-decoration: none;
+}
+.item-meta-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  gap: 4px;
+  align-items: center;
+  min-height: 16px;
+}
+.item-title-row {
+  min-width: 0;
+  margin-top: 2px;
+}
+.state-badge {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  color: var(--state);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+.state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--state);
+}
+.state-code {
+  max-width: 44px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .item-title {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.14;
+  overflow-wrap: normal;
+  word-break: normal;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.item-ref {
+  color: #344054;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.item-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  align-items: baseline;
-  font-weight: 700;
+  gap: 3px;
+  margin-top: 3px;
 }
-.item-ref { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
-.summary { margin: 6px 0 0; color: #344054; }
-.meta { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
-.task-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.meta-chip {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.error { margin: 0; color: #b42318; }
+.task-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  grid-column: 4;
+  align-items: center;
+  justify-content: end;
+  justify-self: end;
+}
 .task-actions form { margin: 0; }
+.task-actions button {
+  min-height: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1;
+}
 @media (max-width: 820px) {
   .task-grid { grid-template-columns: 1fr; }
   .layout { padding: 10px; }
+  .phase-root { grid-template-columns: 1fr; }
+  .phase-flow { flex-wrap: nowrap; }
+  .lane { min-width: 172px; }
 }
 `;
 }
@@ -945,65 +1095,131 @@ function renderTotalsHtml(totals) {
 }
 
 function renderPhaseHtml(phase, githubRepoUrl) {
-  const lanes = SECTION_DEFS.map(([sectionKey, title]) => (
-    renderLaneHtml(sectionKey, title, phase.sections?.[sectionKey] ?? [], githubRepoUrl)
-  )).join('\n');
+  const sections = phase.sections ?? emptyFlatSections();
+  const progress = phaseProgress(sections);
+  const lanes = SECTION_DEFS
+    .map(([sectionKey, title], index) => ({ sectionKey, title, rows: sections[sectionKey] ?? [], index }))
+    .filter(({ rows }) => rows.length > 0)
+    .map(({ sectionKey, title, rows, index }) => renderLaneHtml(sectionKey, title, rows, githubRepoUrl, index))
+    .join('\n') || '<p class="phase-empty">No WBS items.</p>';
   return [
     '<section class="phase">',
-    `<h2>Phase: ${escapeHtml(phase.phase)}</h2>`,
-    `<div class="lanes">${lanes}</div>`,
+    '<div class="phase-root" aria-label="Phase parent breakdown">',
+    `<div class="phase-name">Phase: ${escapeHtml(phase.phase)}</div>`,
+    `<span class="phase-progress">${progress.done}/${progress.total} done</span>`,
+    `<div class="phase-bar" aria-hidden="true"><span style="width:${progress.percent}%"></span></div>`,
+    '</div>',
+    `<div class="phase-flow" aria-label="Left-to-right work lifecycle">${lanes}</div>`,
     '</section>',
   ].join('\n');
 }
 
-function renderLaneHtml(sectionKey, title, rows, githubRepoUrl) {
+function renderLaneHtml(sectionKey, title, rows, githubRepoUrl, index) {
   const klass = sectionCssClass(sectionKey);
-  const body = rows.length === 0
-    ? '<p class="empty">(none)</p>'
-    : rows.map((item) => renderItemHtml(item, githubRepoUrl)).join('\n');
+  const body = rows.map((item) => renderItemHtml(item, githubRepoUrl, sectionKey, title)).join('\n');
   return [
-    `<section class="lane lane--${klass}">`,
-    `<h3><span>${escapeHtml(title)}</span><span>${rows.length}</span></h3>`,
+    `<section class="lane lane--${klass}" data-flow-step="${index + 1}" data-state="${escapeAttr(sectionKey)}">`,
+    `<h3><span class="lane-step">${index + 1}</span><span class="lane-title">${escapeHtml(title)}</span><span class="lane-count">${rows.length}</span></h3>`,
     body,
     '</section>',
   ].join('\n');
 }
 
-function renderItemHtml(item, githubRepoUrl) {
+function renderItemHtml(item, githubRepoUrl, sectionKey, sectionTitle) {
+  const klass = sectionCssClass(sectionKey);
   const ref = item.kind === 'issue'
-    ? `<a class="item-ref" href="${escapeAttr(githubRepoUrl)}/issues/${Number(item.number)}" target="_blank" rel="noreferrer">issue:${Number(item.number)}</a>`
+    ? `<span class="item-ref">issue:${Number(item.number)}</span>`
     : `<span class="item-ref">task:${escapeHtml(item.id)}</span>`;
-  const metadata = itemMetadata(item);
-  return [
-    `<article class="item item--${escapeAttr(item.kind)}">`,
-    `<div class="item-title">${ref}<span>${escapeHtml(truncateTitle(item.title))}</span></div>`,
-    item.summary ? `<p class="summary">つまり: ${escapeHtml(truncateText(item.summary, SUMMARY_MAX))}</p>` : '',
-    metadata ? `<p class="meta">${escapeHtml(metadata)}</p>` : '',
-    item.kind === 'task' ? renderTaskStatusForms(item) : '',
-    '</article>',
+  const metadata = renderItemMetadataHtml(item);
+  const actions = item.kind === 'task' ? renderTaskStatusForms(item) : '';
+  const content = [
+    `<div class="item-meta-row">${renderStateBadge(sectionKey, sectionTitle)}${ref}${actions}</div>`,
+    `<div class="item-title-row"><span class="item-title">${escapeHtml(truncateTitle(item.title))}</span></div>`,
+    metadata,
   ].filter(Boolean).join('\n');
+
+  if (item.kind === 'issue') {
+    const href = `${githubRepoUrl}/issues/${Number(item.number)}`;
+    return [
+      `<a class="item item--issue item--${klass} item-link" href="${escapeAttr(href)}" target="_blank" rel="noreferrer" aria-label="Open issue ${Number(item.number)}: ${escapeAttr(truncateTitle(item.title))}">`,
+      content,
+      '</a>',
+    ].join('\n');
+  }
+
+  return [
+    `<article class="item item--task item--${klass}">`,
+    content,
+    '</article>',
+  ].join('\n');
 }
 
-function itemMetadata(item) {
-  const extras = [];
-  if (item.kind === 'task') extras.push(`status: ${item.status}`);
-  if (item.worktreePath) extras.push(`worktree: ${basename(item.worktreePath)}`);
-  if (!item.worktreePath && item.manifest) extras.push('manifest open');
-  if (Array.isArray(item.waitingOn) && item.waitingOn.length > 0) extras.push(`依存: ${item.waitingOn.join(', ')}`);
-  return extras.join(' / ');
+function phaseProgress(sections) {
+  const total = SECTION_DEFS.reduce((sum, [key]) => sum + (sections[key]?.length ?? 0), 0);
+  const done = sections.doneRecent?.length ?? 0;
+  return {
+    total,
+    done,
+    percent: total > 0 ? Math.round((done / total) * 100) : 0,
+  };
+}
+
+function stateMicroLabel(sectionKey) {
+  return ({
+    running: 'RUN',
+    pendingApproval: 'APPR',
+    ready: 'READY',
+    waitDep: 'WAIT',
+    needsPlan: 'PLAN',
+    unqueued: 'QUEUE',
+    doneRecent: 'DONE',
+  })[sectionKey] ?? sectionKey.toUpperCase();
+}
+
+function renderStateBadge(sectionKey, sectionTitle) {
+  const klass = sectionCssClass(sectionKey);
+  return [
+    `<span class="state-badge state-badge--${klass}" title="${escapeAttr(sectionTitle)}" aria-label="${escapeAttr(sectionTitle)}">`,
+    '<span class="state-dot"></span>',
+    `<span class="state-code">${escapeHtml(stateMicroLabel(sectionKey))}</span>`,
+    '</span>',
+  ].join('');
+}
+
+function itemMetadataParts(item) {
+  const parts = [];
+  if (item.worktreePath) parts.push(['worktree', `worktree: ${basename(item.worktreePath)}`]);
+  if (!item.worktreePath && item.manifest) parts.push(['manifest', 'manifest open']);
+  if (Array.isArray(item.waitingOn) && item.waitingOn.length > 0) parts.push(['dep', `depends: ${item.waitingOn.join(', ')}`]);
+  return parts;
+}
+
+function renderItemMetadataHtml(item) {
+  const parts = itemMetadataParts(item);
+  if (parts.length === 0) return '';
+  const chips = parts.map(([kind, value]) => `<span class="meta-chip meta-chip--${kind}">${escapeHtml(value)}</span>`);
+  return `<div class="item-meta">${chips.join('')}</div>`;
 }
 
 function renderTaskStatusForms(item) {
+  const current = currentTaskActionStatus(item);
   return [
-    '<div class="task-actions">',
-    ...['todo', 'doing', 'done'].map((status) => [
+    '<div class="task-actions" aria-label="Change task status">',
+    ...['todo', 'doing', 'done'].filter((status) => status !== current).map((status) => [
       `<form hx-post="/tasks/${encodePathSegment(item.id)}/status" hx-target="#wbs-board" hx-swap="outerHTML">`,
       `<input type="hidden" name="status" value="${status}">`,
-      `<button type="submit"${item.status === status ? ' disabled' : ''}>${status}</button>`,
+      `<button type="submit">${status}</button>`,
       '</form>',
     ].join('')),
     '</div>',
   ].join('\n');
+}
+
+function currentTaskActionStatus(item) {
+  if (isDoingStatus(item.status)) return 'doing';
+  if (isDoneStatus(item.status)) return 'done';
+  if (isReadyStatus(item.status)) return 'todo';
+  return normalizeTaskStatus(item.status);
 }
 
 function createCachedSnapshotReader(options = {}) {
@@ -1070,7 +1286,7 @@ function writeMethodNotAllowed(res) {
 function handleServeError(res, err) {
   const statusCode = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
   const message = err instanceof Error ? err.message : String(err);
-  writeHtml(res, `<section class="board"><p class="summary"><strong>error:</strong> ${escapeHtml(message)}</p></section>`, statusCode);
+  writeHtml(res, `<section class="board"><p class="error"><strong>error:</strong> ${escapeHtml(message)}</p></section>`, statusCode);
 }
 
 export function createWbsRequestHandler(options = {}) {
