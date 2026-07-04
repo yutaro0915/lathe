@@ -3,9 +3,10 @@ id: TASK-26
 title: >-
   fix(merge): auto-merge 不可期間は checks 待ち→直接 merge にフォールバック（branch protection
   までのブリッジ）
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 18:37'
+updated_date: '2026-07-04 18:50'
 labels: []
 dependencies: []
 priority: medium
