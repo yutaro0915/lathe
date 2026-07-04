@@ -10,14 +10,24 @@
 # 完了しない（merge まで group を保持）ので、次の登記は必ず新 ID を見る。
 #
 # 自己制限: この機械は backlog/ 配下しか書かない（diff を機械検査、-z = quotePath 安全）。
-# 注: GITHUB_TOKEN の PR は他 workflow（ci.yml）を起動しない既知仕様のため、
-# merge は「即時 → 失敗時のみ checks を待って再試行」の順で行う。backlog-only diff は
-# rubric gate の発火対象外であり、上の自己制限がその前提を機械で保証する。
+#
+# catch-up sweep（schedule + workflow_dispatch）: GitHub の concurrency queue は
+# 待機 1 本しか保持しないため、バースト到着（3 issue 同時等）で中間の run が
+# cancelled になり登記漏れする（2026-07-05 #77 で実発生）。hourly schedule と
+# workflow_dispatch トリガを追加し、open かつ task-request 付き issue を全件
+# 処理する sweep を実装する（lathe ingest と同型の push 主 + pull 補の型）。
+#
+# merge の checks 存在判定: checks が存在する場合は GREEN 後にのみ merge する。
+# 不在の場合（GITHUB_TOKEN 構成では ci.yml が起動しないため常にこの経路）は即 merge。
+# checks 出現待ちの poll は入れない（GITHUB_TOKEN 不変条件）。
 name: intake
 
 on:
   issues:
     types: [labeled]
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 concurrency:
   group: intake
@@ -30,77 +40,45 @@ permissions:
 
 jobs:
   register:
-    if: github.event.label.name == 'task-request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Create backlog task from issue
-        id: create
-        env:
-          TITLE: ${{ github.event.issue.title }}
-          BODY: ${{ github.event.issue.body }}
-          NUM: ${{ github.event.issue.number }}
-          AUTHOR: ${{ github.event.issue.user.login }}
-          LABELS: ${{ join(github.event.issue.labels.*.name, ' ') }}
-        run: |
-          set -euo pipefail
-          PRIO=medium
-          case " $LABELS " in
-            *" p0-urgent "*|*" p1-high "*) PRIO=high ;;
-            *" p3-low "*) PRIO=low ;;
-          esac
-          DESC="$(printf '%s\n\n---\nintake: issue #%s <- @%s' "${BODY:-（本文なし）}" "$NUM" "$AUTHOR")"
-          OUT="$(npx -y backlog.md task create "$TITLE" -d "$DESC" --priority "$PRIO" --plain)"
-          echo "$OUT"
-          # 「Task TASK-N - …」の行頭アンカーで採番結果だけを取る。
-          # 素の grep はタイトル内の TASK-nn 言及（例:「TASK-16 の後始末」）を誤抽出する
-          # （2026-07-05 #84 で実証 — commit message と issue 通知の ID が誤記になった）
-          TASK_ID="$(echo "$OUT" | sed -n 's/^Task \(TASK-[0-9][0-9.]*\) .*/\1/p' | head -1)"
-          test -n "$TASK_ID"
-          echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Land task file (backlog-only, PR + merge)
+      - name: Register issues
         env:
           GH_TOKEN: ${{ github.token }}
-          NUM: ${{ github.event.issue.number }}
-          TASK_ID: ${{ steps.create.outputs.task_id }}
+          EVENT: ${{ github.event_name }}
+          LABEL: ${{ github.event.label.name }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
         run: |
-          set -euo pipefail
-          git config user.name "lathe-intake"
-          git config user.email "intake-bot@users.noreply.github.com"
-          git add backlog/
-          if git diff --cached --name-only -z | tr '\0' '\n' | grep -v -e '^backlog/' -e '^$' | grep -q .; then
-            echo "::error::non-backlog paths staged — registrar refuses to write outside backlog/" >&2
-            exit 1
+          # 対象 issue 番号リスト算出
+          # issues.labeled: task-request ラベルの場合のみ該当番号 1 件を処理
+          # schedule / workflow_dispatch: open + task-request 付き issue を全件 sweep
+          if [ "$EVENT" = "issues" ]; then
+            if [ "${LABEL}" = "task-request" ]; then
+              NUMS="$ISSUE_NUM"
+            else
+              echo "label '${LABEL}' is not task-request — no-op"
+              exit 0
+            fi
+          else
+            NUMS="$(gh issue list --label task-request --state open --json number \
+              -q '.[].number' | tr '\n' ' ')"
+            if [ -z "${NUMS// /}" ]; then
+              echo "no open task-request issues — sweep complete"
+              exit 0
+            fi
+            echo "sweep targets: $NUMS"
           fi
-          # 採番の衝突検査: origin/main に同 ID が既に居たら失敗させる（label 再付与で再走
-          # すれば新しい base から採番し直す）。concurrency group の直列化だけでは
-          # 近接到着の 2 run が同じ base から採番し得る（2026-07-05、task-21 重複で実証）
-          git fetch -q origin main
-          N="${TASK_ID#TASK-}"
-          if git ls-tree --name-only origin/main backlog/tasks/ | grep -qE "^backlog/tasks/task-$N "; then
-            echo "::error::duplicate task id $TASK_ID already on origin/main — re-trigger the label to retry" >&2
-            exit 1
-          fi
-          BR="intake/issue-$NUM"
-          git checkout -b "$BR"
-          git commit -m "intake: $TASK_ID <- issue #$NUM"
-          git push -u origin "$BR"
-          gh pr create --title "intake: $TASK_ID ← issue #$NUM" \
-            --body "登記機械による自動 PR（ADR 0027・判断なし）。issue #$NUM を $TASK_ID として backlog に写す。backlog/ 以外に触れないことは workflow が機械検査済み。"
-          gh pr merge "$BR" --squash --delete-branch || {
-            gh pr checks "$BR" --watch
-            gh pr merge "$BR" --squash --delete-branch
-          }
 
-      - name: Close issue with task reference
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NUM: ${{ github.event.issue.number }}
-          TASK_ID: ${{ steps.create.outputs.task_id }}
-        run: |
-          gh issue comment "$NUM" --body "登記完了: $TASK_ID として backlog に登録しました（intake action・判断なし。priority 等の triage は盤面で）。"
-          gh issue close "$NUM" --reason completed
+          # per-issue 失敗隔離: 1 件の失敗で残りを止めない（§3-4）
+          FAILED=()
+          for NUM in $NUMS; do
+            bash scripts/intake-register.sh "$NUM" || FAILED+=("$NUM")
+          done
+          if [ ${#FAILED[@]} -gt 0 ]; then
+            echo "::warning::failed to register issues: ${FAILED[*]}"
+            exit 1
+          fi
