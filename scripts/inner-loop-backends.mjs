@@ -400,10 +400,25 @@ export function parseBackendFlags(argv) {
  * @param {{ global: string | null, stages: Record<string, string> }} flags
  * @returns {string}
  */
-export function selectBackend(stage, flags) {
+export function selectBackend(stage, flags, fallback = 'claude') {
   if (flags.stages[stage] != null) return flags.stages[stage];
   if (flags.global != null) return flags.global;
-  return 'claude';
+  return fallback;
+}
+
+/**
+ * Resolve the fallback backend for a resumed run by finding the most-recent
+ * non-null `backend` value across all manifest stages.
+ * Returns null when no backend has been recorded yet.
+ * @param {Array<{ backend?: string | null }>} stages
+ * @returns {string | null}
+ */
+export function resolveResumeBackend(stages) {
+  if (!Array.isArray(stages)) return null;
+  for (let i = stages.length - 1; i >= 0; i--) {
+    if (stages[i].backend != null) return stages[i].backend;
+  }
+  return null;
 }
 
 /**
@@ -459,4 +474,20 @@ export function parseDependsOnLine(rawValue) {
     return { ok: true, dependsOn: '' };
   }
   return { ok: true, dependsOn: trimmed };
+}
+
+/** True when IMPLEMENT returned IMPL_DONE but the worktree HEAD did not advance (zero new commits). */
+export function detectHollowImplement({ verdict, baseSha, headSha }) {
+  if (verdict !== 'IMPL_DONE') return false;
+  if (!baseSha || !headSha) return false;
+  return baseSha === headSha;
+}
+
+/** True when REVIEW is about to rerun on the same HEAD sha as the most-recent prior REVIEW entry. */
+export function detectRedundantReview({ headSha, stages }) {
+  if (!headSha) return false;
+  for (let i = stages.length - 1; i >= 0; i--) {
+    if (stages[i].stage === 'REVIEW') return stages[i].head_sha === headSha;
+  }
+  return false;
 }

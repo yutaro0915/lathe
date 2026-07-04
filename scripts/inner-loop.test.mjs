@@ -56,6 +56,10 @@ import {
   buildTriagePrompt,
 } from './inner-loop-prompts.mjs';
 import { parseTaskRunHints } from './inner-queue.mjs';
+import {
+  selectBackend, resolveResumeBackend,
+  detectHollowImplement, detectRedundantReview,
+} from './inner-loop-backends.mjs';
 import { chmodSync, existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -2863,4 +2867,83 @@ test('isCodexSandboxEpermTriageResult: does not classify ordinary known failures
     'VERDICT: KNOWN',
   ].join('\n');
   assert.equal(isCodexSandboxEpermTriageResult(result), false);
+});
+
+// --- detectHollowImplement (a) ---
+
+test('detectHollowImplement: IMPL_DONE with base===head → true (hollow)', () => {
+  assert.equal(detectHollowImplement({ verdict: 'IMPL_DONE', baseSha: 'abc123', headSha: 'abc123' }), true);
+});
+
+test('detectHollowImplement: IMPL_DONE with base!==head → false (has new commits)', () => {
+  assert.equal(detectHollowImplement({ verdict: 'IMPL_DONE', baseSha: 'abc123', headSha: 'def456' }), false);
+});
+
+test('detectHollowImplement: non-IMPL_DONE verdict → false', () => {
+  assert.equal(detectHollowImplement({ verdict: 'ESCALATE', baseSha: 'abc123', headSha: 'abc123' }), false);
+});
+
+test('detectHollowImplement: null baseSha → false (cannot compare)', () => {
+  assert.equal(detectHollowImplement({ verdict: 'IMPL_DONE', baseSha: null, headSha: 'abc123' }), false);
+});
+
+// --- detectRedundantReview (b) ---
+
+test('detectRedundantReview: same sha as most-recent REVIEW → true', () => {
+  const stages = [
+    { stage: 'IMPLEMENT', head_sha: 'aaa' },
+    { stage: 'REVIEW', head_sha: 'bbb' },
+  ];
+  assert.equal(detectRedundantReview({ headSha: 'bbb', stages }), true);
+});
+
+test('detectRedundantReview: different sha from prior REVIEW → false', () => {
+  const stages = [{ stage: 'REVIEW', head_sha: 'bbb' }];
+  assert.equal(detectRedundantReview({ headSha: 'ccc', stages }), false);
+});
+
+test('detectRedundantReview: no prior REVIEW in stages → false', () => {
+  const stages = [{ stage: 'IMPLEMENT', head_sha: 'aaa' }];
+  assert.equal(detectRedundantReview({ headSha: 'aaa', stages }), false);
+});
+
+test('detectRedundantReview: null headSha → false', () => {
+  assert.equal(detectRedundantReview({ headSha: null, stages: [{ stage: 'REVIEW', head_sha: null }] }), false);
+});
+
+// --- resolveResumeBackend + selectBackend fallback (c) ---
+
+test('resolveResumeBackend: returns most-recent non-null backend', () => {
+  const stages = [
+    { stage: 'PLAN', backend: 'claude' },
+    { stage: 'IMPLEMENT', backend: 'codex' },
+    { stage: 'REVIEW', backend: null },
+  ];
+  assert.equal(resolveResumeBackend(stages), 'codex');
+});
+
+test('resolveResumeBackend: all null/absent → null', () => {
+  assert.equal(resolveResumeBackend([{ stage: 'PLAN', backend: null }]), null);
+  assert.equal(resolveResumeBackend([]), null);
+});
+
+test('selectBackend: uses fallback when no flag override', () => {
+  assert.equal(selectBackend('IMPLEMENT', { global: null, stages: {} }, 'codex'), 'codex');
+});
+
+test('selectBackend: global flag overrides fallback', () => {
+  assert.equal(selectBackend('IMPLEMENT', { global: 'claude', stages: {} }, 'codex'), 'claude');
+});
+
+test('selectBackend: stage flag overrides global and fallback', () => {
+  assert.equal(selectBackend('IMPLEMENT', { global: 'claude', stages: { IMPLEMENT: 'codex' } }, 'claude'), 'codex');
+});
+
+// --- (d) resume escalation path for task unit ---
+
+test('(d) manifestPathFor task unit escalation path does not contain [object Object]', () => {
+  const unit = { kind: 'task', id: 'TASK-23' };
+  const path = manifestPathFor(unit).replace(/\.json$/, '.escalation.md');
+  assert.doesNotMatch(path, /\[object Object\]/);
+  assert.match(path, /task-23\.escalation\.md$/);
 });
