@@ -4,10 +4,11 @@ title: manifest 契約の整流 — 深い単一インターフェース + Unit/
 status: To Do
 assignee: []
 created_date: '2026-07-04 15:56'
+updated_date: '2026-07-04 17:02'
 labels:
-  - phase-2
   - rewire
   - needs-approval
+milestone: m-18
 dependencies:
   - TASK-13
 references:
