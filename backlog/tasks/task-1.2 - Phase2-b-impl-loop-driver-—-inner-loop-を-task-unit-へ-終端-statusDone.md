@@ -1,9 +1,10 @@
 ---
 id: TASK-1.2
 title: Phase2-b impl-loop driver — inner-loop を task unit へ + 終端 status=Done
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-04 10:45'
+updated_date: '2026-07-04 12:02'
 labels:
   - phase-2
   - rewire
