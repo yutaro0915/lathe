@@ -17,15 +17,22 @@ export function getDatabaseUrl(): string {
 declare global {
   // eslint-disable-next-line no-var
   var __lathePgPool: Pool | undefined;
+  // eslint-disable-next-line no-var
+  var __lathePgPoolUrl: string | undefined;
 }
 
 export function getPool(): Pool {
-  if (!globalThis.__lathePgPool) {
-    const pool = new Pool({ connectionString: getDatabaseUrl() });
+  const url = getDatabaseUrl();
+  if (!globalThis.__lathePgPool || globalThis.__lathePgPoolUrl !== url) {
+    if (globalThis.__lathePgPool) {
+      void globalThis.__lathePgPool.end().catch(() => {});
+    }
+    const pool = new Pool({ connectionString: url });
     pool.on('error', (error) => {
       console.error(`[lathe-mcp-postgres] idle client error: ${(error as Error).stack ?? String(error)}`);
     });
     globalThis.__lathePgPool = pool;
+    globalThis.__lathePgPoolUrl = url;
   }
   return globalThis.__lathePgPool;
 }
@@ -44,5 +51,6 @@ export async function closePool(): Promise<void> {
   if (!globalThis.__lathePgPool) return;
   const pool = globalThis.__lathePgPool;
   globalThis.__lathePgPool = undefined;
+  globalThis.__lathePgPoolUrl = undefined;
   await pool.end();
 }
