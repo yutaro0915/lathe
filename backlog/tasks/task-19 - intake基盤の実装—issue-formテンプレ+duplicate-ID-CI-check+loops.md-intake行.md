@@ -1,10 +1,10 @@
 ---
 id: TASK-19
 title: intake 基盤の実装 — issue form テンプレ + duplicate-ID CI check + loops.md intake 行
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 17:07'
-updated_date: '2026-07-04 18:02'
+updated_date: '2026-07-04 20:43'
 labels:
   - loop
   - intake
@@ -32,5 +32,5 @@ ADR 0027（accepted・PR #67）の intake loop を稼働させる repo 側の実
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-再スコープ（ADR 0027 追記・2026-07-05 PdM 裁定）: 登記は LLM routine から GitHub Action（.github/workflows/intake.yml・判断ゼロ）に置換済み。issue form テンプレ・routine 指示文正本・loops.md 行は不要化/実施済み（feat/intake-action PR）。残スコープ = duplicate-task-ID CI check のみ。
+残スコープ（dup-ID CI rubric）は rubrics/=外部空間につき implementer が ESCALATE。監査役が rubric を authoring し PR #105 で着地（reviewer schema 検証済み版を復元・schema/golden/実コマンド GREEN 検証済み）。issue form テンプレ等の旧 AC は ADR 0029/TASK-25 へ移管済み。
 <!-- SECTION:NOTES:END -->
