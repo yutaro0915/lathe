@@ -1,24 +1,10 @@
 #!/usr/bin/env node
 // CLI: node scripts/merge.mjs <branch>
-// Enforces review+verify receipts for the branch tip (HEAD sha) before
-// squash-merging onto main.
-//
-// Receipt unit: the branch tip sha (git rev-parse <branch>).
-// reviewer/verifier see the full branch diff, not individual commits, so
-// receipts are issued against HEAD and checked against HEAD.
-//
-// Receipt storage: shared git common-dir (via resolveReceiptsDir from receipt.mjs).
-// This means receipts written in a worktree are visible when merge.mjs runs from main.
-//
-// cwd semantics: merge.mjs uses process.cwd() (the caller's dir — main) for all
-// git operations and path resolution. The script file location (dirname) is NOT used
-// so that `node <worktree>/scripts/merge.mjs <branch>` run from main still operates
-// on main.
-//
-// Landing strategy (ADR 0026 §1-2): git push origin <branch> → gh pr create → gh pr merge --auto --squash.
-// The first commit's message (feat subject + body + trailers) is used as the PR title/body so
-// that review-fix commits don't pollute the PR title. CI gate runs on the PR head sha.
-//
+// Enforces review+verify receipts for the branch tip sha before squash-merging onto main.
+// Receipt unit = branch tip sha (HEAD). Receipts live in shared git common-dir.
+// cwd = caller's dir (main worktree); script location (dirname) is NOT used.
+// Landing strategy (ADR 0026 §1-2): push → gh pr create → gh pr merge --auto --squash.
+// First commit message → PR title/body. CI gate runs on PR head sha.
 // Pure logic is exported for unit testing.
 
 import { closeSync, existsSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -91,16 +77,8 @@ export function checkReceipts(receiptsDir, headSha) {
   return { ok: missing.length === 0, missing };
 }
 
-/**
- * Clean up a failed squash merge by resetting the working tree to HEAD.
- *
- * `git merge --squash` does NOT create MERGE_HEAD, so `git merge --abort`
- * is a no-op and leaves staged auto-merge content and conflict markers in the
- * working tree. `git reset --hard HEAD` removes both staged content and
- * conflict markers by restoring tracked files to HEAD.
- *
- * @param {string} cwd  working directory (the main worktree)
- */
+/** Reset working tree after a failed squash merge (git merge --squash has no MERGE_HEAD).
+ * @param {string} cwd */
 export function cleanupFailedSquash(cwd) {
   spawnSync('git', ['reset', '--hard', 'HEAD'], {
     cwd,
@@ -108,31 +86,14 @@ export function cleanupFailedSquash(cwd) {
   });
 }
 
-/**
- * Extract the first commit's full message from
- * `git log --reverse --format=%B%x00` output (NUL-separated).
- *
- * Using NUL (`\0`) as the record separator avoids ambiguity with blank lines
- * inside commit bodies (Co-Authored-By trailers, multi-paragraph bodies, etc.).
- * Each commit's %B block is followed by a NUL character.
- *
- * @param {string} logOutput  raw output of `git log --reverse --format=%B%x00 base..branch`
- * @returns {string}          trimmed first commit message
- */
+/** First commit message from `git log --reverse --format=%B%x00` (NUL-separated records).
+ * @param {string} logOutput @returns {string} */
 export function extractFirstCommitMessage(logOutput) {
-  const parts = logOutput.split('\0');
-  // parts[0] is the first commit's body; subsequent parts are other commits or trailing empty
-  return parts[0].trim();
+  return logOutput.split('\0')[0].trim();
 }
 
-/**
- * Split a full commit message into PR title (subject) and body.
- * Subject = first line. Body = remainder (trimmed), or falls back to the subject
- * when the message is subject-only (gh pr create requires a non-empty --body).
- *
- * @param {string} msg  full commit message (from extractFirstCommitMessage)
- * @returns {{ subject: string, body: string }}
- */
+/** subject = first line; body = rest (falls back to subject when subject-only).
+ * @param {string} msg @returns {{subject:string,body:string}} */
 export function splitCommitMessage(msg) {
   const lines = (msg ?? '').split('\n');
   const subject = (lines[0] ?? '').trim();
@@ -140,50 +101,51 @@ export function splitCommitMessage(msg) {
   return { subject, body: body || subject };
 }
 
-/**
- * Build argv array for `gh pr create`.
- * Pure so it can be unit-tested without side effects.
- *
- * @param {{ base: string, head: string, title: string, body: string }} p
- * @returns {string[]}
- */
+/** @param {{base:string,head:string,title:string,body:string}} p @returns {string[]} */
 export function buildPrCreateArgs({ base, head, title, body }) {
   return ['pr', 'create', '--base', base, '--head', head, '--title', title, '--body', body];
 }
 
-/**
- * Build argv array for `gh pr merge --auto --squash`.
- * Pure so it can be unit-tested without side effects.
- *
- * @param {{ branch: string }} p
- * @returns {string[]}
- */
+/** @param {{branch:string}} p @returns {string[]} argv for gh pr merge --auto --squash */
 export function buildPrMergeArgs({ branch }) {
   return ['pr', 'merge', branch, '--auto', '--squash', '--delete-branch'];
 }
 
-/**
- * Build argv array for `gh pr checks --watch`.
- * Used as the fallback when --auto is not available (branch protection disabled).
- * Blocks until all required checks complete.
- *
- * @param {{ branch: string }} p
- * @returns {string[]}
- */
+/** @param {{branch:string}} p @returns {string[]} argv for gh pr checks --watch (blocks until done) */
 export function buildPrChecksWatchArgs({ branch }) {
   return ['pr', 'checks', branch, '--watch'];
 }
 
-/**
- * Build argv array for `gh pr merge --squash --delete-branch` (no --auto).
- * Used as the fallback merge after CI checks pass when branch protection is disabled.
- * Must only be called after `gh pr checks --watch` exits 0 (CI green).
- *
- * @param {{ branch: string }} p
- * @returns {string[]}
- */
+/** @param {{branch:string}} p @returns {string[]} argv for gh pr merge --squash (no --auto, after CI green) */
 export function buildPrMergeFallbackArgs({ branch }) {
   return ['pr', 'merge', branch, '--squash', '--delete-branch'];
+}
+
+/** True if gh output indicates checks are not yet registered (race after gh pr create).
+ * @param {{stdout?:string,stderr?:string}} p @returns {boolean} */
+export function checksNotRegistered({ stdout = '', stderr = '' }) {
+  return /no checks reported/i.test(`${stdout}${stderr}`);
+}
+
+/** argv for `gh pr checks <branch>` without --watch (for polling).
+ * @param {{branch:string}} p @returns {string[]} */
+export function buildPrChecksArgs({ branch }) {
+  return ['pr', 'checks', branch];
+}
+
+/** Poll until ≥1 CI check appears on the PR; avoids the no-checks race after gh pr create.
+ * runChecks/sleep injected for testability. intervalMs×maxAttempts ≈ 120s upper bound.
+ * @returns {Promise<{registered:boolean,timedOut?:boolean}>} */
+export async function waitForChecksRegistered({
+  runChecks, sleep, intervalMs = 5000, maxAttempts = 24, log = () => {},
+}) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const result = runChecks();
+    if (!checksNotRegistered({ stdout: result.stdout, stderr: result.stderr })) return { registered: true };
+    log(`merge: checks not yet registered (attempt ${attempt + 1}/${maxAttempts}) — retrying in ${intervalMs}ms`);
+    await sleep(intervalMs);
+  }
+  return { registered: false, timedOut: true };
 }
 
 /**
@@ -459,6 +421,14 @@ if (isMain) {
     // --auto failed (branch protection disabled) — fall back to checks-then-merge.
     // CI gate preserved: refuse if checks non-zero; merge only after CI green.
     process.stdout.write(`merge: --auto not available for ${branch} — falling back to checks-then-merge\n`);
+
+    // Wait for checks to be registered before --watch (race: CI not triggered immediately after gh pr create).
+    const waitResult = await waitForChecksRegistered({
+      runChecks: () => spawnSync('gh', buildPrChecksArgs({ branch }), { encoding: 'utf8', cwd, env: { ...process.env, LATHE_MERGE: '1' } }),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      log: (msg) => process.stdout.write(`${msg}\n`),
+    });
+    if (waitResult.timedOut) die(`CI checks not registered for ${branch} within wait window — refusing to merge`);
 
     const checksArgs = buildPrChecksWatchArgs({ branch });
     const checksResult = spawnSync('gh', checksArgs, {

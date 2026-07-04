@@ -1,9 +1,10 @@
 ---
 id: TASK-27
 title: 'fix(merge): fallback の no-checks レース修正（checks 出現までリトライしてから watch）'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 19:28'
+updated_date: '2026-07-04 19:42'
 labels: []
 dependencies: []
 priority: medium
