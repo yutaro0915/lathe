@@ -1,17 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import TimeRibbon from "@/components/TimeRibbon";
 import { Surface } from "@/design-system/components";
 import { findingTouchesSession } from "@/components/FindingsExplorer";
-import type { Finding, Session, SessionBundle, TranscriptEvent } from "@/lib/types";
-import { kindOf, type StepKind } from "@/lib/event-display";
+import type { Finding, Session, SessionBundle } from "@/lib/types";
+import { type StepKind } from "@/lib/event-display";
 import { ALL_KINDS, type FilterMode, type Tab } from "@/components/session-viewer/types";
 import { useTurnRollups } from "@/components/session-viewer/useTurnRollups";
 import { useTurnJumps } from "@/components/session-viewer/useTurnJumps";
 import { useEventLookups } from "@/components/session-viewer/useEventLookups";
 import { useEvidenceResolver } from "@/components/session-viewer/useEvidenceResolver";
+import { useSessionDerivedData } from "@/components/session-viewer/useSessionDerivedData";
+import { usePersistentAnnotations } from "@/components/session-viewer/usePersistentAnnotations";
+import { useExpansionSets } from "@/components/session-viewer/useExpansionSets";
+import { useScrollAndFlash } from "@/components/session-viewer/useScrollAndFlash";
 import { MetricsBarTitle, MetricsBarMeta, MetricsBarActions } from "@/components/session-viewer/MetricsBar";
 import { SessionTabs } from "@/components/session-viewer/SessionTabs";
 import { GitTab } from "@/components/session-viewer/GitTab";
@@ -25,12 +29,7 @@ import { FindingsTab } from "@/components/session-viewer/FindingsTab";
 import { RawTab } from "@/components/session-viewer/RawTab";
 import { SessionAside } from "@/components/session-viewer/SessionAside";
 import { JumpLandingBanner } from "@/components/session-viewer/JumpLandingBanner";
-import { buildEditByEventId } from "@/components/session-viewer/edit-map";
 import { StepExpansionProvider } from "@/components/session-viewer/Step";
-import { addToSet, toggleInSet } from "@/components/session-viewer/expand-set";
-
-const LS_PINS = "lathe.pins";
-const LS_NOTES = "lathe.notes";
 
 export default function SessionViewer({
   sessions,
@@ -60,186 +59,128 @@ export default function SessionViewer({
   const [kindFilter, setKindFilter] = useState<Set<StepKind>>(() => new Set(ALL_KINDS));
   const [filterMode, setFilterMode] = useState<FilterMode>("hide");
   const [transcriptSearch, setTranscriptSearch] = useState("");
-  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(() => new Set());
-  const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(() => new Set());
-  const [expandedToolTypes, setExpandedToolTypes] = useState<Set<string>>(() => new Set());
-  const [expandedSkills, setExpandedSkills] = useState<Set<string>>(() => new Set());
-  const [collapsedTurns, setCollapsedTurns] = useState<Set<string>>(() => new Set());
-  // slice 9: the Subagents tab is a [By step | All] view; selecting a card/row
-  // expands its nested mini-session (single-select across the whole tab).
-  const [selectedLauncherId, setSelectedLauncherId] = useState<string | null>(null);
   const [gitFocusEvent, setGitFocusEvent] = useState<string | undefined>(undefined);
   const [gitFocusFileId, setGitFocusFileId] = useState<string | undefined>(undefined);
   const [gitFocusHunkId, setGitFocusHunkId] = useState<string | undefined>(undefined);
-  const [flashEventId, setFlashEventId] = useState<string | null>(null);
   const [landing, setLanding] = useState<{ seq: number | null; fromFinding: number | null } | null>(
-    initialFromFinding != null || initialSeq != null ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null } : null,
+    initialFromFinding != null || initialSeq != null
+      ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null }
+      : null,
   );
-  const [pins, setPins] = useState<Set<string>>(() => new Set());
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [noteDraft, setNoteDraft] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setFindings(initialFindings), [initialFindings]);
-  useEffect(() => { setSelectedLauncherId(null); setExpandedEventIds(new Set()); setExpandedToolTypes(new Set()); setExpandedSkills(new Set()); }, [primary.id]);
 
-  const seedId = useMemo(() => {
-    const first = events.find((e) => !e.parentId) ?? events[0];
-    return first?.id;
-  }, [events]);
+  // --- derived data (all pure memos) ------------------------------------------
+  const {
+    seedId,
+    childrenByParent,
+    sessionById,
+    invocations,
+    eventsWithDiff,
+    matchesSearch,
+    topEvents,
+    stepCount,
+    turnNumberByEventId,
+    turnHeaderIds,
+    turnHeaders,
+    stepsByTurn,
+    kindCounts,
+    editByEventId,
+  } = useSessionDerivedData({ events, sessions, bundle, transcriptSearch });
+
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>(seedId);
-  const [scrollRequestId, setScrollRequestId] = useState(0);
-  const scrollTarget = useRef<string | null>(null);
-  const previousActiveTab = useRef(activeTab);
 
-  function requestScrollToEvent(eventId: string) { scrollTarget.current = eventId; setScrollRequestId((id) => id + 1); }
+  // --- expansion / collapse state --------------------------------------------
+  const {
+    expandedAgents,
+    expandedEventIds,
+    setExpandedEventIds,
+    expandedToolTypes,
+    expandedSkills,
+    collapsedTurns,
+    setCollapsedTurns,
+    selectedLauncherId,
+    setSelectedLauncherId,
+    expandEvent,
+    expandTurnForEvent,
+    toggleTurn,
+    toggleAgent,
+    toggleToolType,
+    toggleSkill,
+  } = useExpansionSets({ primaryId: primary.id, turnNumberByEventId, turnHeaderIds });
 
+  // --- scroll + flash mechanics -----------------------------------------------
+  const { flashEventId, flashStep, requestScrollToEvent } = useScrollAndFlash({
+    activeTab,
+    selectedEventId,
+  });
+
+  // Seed selection: on session/seedId change, select and scroll to the first event.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setSelectedEventId(seedId);
     if (seedId) {
-      setExpandedEventIds((prev) => addToSet(prev, seedId));
+      setExpandedEventIds((prev) => {
+        if (prev.has(seedId)) return prev;
+        const next = new Set(prev);
+        next.add(seedId);
+        return next;
+      });
       requestScrollToEvent(seedId);
     }
   }, [primary.id, seedId]);
 
-  useEffect(() => {
-    const eventId = scrollTarget.current;
-    if (!eventId || typeof document === "undefined" || typeof CSS === "undefined" || !CSS.escape) return;
-    const raf = requestAnimationFrame(() => document.querySelector(`[data-eid="${CSS.escape(eventId)}"]`)?.scrollIntoView({ block: "center" }));
-    return () => cancelAnimationFrame(raf);
-  }, [scrollRequestId]);
-
-  useEffect(() => {
-    if (previousActiveTab.current !== activeTab && selectedEventId) requestScrollToEvent(selectedEventId);
-    previousActiveTab.current = activeTab;
-  }, [activeTab, selectedEventId]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const rawPins = window.localStorage.getItem(LS_PINS);
-      if (rawPins) setPins(new Set(JSON.parse(rawPins) as string[]));
-    } catch {}
-    try {
-      const rawNotes = window.localStorage.getItem(LS_NOTES);
-      if (rawNotes) setNotes(JSON.parse(rawNotes) as Record<string, string>);
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (copyTimer.current) clearTimeout(copyTimer.current);
-      if (flashTimer.current) clearTimeout(flashTimer.current);
-    };
-  }, []);
-
-  const childrenByParent = useMemo(() => {
-    const m = new Map<string, TranscriptEvent[]>();
-    for (const e of events) {
-      if (e.parentId) {
-        const arr = m.get(e.parentId);
-        if (arr) arr.push(e);
-        else m.set(e.parentId, [e]);
-      }
-    }
-    for (const arr of m.values()) arr.sort((a, b) => a.seq - b.seq);
-    return m;
-  }, [events]);
-
-  const sessionById = useMemo(() => {
-    const m = new Map<string, Session>();
-    for (const s of sessions) m.set(s.id, s);
-    return m;
-  }, [sessions]);
-  const invocations = useMemo(() => events.filter((e) => e.type === "subagent" && !e.parentId), [events]);
-  const eventsWithDiff = useMemo(() => {
-    const s = new Set<string>();
-    for (const hunkList of Object.values(bundle.hunks)) {
-      for (const h of hunkList) {
-        for (const a of bundle.attributions[h.id] ?? []) if (a.eventId) s.add(a.eventId);
-      }
-    }
-    return s;
-  }, [bundle.hunks, bundle.attributions]);
-
-  const matchesSearch = useMemo(() => {
-    const q = transcriptSearch.trim().toLowerCase();
-    return (e: TranscriptEvent) => {
-      if (!q) return true;
-      const hay = `${e.title} ${e.command ?? ""} ${e.filePath ?? ""} ${e.body ?? ""}`.toLowerCase();
-      return hay.includes(q);
-    };
-  }, [transcriptSearch]);
-  const topEvents = useMemo(() => events.filter((e) => !e.parentId), [events]);
-  // top-level steps = every top event that is not a turn header (user_message).
-  // Feeds the tab count badge (a meaningful "how much is in this session" number).
-  const stepCount = useMemo(() => topEvents.filter((e) => e.type !== "user_message").length, [topEvents]);
-
-  const { turnNumberByEventId, turnHeaderIds } = useMemo(() => {
-    const turnNumberByEventId = new Map<string, number>();
-    const turnHeaderIds = new Map<string, string>();
-    let n = 0;
-    let header: string | null = null;
-    for (const e of topEvents) {
-      if (e.type === "user_message") {
-        n += 1;
-        header = e.id;
-        turnNumberByEventId.set(e.id, n);
-      }
-      if (header) turnHeaderIds.set(e.id, header);
-    }
-    return { turnNumberByEventId, turnHeaderIds };
-  }, [topEvents]);
+  // --- turn rollups + jumps ---------------------------------------------------
   const turnCount = turnNumberByEventId.size;
-  const turnRollups = useTurnRollups({ bundle, childrenByParent, topEvents, turnHeaderIds, turnNumberByEventId });
-
-  useEffect(() => setCollapsedTurns(new Set(turnNumberByEventId.keys())), [primary.id, turnNumberByEventId]);
-
+  const turnRollups = useTurnRollups({
+    bundle,
+    childrenByParent,
+    topEvents,
+    turnHeaderIds,
+    turnNumberByEventId,
+  });
   const { highestTurnJump, firstErrorTurnJump } = useTurnJumps(primary.runner, turnRollups);
 
-  // --- transcript accordion model (D6/D7/D8) ---------------------------------
-  // ordered turn headers + the top-level steps under each (everything between
-  // one user_message and the next). The accordion renders one card per header.
-  const turnHeaders = useMemo(() => topEvents.filter((e) => e.type === "user_message"), [topEvents]);
-  const stepsByTurn = useMemo(() => {
-    const m = new Map<string, TranscriptEvent[]>();
-    for (const header of turnHeaders) m.set(header.id, []);
-    for (const e of topEvents) {
-      const headerId = turnHeaderIds.get(e.id);
-      if (!headerId || e.id === headerId) continue; // skip orphans + the header itself
-      m.get(headerId)?.push(e);
-    }
-    return m;
-  }, [topEvents, turnHeaders, turnHeaderIds]);
-  // kind counts for the toolbar filter (top-level + child steps, by kind D7).
-  const kindCounts = useMemo(() => {
-    const counts: Partial<Record<StepKind, number>> = {};
-    for (const e of events) {
-      if (e.type === "user_message") continue;
-      const k = kindOf(e.type);
-      counts[k] = (counts[k] ?? 0) + 1;
-    }
-    return counts;
-  }, [events]);
-  // edit detail-block data: map an edit/write event → its changed file + hunks,
-  // so the inline edit step can show the file path, +N −M, and the diff. The
-  // resolution lives in buildEditByEventId (session-viewer/edit-map); the
-  // component just memoizes it.
-  const editByEventId = useMemo(
-    () => buildEditByEventId(bundle, events),
-    [bundle.attributions, bundle.changedFiles, bundle.hunks, events, bundle],
-  );
-
-  const selected = useMemo(() => events.find((e) => e.id === selectedEventId), [events, selectedEventId]);
-  const selectedFiles = selected ? bundle.eventFiles[selected.id] ?? [] : [];
-  const branch = primary.gitBranch ?? "main";
-  const commitLabel = `${primary.commitCount} commit${primary.commitCount === 1 ? "" : "s"}`;
-  const currentSessionFindings = useMemo(() => findings.filter((finding) => findingTouchesSession(finding, currentId)), [currentId, findings]);
-  const currentSessionPendingFindings = useMemo(() => currentSessionFindings.filter((finding) => !finding.verdict), [currentSessionFindings]);
+  // --- event lookups ----------------------------------------------------------
   const { eventById, eventBySeq } = useEventLookups(events);
 
+  // --- selected event (drives inspector + annotation handlers) ---------------
+  const selected = useMemo(
+    () => events.find((e) => e.id === selectedEventId),
+    [events, selectedEventId],
+  );
+
+  // --- persistent annotations (pins, notes, copy) ----------------------------
+  const {
+    pins,
+    notes,
+    noteDraft,
+    setNoteDraft,
+    copied,
+    copy,
+    togglePin,
+    openNoteEditor,
+    saveNote,
+  } = usePersistentAnnotations(selected);
+
+  // --- evidence resolver (findings deep-links) --------------------------------
+  const resolveEvidence = useEvidenceResolver({
+    bundle,
+    currentId,
+    sessions,
+    eventById,
+    eventBySeq,
+    turnNumberByEventId,
+    setActiveTab,
+    selectTimelineEvent,
+    jumpToTurn,
+    setGitFocusFileId,
+    setGitFocusHunkId,
+    setGitFocusEvent,
+  });
+
+  // Deep-link: jump to initialSeq on session change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (initialSeq == null) return;
     const target = eventBySeq.get(initialSeq);
@@ -252,47 +193,18 @@ export default function SessionViewer({
   }, [primary.id, initialSeq, eventBySeq]);
 
   useEffect(() => {
-    setLanding(initialFromFinding != null || initialSeq != null ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null } : null);
+    setLanding(
+      initialFromFinding != null || initialSeq != null
+        ? { seq: initialSeq ?? null, fromFinding: initialFromFinding ?? null }
+        : null,
+    );
   }, [primary.id, initialSeq, initialFromFinding]);
 
-  function persistPins(next: Set<string>) {
-    setPins(next);
-    if (typeof window !== "undefined") window.localStorage.setItem(LS_PINS, JSON.stringify(Array.from(next)));
+  // --- wiring helpers ---------------------------------------------------------
+  function setSelected(eventId: string, expansion: "open" | "toggle" = "open") {
+    setSelectedEventId(eventId);
+    expandEvent(eventId, expansion);
   }
-  function persistNotes(next: Record<string, string>) {
-    setNotes(next);
-    if (typeof window !== "undefined") window.localStorage.setItem(LS_NOTES, JSON.stringify(next));
-  }
-  function copy(key: string, text: string) {
-    if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
-    setCopied(key);
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-    copyTimer.current = setTimeout(() => setCopied(null), 1200);
-  }
-  function toggleTurn(headerId: string) {
-    setCollapsedTurns((prev) => {
-      const next = new Set(prev);
-      if (next.has(headerId)) next.delete(headerId);
-      else next.add(headerId);
-      return next;
-    });
-  }
-  function expandTurnForEvent(eventId: string) {
-    const headerId = turnHeaderIds.get(eventId);
-    if (!headerId) return;
-    setCollapsedTurns((prev) => {
-      if (!prev.has(headerId)) return prev;
-      const next = new Set(prev);
-      next.delete(headerId);
-      return next;
-    });
-  }
-  function flashStep(eventId: string) {
-    setFlashEventId(eventId);
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => setFlashEventId(null), 2200);
-  }
-  function setSelected(eventId: string, expansion: "open" | "toggle" = "open") { setSelectedEventId(eventId); setExpandedEventIds((prev) => (expansion === "toggle" ? toggleInSet(prev, eventId) : addToSet(prev, eventId))); }
   function selectStep(eventId: string) { setSelected(eventId, "toggle"); }
   function selectTimelineEvent(eventId: string, expandTurn = false) {
     if (expandTurn) expandTurnForEvent(eventId);
@@ -312,21 +224,24 @@ export default function SessionViewer({
       if (findingId != null) setLanding({ seq: null, fromFinding: findingId });
       return;
     }
-    router.push(`/?session=${encodeURIComponent(sessionId)}&tab=transcript${findingId != null ? `&fromFinding=${findingId}` : ""}`);
+    router.push(
+      `/?session=${encodeURIComponent(sessionId)}&tab=transcript${findingId != null ? `&fromFinding=${findingId}` : ""}`,
+    );
   }
   function jumpToFindingTurn(sessionId: string, _turn: number, headSeq: number | null, findingId?: number) {
     if (sessionId === currentId) {
       setActiveTab("transcript");
       const target = headSeq != null ? eventBySeq.get(headSeq) : undefined;
       if (target) selectTimelineEvent(target.id, true);
-      if (findingId != null || headSeq != null) setLanding({ seq: headSeq, fromFinding: findingId ?? null });
+      if (findingId != null || headSeq != null)
+        setLanding({ seq: headSeq, fromFinding: findingId ?? null });
       return;
     }
-    router.push(`/?session=${encodeURIComponent(sessionId)}&tab=transcript${headSeq != null ? `&seq=${headSeq}` : ""}${findingId != null ? `&fromFinding=${findingId}` : ""}`);
+    router.push(
+      `/?session=${encodeURIComponent(sessionId)}&tab=transcript${headSeq != null ? `&seq=${headSeq}` : ""}${findingId != null ? `&fromFinding=${findingId}` : ""}`,
+    );
   }
-  // slice 9: single-select toggle for a subagent card/row. Selecting a launcher
-  // expands its nested mini-session; selecting the same launcher (card click again
-  // / × close) collapses it. Also seeds the transcript selection to the launcher.
+  // slice 9: single-select toggle for a subagent card/row.
   function selectLauncher(launcherId: string) {
     setSelectedLauncherId((prev) => (prev === launcherId ? null : launcherId));
     setSelected(launcherId);
@@ -342,72 +257,35 @@ export default function SessionViewer({
       return next;
     });
   }
-  function toggleAgent(eventId: string) {
-    setExpandedAgents((prev) => { const n = new Set(prev); if (n.has(eventId)) n.delete(eventId); else n.add(eventId); return n; });
-  }
-  function toggleToolType(type: string) {
-    setExpandedToolTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
-    });
-  }
-  function toggleSkill(key: string) {
-    setExpandedSkills((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-  function togglePin() {
-    if (!selected) return;
-    const next = new Set(pins);
-    next.has(selected.id) ? next.delete(selected.id) : next.add(selected.id);
-    persistPins(next);
-  }
-  function openNoteEditor() { if (selected) setNoteDraft(notes[selected.id] ?? ""); }
-  function saveNote() {
-    if (!selected || noteDraft == null) return;
-    const next = { ...notes };
-    const trimmed = noteDraft.trim();
-    if (trimmed) next[selected.id] = trimmed;
-    else delete next[selected.id];
-    persistNotes(next);
-    setNoteDraft(null);
-  }
+  const clearGitFocus = () => {
+    setGitFocusEvent(undefined);
+    setGitFocusFileId(undefined);
+    setGitFocusHunkId(undefined);
+  };
+  const openSelectedDiff = () => {
+    if (selected) setGitFocusEvent(selected.id);
+    setGitFocusFileId(undefined);
+    setGitFocusHunkId(undefined);
+    setActiveTab("git");
+  };
 
-  const resolveEvidence = useEvidenceResolver({
-    bundle,
-    currentId,
-    sessions,
-    eventById,
-    eventBySeq,
-    turnNumberByEventId,
-    setActiveTab,
-    selectTimelineEvent,
-    jumpToTurn,
-    setGitFocusFileId,
-    setGitFocusHunkId,
-    setGitFocusEvent,
-  });
+  // --- derived view values ----------------------------------------------------
+  const selectedFiles = selected ? bundle.eventFiles[selected.id] ?? [] : [];
+  const branch = primary.gitBranch ?? "main";
+  const commitLabel = `${primary.commitCount} commit${primary.commitCount === 1 ? "" : "s"}`;
+  const currentSessionFindings = useMemo(
+    () => findings.filter((finding) => findingTouchesSession(finding, currentId)),
+    [currentId, findings],
+  );
+  const currentSessionPendingFindings = useMemo(
+    () => currentSessionFindings.filter((finding) => !finding.verdict),
+    [currentSessionFindings],
+  );
 
-  const clearGitFocus = () => { setGitFocusEvent(undefined); setGitFocusFileId(undefined); setGitFocusHunkId(undefined); };
-
+  // --- layout -----------------------------------------------------------------
   // git / stats / findings / tools / skills / subagents fill the whole work area
   // (no inspector pane). transcript is now an INLINE turn-accordion that fills the
-  // whole work area too (D6 / ADR-detail-wider-than-list): turns collapsed by
-  // default; expanding a turn reveals its steps inline; a step expands its
-  // detail-block in place. Tools (slice 7) and Skills (slice 8) are
-  // comparison-lists with inline expansion (D11/D12/D8): aggregated by tool type
-  // / capability name, their detail is the inline invocation Steps, so they ALSO
-  // dropped the narrow inspector. Subagents (slice 9, D16–D18) is a [By step |
-  // All] view whose selection expands an INLINE nested mini-session — so it too
-  // is full-width with no side inspector. There is NO side detail pane for these
-  // tabs (the wide SessionDetailWide was retired, supersedes commit cc8f349). The
-  // REMAINING tabs (annotations/raw) still get the narrow inspector via the
-  // Surface RightPanel.
+  // whole work area too (D6 / ADR-detail-wider-than-list).
   const isFullWidthTab =
     activeTab === "git" ||
     activeTab === "stats" ||
@@ -417,12 +295,6 @@ export default function SessionViewer({
     activeTab === "subagents";
   const isTranscriptTab = activeTab === "transcript";
 
-  // The metrics feed the one shell-owned WorkareaHeader through the Surface
-  // contract: the title cluster (runner dot + session title) is the Surface
-  // `title`, the model/branch/commits/date is the `meta`, and the jump/PR chips
-  // + kstats are the `actions` (right). The Surface header carries the `sessbar`
-  // testid via `headerTestId`, so no self-drawn band — the standard header lays
-  // it out (title flex-left, actions right, full width).
   const headerTitle = <MetricsBarTitle primary={primary} />;
   const headerMeta = <MetricsBarMeta primary={primary} branch={branch} commitLabel={commitLabel} />;
   const headerActions = (
@@ -438,25 +310,42 @@ export default function SessionViewer({
     />
   );
   const tabs = (
-    <SessionTabs activeTab={activeTab} setActiveTab={setActiveTab} annotationsCount={annotations.length} pendingFindingsCount={currentSessionPendingFindings.length} visibleCount={stepCount} clearGitFocus={clearGitFocus} />
+    <SessionTabs
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+      annotationsCount={annotations.length}
+      pendingFindingsCount={currentSessionPendingFindings.length}
+      visibleCount={stepCount}
+      clearGitFocus={clearGitFocus}
+    />
   );
 
-  const openSelectedDiff = () => { if (selected) setGitFocusEvent(selected.id); setGitFocusFileId(undefined); setGitFocusHunkId(undefined); setActiveTab("git"); };
-
-  // Shared detail props for the NARROW inspector (SessionAside, in the Surface
-  // RightPanel for tools/skills/subagents/annotations/raw). The transcript no
-  // longer uses these (its detail is the inline step detail-block, owned by the
-  // Step component); they remain the inspector's pin/note/copy plumbing.
   const detailProps = {
     selected, selectedFiles, primary, pins, notes, noteDraft, setNoteDraft,
     copied, copy, eventsWithDiff, togglePin, openNoteEditor, saveNote, openSelectedDiff,
   };
-  const ribbon = <TimeRibbon events={topEvents} selectedId={selectedEventId} onSelect={(eventId) => selectTimelineEvent(eventId, true)} title="Time spent" />;
+  const ribbon = (
+    <TimeRibbon
+      events={topEvents}
+      selectedId={selectedEventId}
+      onSelect={(eventId) => selectTimelineEvent(eventId, true)}
+      title="Time spent"
+    />
+  );
   const banner = <JumpLandingBanner landing={landing} onDismiss={() => setLanding(null)} />;
 
   const body = isFullWidthTab ? (
     <div className="lds-sv-fill" data-testid="main" data-tab={activeTab}>
-      {activeTab === "git" && <GitTab bundle={bundle} currentId={currentId} focusEventId={gitFocusEvent} focusFileId={gitFocusFileId} focusHunkId={gitFocusHunkId} onJumpToEvent={(eid) => { setActiveTab("transcript"); selectTimelineEvent(eid, true); clearGitFocus(); }} />}
+      {activeTab === "git" && (
+        <GitTab
+          bundle={bundle}
+          currentId={currentId}
+          focusEventId={gitFocusEvent}
+          focusFileId={gitFocusFileId}
+          focusHunkId={gitFocusHunkId}
+          onJumpToEvent={(eid) => { setActiveTab("transcript"); selectTimelineEvent(eid, true); clearGitFocus(); }}
+        />
+      )}
       {activeTab === "stats" && <StatsTab bundle={bundle} />}
       {/* D11/D12/D8 (slice 7): Tools is a type-aggregated comparison-list that
           expands its invocations inline (no side inspector). */}
@@ -489,11 +378,19 @@ export default function SessionViewer({
           flashEventId={flashEventId}
         />
       )}
-      {activeTab === "findings" && <FindingsTab findings={findings} setFindings={setFindings} sessions={sessions} currentId={currentId} resolveEvidence={resolveEvidence} onJumpToSession={jumpToFindingSession} onJumpToTurn={jumpToFindingTurn} />}
+      {activeTab === "findings" && (
+        <FindingsTab
+          findings={findings}
+          setFindings={setFindings}
+          sessions={sessions}
+          currentId={currentId}
+          resolveEvidence={resolveEvidence}
+          onJumpToSession={jumpToFindingSession}
+          onJumpToTurn={jumpToFindingTurn}
+        />
+      )}
       {/* D16–D18 (slice 9): Subagents is a [By step | All] view whose selection
-          expands an inline nested mini-session (Transcript=Step list / Tools=
-          comparison-list / Git), scoped to the sub-agent's kids — full-width, no
-          side inspector. Reuses Step / ComparisonList / GitTab. */}
+          expands an inline nested mini-session — full-width, no side inspector. */}
       {activeTab === "subagents" && (
         <SubagentsTab
           invocations={invocations}
@@ -550,13 +447,20 @@ export default function SessionViewer({
   ) : (
     <div className="lds-sv-main" data-testid="main" data-tab={activeTab}>
       {banner}
-      {activeTab === "annotations" && <AnnotationsTab annotations={annotations} events={events} jumpToEvent={(id) => { setActiveTab("transcript"); selectTimelineEvent(id, true); }} />}
-      {activeTab === "raw" && <RawTab selected={selected} events={events} copied={copied} copy={copy} />}
+      {activeTab === "annotations" && (
+        <AnnotationsTab
+          annotations={annotations}
+          events={events}
+          jumpToEvent={(id) => { setActiveTab("transcript"); selectTimelineEvent(id, true); }}
+        />
+      )}
+      {activeTab === "raw" && (
+        <RawTab selected={selected} events={events} copied={copied} copy={copy} />
+      )}
       {ribbon}
     </div>
   );
 
-  // The narrow inspector (Surface RightPanel) — only for the list+inspector tabs.
   const inspector = <SessionAside {...detailProps} />;
 
   return (
