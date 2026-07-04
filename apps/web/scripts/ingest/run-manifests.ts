@@ -119,6 +119,9 @@ function integerOrNull(value: unknown): number | null {
 }
 
 function sourceIssueNumber(runKey: string, manifest: JsonObject): number | null {
+  // Task-keyed runs (ADR 0025 TASK-1.1) never carry a GitHub issue number:
+  // no `manifest.issue` field is written for them (see buildManifest), and
+  // `task-<slug>` never matches the issue/plan filename fallback below.
   const explicit = integerOrNull(manifest.issue);
   if (explicit != null) return explicit;
   const match = /^(?:issue|plan)-(\d+)(?:\.attempt\d+)?$/.exec(runKey);
@@ -128,6 +131,7 @@ function sourceIssueNumber(runKey: string, manifest: JsonObject): number | null 
 function loopKind(runKey: string): string | null {
   if (/^issue-\d+(?:\.attempt\d+)?$/.test(runKey)) return 'issue';
   if (/^plan-\d+(?:\.attempt\d+)?$/.test(runKey)) return 'plan';
+  if (/^task-/.test(runKey)) return 'task';
   return null;
 }
 

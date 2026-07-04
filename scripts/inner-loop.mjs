@@ -470,8 +470,23 @@ export function buildEscalationMarkdown({ issueNumber, stage, verdict, ts, resul
   return lines.join('\n');
 }
 
+// Convert a Backlog.md task id (e.g. "TASK-1", "TASK-1.2") into a run_key
+// slug (e.g. "task-1", "task-1-2"): lowercase, non-alphanumeric -> '-'
+// (ADR 0025 §4 gap list / TASK-1.1 decision: run_key = task-<slug>).
+export function taskUnitToSlug(id) {
+  return String(id).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
 // Build the full manifest object for writing.
+// `issueNumber` keeps the existing issue-loop contract unchanged. Pass a
+// task unit ({ kind: 'task', id }) via `extra.unit` to opt into the
+// task-keyed manifest shape (`unit` field, no `issue` field) added in
+// TASK-1.1 (ADR 0025 §4) — existing issue-loop callers are unaffected.
 export function buildManifest(issueNumber, stages, extra = {}) {
+  const { unit, ...rest } = extra;
+  if (unit && unit.kind === 'task') {
+    return { unit, ...rest, stages };
+  }
   return { issue: issueNumber, ...extra, stages };
 }
 
@@ -1104,7 +1119,18 @@ export function runStage(stage, prompt, cwd, resumeSessionId = null, backend = '
     : runStageClaude(stage, prompt, cwd, resumeSessionId, deps);
 }
 
-function manifestPathFor(issueNumber) {
+// Resolve the run manifest path for an issue-loop run (existing contract,
+// unchanged) or — when passed a task unit ({ kind: 'task', id }) — the
+// task-keyed manifest path `.lathe/runs/task-<slug>.json` added in
+// TASK-1.1 (ADR 0025 §4). Exported for unit testing; issue-loop call sites
+// in this file keep passing a plain issueNumber.
+export function manifestPathFor(issueNumber) {
+  if (issueNumber && typeof issueNumber === 'object' && issueNumber.kind === 'task') {
+    // taskUnitToSlug already yields the full run_key slug (e.g. "task-1",
+    // "task-1-2") since task ids are conventionally "TASK-<n>" — do not
+    // prepend another "task-" prefix here.
+    return join(REPO_ROOT, '.lathe', 'runs', `${taskUnitToSlug(issueNumber.id)}.json`);
+  }
   return join(REPO_ROOT, '.lathe', 'runs', `issue-${issueNumber}.json`);
 }
 

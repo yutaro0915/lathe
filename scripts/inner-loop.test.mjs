@@ -8,6 +8,8 @@ import {
   buildManifestEntry,
   buildSkippedPlanEntry,
   buildManifest,
+  taskUnitToSlug,
+  manifestPathFor,
   readManifestStages,
   stagePermissions,
   stageCwd,
@@ -1721,6 +1723,54 @@ test('buildManifest: wraps issue number and stages array', () => {
   assert.equal(manifest.issue, 25);
   assert.equal(manifest.stages.length, 1);
   assert.equal(manifest.stages[0].stage, 'PLAN');
+});
+
+// --- taskUnitToSlug (ADR 0025 TASK-1.1) ---
+
+test('taskUnitToSlug: lowercases and hyphenates task ids', () => {
+  assert.equal(taskUnitToSlug('TASK-1'), 'task-1');
+  assert.equal(taskUnitToSlug('TASK-1.2'), 'task-1-2');
+  assert.equal(taskUnitToSlug('TASK-1.1'), 'task-1-1');
+});
+
+test('taskUnitToSlug: collapses runs of non-alphanumeric chars and trims edges', () => {
+  assert.equal(taskUnitToSlug('TASK--1..2'), 'task-1-2');
+  assert.equal(taskUnitToSlug('-TASK-1-'), 'task-1');
+});
+
+// --- buildManifest: task unit shape (ADR 0025 TASK-1.1) ---
+
+test('buildManifest: task unit writes unit{kind,id} and omits issue field', () => {
+  const stages = [buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', costUsd: 0.1 })];
+  const manifest = buildManifest(null, stages, { unit: { kind: 'task', id: 'TASK-1' } });
+  assert.deepEqual(manifest.unit, { kind: 'task', id: 'TASK-1' });
+  assert.equal('issue' in manifest, false);
+  assert.equal(manifest.stages.length, 1);
+  assert.equal(manifest.stages[0].stage, 'PLAN');
+});
+
+test('buildManifest: issue-loop call sites are unaffected by the task unit branch', () => {
+  const stages = [buildManifestEntry({ stage: 'PLAN', sessionId: 's1', verdict: 'PLAN_READY', costUsd: 0.1 })];
+  const manifest = buildManifest(7, stages);
+  assert.equal(manifest.issue, 7);
+  assert.equal('unit' in manifest, false);
+});
+
+// --- manifestPathFor: task unit shape (ADR 0025 TASK-1.1) ---
+
+test('manifestPathFor: task unit resolves to .lathe/runs/task-<slug>.json', () => {
+  const p = manifestPathFor({ kind: 'task', id: 'TASK-1' });
+  assert.match(p, /\.lathe\/runs\/task-1\.json$/);
+});
+
+test('manifestPathFor: task unit with dotted id slugifies the dot', () => {
+  const p = manifestPathFor({ kind: 'task', id: 'TASK-1.2' });
+  assert.match(p, /\.lathe\/runs\/task-1-2\.json$/);
+});
+
+test('manifestPathFor: issue-loop call sites are unaffected by the task unit branch', () => {
+  const p = manifestPathFor(25);
+  assert.match(p, /\.lathe\/runs\/issue-25\.json$/);
 });
 
 // --- readManifestStages ---

@@ -40,6 +40,11 @@ test('parseRunKey: preserves issue, plan, and attempt run keys', () => {
   assert.equal(parseRunKey('/repo/.lathe/runs/plan-43.json'), 'plan-43');
 });
 
+test('parseRunKey: preserves task-<slug> run keys (ADR 0025 TASK-1.1)', () => {
+  assert.equal(parseRunKey('/repo/.lathe/runs/task-1.json'), 'task-1');
+  assert.equal(parseRunKey('/repo/.lathe/runs/task-1-2.json'), 'task-1-2');
+});
+
 test('discoverRunManifestFiles: returns only json manifests from .lathe/runs', () => {
   const repoRoot = makeTmpRepo('lathe-runs');
   try {
@@ -144,5 +149,75 @@ test('deriveRunManifestRows: scopes same run_key by project and preserves nullab
   } finally {
     fs.rmSync(repoA, { recursive: true, force: true });
     fs.rmSync(repoB, { recursive: true, force: true });
+  }
+});
+
+test('deriveRunManifestRows: plan- run keys keep classifying as loopKind "plan" (regression)', () => {
+  const repoRoot = makeTmpRepo('lathe-plan-loop');
+  try {
+    const manifestPath = writeManifest(repoRoot, 'plan-43.json', {
+      issue: 43,
+      mode: 'plan-loop',
+      stages: [{ stage: 'RESEARCH', session_id: 's-research', verdict: null }],
+    });
+
+    const rows = deriveRunManifestRows({ repoRoot, projectId: 'project:plan', manifestPath });
+
+    assert.equal(rows.run.runKey, 'plan-43');
+    assert.equal(rows.run.loopKind, 'plan');
+    assert.equal(rows.run.sourceIssueNumber, 43);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('deriveRunManifestRows: task-<slug> run keys classify as loopKind "task" with null sourceIssueNumber (ADR 0025 TASK-1.1)', () => {
+  const repoRoot = makeTmpRepo('lathe-task-loop');
+  try {
+    const manifestPath = writeManifest(repoRoot, 'task-1.json', {
+      unit: { kind: 'task', id: 'TASK-1' },
+      stages: [
+        {
+          stage: 'PLAN',
+          session_id: 's-plan',
+          verdict: 'PLAN_READY',
+          backend: 'codex',
+          backend_model: 'gpt-test',
+          head_sha: null,
+          duration_ms: 100,
+          ts: '2026-07-04T00:00:00.000Z',
+          backend_cost_usd: 0.05,
+        },
+      ],
+    });
+
+    const rows = deriveRunManifestRows({ repoRoot, projectId: 'project:task', manifestPath });
+
+    assert.equal(rows.run.runKey, 'task-1');
+    assert.equal(rows.run.loopKind, 'task');
+    assert.equal(rows.run.sourceIssueNumber, null);
+    assert.equal(rows.run.stageCount, 1);
+    assert.equal(rows.run.lastStage, 'PLAN');
+    assert.equal(rows.run.lastVerdict, 'PLAN_READY');
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('deriveRunManifestRows: task-1-2 (dotted TASK-1.2 slug) also classifies as loopKind "task"', () => {
+  const repoRoot = makeTmpRepo('lathe-task-loop-dotted');
+  try {
+    const manifestPath = writeManifest(repoRoot, 'task-1-2.json', {
+      unit: { kind: 'task', id: 'TASK-1.2' },
+      stages: [],
+    });
+
+    const rows = deriveRunManifestRows({ repoRoot, projectId: 'project:task-dotted', manifestPath });
+
+    assert.equal(rows.run.runKey, 'task-1-2');
+    assert.equal(rows.run.loopKind, 'task');
+    assert.equal(rows.run.sourceIssueNumber, null);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
   }
 });
