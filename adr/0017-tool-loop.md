@@ -30,5 +30,5 @@
 - **ゲートも検収も無し**: 破壊的 tool の混入リスク。§3 の下限と検収で担保。
 
 ## 初弾
-1. `tools/wbs.mjs` — gh issues＋`.lathe/runs` から WBS 盤面を生成。
-2. `tools/watch-run.mjs` — run の PID 監視→終了時に manifest/escalation/main を dump（outer が毎回手書きしていた watcher の定型化）。
+1. `tools/wbs.mjs` — gh issues＋`.lathe/runs` から WBS 盤面を生成。 **【廃止 2026-07-04・ADR 0025】** タスク基盤を Backlog.md へ移行。盤面は `backlog board`/`browser`＋lathe `list_runs` に分解され不要に（tool-loop 機構と §2 carve-out は存続＝wbs は初弾インスタンスが役目を終えただけ）。
+2. `tools/watch-run.mjs` — run の PID 監視→終了時に manifest/escalation/main を dump（outer が毎回手書きしていた watcher の定型化）。存続。
