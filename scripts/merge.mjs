@@ -15,9 +15,9 @@
 // so that `node <worktree>/scripts/merge.mjs <branch>` run from main still operates
 // on main.
 //
-// Landing strategy: git merge --squash <branch> + git commit with the first commit's
-// message (feat subject + body + trailers). This avoids multi-commit tangle and keeps
-// main history at 1 slice = 1 commit.
+// Landing strategy (ADR 0026 §1-2): git push origin <branch> → gh pr create → gh pr merge --auto --squash.
+// The first commit's message (feat subject + body + trailers) is used as the PR title/body so
+// that review-fix commits don't pollute the PR title. CI gate runs on the PR head sha.
 //
 // Pure logic is exported for unit testing.
 
@@ -126,6 +126,43 @@ export function extractFirstCommitMessage(logOutput) {
 }
 
 /**
+ * Split a full commit message into PR title (subject) and body.
+ * Subject = first line. Body = remainder (trimmed), or falls back to the subject
+ * when the message is subject-only (gh pr create requires a non-empty --body).
+ *
+ * @param {string} msg  full commit message (from extractFirstCommitMessage)
+ * @returns {{ subject: string, body: string }}
+ */
+export function splitCommitMessage(msg) {
+  const lines = (msg ?? '').split('\n');
+  const subject = (lines[0] ?? '').trim();
+  const body = lines.slice(1).join('\n').trim();
+  return { subject, body: body || subject };
+}
+
+/**
+ * Build argv array for `gh pr create`.
+ * Pure so it can be unit-tested without side effects.
+ *
+ * @param {{ base: string, head: string, title: string, body: string }} p
+ * @returns {string[]}
+ */
+export function buildPrCreateArgs({ base, head, title, body }) {
+  return ['pr', 'create', '--base', base, '--head', head, '--title', title, '--body', body];
+}
+
+/**
+ * Build argv array for `gh pr merge --auto --squash`.
+ * Pure so it can be unit-tested without side effects.
+ *
+ * @param {{ branch: string }} p
+ * @returns {string[]}
+ */
+export function buildPrMergeArgs({ branch }) {
+  return ['pr', 'merge', branch, '--auto', '--squash', '--delete-branch'];
+}
+
+/**
  * Pure function: decide what to do with a PID lock file.
  *
  * Mirrors the ingest incremental lock semantics:
@@ -157,8 +194,8 @@ export function resolveMergeLockPath(cwd) {
 // --- CLI helpers (side-effectful) ---
 
 // git() uses process.cwd() implicitly (execSync default), which is main
-// when merge.mjs is invoked from main. This is intentional — the squash merge
-// must land on main regardless of where merge.mjs script file lives.
+// when merge.mjs is invoked from main. This is intentional — git operations
+// (push, diff, log) reference the main worktree's remote config.
 function git(args, env = {}) {
   return execSync(`git ${args}`, {
     encoding: 'utf8',
@@ -255,7 +292,7 @@ if (isMain) {
   }
 
   // cwd = where merge.mjs was invoked (should be main worktree).
-  // All git operations run here so squash merge lands on main.
+  // Git operations (push, diff, log) use this as the repo root.
   const cwd = process.cwd();
 
   let mergeLockPath;
@@ -345,9 +382,9 @@ if (isMain) {
     }
   }
 
-  // 4. Squash merge: stage net diff as a single commit on main.
-  //    Use the first commit's message (feat subject + body + trailers) so that
-  //    review-fix commits don't pollute the subject line.
+  // 4. Push branch and open PR with auto-merge (ADR 0026 §1-2).
+  //    The first commit's message becomes the PR title (subject) and body, so
+  //    review-fix commits don't pollute the PR title. Actual squash happens in CI.
   let firstCommitMsg;
   try {
     // --format=%B%x00: NUL-separated so multi-paragraph bodies / trailers don't
@@ -357,48 +394,46 @@ if (isMain) {
   } catch (e) {
     die(`could not read commit message: ${e.message}`);
   }
+  const { subject, body: prBody } = splitCommitMessage(firstCommitMsg);
 
-  const squashResult = spawnSync(
+  // 4a. Push branch to remote
+  const pushResult = spawnSync(
     'git',
-    ['merge', '--squash', branch],
+    ['push', '-u', 'origin', branch],
     {
       stdio: 'inherit',
       cwd,
       env: { ...process.env, LATHE_MERGE: '1' },
     },
   );
-  if (squashResult.status !== 0) {
-    // squash merge は MERGE_HEAD を作らないため merge --abort は空振りする。
-    // reset --hard HEAD でステージング内容と conflict marker を除去する。
-    cleanupFailedSquash(cwd);
-    die('squash conflict — working tree を HEAD に戻しました。競合を解消して再実行してください。');
+  if (pushResult.status !== 0) {
+    die(`git push failed — cannot create PR for ${branch}`);
   }
 
-  // Check that there is actually something staged (net diff not empty)
-  const stagedResult = spawnSync('git', ['diff', '--cached', '--name-only'], {
-    encoding: 'utf8',
+  // 4b. Create PR (base=main, head=branch)
+  const prCreateArgs = buildPrCreateArgs({ base: 'main', head: branch, title: subject, body: prBody });
+  const prCreateResult = spawnSync('gh', prCreateArgs, {
+    stdio: 'inherit',
     cwd,
     env: { ...process.env, LATHE_MERGE: '1' },
   });
-  if (!stagedResult.stdout || !stagedResult.stdout.trim()) {
-    die(`net diff is empty after squash — nothing to commit from ${branch}`);
+  if (prCreateResult.status !== 0) {
+    die(`gh pr create failed for ${branch}`);
   }
 
-  // Commit with the first commit's message
-  const commitResult = spawnSync(
-    'git',
-    ['commit', '-m', firstCommitMsg],
-    {
-      stdio: 'inherit',
-      cwd,
-      env: { ...process.env, LATHE_MERGE: '1' },
-    },
-  );
-  if (commitResult.status !== 0) {
-    die('git commit failed after squash merge');
+  // 4c. Arm auto-merge (squash) — CI rubric-gate will complete the landing
+  const prMergeArgs = buildPrMergeArgs({ branch });
+  const prMergeResult = spawnSync('gh', prMergeArgs, {
+    stdio: 'inherit',
+    cwd,
+    env: { ...process.env, LATHE_MERGE: '1' },
+  });
+  if (prMergeResult.status !== 0) {
+    die(`gh pr merge --auto failed for ${branch}`);
   }
 
-  // 5. Clean up consumed receipts (only the head sha receipt)
+  // 5. Clean up consumed receipts (only the head sha receipt).
+  //    Cleaned eagerly — the merge commitment (PR + auto-merge) is irrevocable.
   for (const step of ['review', 'verify']) {
     const p = join(receiptsDir, `${headSha}.${step}.json`);
     if (existsSync(p)) {
@@ -410,6 +445,6 @@ if (isMain) {
     }
   }
 
-  process.stdout.write(`merge: done — ${shas.length} commit(s) squash-merged onto main as 1 commit.\n`);
+  process.stdout.write(`merge: done — PR created for ${branch} (${shas.length} commit(s)), auto-merge (squash) armed. CI gate will complete the landing.\n`);
   process.exit(0);
 }

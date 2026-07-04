@@ -24,11 +24,10 @@ jobs:
         run: pnpm lint
       - name: rubric schema self-test
         run: node rubrics/_schema.test.mjs
-      - name: rubric gates (changed vs main)
+      - name: rubric gates (changed paths for PR/push, tier=test)
         run: |
-          git fetch origin main --depth=1 || true
-          CHANGED=$(git diff --name-only origin/main...HEAD | tr '\n' ' ')
-          if [ -n "$CHANGED" ]; then node rubrics/run.mjs --changed $CHANGED; fi
+          CHANGED=$(node scripts/ci-changed-paths.mjs | tr '\n' ' ')
+          if [ -n "$CHANGED" ]; then node rubrics/run.mjs --changed $CHANGED --tier test; fi
       - name: unit tests (node:test + tsx)
         run: pnpm test
 

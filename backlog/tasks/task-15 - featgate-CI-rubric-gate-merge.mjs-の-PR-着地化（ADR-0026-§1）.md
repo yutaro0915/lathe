@@ -1,9 +1,10 @@
 ---
 id: TASK-15
 title: 'feat(gate): CI rubric-gate + merge.mjs の PR 着地化（ADR 0026 §1）'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 16:07'
+updated_date: '2026-07-04 16:39'
 labels: []
 milestone: m-18
 dependencies: []
