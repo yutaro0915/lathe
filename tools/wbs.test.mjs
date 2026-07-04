@@ -7,10 +7,13 @@ import { tmpdir } from 'node:os';
 
 import {
   addLocalTask,
+  canonicalPhaseKey,
   classifyItems,
   createWbsRequestHandler,
   createEmptyTaskStore,
+  inferRoadmapPhaseStatus,
   loadTaskStore,
+  parseRoadmapPhases,
   parseDependencyRefs,
   renderBoard,
   saveTaskStore,
@@ -34,6 +37,42 @@ function issue(number, title, overrides = {}) {
     ...overrides,
   };
 }
+
+const ROADMAP_SAMPLE = [
+  '# Roadmap',
+  '',
+  '### Phase 1 — 観測',
+  '',
+  '**Phase 1 完了の定義**:',
+  '- [x] Transcript viewer',
+  '- [x] Cost anomaly checks',
+  '',
+  '### Phase 2 — 分析の基盤',
+  '',
+  '**既達（基盤として最低限）**:',
+  '- finding schema',
+  '',
+  '**現状**: **機構実証済み**。',
+  '',
+  '### Phase 2.5 — lathe エージェント動作の完成',
+  '',
+  '- [x] analyst submit',
+  '- [ ] chat close',
+  '',
+  '### Phase 3 — 対照実験基盤',
+  '',
+  'Phase 3 開始ゲートで確定する。',
+  '',
+  '### Phase 1-6（dogfood 期）',
+  '',
+  'architecture-only heading, not a phase definition.',
+  '',
+  '### Phase 7+（OSS 公開期）',
+  '',
+  'architecture-only heading, not a phase definition.',
+  '',
+  '## Milestones',
+].join('\n');
 
 async function withTestServer(handler, callback) {
   const server = createServer(handler);
@@ -98,6 +137,96 @@ test('dependency parser accepts task refs and GitHub issue refs', () => {
     'issue:22',
     'issue:23',
   ]);
+});
+
+test('roadmap parser extracts only em-dash phase definitions in order', () => {
+  const phases = parseRoadmapPhases(ROADMAP_SAMPLE);
+
+  assert.deepEqual(phases.map((phase) => phase.key), ['Phase 1', 'Phase 2', 'Phase 2.5', 'Phase 3']);
+  assert.deepEqual(phases.map((phase) => phase.title), [
+    'Phase 1 — 観測',
+    'Phase 2 — 分析の基盤',
+    'Phase 2.5 — lathe エージェント動作の完成',
+    'Phase 3 — 対照実験基盤',
+  ]);
+  assert.deepEqual(phases.map((phase) => phase.status), ['done', 'done', 'in-progress', 'todo']);
+});
+
+test('canonicalPhaseKey normalizes phase free text and excludes architecture headings', () => {
+  assert.equal(canonicalPhaseKey('Phase 2'), 'Phase 2');
+  assert.equal(canonicalPhaseKey('Phase 2: AI analysis'), 'Phase 2');
+  assert.equal(canonicalPhaseKey('Phase 2 — 分析の基盤'), 'Phase 2');
+  assert.equal(canonicalPhaseKey('Phase 2.5 — lathe agent'), 'Phase 2.5');
+  assert.equal(canonicalPhaseKey('Phase 1-6（dogfood 期）'), null);
+  assert.equal(canonicalPhaseKey('Phase 7+（OSS 公開期）'), null);
+  assert.equal(canonicalPhaseKey('analysis backlog'), null);
+});
+
+test('roadmap status stays conservative when done-like signals still list remaining work', () => {
+  assert.equal(
+    inferRoadmapPhaseStatus('**現状**: 基盤は機構実証済み（上記）。残 = chat / 採否ループ。', 'Phase 2.5'),
+    'in-progress',
+  );
+});
+
+test('classifyItems seeds roadmap phases and groups phase variants by canonical key', () => {
+  const classified = classifyItems({
+    issues: [
+      issue(21, 'Plan analyst engine', {
+        labels: [{ name: 'needs-plan' }],
+        body: '# Context\n\nDraft the analyst engine before implementation.',
+        milestone: { title: 'Phase 2: AI analysis' },
+      }),
+    ],
+    localTasks: [
+      {
+        id: 'phase2',
+        title: 'Phase 2 umbrella',
+        description: 'Track the big phase before GitHub issues exist.',
+        status: 'todo',
+        phase: 'Phase 2 — 分析の基盤',
+        deps: [],
+      },
+      {
+        id: 'unscoped',
+        title: 'Unscoped note',
+        description: 'Keep free-form phase buckets working.',
+        status: 'todo',
+        phase: 'Ad hoc lane',
+        deps: [],
+      },
+    ],
+    runningWorktrees: new Map(),
+    manifests: new Map(),
+    roadmapText: ROADMAP_SAMPLE,
+  });
+
+  assert.deepEqual(classified.phases.map((phase) => phase.key), [
+    'Phase 1',
+    'Phase 2',
+    'Phase 2.5',
+    'Phase 3',
+    'Ad hoc lane',
+  ]);
+  assert.equal(classified.phases[0].status, 'done');
+  assert.equal(classified.phases[0].sections.ready.length, 0);
+
+  const phase2 = classified.phases.find((phase) => phase.key === 'Phase 2');
+  assert.equal(phase2.title, 'Phase 2 — 分析の基盤');
+  assert.equal(phase2.status, 'done');
+  assert.equal(phase2.sections.ready[0].ref, 'task:phase2');
+  assert.equal(phase2.sections.needsPlan[0].ref, 'issue:21');
+
+  const board = renderBoard(classified);
+  assert.match(board, /## Phase: Phase 1 — 観測 \[done\] \(0\/0 done\)/);
+  assert.match(board, /## Phase: Phase 2 — 分析の基盤 \[done\] \(0\/2 done\)/);
+  assert.match(board, /## Phase: Ad hoc lane \(0\/1 done\)/);
+
+  const json = toJson(classified);
+  assert.equal(json.phases[1].key, 'Phase 2');
+  assert.equal(json.phases[1].title, 'Phase 2 — 分析の基盤');
+  assert.equal(json.phases[1].status, 'done');
+  assert.equal(json.phases[1].sections.ready[0].phase, 'Phase 2');
 });
 
 test('classifyItems: integrates issues and local tasks with pending approval and cross-dependencies', () => {
@@ -185,7 +314,7 @@ test('classifyItems: integrates issues and local tasks with pending approval and
     doneRecent: 2,
   });
 
-  const phase2 = classified.phases.find((phase) => phase.phase === 'Phase 2: AI analysis');
+  const phase2 = classified.phases.find((phase) => phase.key === 'Phase 2');
   assert.ok(phase2);
   assert.equal(phase2.sections.running[0].ref, 'task:phase2-ai');
   assert.equal(phase2.sections.waitDep[0].ref, 'task:rubric-review');
@@ -213,11 +342,12 @@ test('renderBoard: groups items by phase and displays plain-language summaries',
     ],
     runningWorktrees: new Map(),
     manifests: new Map(),
+    roadmapText: ROADMAP_SAMPLE,
   });
 
   const board = renderBoard(classified);
   assert.match(board, /# WBS/);
-  assert.match(board, /## Phase: Phase 2: AI analysis/);
+  assert.match(board, /## Phase: Phase 2 — 分析の基盤 \[done\] \(0\/2 done\)/);
   assert.match(board, /### READY \(1\)/);
   assert.match(board, /task:phase2 Phase 2: AI analysis/);
   assert.match(board, /つまり: Track the big phase before GitHub issues exist\./);
@@ -225,8 +355,11 @@ test('renderBoard: groups items by phase and displays plain-language summaries',
   assert.match(board, /つまり: Draft the analyst engine before implementation\./);
 
   const json = toJson(classified);
-  assert.equal(json.phases[0].sections.ready[0].kind, 'task');
-  assert.equal(json.phases[0].sections.needs_plan[0].kind, 'issue');
+  const phase2 = json.phases.find((phase) => phase.key === 'Phase 2');
+  assert.equal(phase2.title, 'Phase 2 — 分析の基盤');
+  assert.equal(phase2.status, 'done');
+  assert.equal(phase2.sections.ready[0].kind, 'task');
+  assert.equal(phase2.sections.needs_plan[0].kind, 'issue');
 });
 
 test('serve: renders an htmx-backed HTML board with phase groups and local htmx asset', async () => {
@@ -265,6 +398,7 @@ test('serve: renders an htmx-backed HTML board with phase groups and local htmx 
     const handler = createWbsRequestHandler({
       taskFilePath: path,
       cacheTtlMs: 60_000,
+      roadmapTextProvider: () => ROADMAP_SAMPLE,
       issuesProvider: () => [
         issue(21, 'Plan analyst engine', {
           labels: [{ name: 'needs-plan' }],
@@ -283,7 +417,9 @@ test('serve: renders an htmx-backed HTML board with phase groups and local htmx 
       const html = await page.text();
       assert.match(html, /<script src="\/htmx\.min\.js"><\/script>/);
       assert.match(html, /hx-get="\/board"/);
-      assert.match(html, /Phase 2: AI analysis/);
+      assert.match(html, /Phase: Phase 1 — 観測[\s\S]*<span class="phase-status phase-status--done">done<\/span>[\s\S]*<span class="phase-progress">0\/0 done<\/span>/);
+      assert.match(html, /Phase: Phase 2 — 分析の基盤[\s\S]*<span class="phase-status phase-status--done">done<\/span>[\s\S]*<span class="phase-progress">1\/4 done<\/span>/);
+      assert.match(html, /Phase: Phase 3 — 対照実験基盤[\s\S]*<span class="phase-status phase-status--todo">todo<\/span>/);
       assert.match(html, /\.layout \{\n\s+display: grid;\n\s+gap: 12px;\n\s+width: 100%;\n\s+max-width: none;/);
       assert.match(html, /<div class="phase-root" aria-label="Phase parent breakdown">[\s\S]*<span class="phase-progress">1\/4 done<\/span>/);
       assert.match(html, /<div class="phase-bar" aria-hidden="true"><span style="width:25%"><\/span><\/div>/);
@@ -339,6 +475,7 @@ test('serve: issue cards are whole-card links and summaries are omitted from car
     const handler = createWbsRequestHandler({
       taskFilePath: path,
       cacheTtlMs: 60_000,
+      roadmapTextProvider: () => null,
       issuesProvider: () => [
         issue(52, 'Clickable issue card', {
           labels: [{ name: 'inner-loop' }],
@@ -376,6 +513,7 @@ test('serve: adds a local task and updates status without writing to GitHub', as
     const handler = createWbsRequestHandler({
       taskFilePath: path,
       cacheTtlMs: 60_000,
+      roadmapTextProvider: () => null,
       issuesProvider: () => {
         issuesReads += 1;
         return [
@@ -438,6 +576,7 @@ test('serve: reuses cached issue data across board polls within the TTL', async 
     const handler = createWbsRequestHandler({
       taskFilePath: path,
       cacheTtlMs: 60_000,
+      roadmapTextProvider: () => null,
       issuesProvider: () => {
         issuesReads += 1;
         return [issue(44, 'Cached issue', { labels: [{ name: 'inner-loop' }], body: 'Depends-on: none' })];

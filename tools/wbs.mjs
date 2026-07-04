@@ -35,6 +35,7 @@ const __dirname = dirname(__filename);
 const REPO_ROOT = dirname(__dirname);
 
 export const DEFAULT_TASKS_PATH = join(REPO_ROOT, '.lathe', 'wbs', 'tasks.json');
+export const DEFAULT_ROADMAP_PATH = join(REPO_ROOT, 'ROADMAP.md');
 export const DEFAULT_SERVE_PORT = 7787;
 
 const RECENT_DONE_LIMIT = 12;
@@ -134,6 +135,86 @@ function extractBodyField(body, fieldName) {
   return null;
 }
 
+function escapeRegExp(value) {
+  return String(value ?? '').replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
+export function canonicalPhaseKey(value) {
+  const text = String(value ?? '').trim();
+  const match = text.match(/\bPhase\s*([0-9]+(?:\.[0-9]+)?)(?!\s*[-+\d.])/i);
+  return match ? `Phase ${match[1]}` : null;
+}
+
+function roadmapPhaseHeadingMatch(line) {
+  return String(line ?? '').match(/^### Phase ([0-9]+(?:\.[0-9]+)?) — (.+)$/u);
+}
+
+function completionDefinitionIsDone(block) {
+  const text = String(block ?? '');
+  const definitionIndex = text.search(/完了の定義/u);
+  if (definitionIndex === -1) return false;
+  const checks = [...text.slice(definitionIndex).matchAll(/^\s*[-*]\s*\[([ xX])\]/gm)];
+  return checks.length > 0 && checks.every((match) => match[1].toLowerCase() === 'x');
+}
+
+export function inferRoadmapPhaseStatus(block, phaseKey) {
+  const text = String(block ?? '');
+  if (/残\s*[=＝:：]/u.test(text)) return 'in-progress';
+
+  if (new RegExp(`${escapeRegExp(phaseKey)}\\s*完了`, 'u').test(text)) return 'done';
+  if (/既達|機構実証済み/u.test(text)) return 'done';
+  if (completionDefinitionIsDone(text)) return 'done';
+
+  const hasChecked = /^\s*[-*]\s*\[[xX]\]/m.test(text);
+  const hasUnchecked = /^\s*[-*]\s*\[ \]/m.test(text);
+  if ((hasChecked && hasUnchecked) || /進行中|in[-\s]?progress/i.test(text)) return 'in-progress';
+
+  return 'todo';
+}
+
+export function parseRoadmapPhases(roadmapText) {
+  const lines = String(roadmapText ?? '').split(/\r?\n/);
+  const headings = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = roadmapPhaseHeadingMatch(lines[index]);
+    if (!match) continue;
+    const key = `Phase ${match[1]}`;
+    headings.push({
+      key,
+      number: match[1],
+      title: `${key} — ${match[2].trim()}`,
+      lineIndex: index,
+    });
+  }
+
+  return headings.map((heading, index) => {
+    let endIndex = lines.length;
+    for (let lineIndex = heading.lineIndex + 1; lineIndex < lines.length; lineIndex += 1) {
+      if (roadmapPhaseHeadingMatch(lines[lineIndex]) || /^##\s+/u.test(lines[lineIndex])) {
+        endIndex = lineIndex;
+        break;
+      }
+    }
+    const block = lines.slice(heading.lineIndex + 1, endIndex).join('\n');
+    return {
+      key: heading.key,
+      number: heading.number,
+      title: heading.title,
+      status: inferRoadmapPhaseStatus(block, heading.key),
+      order: index,
+    };
+  });
+}
+
+function readRoadmapText(roadmapPath = DEFAULT_ROADMAP_PATH) {
+  try {
+    if (!existsSync(roadmapPath)) return null;
+    return readFileSync(roadmapPath, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
 // Read .lathe/runs/issue-<N>.json manifests, return Map<issueNumber, { stages, lastStage, lastVerdict }>.
 export function readRunManifests(runsDir) {
   const manifests = new Map();
@@ -213,6 +294,12 @@ function normalizeTaskStatus(status) {
 function normalizePhase(phase) {
   const normalized = String(phase ?? '').trim();
   return normalized || null;
+}
+
+function phaseKeyFor(rawPhase) {
+  const normalized = normalizePhase(rawPhase);
+  if (!normalized) return UNPHASED;
+  return canonicalPhaseKey(normalized) ?? normalized;
 }
 
 function assertTaskId(id) {
@@ -415,6 +502,7 @@ function taskPhase(task) {
 }
 
 function issueItem(issue, extra = {}) {
+  const rawPhase = issuePhase(issue);
   return {
     kind: 'issue',
     ref: `issue:${issue.number}`,
@@ -423,20 +511,23 @@ function issueItem(issue, extra = {}) {
     state: issue.state,
     status: String(issue.state ?? '').toLowerCase(),
     labels: labelNames(issue),
-    phase: issuePhase(issue),
+    phase: phaseKeyFor(rawPhase),
+    rawPhase,
     summary: issueSummary(issue),
     ...extra,
   };
 }
 
 function taskItem(task, extra = {}) {
+  const rawPhase = taskPhase(task);
   return {
     kind: 'task',
     ref: `task:${task.id}`,
     id: task.id,
     title: task.title,
     status: task.status,
-    phase: taskPhase(task),
+    phase: phaseKeyFor(rawPhase),
+    rawPhase,
     summary: taskSummary(task),
     deps: task.deps,
     createdAt: task.createdAt,
@@ -461,28 +552,68 @@ function compareDone(a, b) {
   return a.ref.localeCompare(b.ref);
 }
 
-function buildPhaseView(flat) {
+function createPhaseView(key, title = key, status = null, source = 'local') {
+  return {
+    key,
+    phase: title,
+    title,
+    status,
+    source,
+    sections: emptyFlatSections(),
+  };
+}
+
+function buildPhaseView(flat, roadmapPhases = []) {
   const phaseMap = new Map();
-  for (const [sectionKey] of SECTION_DEFS) {
-    for (const item of flat[sectionKey]) {
-      if (!phaseMap.has(item.phase)) {
-        phaseMap.set(item.phase, {
-          phase: item.phase,
-          sections: emptyFlatSections(),
-        });
-      }
-      phaseMap.get(item.phase).sections[sectionKey].push(item);
+  const extraPhaseMap = new Map();
+  let unphased = null;
+
+  for (const roadmapPhase of roadmapPhases) {
+    if (!phaseMap.has(roadmapPhase.key)) {
+      phaseMap.set(
+        roadmapPhase.key,
+        createPhaseView(roadmapPhase.key, roadmapPhase.title, roadmapPhase.status, 'roadmap'),
+      );
     }
   }
-  return [...phaseMap.values()];
+
+  function ensurePhase(key) {
+    if (phaseMap.has(key)) return phaseMap.get(key);
+    if (key === UNPHASED) {
+      if (!unphased) unphased = createPhaseView(UNPHASED, UNPHASED, null, 'unphased');
+      return unphased;
+    }
+    if (!extraPhaseMap.has(key)) {
+      extraPhaseMap.set(key, createPhaseView(key, key, null, 'local'));
+    }
+    return extraPhaseMap.get(key);
+  }
+
+  for (const [sectionKey] of SECTION_DEFS) {
+    for (const item of flat[sectionKey]) {
+      ensurePhase(item.phase).sections[sectionKey].push(item);
+    }
+  }
+  return [
+    ...phaseMap.values(),
+    ...extraPhaseMap.values(),
+    ...(unphased ? [unphased] : []),
+  ];
 }
 
 function totalsFor(flat) {
   return Object.fromEntries(SECTION_DEFS.map(([key]) => [key, flat[key].length]));
 }
 
-export function classifyItems({ issues = [], localTasks = [], runningWorktrees = new Map(), manifests = new Map() }) {
+export function classifyItems({
+  issues = [],
+  localTasks = [],
+  runningWorktrees = new Map(),
+  manifests = new Map(),
+  roadmapText = null,
+}) {
   const flat = emptyFlatSections();
+  const roadmapPhases = roadmapText == null ? [] : parseRoadmapPhases(roadmapText);
   const closedNumbers = new Set(issues.filter((i) => i.state === 'CLOSED').map((i) => i.number));
   const closedIssueRefs = new Set([...closedNumbers].map((n) => `issue:${n}`));
   const tasks = normalizeTaskStore({ version: 1, tasks: localTasks }).tasks;
@@ -574,7 +705,7 @@ export function classifyItems({ issues = [], localTasks = [], runningWorktrees =
   flat.doneRecent.sort(compareDone);
   flat.doneRecent = flat.doneRecent.slice(0, RECENT_DONE_LIMIT);
 
-  const phases = buildPhaseView(flat);
+  const phases = buildPhaseView(flat, roadmapPhases);
   return { phases, totals: totalsFor(flat), ...flat };
 }
 
@@ -613,13 +744,19 @@ function renderTotals(totals) {
     .join(' | ');
 }
 
+function renderPhaseHeading(phase) {
+  const progress = phaseProgress(phase.sections ?? emptyFlatSections());
+  const status = phase.status ? ` [${phase.status}]` : '';
+  return `## Phase: ${phase.title ?? phase.phase}${status} (${progress.done}/${progress.total} done)`;
+}
+
 export function renderBoard(classification) {
   const phases = Array.isArray(classification?.phases) ? classification.phases : [];
   const totals = classification?.totals ?? totalsFor(classification ?? emptyFlatSections());
   const lines = ['# WBS', renderTotals(totals)];
 
   if (phases.length === 0) {
-    lines.push('', `## Phase: ${UNPHASED}`);
+    lines.push('', renderPhaseHeading({ title: UNPHASED, sections: emptyFlatSections() }));
     for (const [sectionKey, title] of SECTION_DEFS) {
       lines.push(renderSection(title, []));
     }
@@ -627,7 +764,7 @@ export function renderBoard(classification) {
   }
 
   for (const phase of phases) {
-    lines.push('', `## Phase: ${phase.phase}`);
+    lines.push('', renderPhaseHeading(phase));
     for (const [sectionKey, title] of SECTION_DEFS) {
       lines.push(renderSection(title, phase.sections[sectionKey] ?? []));
     }
@@ -645,6 +782,7 @@ function stripItem(item) {
     phase: item.phase,
     summary: item.summary,
   };
+  if (item.rawPhase && item.rawPhase !== item.phase) stripped.rawPhase = item.rawPhase;
   if (item.kind === 'issue') {
     stripped.number = item.number;
     stripped.state = item.state;
@@ -665,7 +803,10 @@ export function toJson(classification) {
   const json = {
     totals: classification.totals,
     phases: classification.phases.map((phase) => ({
+      key: phase.key ?? phase.phase,
       phase: phase.phase,
+      title: phase.title ?? phase.phase,
+      status: phase.status ?? null,
       sections: Object.fromEntries(SECTION_DEFS.map(([key, , jsonKey]) => [
         jsonKey,
         (phase.sections[key] ?? []).map(stripItem),
@@ -868,6 +1009,21 @@ button:hover { background: #eef2f7; }
   font-size: 13px;
   font-weight: 800;
 }
+.phase-status {
+  display: inline-flex;
+  margin-left: 6px;
+  border: 1px solid #cfd7e6;
+  border-radius: 999px;
+  padding: 1px 6px;
+  vertical-align: 1px;
+  color: #344054;
+  background: #f8fafc;
+  font-size: 10px;
+  font-weight: 800;
+}
+.phase-status--done { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }
+.phase-status--in-progress { color: #a16207; background: #fffbeb; border-color: #fde68a; }
+.phase-status--todo { color: #475569; background: #f8fafc; border-color: #cfd7e6; }
 .phase-progress {
   color: #344054;
   font-size: 11px;
@@ -1097,6 +1253,9 @@ function renderTotalsHtml(totals) {
 function renderPhaseHtml(phase, githubRepoUrl) {
   const sections = phase.sections ?? emptyFlatSections();
   const progress = phaseProgress(sections);
+  const status = phase.status
+    ? `<span class="phase-status phase-status--${escapeAttr(phase.status)}">${escapeHtml(phase.status)}</span>`
+    : '';
   const lanes = SECTION_DEFS
     .map(([sectionKey, title], index) => ({ sectionKey, title, rows: sections[sectionKey] ?? [], index }))
     .filter(({ rows }) => rows.length > 0)
@@ -1105,7 +1264,7 @@ function renderPhaseHtml(phase, githubRepoUrl) {
   return [
     '<section class="phase">',
     '<div class="phase-root" aria-label="Phase parent breakdown">',
-    `<div class="phase-name">Phase: ${escapeHtml(phase.phase)}</div>`,
+    `<div class="phase-name">Phase: ${escapeHtml(phase.title ?? phase.phase)}${status}</div>`,
     `<span class="phase-progress">${progress.done}/${progress.total} done</span>`,
     `<div class="phase-bar" aria-hidden="true"><span style="width:${progress.percent}%"></span></div>`,
     '</div>',
@@ -1229,6 +1388,7 @@ function createCachedSnapshotReader(options = {}) {
   const issuesProvider = options.issuesProvider ?? fetchIssues;
   const worktreeProvider = options.worktreeProvider ?? (() => parseRunningWorktrees(fetchWorktreeListing()));
   const manifestsProvider = options.manifestsProvider ?? (() => readRunManifests(join(REPO_ROOT, '.lathe', 'runs')));
+  const roadmapTextProvider = options.roadmapTextProvider ?? (() => readRoadmapText(options.roadmapPath));
   let cached = null;
 
   return async function readSnapshot({ forceRefresh = false } = {}) {
@@ -1238,6 +1398,7 @@ function createCachedSnapshotReader(options = {}) {
         issues: await Promise.resolve(issuesProvider()),
         runningWorktrees: await Promise.resolve(worktreeProvider()),
         manifests: await Promise.resolve(manifestsProvider()),
+        roadmapText: await Promise.resolve(roadmapTextProvider()),
         expiresAt: now + cacheTtlMs,
       };
     }
@@ -1248,6 +1409,7 @@ function createCachedSnapshotReader(options = {}) {
       localTasks,
       runningWorktrees: cached.runningWorktrees,
       manifests: cached.manifests,
+      roadmapText: cached.roadmapText,
     });
   };
 }
@@ -1552,8 +1714,9 @@ async function main(argv) {
   const runningWorktrees = parseRunningWorktrees(fetchWorktreeListing());
   const manifests = readRunManifests(join(REPO_ROOT, '.lathe', 'runs'));
   const localTasks = loadTaskStore(tasksFilePath).tasks;
+  const roadmapText = readRoadmapText();
 
-  const classification = classifyItems({ issues, localTasks, runningWorktrees, manifests });
+  const classification = classifyItems({ issues, localTasks, runningWorktrees, manifests, roadmapText });
 
   if (asJson) {
     process.stdout.write(`${JSON.stringify(toJson(classification), null, 2)}\n`);
