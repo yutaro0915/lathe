@@ -65,6 +65,7 @@ rolling wave の Phase 計画（[ROADMAP.md](../ROADMAP.md)）は人間可読の
 - Phase 0: MCP 経由で agent が task の作成・status 変更・依存追加を実行でき、`backlog browser` が Phase 別に表示、`--plain` が script 連携可能なことを実機確認。
   - **（2026-07-04 実施・PASS）** backlog.md 1.47.1 install → `backlog init --agent-instructions none`（正本 CLAUDE.md/AGENTS.md 無改変・`auto_commit:false` で main 無汚染）。検証: task md が AC/Plan/DoD/`dependencies`/`milestone` を1枚に保持（§1）／`sequence` が依存から実行順を計算＝inner-queue 源（§4）／`milestone add`＋`board -m` グルーピング実在（§3）／`mcp start` が `task_create/edit/list/complete`・`milestone_*` を公開（§6）／`browser`（:6420）GET/ 200・`/api/tasks` JSON／`--plain` 機械可読。GitHub Issues 同期は非存在を再確認（§2 の降格が妥当）。運用メモ: `board export <file>` は project-relative 解決（絶対パス不可）。
 - Phase 2: rewire 後、**Backlog.md task 1 本を inner loop で PLAN→MERGE 完走**し、manifest が lathe に ingest され `loop_kind` が正しく分類され、`scripts/merge.mjs` の receipt ゲートが従来どおり効くことを確認（＝観測コア不変の証明）。
+  - **（2026-07-04 実施・PASS）** live-fire: TASK-11（Done コミットの backlog/ 限定 guard）を新 task-driver で自律完走 — PLAN(codex, PLAN_READY)→IMPLEMENT(codex, IMPL_DONE・RED→GREEN・617 test)→REVIEW(codex, PASS)→VERIFY(claude, GREEN・tier=heavy)→終端 `backlog task edit --status Done`→MERGE(receipt 検査＋backstop 通過・squash b89524b)。escalation ゼロ。manifest `.lathe/runs/task-11.json` が dev DB へ ingest され **`loop_kind='task'`・`source_issue_number=NULL`**、既存 `issue-*` 41 run は `'issue'` のまま＝**退行ゼロ**。既知 drift: manifest の unit が `issue: {kind,id}` フィールドに載っている（§4 の `unit` 命名と不一致・DB 帰結は正しい）＝別 task で命名整流予定。
 
 ## Phase 2 PLAN-gate 決定（2026-07-04・inner-loop rewire）
 

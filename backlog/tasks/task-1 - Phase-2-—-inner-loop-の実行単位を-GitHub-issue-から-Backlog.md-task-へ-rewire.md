@@ -1,10 +1,10 @@
 ---
 id: TASK-1
 title: Phase 2 — inner-loop の実行単位を GitHub issue から Backlog.md task へ rewire
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 10:21'
-updated_date: '2026-07-04 10:46'
+updated_date: '2026-07-04 14:03'
 labels:
   - phase-2
   - rewire
@@ -47,6 +47,8 @@ ordinal: 1000
 
 <!-- SECTION:NOTES:BEGIN -->
 PLAN 承認 2026-07-04。3子タスクへ分解（TASK-1.1 基盤+ingest / 1.2 impl-loop driver+終端Done / 1.3 inner-queue+plan-loop+open issue移送）。依存 1.1→1.2→1.3。PdM 決定: (1) plan-loop 今回含む (2) 走行中以外の open issue は task へ移送・走行中のみ旧フローで drain (3) DB は run_key 識別・schema 列追加なし (4) driver は node_modules/.bin/backlog 直呼び・status=Done は worktree 内で立て squash に載せる・Touches は当面 description 行を継続 parse。実装は inner-loop（別セッション）で 1.1 から。注: frontmatter 依存キーは dependencies。
+
+Phase 2 完了（2026-07-04）: 1.1/1.2/1.3 全て landed。live-fire TASK-11 完走・ingest で loop_kind='task'/source_issue_number=NULL を dev DB 実確認・issue-* 41件は 'issue' 維持（退行ゼロ）。open GitHub issue 7件は TASK-4..10 へ移送済み。
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

@@ -1,10 +1,10 @@
 ---
 id: TASK-1.2
 title: Phase2-b impl-loop driver — inner-loop を task unit へ + 終端 status=Done
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-04 10:45'
-updated_date: '2026-07-04 12:02'
+updated_date: '2026-07-04 14:03'
 labels:
   - phase-2
   - rewire
@@ -38,3 +38,9 @@ impl-loop の driver 一族を issue→task へ付け替え、backlog task 1本�
 <!-- SECTION:PLAN:BEGIN -->
 parseDriverArgs/fetchTask/worktree命名(inner-loop.mjs) → marker/worktree literal(inner-loop-prompts.mjs) → READ_ONLY tools(inner-loop-backends.mjs) → 終端 markTaskDone → inner-loop.test.mjs 更新
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#5 達成（2026-07-04 live-fire）: TASK-11 を新 driver で PLAN(codex)→IMPLEMENT(codex)→REVIEW(PASS)→VERIFY(claude GREEN)→MERGE(receipt+backstop) 自律完走、main b89524b。escalation なし。
+<!-- SECTION:NOTES:END -->
