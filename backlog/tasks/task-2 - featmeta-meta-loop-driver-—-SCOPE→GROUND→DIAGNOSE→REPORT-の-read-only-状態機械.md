@@ -1,10 +1,10 @@
 ---
 id: TASK-2
 title: 'feat(meta): meta-loop driver — SCOPE→GROUND→DIAGNOSE→REPORT の read-only 状態機械'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 10:56'
-updated_date: '2026-07-04 14:56'
+updated_date: '2026-07-04 15:08'
 labels:
   - meta-loop
 milestone: m-18
