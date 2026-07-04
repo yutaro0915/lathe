@@ -4,8 +4,10 @@ title: PR 連携の認証を gh token 流用から fine-grained PAT / GitHub App
 status: To Do
 assignee: []
 created_date: '2026-07-04 13:16'
+updated_date: '2026-07-04 16:53'
 labels:
   - migrated
+milestone: m-17
 dependencies: []
 references:
   - gh#4

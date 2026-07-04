@@ -4,10 +4,11 @@ title: 'plan-format: PLAN prompt へ規約骨格を注入 + needs-approval 承�
 status: To Do
 assignee: []
 created_date: '2026-07-04 15:56'
-updated_date: '2026-07-04 16:02'
+updated_date: '2026-07-04 16:53'
 labels:
   - loop
   - plan-format
+milestone: m-18
 dependencies: []
 references:
   - design/plan-format.md

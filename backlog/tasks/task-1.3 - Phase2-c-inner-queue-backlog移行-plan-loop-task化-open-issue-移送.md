@@ -4,9 +4,8 @@ title: Phase2-c inner-queue backlog移行 + plan-loop task化 + open issue 移�
 status: Done
 assignee: []
 created_date: '2026-07-04 10:45'
-updated_date: '2026-07-04 14:56'
+updated_date: '2026-07-04 16:46'
 labels:
-  - phase-2
   - rewire
   - queue
 milestone: m-18

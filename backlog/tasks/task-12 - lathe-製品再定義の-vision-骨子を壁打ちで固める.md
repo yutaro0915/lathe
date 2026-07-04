@@ -4,7 +4,9 @@ title: lathe 製品再定義の vision 骨子を壁打ちで固める
 status: To Do
 assignee: []
 created_date: '2026-07-04 14:27'
+updated_date: '2026-07-04 16:53'
 labels: []
+milestone: m-18
 dependencies: []
 priority: high
 ordinal: 15000

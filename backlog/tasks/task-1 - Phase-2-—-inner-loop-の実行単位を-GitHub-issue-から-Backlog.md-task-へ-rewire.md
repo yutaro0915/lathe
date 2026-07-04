@@ -4,11 +4,10 @@ title: Phase 2 — inner-loop の実行単位を GitHub issue から Backlog.md 
 status: Done
 assignee: []
 created_date: '2026-07-04 10:21'
-updated_date: '2026-07-04 16:32'
+updated_date: '2026-07-04 16:53'
 labels:
-  - phase-2
   - rewire
-milestone: m-11
+milestone: m-18
 dependencies: []
 references:
   - adr/0025-task-substrate-backlog-md.md

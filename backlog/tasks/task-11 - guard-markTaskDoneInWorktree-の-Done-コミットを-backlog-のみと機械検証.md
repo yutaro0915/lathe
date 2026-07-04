@@ -4,9 +4,8 @@ title: 'guard: markTaskDoneInWorktree の Done コミットを backlog/ のみ�
 status: Done
 assignee: []
 created_date: '2026-07-04 13:42'
-updated_date: '2026-07-04 14:56'
+updated_date: '2026-07-04 16:46'
 labels:
-  - phase-2
   - guard
 milestone: m-18
 dependencies: []
