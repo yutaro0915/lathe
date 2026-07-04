@@ -55,7 +55,10 @@ jobs:
           DESC="$(printf '%s\n\n---\nintake: issue #%s <- @%s' "${BODY:-（本文なし）}" "$NUM" "$AUTHOR")"
           OUT="$(npx -y backlog.md task create "$TITLE" -d "$DESC" --priority "$PRIO" --plain)"
           echo "$OUT"
-          TASK_ID="$(echo "$OUT" | grep -oE 'TASK-[0-9]+(\.[0-9]+)*' | head -1)"
+          # 「Task TASK-N - …」の行頭アンカーで採番結果だけを取る。
+          # 素の grep はタイトル内の TASK-nn 言及（例:「TASK-16 の後始末」）を誤抽出する
+          # （2026-07-05 #84 で実証 — commit message と issue 通知の ID が誤記になった）
+          TASK_ID="$(echo "$OUT" | sed -n 's/^Task \(TASK-[0-9][0-9.]*\) .*/\1/p' | head -1)"
           test -n "$TASK_ID"
           echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
 
@@ -71,6 +74,15 @@ jobs:
           git add backlog/
           if git diff --cached --name-only -z | tr '\0' '\n' | grep -v -e '^backlog/' -e '^$' | grep -q .; then
             echo "::error::non-backlog paths staged — registrar refuses to write outside backlog/" >&2
+            exit 1
+          fi
+          # 採番の衝突検査: origin/main に同 ID が既に居たら失敗させる（label 再付与で再走
+          # すれば新しい base から採番し直す）。concurrency group の直列化だけでは
+          # 近接到着の 2 run が同じ base から採番し得る（2026-07-05、task-21 重複で実証）
+          git fetch -q origin main
+          N="${TASK_ID#TASK-}"
+          if git ls-tree --name-only origin/main backlog/tasks/ | grep -qE "^backlog/tasks/task-$N "; then
+            echo "::error::duplicate task id $TASK_ID already on origin/main — re-trigger the label to retry" >&2
             exit 1
           fi
           BR="intake/issue-$NUM"
