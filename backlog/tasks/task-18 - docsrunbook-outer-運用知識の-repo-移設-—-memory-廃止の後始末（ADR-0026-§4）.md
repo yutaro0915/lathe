@@ -1,9 +1,10 @@
 ---
 id: TASK-18
 title: 'docs(runbook): outer 運用知識の repo 移設 — memory 廃止の後始末（ADR 0026 §4）'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 16:08'
+updated_date: '2026-07-04 16:15'
 labels: []
 milestone: m-18
 dependencies: []
@@ -22,3 +23,9 @@ ordinal: 21000
 - [ ] #1 escalation 対応手順・検証規律・起票規約が repo 内文書として存在する
 - [ ] #2 移設後の文書だけで outer 運用が完結する（memory への参照が残っていない）
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+design/runbooks/outer-operations.md 新設（escalation 型/検証規律/起票規約/no-wipe）。運用文書の memory 依存なしを rg で照合済み。過去 ADR 内の [[memory名]] は出自記録として残置（ADR は不変）。
+<!-- SECTION:NOTES:END -->

@@ -3,9 +3,10 @@ id: TASK-17
 title: >-
   docs(loop): loop 台帳 design/loops.md — 全会話=規定 loop・唯一終端・harness-hotfix 緊急路（ADR
   0026 §5）
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 16:08'
+updated_date: '2026-07-04 16:15'
 labels: []
 milestone: m-18
 dependencies: []
@@ -24,3 +25,9 @@ ordinal: 20000
 - [ ] #1 design/loops.md が 1 ページで全 loop・終端・緊急路・宣言手順を規定している
 - [ ] #2 agent-workflow.md の重複が削られ loops.md にリンクされている
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+design/loops.md 新設（loop 6 種・唯一終端・harness-hotfix・宣言=観測）。agent-workflow.md 冒頭に正本リンクのバナー追加。
+<!-- SECTION:NOTES:END -->
