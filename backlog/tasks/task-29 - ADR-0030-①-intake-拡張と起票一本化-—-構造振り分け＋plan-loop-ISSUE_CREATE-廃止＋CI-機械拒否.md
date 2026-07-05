@@ -4,6 +4,7 @@ title: 'ADR 0030 ①: intake 拡張と起票一本化 — 構造振り分け＋p
 status: To Do
 assignee: []
 created_date: '2026-07-05 05:00'
+updated_date: '2026-07-05 05:44'
 labels: []
 dependencies: []
 priority: medium
@@ -28,3 +29,9 @@ ordinal: 30000
 ---
 intake: issue #113 <- @yutaro0915
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+ADR 0030 追記 A（2026-07-05 PdM 裁定）: 振り分けは本文の構造チェックではなく needs-plan label の有無のみ（label あり→plan-task／なし→実装 task）。構造チェック案は廃案。issue 本文の方針節はこの裁定で読み替えること。
+<!-- SECTION:NOTES:END -->
