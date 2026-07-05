@@ -4,7 +4,7 @@ title: 'ADR 0030 ③: task loop の縮退 — PLAN／TRIAGE 段の削除と plan
 status: To Do
 assignee: []
 created_date: '2026-07-05 05:02'
-updated_date: '2026-07-05 05:45'
+updated_date: '2026-07-05 06:37'
 labels: []
 dependencies: []
 priority: medium
@@ -35,4 +35,6 @@ intake: issue #116 <- @yutaro0915
 
 <!-- SECTION:NOTES:BEGIN -->
 ADR 0030 追記 B（2026-07-05 PdM 裁定）: PR review は gh 上ホスト実行ではなく、review 待ち PR を拾ってローカルで reviewer を自動駆動する engine 方式（transcript 保存＝ingest 目的）。engine は task loop から独立の新規コンポーネント（別 task で実装）。本 task の縮退設計は engine の存在を前提に読み替えること。
+
+ADR 0031（2026-07-05 PdM 裁定）: 着手禁止。task 正本は GitHub Issues へ移行（Backlog.md 廃止）。本 task の内容は移行後に issue 上で再定義する（ADR 0030 の決定は不変・substrate のみ変更）。
 <!-- SECTION:NOTES:END -->

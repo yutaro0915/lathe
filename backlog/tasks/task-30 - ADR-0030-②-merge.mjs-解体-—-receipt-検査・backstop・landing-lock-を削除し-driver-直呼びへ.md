@@ -4,6 +4,7 @@ title: 'ADR 0030 ②: merge.mjs 解体 — receipt 検査・backstop・landing l
 status: To Do
 assignee: []
 created_date: '2026-07-05 05:00'
+updated_date: '2026-07-05 06:37'
 labels: []
 dependencies: []
 priority: medium
@@ -28,3 +29,9 @@ merge.mjs の receipt 検査は廃止決定済みの遺物（ADR 0026）、backs
 ---
 intake: issue #115 <- @yutaro0915
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+ADR 0031（2026-07-05 PdM 裁定）: 着手禁止。task 正本は GitHub Issues へ移行（Backlog.md 廃止）。本 task の内容は移行後に issue 上で再定義する（ADR 0030 の決定は不変・substrate のみ変更）。
+<!-- SECTION:NOTES:END -->

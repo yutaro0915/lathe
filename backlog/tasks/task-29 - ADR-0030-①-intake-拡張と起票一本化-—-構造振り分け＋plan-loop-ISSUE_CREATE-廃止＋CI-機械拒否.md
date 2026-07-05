@@ -4,7 +4,7 @@ title: 'ADR 0030 ①: intake 拡張と起票一本化 — 構造振り分け＋p
 status: To Do
 assignee: []
 created_date: '2026-07-05 05:00'
-updated_date: '2026-07-05 05:44'
+updated_date: '2026-07-05 06:37'
 labels: []
 dependencies: []
 priority: medium
@@ -34,4 +34,6 @@ intake: issue #113 <- @yutaro0915
 
 <!-- SECTION:NOTES:BEGIN -->
 ADR 0030 追記 A（2026-07-05 PdM 裁定）: 振り分けは本文の構造チェックではなく needs-plan label の有無のみ（label あり→plan-task／なし→実装 task）。構造チェック案は廃案。issue 本文の方針節はこの裁定で読み替えること。
+
+ADR 0031（2026-07-05 PdM 裁定）: 着手禁止。task 正本は GitHub Issues へ移行（Backlog.md 廃止）。本 task の内容は移行後に issue 上で再定義する（ADR 0030 の決定は不変・substrate のみ変更）。
 <!-- SECTION:NOTES:END -->
