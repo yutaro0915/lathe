@@ -4,6 +4,7 @@ title: 'ADR 0030 ④: escalation の一元化と定型調査書 — 関門判断
 status: To Do
 assignee: []
 created_date: '2026-07-05 05:02'
+updated_date: '2026-07-05 05:44'
 labels: []
 dependencies: []
 priority: medium
@@ -28,3 +29,9 @@ escalate 判断が 3 箇所（agent verdict／driver チェック／TRIAGE）に
 ---
 intake: issue #117 <- @yutaro0915
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+ADR 0030 追記 C（2026-07-05 PdM 裁定）: escalation の挟み込み位置は設計未了。前進 loop での討議・裁定が終わるまで実装に流さない（実装保留）。
+<!-- SECTION:NOTES:END -->
