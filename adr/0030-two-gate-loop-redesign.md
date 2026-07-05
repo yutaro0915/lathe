@@ -149,3 +149,22 @@ escalation の一元化は「どの関門にどう挟むか」の設計を経ず
 rubric／skill 改訂の比較実験は**専用の実験 loop** として新設する。loop は同一 task 集合での
 前後実験の実行だけでなく、**結果の評価と採否判断まで**を行い、判断を記録する
 （終端 = 採否判断の記録。採用の場合は改訂の landing はゲート経由)。loops.md に行を追加する。
+
+### E. §4 確定 — escalation も intake に投げる（追記 C の保留を解除、2026-07-05 PdM 裁定）
+
+escalation に独自の伝達路（`.lathe/runs/*.escalation.md` を outer が見に行く形）を持たせない。
+**escalation も issue 投函 → intake 登記**に統一する:
+
+- 関門が escalate を決めたら、driver／engine が **`task-request` + `escalation` label の issue を
+  投函**する。本文は **run リンク（＋PR リンク・どの関門か・verdict）だけ**でよい——transcript は
+  lathe に ingest 済みであり、run リンクから全て辿れる。定型調査書（旧 §4 案）は**不要**（廃案）
+- **裁定 loop の起動条件を「`escalation` label の task の到着」と規定**する（loops.md 改訂）。
+  裁定 loop は run を lathe で読んで原因を特定・裁定し、終端は従来どおり裁定の記録
+- 関門は 3 つ: **A = IMPLEMENT 完了判定（driver・ローカル）／B = CI RED（engine）／
+  C = review CHANGES 非収束（engine）**。B・C は review engine（追記 B・#128）と同じ PR 監視点が
+  拾い、修正 run をローカル駆動して**設定ファイル（§8）の上限回数**に達したら escalation
+- 修正 run は**毎回新 run**とする（run ごとに manifest / transcript が独立し、run リンクで
+  失敗の切り分けができる。worktree は継続利用してよいが run の単位は切る）
+- agent の自発 ESCALATE verdict は廃止（規則の置き場は設定 1 箇所・判断主体は driver と engine のみ）
+- plan-task が PdM 判断を要する選択肢に到達した場合は escalation ではなく plan-task の
+  正常終端の一つ（「PdM に諮る」）として扱う
