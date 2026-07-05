@@ -1,7 +1,7 @@
 ---
 id: TASK-21
 title: 'chore(gate): receipt.mjs / receipt.test.mjs の物理削除（TASK-16 の後始末・bootstrap 制約つき）'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 18:05'
 labels: []
