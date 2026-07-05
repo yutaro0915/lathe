@@ -3,10 +3,10 @@ id: TASK-16
 title: >-
   cutover(gate): branch protection 有効化 + receipt 制度・git-guard main 系の削除（ADR 0026
   §1-3、TASK-6 吸収）
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 16:08'
-updated_date: '2026-07-04 17:31'
+updated_date: '2026-07-05 04:12'
 labels: []
 milestone: m-18
 dependencies:
