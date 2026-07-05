@@ -1,9 +1,10 @@
 ---
 id: TASK-22
 title: 'cutover(gate): git-guard main 系削除 + branch protection 実 enablement（監査役起草）'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 18:07'
+updated_date: '2026-07-05 05:17'
 labels: []
 dependencies: []
 priority: medium
@@ -29,3 +30,9 @@ ADR 0026 §1-3 cutover の外部空間スライス。**監査役が PR で起草
 ---
 intake: issue #77 <- @yutaro0915
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+完了（2026-07-05）: (1) git-guard の main 系ルール（cherry-pick/merge/コードパス commit の shouldBlockOnMain）を strip、broad-add/force-push の助言のみ残す（#123 で staging 漏れ→#124 で redo 着地）。(2) branch protection 有効化（required check=gate / enforce_admins=true / required_reviews=none、ADR 0028）。直 push が GH006 で拒否されることを実測確認。これで「main の唯一の入口 = PR + CI GREEN・例外なし（人間も監査役も agent も）」が物理強制された。ADR 0026 単一ゲート化の完了。
+<!-- SECTION:NOTES:END -->
