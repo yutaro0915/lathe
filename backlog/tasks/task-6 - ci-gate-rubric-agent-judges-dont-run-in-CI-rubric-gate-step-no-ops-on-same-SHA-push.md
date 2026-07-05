@@ -3,10 +3,10 @@ id: TASK-6
 title: >-
   ci/gate: rubric agent-judges don't run in CI; rubric-gate step no-ops on
   same-SHA push
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-04 13:16'
-updated_date: '2026-07-04 16:08'
+updated_date: '2026-07-05 04:03'
 labels:
   - migrated
 milestone: m-18

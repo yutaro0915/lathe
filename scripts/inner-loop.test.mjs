@@ -15,7 +15,6 @@ import {
   readManifestStages,
   stagePermissions,
   stageCwd,
-  buildReceiptArgs,
   tailLines,
   MAX_CYCLES,
   isCodexSandboxEpermTriageResult,
@@ -1301,12 +1300,9 @@ test('buildVerifyPrompt: assumes a rebased branch tip as the merged-main artifac
   assert.match(prompt, /stale branch を救済しない/);
 });
 
-// --- receipt issuance is the driver's job, not the prompt's (regression guard) ---
-// The driver stamps REVIEW/VERIFY receipts itself (buildReceiptArgs) because an
-// agent-issued `LATHE_AGENT=... node scripts/receipt.mjs ...` command silently
-// fails the Bash allowlist (env-prefixed commands don't prefix-match
-// `Bash(node scripts/receipt.mjs *)`). Prompts must never re-introduce that
-// instruction.
+// --- receipt.mjs non-instruction guard (regression guard) ---
+// ADR 0026: receipt mechanism removed. Prompts must not instruct agents to
+// run receipt.mjs / set LATHE_AGENT — that instruction path is dead code.
 
 test('buildStagePrompt: REVIEW prompt does not instruct the agent to issue a receipt', () => {
   const prompt = buildStagePrompt('REVIEW', { issueNumber: 7, plan: 'plan text', headSha: 'abc123' });
@@ -1992,17 +1988,15 @@ test('worktreeNameFor: plain issue number is unaffected (backward compatible)', 
 
 // --- markTaskDoneInWorktree (ADR 0025 §4 / TASK-1.2 AC#4) ---
 
-test('markTaskDoneInWorktree: edits status, commits backlog/, then re-stamps review PASS + verify GREEN receipts at the new HEAD', () => {
+test('markTaskDoneInWorktree: edits status, commits backlog/, returns new headSha (ADR 0026: no receipt re-stamp)', () => {
   const calls = [];
-  const fakeSpawnSync = (cmd, args, options) => {
-    calls.push({ cmd, args, options });
+  const fakeSpawnSync = (cmd, args) => {
+    calls.push({ cmd, args });
     if (cmd === 'fake-backlog') return { status: 0, stdout: 'task TASK-1.2 status -> Done\n', stderr: '' };
     if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
     if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
     if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
     if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-after-done\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\0backlog/tasks/index.md\0', stderr: '' };
-    if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 0, stdout: '', stderr: '' };
     throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
   };
 
@@ -2020,15 +2014,8 @@ test('markTaskDoneInWorktree: edits status, commits backlog/, then re-stamps rev
   const commitCall = calls.find((c) => c.cmd === 'git' && c.args[2] === 'commit');
   assert.match(commitCall.args.join(' '), /backlog: TASK-1\.2 -> Done/);
 
-  const diffCall = calls.find((c) => c.cmd === 'git' && c.args[2] === 'diff');
-  assert.deepEqual(diffCall.args, ['-C', '/worktree/inner-task-1-2', 'diff', '--name-only', '-z', 'old-reviewed-sha..new-sha-after-done']);
-
-  const receiptCalls = calls.filter((c) => c.cmd === 'node' && c.args[0] === 'scripts/receipt.mjs');
-  assert.equal(receiptCalls.length, 2);
-  assert.deepEqual(receiptCalls[0].args, ['scripts/receipt.mjs', 'review', 'new-sha-after-done', 'PASS']);
-  assert.equal(receiptCalls[0].options.env.LATHE_AGENT, 'reviewer');
-  assert.deepEqual(receiptCalls[1].args, ['scripts/receipt.mjs', 'verify', 'new-sha-after-done', 'GREEN']);
-  assert.equal(receiptCalls[1].options.env.LATHE_AGENT, 'verifier');
+  // ADR 0026: receipt re-stamp removed; no node/receipt.mjs calls expected
+  assert.equal(calls.some((c) => c.cmd === 'node'), false);
 });
 
 test('markTaskDoneInWorktree: no backlog/ diff after edit -> no commit, no receipt re-stamp (idempotent re-run)', () => {
@@ -2052,63 +2039,7 @@ test('markTaskDoneInWorktree: no backlog/ diff after edit -> no commit, no recei
   assert.equal(calls.some((c) => c.cmd === 'node'), false);
 });
 
-test('markTaskDoneInWorktree: non-backlog Done commit paths fail before receipt re-stamp', () => {
-  const calls = [];
-  const fakeSpawnSync = (cmd, args) => {
-    calls.push({ cmd, args });
-    if (cmd === 'fake-backlog') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-after-done\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\0scripts/inner-loop.mjs\0', stderr: '' };
-    if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 0, stdout: '', stderr: '' };
-    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
-  };
 
-  const result = markTaskDoneInWorktree('TASK-1.2', '/worktree/inner-task-1-2', 'old-reviewed-sha', {
-    spawnSync: fakeSpawnSync,
-    backlogBin: 'fake-backlog',
-  });
-
-  assert.equal(result.ok, false);
-  assert.match(result.output, /scripts\/inner-loop\.mjs/);
-  assert.equal(calls.some((c) => c.cmd === 'node' && c.args[0] === 'scripts/receipt.mjs'), false);
-});
-
-test('markTaskDoneInWorktree: non-ASCII backlog-only paths (em-dash, Japanese) in -z diff output are accepted', () => {
-  // Regression test: git's default --name-only quotes/octal-escapes non-ASCII
-  // paths (core.quotePath=true by default), which would make the quoted path
-  // fail startsWith('backlog/') and false-reject a legitimate backlog-only
-  // Done commit. This repo's task filenames routinely contain em-dash (—) and
-  // Japanese text, so this guard previously false-RED'd nearly every task.
-  // -z output is never quoted, so the NUL-split parse must accept this case.
-  const calls = [];
-  const nonAsciiPath1 = 'backlog/tasks/task-2 - featmeta-meta-loop-driver-—-SCOPE→PLAN.md';
-  const nonAsciiPath2 = 'backlog/tasks/task-3-日本語タスク名.md';
-  const fakeSpawnSync = (cmd, args) => {
-    calls.push({ cmd, args });
-    if (cmd === 'fake-backlog') return { status: 0, stdout: 'task TASK-2 status -> Done\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-2.md\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-non-ascii\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: `${nonAsciiPath1}\0${nonAsciiPath2}\0`, stderr: '' };
-    if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 0, stdout: '', stderr: '' };
-    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
-  };
-
-  const result = markTaskDoneInWorktree('TASK-2', '/worktree/inner-task-2', 'old-reviewed-sha', {
-    spawnSync: fakeSpawnSync,
-    backlogBin: 'fake-backlog',
-  });
-
-  assert.equal(result.ok, true);
-  assert.equal(result.headSha, 'new-sha-non-ascii');
-
-  const receiptCalls = calls.filter((c) => c.cmd === 'node' && c.args[0] === 'scripts/receipt.mjs');
-  assert.equal(receiptCalls.length, 2);
-});
 
 test('markTaskDoneInWorktree: backlog task edit failure short-circuits before any git call', () => {
   const calls = [];
@@ -2127,26 +2058,6 @@ test('markTaskDoneInWorktree: backlog task edit failure short-circuits before an
   assert.equal(calls.length, 1);
 });
 
-test('markTaskDoneInWorktree: receipt re-stamp failure is reported (not silently swallowed)', () => {
-  const fakeSpawnSync = (cmd, args) => {
-    if (cmd === 'fake-backlog') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'diff') return { status: 0, stdout: 'backlog/tasks/task-1.2.md\0', stderr: '' };
-    if (cmd === 'node' && args[0] === 'scripts/receipt.mjs') return { status: 1, stdout: '', stderr: 'receipt.mjs: invalid sha' };
-    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
-  };
-
-  const result = markTaskDoneInWorktree('TASK-1.2', '/worktree/inner-task-1-2', 'old-sha', {
-    spawnSync: fakeSpawnSync,
-    backlogBin: 'fake-backlog',
-  });
-
-  assert.equal(result.ok, false);
-  assert.match(result.output, /receipt re-stamp \(review\) failed/);
-});
 
 // --- readManifestStages ---
 
@@ -2345,7 +2256,7 @@ test('decideResumeState: PLAN_READY + IMPL_DONE resumes at REVIEW and skips comp
   assert.equal(result.state, 'REVIEW');
   assert.equal(result.plan, 'plan text\nVERDICT: PLAN_READY');
   assert.deepEqual(result.skipped, ['PLAN', 'IMPLEMENT']);
-  assert.deepEqual(result.receiptsToStamp, []);
+  assert.equal(result.reviewBody ?? '', '');
 });
 
 test('decideResumeState: REVIEW PASS resumes at VERIFY and restamps review receipt', () => {
@@ -2380,7 +2291,7 @@ test('decideResumeState: REVIEW PASS resumes at VERIFY and restamps review recei
 
   assert.equal(result.ok, true);
   assert.equal(result.state, 'VERIFY');
-  assert.deepEqual(result.receiptsToStamp, [{ stage: 'REVIEW', headSha: 'sha-2', verdict: 'PASS' }]);
+  assert.equal(result.reviewBody, 'review ok\nVERDICT: PASS');
 });
 
 test('decideResumeState: VERIFY GREEN resumes at MERGE and restamps merge receipts', () => {
@@ -2423,10 +2334,7 @@ test('decideResumeState: VERIFY GREEN resumes at MERGE and restamps merge receip
 
   assert.equal(result.ok, true);
   assert.equal(result.state, 'MERGE');
-  assert.deepEqual(result.receiptsToStamp, [
-    { stage: 'REVIEW', headSha: 'sha-3', verdict: 'PASS' },
-    { stage: 'VERIFY', headSha: 'sha-3', verdict: 'GREEN' },
-  ]);
+  assert.equal(result.reviewBody, 'review ok\nVERDICT: PASS');
 });
 
 test('decideResumeState: UNPARSABLE attempt followed by success resumes after successful retry', () => {
@@ -2478,10 +2386,7 @@ test('decideResumeState: UNPARSABLE attempt followed by success resumes after su
   assert.equal(result.ok, true);
   assert.equal(result.state, 'MERGE');
   assert.deepEqual(result.skipped, ['PLAN', 'IMPLEMENT', 'REVIEW', 'VERIFY']);
-  assert.deepEqual(result.receiptsToStamp, [
-    { stage: 'REVIEW', headSha: 'sha-3', verdict: 'PASS' },
-    { stage: 'VERIFY', headSha: 'sha-3', verdict: 'GREEN' },
-  ]);
+  assert.equal(result.reviewBody, 'review ok\nVERDICT: PASS');
 });
 
 test('decideResumeState: IMPLEMENT UNPARSABLE head does not pin resume after successful retry', () => {
@@ -2560,9 +2465,7 @@ test('decideResumeState: final UNPARSABLE attempt resumes the same stage for ret
   assert.equal(result.ok, true);
   assert.equal(result.state, 'VERIFY');
   assert.deepEqual(result.skipped, ['PLAN', 'IMPLEMENT', 'REVIEW']);
-  assert.deepEqual(result.receiptsToStamp, [
-    { stage: 'REVIEW', headSha: 'sha-3', verdict: 'PASS' },
-  ]);
+  assert.equal(result.reviewBody, 'review ok\nVERDICT: PASS');
 });
 
 test('decideResumeState: two consecutive UNPARSABLE attempts are not resumable for another retry', () => {
@@ -2780,48 +2683,6 @@ test('decideResumeState: sha mismatch is not resumable', () => {
 
   assert.equal(result.ok, false);
   assert.match(result.reason, /sha mismatch/);
-});
-
-// --- buildReceiptArgs: driver stamps REVIEW/VERIFY receipts itself ---
-
-test('buildReceiptArgs: REVIEW + PASS builds review receipt argv with reviewer agent', () => {
-  const result = buildReceiptArgs('REVIEW', 'abc123', 'PASS');
-  assert.equal(result.command, 'node');
-  assert.deepEqual(result.args, ['scripts/receipt.mjs', 'review', 'abc123', 'PASS']);
-  assert.deepEqual(result.env, { LATHE_AGENT: 'reviewer' });
-});
-
-test('buildReceiptArgs: REVIEW + CHANGES builds review receipt argv', () => {
-  const result = buildReceiptArgs('REVIEW', 'abc123', 'CHANGES');
-  assert.deepEqual(result.args, ['scripts/receipt.mjs', 'review', 'abc123', 'CHANGES']);
-  assert.deepEqual(result.env, { LATHE_AGENT: 'reviewer' });
-});
-
-test('buildReceiptArgs: VERIFY + GREEN builds verify receipt argv with verifier agent', () => {
-  const result = buildReceiptArgs('VERIFY', 'def456', 'GREEN');
-  assert.equal(result.command, 'node');
-  assert.deepEqual(result.args, ['scripts/receipt.mjs', 'verify', 'def456', 'GREEN']);
-  assert.deepEqual(result.env, { LATHE_AGENT: 'verifier' });
-});
-
-test('buildReceiptArgs: VERIFY + RED builds verify receipt argv', () => {
-  const result = buildReceiptArgs('VERIFY', 'def456', 'RED');
-  assert.deepEqual(result.args, ['scripts/receipt.mjs', 'verify', 'def456', 'RED']);
-  assert.deepEqual(result.env, { LATHE_AGENT: 'verifier' });
-});
-
-test('buildReceiptArgs: REVIEW + ESCALATE -> null (not a receipt-eligible verdict)', () => {
-  assert.equal(buildReceiptArgs('REVIEW', 'abc123', 'ESCALATE'), null);
-});
-
-test('buildReceiptArgs: VERIFY + ESCALATE -> null (not a receipt-eligible verdict)', () => {
-  assert.equal(buildReceiptArgs('VERIFY', 'def456', 'ESCALATE'), null);
-});
-
-test('buildReceiptArgs: non-receipt stages (PLAN/IMPLEMENT/TRIAGE) -> null', () => {
-  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'IMPLEMENT', 'TRIAGE']) {
-    assert.equal(buildReceiptArgs(stage, 'abc123', 'PLAN_READY'), null, `stage=${stage} should not be receipt-eligible`);
-  }
 });
 
 // --- tailLines: merge escalation output capture ---
