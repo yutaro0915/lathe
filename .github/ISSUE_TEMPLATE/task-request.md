@@ -1,12 +1,13 @@
 ---
 name: Task request（intake）
-about: backlog task の起票依頼。intake Action が到着順に task へ登記します（却下なし）。
+about: task の起票。この issue がそのまま task になります（TASK-N = issue #N・却下なし、ADR 0031）。
 title: ""
 labels: ["task-request"]
 ---
 
-<!-- この template を選ぶと task-request label が付き、intake Action が backlog task へ登記します。
-     必須フィールドはありません（却下ゼロ・ADR 0027）。priority や採否の triage は PdM が盤面で行います。 -->
+<!-- この template を選ぶと task-request label が付き、この issue がそのまま task になります（ADR 0031）。
+     必須フィールドはありません（却下ゼロ）。plan が必要なら needs-plan label を付けてください。
+     priority や採否の triage は PdM が Projects 盤面で行います。 -->
 
 ## priority
 <!-- p0-urgent / p1-high / p2-normal（既定）/ p3-low。省略時は medium。 -->
