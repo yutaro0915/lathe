@@ -12,7 +12,7 @@
 // unless a narrow fake injection point is needed by tests. Backend pure
 // functions live in inner-loop-backends.mjs.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import process from 'node:process';
 import { buildStagePrompt } from './inner-loop-prompts.mjs';
 import {
-  stagePermissions, stageCwd, buildReceiptArgs,
+  stagePermissions, stageCwd,
   stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt,
   parseCodexSessionId, parseCodexCostUsd, parseCodexCostReport, parseBackendFlags, selectBackend,
@@ -29,7 +29,7 @@ import {
 } from './inner-loop-backends.mjs';
 
 // Re-export stage helpers so existing tests importing from this file keep working.
-export { stagePermissions, stageCwd, buildReceiptArgs };
+export { stagePermissions, stageCwd };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -556,7 +556,7 @@ export function stageRequiresFreshMainRebase(stage) {
 /**
  * Decide where a manifest-backed inner-loop run can resume.
  * @param {{ stages: object[], worktree: { exists: boolean, branchMatches: boolean, clean: boolean, headSha: string|null } }} p
- * @returns {{ ok: true, state: string, cycles: number, plan: string, feedback: string|null, verifyResult: string, headSha: string|null, skipped: string[], receiptsToStamp: Array<{stage: string, headSha: string, verdict: string}> } | { ok: false, reason: string }}
+ * @returns {{ ok: true, state: string, cycles: number, plan: string, feedback: string|null, verifyResult: string, reviewBody: string, headSha: string|null, skipped: string[] } | { ok: false, reason: string }}
  */
 export function decideResumeState({ stages, worktree }) {
   if (!Array.isArray(stages) || stages.length === 0) return { ok: false, reason: 'missing manifest or manifest has no stages' };
@@ -572,7 +572,7 @@ export function decideResumeState({ stages, worktree }) {
   let verifyResult = '';
   let expectedHeadSha = null;
   const skipped = [];
-  const receiptsToStamp = [];
+  let reviewBody = '';
   let unparsableAttemptsForState = 0;
   const shaMismatch = () => (
     expectedHeadSha && worktree.headSha !== expectedHeadSha
@@ -608,7 +608,7 @@ export function decideResumeState({ stages, worktree }) {
         verifyResult,
         headSha: worktree.headSha,
         skipped,
-        receiptsToStamp,
+        reviewBody,
       };
     }
 
@@ -628,8 +628,7 @@ export function decideResumeState({ stages, worktree }) {
       entry.stage === 'TRIAGE' && verdict === 'KNOWN' && isCodexSandboxEpermTriageResult(entry.result_text);
     if (entry.stage === 'TRIAGE' && verdict === 'KNOWN' && !nonImplementableKnown) feedback = entry.result_text;
 
-    const receipt = buildReceiptArgs(entry.stage, entry.head_sha, verdict);
-    if (receipt) receiptsToStamp.push({ stage: entry.stage, headSha: entry.head_sha, verdict });
+    if (entry.stage === 'REVIEW' && verdict === 'PASS') reviewBody = entry.result_text ?? '';
 
     const next = nextState(entry.stage, verdict, cycles, { nonImplementableKnown });
     if (next.next === 'ESCALATE') {
@@ -644,7 +643,7 @@ export function decideResumeState({ stages, worktree }) {
         verifyResult,
         headSha: worktree.headSha,
         skipped,
-        receiptsToStamp,
+        reviewBody,
       };
     }
     skipped.push(entry.stage);
@@ -665,7 +664,7 @@ export function decideResumeState({ stages, worktree }) {
     verifyResult,
     headSha: worktree.headSha,
     skipped,
-    receiptsToStamp,
+    reviewBody,
   };
 }
 
@@ -1235,20 +1234,6 @@ function dieResumeUnavailable(issueNumber, reason) {
   );
 }
 
-function stampReceiptOrDie(issueNumber, worktreePath, stamp) {
-  const receipt = buildReceiptArgs(stamp.stage, stamp.headSha, stamp.verdict);
-  if (!receipt) return;
-  const rr = spawnSync(receipt.command, receipt.args, {
-    cwd: worktreePath,
-    env: { ...process.env, ...receipt.env },
-    stdio: 'inherit',
-  });
-  if (rr.status !== 0) {
-    writeEscalation(issueNumber, 'RESUME', stamp.verdict, `receipt.mjs failed: ${receipt.args.join(' ')}`);
-    die(`resume receipt stamping failed — see ${escalationPathFor(issueNumber)}`);
-  }
-}
-
 function worktreeHeadShaOrDie(worktreePath, stage) {
   const head = gitStdout(['-C', worktreePath, 'rev-parse', 'HEAD'], REPO_ROOT);
   if (!head) die(`could not determine worktree HEAD after stage ${stage}`);
@@ -1403,8 +1388,10 @@ export function rebaseWorktree(wt, deps = {}) {
   return false;
 }
 
-function runMerge(branch) {
-  const r = spawnSync('node', ['scripts/merge.mjs', branch], { encoding: 'utf8', cwd: REPO_ROOT });
+function runMerge(branch, reviewBodyFile = null) {
+  const mergeEnv = { ...process.env };
+  if (reviewBodyFile) mergeEnv.LATHE_REVIEW_BODY_FILE = reviewBodyFile;
+  const r = spawnSync('node', ['scripts/merge.mjs', branch], { encoding: 'utf8', cwd: REPO_ROOT, env: mergeEnv });
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr);
   return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
@@ -1412,14 +1399,8 @@ function runMerge(branch) {
 
 // Mark a Backlog.md task Done in the worktree (CLI-only edit, no md hand-edit)
 // and fold that edit into the branch as a NEW commit (not an amend of the
-// reviewed/verified commit) — verify GREEN/review PASS already ran against
-// the prior HEAD sha, and merge.mjs checks receipts against the exact branch
-// tip sha (scripts/merge.mjs's checkReceipts), so amending would silently
-// invalidate those receipts. The prior REVIEW/VERIFY receipts are re-stamped
-// by the driver (not re-run) against the new tip: the code diff under review
-// is unchanged, only a driver-owned task-bookkeeping commit was appended on
-// top, which is exactly the kind of mechanical judgment ADR 0013's escalation
-// contract reserves for the driver (agents don't adjudicate repo cleanliness).
+// reviewed/verified commit). The bookkeeping commit rides along in the squash-
+// merged PR. ADR 0026: receipt mechanism removed; merge gate is now CI rubric.
 export function markTaskDoneInWorktree(taskId, worktreePath, reviewedHeadSha, deps = {}) {
   const run = deps.spawnSync ?? spawnSync;
   const backlogBin = deps.backlogBin ?? BACKLOG_BIN;
@@ -1442,29 +1423,6 @@ export function markTaskDoneInWorktree(taskId, worktreePath, reviewedHeadSha, de
   const headResult = run('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
   const newHeadSha = headResult.status === 0 ? headResult.stdout.trim() : null;
   if (!newHeadSha) return { ok: false, output: 'could not determine worktree HEAD after status=Done commit' };
-
-  // -z: NUL-terminated output. git never quotes/octal-escapes paths under -z,
-  // unlike the default --name-only output which (with core.quotePath=true, the
-  // default) wraps non-ASCII paths in double quotes with octal escapes — that
-  // would make startsWith('backlog/') below false-reject legitimate backlog-only
-  // Done commits whenever a task filename contains non-ASCII bytes (Japanese
-  // text, em-dash, etc., which is the common case for this repo's task titles).
-  const diffResult = run('git', ['-C', worktreePath, 'diff', '--name-only', '-z', `${reviewedHeadSha}..${newHeadSha}`], { encoding: 'utf8' });
-  if (diffResult.status !== 0) return { ok: false, output: `git diff Done commit paths failed: ${diffResult.stderr || diffResult.stdout}` };
-  const changedPaths = (diffResult.stdout ?? '').split('\0').map((line) => line.trim()).filter(Boolean);
-  const nonBacklogPaths = changedPaths.filter((path) => !path.startsWith('backlog/'));
-  if (nonBacklogPaths.length > 0) {
-    return { ok: false, output: `Done commit contains non-backlog paths; refusing receipt re-stamp: ${nonBacklogPaths.join(', ')}` };
-  }
-
-  for (const step of ['review', 'verify']) {
-    const rr = run('node', ['scripts/receipt.mjs', step, newHeadSha, step === 'review' ? 'PASS' : 'GREEN'], {
-      cwd: worktreePath,
-      env: { ...process.env, LATHE_AGENT: step === 'review' ? 'reviewer' : 'verifier' },
-      encoding: 'utf8',
-    });
-    if (rr.status !== 0) return { ok: false, output: `receipt re-stamp (${step}) failed at ${newHeadSha}: ${rr.stderr || rr.stdout}` };
-  }
 
   return { ok: true, output: `${r.stdout ?? ''}`, headSha: newHeadSha };
 }
@@ -1717,9 +1675,6 @@ if (isMain) {
       if (!resumeState.ok) dieResumeUnavailable(issueNumber, resumeState.reason);
       log(`dry-run: resume ${unitDisplayLabel(issueNumber)} from ${manifestPathFor(issueNumber)}`);
       log(`dry-run: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${resumeState.state} head=${resumeState.headSha ?? '(none)'} cycles=${resumeState.cycles}`);
-      for (const stamp of resumeState.receiptsToStamp) {
-        log(`dry-run: would stamp receipt stage=${stamp.stage} verdict=${stamp.verdict} head=${stamp.headSha}`);
-      }
       if (resumeState.state === 'MERGE') {
         log(`dry-run: MERGE — node scripts/merge.mjs ${resumeState.branch} (from repo root)`);
         process.exit(0);
@@ -1768,7 +1723,7 @@ if (isMain) {
       logDryRunStage(stage, backendFlags, cwd, promptPreview);
     }
     if (isTaskUnitLike(issueNumber)) {
-      log(`dry-run: MERGE-pre — backlog task edit ${issueNumber.id} --status Done in worktree, committed, re-stamp review/verify receipts at new HEAD`);
+      log(`dry-run: MERGE-pre — backlog task edit ${issueNumber.id} --status Done in worktree, committed`);
     }
     log('dry-run: transition plan — PLAN_READY->IMPLEMENT, IMPL_DONE->REVIEW, REVIEW PASS->VERIFY / CHANGES->IMPLEMENT (max 2 cycles), VERIFY GREEN->MERGE / RED->TRIAGE, TRIAGE KNOWN->IMPLEMENT only when implementable / P4 Codex sandbox EPERM->ESCALATE / NOVEL->ESCALATE, missing/unparsable VERDICT->same stage retry once then ESCALATE');
     process.exit(0);
@@ -1782,16 +1737,14 @@ if (isMain) {
   let feedback;
   let headSha;
   let verifyResult;
+  let reviewBody = '';
   let issue = null;
 
   if (resume) {
     const resumeState = resolveResumeState(issueNumber);
     if (!resumeState.ok) dieResumeUnavailable(issueNumber, resumeState.reason);
-    ({ worktreePath, branch, state, cycles, plan, feedback, headSha, verifyResult } = resumeState);
+    ({ worktreePath, branch, state, cycles, plan, feedback, headSha, verifyResult, reviewBody } = resumeState);
     log(`resume: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${state} head=${headSha ?? '(none)'} cycles=${cycles}`);
-    for (const stamp of resumeState.receiptsToStamp) {
-      stampReceiptOrDie(issueNumber, worktreePath, stamp);
-    }
     if (state !== 'MERGE') issue = fetchUnit(issueNumber);
   } else {
     issue = fetchUnit(issueNumber);
@@ -1884,16 +1837,11 @@ if (isMain) {
 
     if (state === 'PLAN' && verdict === 'PLAN_READY') plan = envelope.result;
     if (state === 'REVIEW' && verdict === 'CHANGES') feedback = envelope.result;
+    if (state === 'REVIEW' && verdict === 'PASS') reviewBody = envelope.result ?? '';
     if (state === 'VERIFY' && verdict === 'RED') verifyResult = envelope.result;
     const nonImplementableKnown =
       state === 'TRIAGE' && verdict === 'KNOWN' && isCodexSandboxEpermTriageResult(envelope.result);
     if (state === 'TRIAGE' && verdict === 'KNOWN' && !nonImplementableKnown) feedback = envelope.result;
-
-    const receipt = buildReceiptArgs(state, stageHeadSha ?? headSha, verdict);
-    if (receipt) {
-      const rr = spawnSync(receipt.command, receipt.args, { cwd: worktreePath, env: { ...process.env, ...receipt.env }, stdio: 'inherit' });
-      if (rr.status !== 0) { writeEscalation(issueNumber, state, verdict, `receipt.mjs failed: ${receipt.args.join(' ')}`); state = 'ESCALATE'; break; }
-    }
 
     const { next, cycles: nextCycles } = nextState(state, verdict, cycles, { nonImplementableKnown });
     if (next === 'ESCALATE') writeEscalation(issueNumber, state, verdict, envelope.result ?? '');
@@ -1922,9 +1870,8 @@ if (isMain) {
 
   // Terminal status=Done (ADR 0025 §4 / TASK-1.2 AC#4): for a task unit, mark
   // the Backlog.md task Done in the worktree BEFORE merge, so the bookkeeping
-  // commit rides along in the single squash-merged commit. merge.mjs itself
-  // is unchanged — it still only squash-merges `branch` and checks receipts
-  // against the (possibly updated) branch tip sha.
+  // commit rides along in the single squash-merged commit. ADR 0026: receipt
+  // mechanism removed; merge gate is now CI rubric-gate.
   if (isTaskUnitLike(issueNumber)) {
     log(`marking task ${issueNumber.id} Done in worktree before merge...`);
     const doneResult = markTaskDoneInWorktree(issueNumber.id, worktreePath, headSha);
@@ -1935,11 +1882,22 @@ if (isMain) {
     log(`status=Done: ${doneResult.output || '(no output)'}`);
   }
 
-  log(`merging branch ${branch} onto main`);
-  const mergeResult = runMerge(branch);
-  if (!mergeResult.ok) {
-    writeEscalation(issueNumber, 'MERGE', null, `node scripts/merge.mjs failed\n\n${tailLines(mergeResult.output)}`);
-    die(`merge failed — see ${escalationPathFor(issueNumber)}`);
+  // Write reviewer verdict to /tmp for PR review comment (ADR 0028: non-blocking, record purpose).
+  let reviewBodyFile = null;
+  try {
+    if (reviewBody) {
+      const unitSlug = isTaskUnitLike(issueNumber) ? issueNumber.id : String(issueNumber);
+      reviewBodyFile = join(tmpdir(), `lathe-review-body-${unitSlug}.md`);
+      writeFileSync(reviewBodyFile, `## REVIEW: PASS\n\n${reviewBody}`, 'utf8');
+    }
+    log(`merging branch ${branch} onto main`);
+    const mergeResult = runMerge(branch, reviewBodyFile);
+    if (!mergeResult.ok) {
+      writeEscalation(issueNumber, 'MERGE', null, `node scripts/merge.mjs failed\n\n${tailLines(mergeResult.output)}`);
+      die(`merge failed — see ${escalationPathFor(issueNumber)}`);
+    }
+  } finally {
+    if (reviewBodyFile) { try { unlinkSync(reviewBodyFile); } catch { /* non-fatal */ } }
   }
 
   cleanupWorktree(worktreePath, branch);

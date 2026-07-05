@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkReceipts, parseRevList, extractFirstCommitMessage, cleanupFailedSquash, decideLock, splitCommitMessage, buildPrCreateArgs, buildPrMergeArgs, buildPrChecksWatchArgs, buildPrMergeFallbackArgs, checksNotRegistered, buildPrChecksArgs, waitForChecksRegistered } from './merge.mjs';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { parseRevList, extractFirstCommitMessage, cleanupFailedSquash, decideLock, splitCommitMessage, buildPrCreateArgs, buildPrMergeArgs, buildPrChecksWatchArgs, buildPrMergeFallbackArgs, checksNotRegistered, buildPrChecksArgs, buildPrReviewArgs, waitForChecksRegistered } from './merge.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -84,84 +83,6 @@ test('decideLock: self PID -> acquire', () => {
   }), 'acquire');
 });
 
-// Helper: create a temp receipts dir for a test
-function makeTempReceipts(testId) {
-  const dir = join(tmpdir(), `lathe-merge-test-${testId}-${Date.now()}`);
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function writeReceipt(dir, sha, step, verdict) {
-  const content = JSON.stringify({ step, sha, verdict, ts: new Date().toISOString(), agent: 'test' });
-  writeFileSync(join(dir, `${sha}.${step}.json`), content, 'utf8');
-}
-
-// checkReceipts — receipt unit is the branch tip sha (HEAD), not a list.
-// reviewer/verifier assess the full branch diff, so receipts are issued at HEAD.
-
-// checkReceipts — happy path
-test('checkReceipts: both receipts present for head sha → ok', () => {
-  const dir = makeTempReceipts('both');
-  writeReceipt(dir, 'headsha1', 'review', 'PASS');
-  writeReceipt(dir, 'headsha1', 'verify', 'GREEN');
-  const result = checkReceipts(dir, 'headsha1');
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.missing, []);
-  rmSync(dir, { recursive: true, force: true });
-});
-
-// checkReceipts — review missing
-test('checkReceipts: review receipt missing for head sha → not ok', () => {
-  const dir = makeTempReceipts('rev-missing');
-  writeReceipt(dir, 'headsha2', 'verify', 'GREEN');
-  const result = checkReceipts(dir, 'headsha2');
-  assert.equal(result.ok, false);
-  assert.ok(result.missing.some((m) => m.sha === 'headsha2' && m.step === 'review'));
-  rmSync(dir, { recursive: true, force: true });
-});
-
-// checkReceipts — verify missing
-test('checkReceipts: verify receipt missing for head sha → not ok', () => {
-  const dir = makeTempReceipts('ver-missing');
-  writeReceipt(dir, 'headsha3', 'review', 'PASS');
-  const result = checkReceipts(dir, 'headsha3');
-  assert.equal(result.ok, false);
-  assert.ok(result.missing.some((m) => m.sha === 'headsha3' && m.step === 'verify'));
-  rmSync(dir, { recursive: true, force: true });
-});
-
-// checkReceipts — review verdict is CHANGES (not PASS)
-test('checkReceipts: review verdict CHANGES for head sha → not ok', () => {
-  const dir = makeTempReceipts('rev-changes');
-  writeReceipt(dir, 'headsha4', 'review', 'CHANGES');
-  writeReceipt(dir, 'headsha4', 'verify', 'GREEN');
-  const result = checkReceipts(dir, 'headsha4');
-  assert.equal(result.ok, false);
-  assert.ok(result.missing.some((m) => m.sha === 'headsha4' && m.step === 'review'));
-  rmSync(dir, { recursive: true, force: true });
-});
-
-// checkReceipts — verify verdict is RED (not GREEN)
-test('checkReceipts: verify verdict RED for head sha → not ok', () => {
-  const dir = makeTempReceipts('ver-red');
-  writeReceipt(dir, 'headsha5', 'review', 'PASS');
-  writeReceipt(dir, 'headsha5', 'verify', 'RED');
-  const result = checkReceipts(dir, 'headsha5');
-  assert.equal(result.ok, false);
-  assert.ok(result.missing.some((m) => m.sha === 'headsha5' && m.step === 'verify'));
-  rmSync(dir, { recursive: true, force: true });
-});
-
-// checkReceipts — both missing
-test('checkReceipts: both receipts missing for head sha → not ok, lists both', () => {
-  const dir = makeTempReceipts('both-missing');
-  const result = checkReceipts(dir, 'headsha6');
-  assert.equal(result.ok, false);
-  assert.ok(result.missing.some((m) => m.sha === 'headsha6' && m.step === 'review'));
-  assert.ok(result.missing.some((m) => m.sha === 'headsha6' && m.step === 'verify'));
-  rmSync(dir, { recursive: true, force: true });
-});
-
 // extractFirstCommitMessage — squash commit message extraction
 // Input format: git log --reverse --format=%B%x00 (NUL-separated commit bodies)
 test('extractFirstCommitMessage: single commit → returns its full message', () => {
@@ -193,7 +114,7 @@ test('extractFirstCommitMessage: no body (subject only) → returns subject', ()
 
 // cleanupFailedSquash — hermetic temp git repo smoke test
 test('cleanupFailedSquash: squash 衝突後に working tree がクリーンになること', async () => {
-  const { mkdtempSync, writeFileSync: wfs, readFileSync: rfs } = await import('node:fs');
+  const { mkdtempSync, writeFileSync: wfs, readFileSync: rfs, rmSync } = await import('node:fs');
   const { execFileSync } = await import('node:child_process');
 
   const tmp = mkdtempSync(join(tmpdir(), 'lathe-squash-smoke-'));
@@ -443,4 +364,19 @@ test('waitForChecksRegistered: checks present immediately → {registered:true} 
   });
   assert.deepEqual(result, { registered: true });
   assert.equal(sleepCount, 0);
+});
+
+// --- buildPrReviewArgs ---
+
+test('buildPrReviewArgs: returns correct gh argv for PR review comment', () => {
+  const args = buildPrReviewArgs({ branch: 'inner/task-16', bodyFile: '/tmp/lathe-review-body-TASK-16.md' });
+  assert.deepEqual(args, [
+    'pr', 'review', 'inner/task-16',
+    '--comment', '--body-file', '/tmp/lathe-review-body-TASK-16.md',
+  ]);
+});
+
+test('buildPrReviewArgs: does not include --approve (self-authored PR)', () => {
+  const args = buildPrReviewArgs({ branch: 'inner/task-1', bodyFile: '/tmp/body.md' });
+  assert.ok(!args.includes('--approve'), '--approve must not be present for self-authored PRs');
 });

@@ -47,7 +47,7 @@ export function stagePermissions(stage) {
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash'],
       };
     case 'REVIEW':
-      // No receipt.mjs allowedTool: the driver stamps receipts itself (buildReceiptArgs).
+      // No receipt.mjs allowedTool: receipt mechanism removed (ADR 0026 §1-3).
       return { agent: 'reviewer', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
     case 'VERIFY':
       // Bash is blanket, not narrowed to git/pnpm/node: verification idioms
@@ -78,26 +78,6 @@ export function stagePermissions(stage) {
  */
 export function stageCwd(stage, repoRoot, worktreePath) {
   return ['RESEARCH', 'PLAN', 'PLAN_REVIEW'].includes(stage) ? repoRoot : worktreePath;
-}
-
-// stage -> [receipt.mjs step, LATHE_AGENT, valid verdicts] — driver stamps
-// receipts itself (env-prefixed agent commands silently fail Bash allowlist).
-const RECEIPT_STAGE_MAP = {
-  REVIEW: ['review', 'reviewer', ['PASS', 'CHANGES']],
-  VERIFY: ['verify', 'verifier', ['GREEN', 'RED']],
-};
-
-/**
- * Build argv + env for stamping a receipt from a stage verdict.
- * Only REVIEW (PASS/CHANGES) and VERIFY (GREEN/RED) are receipt-eligible.
- * @returns {{ command: string, args: string[], env: { LATHE_AGENT: string } } | null}
- */
-export function buildReceiptArgs(stage, sha, verdict) {
-  const mapped = RECEIPT_STAGE_MAP[stage];
-  if (!mapped) return null;
-  const [step, agent, validVerdicts] = mapped;
-  if (!validVerdicts.includes(verdict)) return null;
-  return { command: 'node', args: ['scripts/receipt.mjs', step, sha, verdict], env: { LATHE_AGENT: agent } };
 }
 
 // --- Backend adapter pure functions (ADR 0014) ---
@@ -193,7 +173,7 @@ export function stageSandbox(stage) {
  * `git commit` inside the worktree needs write access there too. Granting the
  * whole .git directory (rather than enumerating subpaths) is deliberate: git's
  * internal layout there is not a stable fine-grained surface to allowlist, and
- * protecting main is already the job of merge.mjs's receipt gate plus the
+ * protecting main is already the job of merge.mjs's backstop gate plus the
  * IMPLEMENT stage's role contract — that is what this sandbox boundary is for.
  * @param {string} stage
  * @param {string} prompt

@@ -1,19 +1,17 @@
 #!/usr/bin/env node
 // CLI: node scripts/merge.mjs <branch>
-// Enforces review+verify receipts for the branch tip sha before squash-merging onto main.
-// Receipt unit = branch tip sha (HEAD). Receipts live in shared git common-dir.
+// Squash-merges branch onto main via push → gh pr create → gh pr merge --auto.
+// ADR 0026: receipt check removed; CI rubric-gate is now the authority.
 // cwd = caller's dir (main worktree); script location (dirname) is NOT used.
 // Landing strategy (ADR 0026 §1-2): push → gh pr create → gh pr merge --auto --squash.
 // First commit message → PR title/body. CI gate runs on PR head sha.
 // Pure logic is exported for unit testing.
 
-import { closeSync, existsSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync, spawnSync } from 'node:child_process';
 import process from 'node:process';
-import { resolveReceiptsDir } from './receipt.mjs';
-
 // --- Pure / testable exports ---
 
 /**
@@ -27,54 +25,6 @@ export function parseRevList(output) {
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
-}
-
-/**
- * Check that a single sha (the branch tip) has both a PASS review receipt
- * and a GREEN verify receipt inside `receiptsDir`.
- *
- * Receipt unit is the branch tip sha — reviewer/verifier assess the full
- * branch diff (HEAD), not individual commits.
- *
- * @param {string} receiptsDir  absolute path to <git-common-dir>/lathe-receipts
- * @param {string} headSha      the branch tip sha (git rev-parse <branch>)
- * @returns {{ ok: boolean, missing: Array<{sha: string, step: string}> }}
- */
-export function checkReceipts(receiptsDir, headSha) {
-  /** @type {Array<{sha: string, step: string}>} */
-  const missing = [];
-
-  // --- review receipt ---
-  const reviewPath = join(receiptsDir, `${headSha}.review.json`);
-  if (!existsSync(reviewPath)) {
-    missing.push({ sha: headSha, step: 'review' });
-  } else {
-    try {
-      const data = JSON.parse(readFileSync(reviewPath, 'utf8'));
-      if (data.verdict !== 'PASS') {
-        missing.push({ sha: headSha, step: 'review' });
-      }
-    } catch {
-      missing.push({ sha: headSha, step: 'review' });
-    }
-  }
-
-  // --- verify receipt ---
-  const verifyPath = join(receiptsDir, `${headSha}.verify.json`);
-  if (!existsSync(verifyPath)) {
-    missing.push({ sha: headSha, step: 'verify' });
-  } else {
-    try {
-      const data = JSON.parse(readFileSync(verifyPath, 'utf8'));
-      if (data.verdict !== 'GREEN') {
-        missing.push({ sha: headSha, step: 'verify' });
-      }
-    } catch {
-      missing.push({ sha: headSha, step: 'verify' });
-    }
-  }
-
-  return { ok: missing.length === 0, missing };
 }
 
 /** Reset working tree after a failed squash merge (git merge --squash has no MERGE_HEAD).
@@ -125,6 +75,12 @@ export function buildPrMergeFallbackArgs({ branch }) {
  * @param {{stdout?:string,stderr?:string}} p @returns {boolean} */
 export function checksNotRegistered({ stdout = '', stderr = '' }) {
   return /no checks reported/i.test(`${stdout}${stderr}`);
+}
+
+/** argv for `gh pr review <branch> --comment --body-file <file>` (non-blocking record).
+ * @param {{branch:string, bodyFile:string}} p @returns {string[]} */
+export function buildPrReviewArgs({ branch, bodyFile }) {
+  return ['pr', 'review', branch, '--comment', '--body-file', bodyFile];
 }
 
 /** argv for `gh pr checks <branch>` without --watch (for polling).
@@ -310,34 +266,7 @@ if (isMain) {
     die(`no commits found between main and ${branch} — nothing to merge`);
   }
 
-  // 2. Receipt check — against branch tip sha (HEAD), not individual commits.
-  //    reviewer/verifier see the full branch diff, so receipts are issued at HEAD.
-  let headSha;
-  try {
-    headSha = git(`rev-parse ${branch}`);
-  } catch (e) {
-    die(`could not resolve branch tip sha: ${e.message}`);
-  }
-
-  // Receipts live in the shared git common-dir — visible from any worktree or main.
-  let receiptsDir;
-  try {
-    receiptsDir = resolveReceiptsDir(cwd);
-  } catch (e) {
-    die(`could not resolve git common-dir for receipts: ${e.message}`);
-  }
-  const { ok: receiptsOk, missing } = checkReceipts(receiptsDir, headSha);
-
-  if (!receiptsOk) {
-    const lines = missing.map(({ sha, step }) => `  missing: ${sha}.${step}.json`).join('\n');
-    die(
-      `receipt check failed — the following receipts are missing or invalid:\n${lines}\n\n` +
-        'reviewer / verifier を回して receipt を出してから再実行してください:\n' +
-        `  ※ sha は branch tip: ${headSha}\n` +
-        '  review:  LATHE_AGENT=reviewer node scripts/receipt.mjs review <sha> <PASS|CHANGES>\n' +
-        '  verify:  LATHE_AGENT=verifier node scripts/receipt.mjs verify <sha> <GREEN|RED>',
-    );
-  }
+  // 2. (Receipt check removed — ADR 0026 §1-3. CI rubric-gate is now the authority.)
 
   // 3. Backstop gate — spawnSync with array args so each path is a separate argv element
   //    (preflight.mjs pattern: spawnSync('node', ['rubrics/run.mjs', '--changed', ...paths, '--tier', tier]))
@@ -407,6 +336,19 @@ if (isMain) {
     die(`gh pr create failed for ${branch}`);
   }
 
+  // 4b-post. Post reviewer verdict as PR review comment (ADR 0028: non-blocking, record purpose).
+  const reviewBodyFile = process.env.LATHE_REVIEW_BODY_FILE;
+  if (reviewBodyFile) {
+    const prReviewResult = spawnSync('gh', buildPrReviewArgs({ branch, bodyFile: reviewBodyFile }), {
+      stdio: 'inherit',
+      cwd,
+      env: { ...process.env, LATHE_MERGE: '1' },
+    });
+    if (prReviewResult.status !== 0) {
+      process.stdout.write(`merge: warning: gh pr review --comment failed for ${branch} (non-fatal)\n`);
+    }
+  }
+
   // 4c. Arm auto-merge (squash) — primary: --auto (works when branch protection is enabled).
   //     Fallback: when --auto cannot be armed (branch protection disabled), wait for CI
   //     checks to complete via `gh pr checks --watch`, then merge directly without --auto.
@@ -449,19 +391,6 @@ if (isMain) {
     });
     if (fallbackResult.status !== 0) {
       die(`gh pr merge (fallback) failed for ${branch}`);
-    }
-  }
-
-  // 5. Clean up consumed receipts (only the head sha receipt).
-  //    Cleaned eagerly — the merge commitment (PR + auto-merge) is irrevocable.
-  for (const step of ['review', 'verify']) {
-    const p = join(receiptsDir, `${headSha}.${step}.json`);
-    if (existsSync(p)) {
-      try {
-        rmSync(p);
-      } catch {
-        // non-fatal
-      }
     }
   }
 
