@@ -14,6 +14,9 @@ grounded_in: []
 ## 起動条件
 
 - PdM の要求時（既定）。監査役の判断で governance 級・大型の変更にも推奨。
+- **適用範囲追記（PdM 指示 2026-07-06）**: diff 教材に限らず、**PdM 向け報告 HTML 全般**
+  （overview・監査報告等）も本 skill の形式・視覚言語（紙面調 CSS・HTML/CSS 図・callout・
+  である調・禁則）に統一する。他フォーマット（mermaid ダーク調等）は使わない。
 - merge への自動組み込みはしない（simplicity。必要が実証されたら再考）。
 
 ## 生成指示（subagent へこのまま渡す・対象と接地先だけ差し替える）
