@@ -95,6 +95,13 @@ function block(reason) {
 
 const input = parseJson(await readStdin());
 const toolInput = input.tool_input ?? {};
+
+// .lathe/ artifacts (reports / 教材 HTML など gitignored な生成文書) はコードではない —
+// god-file 抑止の対象外（PdM 向け報告 HTML は数百〜千行が正常。2026-07-06、subagent 3 回の摩擦実績）。
+const guardPath = typeof toolInput.file_path === "string" ? toolInput.file_path.replace(/\\/g, "/") : "";
+if (/(^|\/)\.lathe\//.test(guardPath)) {
+  process.exit(0);
+}
 const payloadLines = payloadLineCount(toolInput);
 
 if (mode === "pre") {
