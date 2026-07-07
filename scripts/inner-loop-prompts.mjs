@@ -263,7 +263,7 @@ export function buildPlanTaskPrompt(ctx) {
     '',
     PLAN_TASK_EXTERNAL_SPACE_CONTRACT,
     '',
-    'PdM 判断が必要な選択肢（価値判断・scope 裁定・工数トレードオフ）に到達した場合は、選択肢と推奨を明記して VERDICT: ASK_PDM で終えてください（escalation ではなく正常終端です。ADR 0030 追記 E）。',
+    'PdM 判断が必要な選択肢（価値判断・scope 裁定・工数トレードオフ）に到達した場合は、それまでに確定した子 issue block 群・却下候補をすべて出力した上で、選択肢・推奨・裁定事項を明記して VERDICT: ASK_PDM で終えてください（この出力全体が issue comment として投稿されます。escalation ではなく正常終端です。ADR 0030 追記 E）。',
     '調査の結果、目標不成立・前提矛盾が判明した場合は ESCALATE してください。',
     '',
     verdictInstruction(['PLAN_READY', 'ASK_PDM', 'ESCALATE']),
