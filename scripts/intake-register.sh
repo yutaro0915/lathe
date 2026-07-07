@@ -72,7 +72,7 @@ git push -u origin "$BR"
 gh pr create --title "intake: $TASK_ID ← issue #$NUM" \
   --body "登記機械による自動 PR（ADR 0027・判断なし）。issue #$NUM を $TASK_ID として backlog に写す。backlog/ 以外に触れないことは workflow が機械検査済み。"
 
-# checks 存在判定 merge（merge.mjs の checksNotRegistered() と同型の判定）
+# checks 存在判定 merge（gh の "no checks reported" 出力で checks 不在を判定）
 # GITHUB_TOKEN 構成では ci.yml が起動しないため checks は常に不在 = 即 merge 経路。
 # checks が存在する将来の構成（task-22 等で branch protection 有効化時）は
 # watch 経路が自然に機能する（追加変更不要）。
