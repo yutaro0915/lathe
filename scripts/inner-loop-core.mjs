@@ -21,19 +21,28 @@ export const REPO_ROOT = join(__dirname, '..');
 
 // --- Constants ---
 
-export const VALID_VERDICT_TOKENS = ['PLAN_READY', 'ASK_PDM', 'IMPL_DONE', 'ESCALATE'];
+export const VALID_VERDICT_TOKENS = ['PLAN_READY', 'ASK_PDM', 'IMPL_DONE', 'ESCALATE', 'PASS', 'RED'];
 export const UNPARSABLE_VERDICT = 'UNPARSABLE';
 export const MAX_UNPARSABLE_STAGE_RETRIES = 1;
 
 export const NEEDS_PLAN_LABEL = 'needs-plan';
+export const NEEDS_REVIEW_LABEL = 'needs-review';
 export const TASK_REQUEST_LABEL = 'task-request';
+
+// Maximum PLAN_REVIEW RED-verdict retries before labelling needs-review +
+// escalation and stopping (ADR 0035 §5).
+export const MAX_PLAN_REVIEW_RETRIES = 2;
 
 // Stage tables — ordered so a later stage insertion is a one-line change
 // (append to the array + add its ok-verdict). The terminal after the last
 // stage is a driver action, not an agent stage.
-export const TASK_LOOP_STAGES = ['IMPLEMENT'];
+//
+// ADR 0035 §1: all tasks now go through TASK_PLAN → PLAN_REVIEW → IMPLEMENT.
+// TASK_PLAN is distinct from plan-task PLAN (plan-task creates child issues;
+// TASK_PLAN posts a plan comment on the current issue).
+export const TASK_LOOP_STAGES = ['TASK_PLAN', 'PLAN_REVIEW', 'IMPLEMENT'];
 export const TASK_LOOP_TERMINAL = 'LAND';
-const TASK_LOOP_OK_VERDICTS = { IMPLEMENT: 'IMPL_DONE' };
+const TASK_LOOP_OK_VERDICTS = { TASK_PLAN: 'PLAN_READY', PLAN_REVIEW: 'PASS', IMPLEMENT: 'IMPL_DONE' };
 
 export const PLAN_TASK_STAGES = ['PLAN'];
 export const PLAN_TASK_TERMINAL = 'FILE_CHILDREN';
@@ -231,6 +240,15 @@ export function issueHasLabel(issue, labelName) {
   return issueLabelNames(issue).some((name) => name.toLowerCase() === wanted);
 }
 
+/**
+ * Returns true when the issue carries the `needs-review` label (ADR 0035 §1).
+ * @param {object} issue
+ * @returns {boolean}
+ */
+export function hasNeedsReviewLabel(issue) {
+  return issueHasLabel(issue, NEEDS_REVIEW_LABEL);
+}
+
 // --- Manifest ---
 
 /**
@@ -333,8 +351,10 @@ function requiresResultText(stage, verdict) {
   );
 }
 
+// Only IMPLEMENT runs inside the task worktree. TASK_PLAN and PLAN_REVIEW run
+// at repo root (ADR 0035 §1 — plan stages are read-only at repo root).
 export function isWorktreeStage(stage) {
-  return TASK_LOOP_STAGES.includes(stage);
+  return stage === 'IMPLEMENT';
 }
 
 export function stageRequiresFreshMainRebase(stage) {
@@ -355,7 +375,10 @@ export function decideResumeState({ stages, worktree }) {
   if (!worktree.clean) return { ok: false, reason: 'dirty worktree' };
   if (!worktree.headSha) return { ok: false, reason: 'could not determine worktree HEAD sha' };
 
-  let state = TASK_LOOP_STAGES[0];
+  // Only worktree stages appear in the manifest (TASK_PLAN/PLAN_REVIEW run in
+  // the repo root and do not write manifest entries). Walk only those stages.
+  const walkable = TASK_LOOP_STAGES.filter(isWorktreeStage);
+  let state = walkable[0];
   let expectedHeadSha = null;
   const skipped = [];
   let unparsableAttemptsForState = 0;

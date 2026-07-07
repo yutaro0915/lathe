@@ -160,8 +160,8 @@ test('buildPlanTaskPrompt: comments are injected when present', () => {
 
 // --- dispatch ---
 
-test('buildStagePrompt: only PLAN and IMPLEMENT builders remain', () => {
-  assert.deepEqual(Object.keys(STAGE_PROMPT_BUILDERS).sort(), ['IMPLEMENT', 'PLAN']);
+test('buildStagePrompt: PLAN, TASK_PLAN, PLAN_REVIEW, and IMPLEMENT builders exist', () => {
+  assert.deepEqual(Object.keys(STAGE_PROMPT_BUILDERS).sort(), ['IMPLEMENT', 'PLAN', 'PLAN_REVIEW', 'TASK_PLAN']);
 });
 
 test('buildStagePrompt: dispatch matches direct builder output', () => {
@@ -169,8 +169,8 @@ test('buildStagePrompt: dispatch matches direct builder output', () => {
   assert.equal(buildStagePrompt('PLAN', PLAN_CTX), buildPlanTaskPrompt(PLAN_CTX));
 });
 
-test('buildStagePrompt: removed stages throw (REVIEW/VERIFY/TRIAGE/RESEARCH/PLAN_REVIEW)', () => {
-  for (const stage of ['REVIEW', 'VERIFY', 'TRIAGE', 'RESEARCH', 'PLAN_REVIEW', 'NOPE']) {
+test('buildStagePrompt: removed stages throw (REVIEW/VERIFY/TRIAGE/RESEARCH/NOPE)', () => {
+  for (const stage of ['REVIEW', 'VERIFY', 'TRIAGE', 'RESEARCH', 'NOPE']) {
     assert.throws(() => buildStagePrompt(stage, {}), new RegExp(`unknown stage "${stage}"`));
   }
 });

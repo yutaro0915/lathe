@@ -46,8 +46,8 @@ test('stagePermissions: no stage uses bypassPermissions or --bare', () => {
   }
 });
 
-test('stagePermissions: removed stages throw (REVIEW/VERIFY/TRIAGE/RESEARCH/PLAN_REVIEW)', () => {
-  for (const stage of ['REVIEW', 'VERIFY', 'TRIAGE', 'RESEARCH', 'PLAN_REVIEW']) {
+test('stagePermissions: removed stages throw (REVIEW/VERIFY/TRIAGE/RESEARCH)', () => {
+  for (const stage of ['REVIEW', 'VERIFY', 'TRIAGE', 'RESEARCH']) {
     assert.throws(() => stagePermissions(stage), new RegExp(`unknown stage "${stage}"`));
   }
 });

@@ -14,9 +14,9 @@ const READ_ONLY_GH_ISSUE_TOOLS = [
 
 /**
  * Permission flags per stage (ADR 0013 §機構詳細).
- * Only two local stages remain after the task-loop shrink (#116, ADR 0030
- * §2-3): PLAN (plan-task) and IMPLEMENT (task loop). Review runs on the PR
- * via the review engine; verify(tier=test) runs in CI.
+ * Stages after ADR 0035: PLAN (plan-task), TASK_PLAN (task loop plan),
+ * PLAN_REVIEW (machine review), and IMPLEMENT (task loop). Review runs on the
+ * PR via the review engine; verify(tier=test) runs in CI.
  * --bare / --dangerously-skip-permissions must never be used (hooks must fire).
  * @param {string} stage
  * @returns {{ agent: string, permissionMode: string, allowedTools?: string[] }}
@@ -28,6 +28,22 @@ export function stagePermissions(stage) {
         agent: 'planner',
         permissionMode: 'dontAsk',
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', ...READ_ONLY_GH_ISSUE_TOOLS],
+      };
+    case 'TASK_PLAN':
+      // Task-loop plan stage: planner reads the issue and produces a plan
+      // (plan-format.md compliant). Read-only at repo root (ADR 0035 §1).
+      return {
+        agent: 'planner',
+        permissionMode: 'dontAsk',
+        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', ...READ_ONLY_GH_ISSUE_TOOLS],
+      };
+    case 'PLAN_REVIEW':
+      // Machine plan review: independent reviewer checks the plan (ADR 0035 §1).
+      // Read-only at repo root.
+      return {
+        agent: 'reviewer',
+        permissionMode: 'dontAsk',
+        allowedTools: ['Read', 'Grep', 'Glob'],
       };
     case 'IMPLEMENT':
       // IMPLEMENT needs env-prefixed and compound verification/commit commands
@@ -43,15 +59,19 @@ export function stagePermissions(stage) {
   }
 }
 
+// Stages that run at repo root (not in the task worktree).
+const REPO_ROOT_STAGES = new Set(['PLAN', 'TASK_PLAN', 'PLAN_REVIEW']);
+
 /**
- * cwd for a stage: PLAN (plan-task) runs at repo root; IMPLEMENT in the worktree.
+ * cwd for a stage: plan-task PLAN, TASK_PLAN, and PLAN_REVIEW run at repo
+ * root; IMPLEMENT runs in the task worktree. (ADR 0035 §1)
  * @param {string} stage
  * @param {string} repoRoot
  * @param {string} worktreePath
  * @returns {string}
  */
 export function stageCwd(stage, repoRoot, worktreePath) {
-  return stage === 'PLAN' ? repoRoot : worktreePath;
+  return REPO_ROOT_STAGES.has(stage) ? repoRoot : worktreePath;
 }
 
 // --- Backend adapter pure functions (ADR 0014) ---

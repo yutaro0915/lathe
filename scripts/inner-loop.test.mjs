@@ -39,12 +39,17 @@ test('parseVerdict: all valid tokens parse correctly', () => {
   }
 });
 
-test('parseVerdict: valid token set is the shrunk loop set (#116)', () => {
-  assert.deepEqual(VALID_VERDICT_TOKENS, ['PLAN_READY', 'ASK_PDM', 'IMPL_DONE', 'ESCALATE']);
+test('parseVerdict: valid token set includes ADR 0035 PASS/RED in addition to shrunk loop set', () => {
+  assert.deepEqual(VALID_VERDICT_TOKENS, ['PLAN_READY', 'ASK_PDM', 'IMPL_DONE', 'ESCALATE', 'PASS', 'RED']);
 });
 
-test('parseVerdict: removed stage tokens (PASS/CHANGES/GREEN/RED/KNOWN/NOVEL) are no longer accepted', () => {
-  for (const token of ['PASS', 'CHANGES', 'GREEN', 'RED', 'KNOWN', 'NOVEL']) {
+test('parseVerdict: PASS and RED are now valid (ADR 0035 PLAN_REVIEW verdicts)', () => {
+  assert.equal(parseVerdict('done\nVERDICT: PASS'), 'PASS');
+  assert.equal(parseVerdict('done\nVERDICT: RED'), 'RED');
+});
+
+test('parseVerdict: other removed stage tokens (CHANGES/GREEN/KNOWN/NOVEL) are not accepted', () => {
+  for (const token of ['CHANGES', 'GREEN', 'KNOWN', 'NOVEL']) {
     assert.equal(parseVerdict(`done\nVERDICT: ${token}`), null);
   }
 });
@@ -85,8 +90,8 @@ test('selectRunType: no needs-plan label selects the implementation task loop', 
 
 // --- nextState (task loop: IMPLEMENT → LAND のみ, ADR 0030 §3) ---
 
-test('task loop stage table: IMPLEMENT only, terminal LAND', () => {
-  assert.deepEqual(TASK_LOOP_STAGES, ['IMPLEMENT']);
+test('task loop stage table: TASK_PLAN → PLAN_REVIEW → IMPLEMENT → LAND (ADR 0035 §1)', () => {
+  assert.deepEqual(TASK_LOOP_STAGES, ['TASK_PLAN', 'PLAN_REVIEW', 'IMPLEMENT']);
   assert.equal(TASK_LOOP_TERMINAL, 'LAND');
 });
 
@@ -100,6 +105,18 @@ test('nextState: IMPLEMENT + ESCALATE -> ESCALATE', () => {
 
 test('nextState: null verdict (unparsable) -> ESCALATE', () => {
   assert.deepEqual(nextState('IMPLEMENT', null), { next: 'ESCALATE' });
+});
+
+test('nextState: TASK_PLAN + PLAN_READY -> PLAN_REVIEW (ADR 0035 §1)', () => {
+  assert.deepEqual(nextState('TASK_PLAN', 'PLAN_READY'), { next: 'PLAN_REVIEW' });
+});
+
+test('nextState: PLAN_REVIEW + PASS -> IMPLEMENT (ADR 0035 §1)', () => {
+  assert.deepEqual(nextState('PLAN_REVIEW', 'PASS'), { next: 'IMPLEMENT' });
+});
+
+test('nextState: PLAN_REVIEW + RED -> ESCALATE (driver intercepts RED before nextState call)', () => {
+  assert.deepEqual(nextState('PLAN_REVIEW', 'RED'), { next: 'ESCALATE' });
 });
 
 test('nextState: removed stages (PLAN/REVIEW/VERIFY/TRIAGE) are unknown -> ESCALATE', () => {
