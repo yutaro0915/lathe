@@ -85,6 +85,16 @@ export function classifyIssue(issue, ctx) {
     return { class: SKIP_NON_TASK, reason: 'task-request label なし — orchestrator の対象外' };
   }
   if (hasLabel(issue.labels, ESCALATION_LABEL)) {
+    // Triage (iii): escalation × needs-review × 教材なし → EXPLAIN を先に生成
+    // （ADR 0035 §4 ③: 意思決定が必要な escalation は PdM が読む教材を自動作成してから裁定待ちへ）。
+    // 教材あり（done-explain label or explains/ 正本）なら WAIT_ESCALATION のまま。
+    if (hasLabel(issue.labels, NEEDS_REVIEW_LABEL)) {
+      const hasLabelEvidence = hasLabel(issue.labels, DONE_EXPLAIN_LABEL);
+      const hasFileEvidence = ctx.explainedIssueNumbers?.has(issue.number) === true;
+      if (!hasLabelEvidence && !hasFileEvidence) {
+        return { class: CLASS_EXPLAIN, reason: 'escalation × needs-review × 教材なし — 教材を先に生成（ADR 0035 §4 ③）' };
+      }
+    }
     return { class: WAIT_ESCALATION, reason: 'escalation label — PdM 裁定待ち（裁定 loop 材料）' };
   }
   if (hasLabel(issue.labels, HOLD_LABEL)) {

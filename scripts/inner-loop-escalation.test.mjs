@@ -1,9 +1,9 @@
-// Tests for escalation の issue 化 (#201 分解 6 / #203): ESCALATE 終端は
-// 対象 issue への escalation label ＋ レポート全文 comment（.escalation.md 廃止）。
+// Tests for escalation の issue 化 + triage 三分岐 (#201 分解 6, #117 ADR 0035 §4):
+// ESCALATE 終端は対象 issue への escalation label ＋ レポート全文 comment（.escalation.md 廃止）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ESCALATION_LABEL } from './inner-loop-core.mjs';
-import { buildEscalationMarkdown, projectEscalation } from './inner-loop-escalation.mjs';
+import { buildEscalationMarkdown, projectEscalation, triageEscalationCategory } from './inner-loop-escalation.mjs';
 
 // --- buildEscalationMarkdown (report body) ---
 
@@ -91,4 +91,35 @@ test('projectEscalation: comment failure alone still returns labelOk=true / ok=f
     },
   );
   assert.deepEqual(result, { ok: false, labelOk: true, commentOk: false });
+});
+
+// --- triageEscalationCategory (ADR 0035 §4 triage 三分岐) ---
+
+test('triageEscalationCategory: null verdict → context（UNPARSABLE 再試行済み）', () => {
+  assert.equal(triageEscalationCategory({ verdict: null }), 'context');
+});
+
+test('triageEscalationCategory: UNPARSABLE → context', () => {
+  assert.equal(triageEscalationCategory({ verdict: 'UNPARSABLE' }), 'context');
+});
+
+test('triageEscalationCategory: REBASE_CONFLICT → env', () => {
+  assert.equal(triageEscalationCategory({ verdict: 'REBASE_CONFLICT' }), 'env');
+});
+
+test('triageEscalationCategory: MAIN_DIRTY_BACKSTOP → env', () => {
+  assert.equal(triageEscalationCategory({ verdict: 'MAIN_DIRTY_BACKSTOP' }), 'env');
+});
+
+test('triageEscalationCategory: ESCALATE → decision（意思決定が必要）', () => {
+  assert.equal(triageEscalationCategory({ verdict: 'ESCALATE' }), 'decision');
+});
+
+test('triageEscalationCategory: RED → decision', () => {
+  assert.equal(triageEscalationCategory({ verdict: 'RED' }), 'decision');
+});
+
+test('triageEscalationCategory: その他の verdict → decision（デフォルト）', () => {
+  assert.equal(triageEscalationCategory({ verdict: 'IMPL_DONE' }), 'decision');
+  assert.equal(triageEscalationCategory({ verdict: 'UNKNOWN_TOKEN' }), 'decision');
 });

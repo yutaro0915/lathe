@@ -349,3 +349,30 @@ test('planBoardProjection: Status field 未解決なら全 skip（fail-closed・
   assert.deepEqual(mutations, []);
   assert.equal(warnings.length, 1);
 });
+
+// --- classifyIssue: escalation triage 三分岐（ADR 0035 §4 ③, #117） ---
+
+test('classifyIssue: escalation × needs-review × 教材なし → CLASS_EXPLAIN（triage ③ 教材先行生成）', () => {
+  const issue = issueState({ labels: ['task-request', 'escalation', 'needs-review'] });
+  const result = classifyIssue(issue, emptyCtx);
+  assert.equal(result.class, CLASS_EXPLAIN, 'triage ③: 意思決定が必要な escalation は教材を先に生成');
+});
+
+test('classifyIssue: escalation × needs-review × done-explain label → WAIT_ESCALATION（教材あり）', () => {
+  const issue = issueState({ labels: ['task-request', 'escalation', 'needs-review', 'done-explain'] });
+  const result = classifyIssue(issue, emptyCtx);
+  assert.equal(result.class, WAIT_ESCALATION, '教材あり（label）→ PdM 裁定待ち');
+});
+
+test('classifyIssue: escalation × needs-review × explains/ 正本あり → WAIT_ESCALATION（ファイル evidence）', () => {
+  const issue = issueState({ labels: ['task-request', 'escalation', 'needs-review'] });
+  const ctx = { ...emptyCtx, explainedIssueNumbers: new Set([100]) };
+  const result = classifyIssue(issue, ctx);
+  assert.equal(result.class, WAIT_ESCALATION, '教材あり（explains/ 正本）→ PdM 裁定待ち');
+});
+
+test('classifyIssue: escalation のみ（needs-review なし）→ WAIT_ESCALATION（変更なし）', () => {
+  const issue = issueState({ labels: ['task-request', 'escalation'] });
+  const result = classifyIssue(issue, emptyCtx);
+  assert.equal(result.class, WAIT_ESCALATION, 'needs-review なしの escalation は WAIT_ESCALATION のまま');
+});

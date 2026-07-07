@@ -42,7 +42,7 @@ import {
   worktreeNameFor,
 } from './inner-loop-core.mjs';
 import { landBranchWithReview, extractLatestPlanCommentText } from './inner-loop-land.mjs';
-import { projectEscalation } from './inner-loop-escalation.mjs';
+import { projectEscalation, triageEscalationCategory } from './inner-loop-escalation.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
 import { runPlanTask, dryRunPlanTask, readPlanFormatOrDie } from './inner-loop-plan-task.mjs';
 import {
@@ -225,9 +225,17 @@ function appendManifestEntry(issueNumber, entry) {
   writeFileSync(p, JSON.stringify(buildManifest(unit, stages), null, 2) + '\n', 'utf8');
 }
 
-// escalation の issue 化 (#201 分解 6): 対象 issue に escalation label ＋
-// レポート全文 comment を投影する（.escalation.md は廃止・非致命）。
+// escalation の issue 化 + triage 三分岐 (#201 分解 6, #117 ADR 0035 §4)。
 function escalateIssue(issueNumber, stage, verdict, resultExcerpt) {
+  const category = triageEscalationCategory({ verdict });
+  if (category === 'decision') {
+    // (iii) needs-review を付与 → orchestrator が EXPLAIN dispatch（ADR 0035 §4 ③）
+    const r = spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', NEEDS_REVIEW_LABEL],
+      { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    if (r.status !== 0) log(`warning: could not add ${NEEDS_REVIEW_LABEL} label to #${issueNumber} (continuing)`);
+  } else if (category === 'env') {
+    log(`triage: env — stage=${stage} verdict=${verdict ?? '(none)'}: see design/test-failure-playbook.md`);
+  }
   projectEscalation({ issueNumber, stage, verdict, resultExcerpt }, { log });
 }
 
@@ -436,8 +444,7 @@ if (isMain) {
     if (state === 'PLAN_REVIEW' && verdict === 'RED') { // retry TASK_PLAN with 所見注入 (#192 Major#2) or label+stop (ADR 0035 §5)
       planReviewFeedback = envelope.result ?? '';
       if (++planReviewRetries <= DRIVER_CONFIG.maxPlanReviewRetries) { log(`PLAN_REVIEW RED → retry TASK_PLAN (${planReviewRetries}/${DRIVER_CONFIG.maxPlanReviewRetries})`); state = 'TASK_PLAN'; continue; }
-      spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', NEEDS_REVIEW_LABEL], { cwd: REPO_ROOT, stdio: 'inherit' }); // escalation label は escalateIssue が付与
-      escalateIssue(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${DRIVER_CONFIG.maxPlanReviewRetries} retries.\n\n${envelope.result ?? ''}`);
+      escalateIssue(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${DRIVER_CONFIG.maxPlanReviewRetries} retries.\n\n${envelope.result ?? ''}`); // needs-review は triage 'decision' で付与
       state = 'ESCALATE'; break;
     }
 

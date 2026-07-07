@@ -31,9 +31,9 @@ function verdictInstruction(tokens) {
   return `最終行に必ず次の形式で verdict を出力してください（他の形式は不可）:\nVERDICT: <TOKEN>\n<TOKEN> は次のいずれか: ${tokens.join(' | ')}`;
 }
 
-// Agent-side ESCALATE is provisionally retained (#116 監査役裁定 3, 2026-07-07):
-// escalation の intake 統一（関門一元化・agent 自発 verdict 廃止 = ADR 0030 追記 E）
-// は #117 scope。それまでは現行の escalation 契約を維持する。
+// Agent-side ESCALATE is retained and routed through triage (#117, ADR 0035 §4):
+// agent ESCALATE → driver triage 'decision' → needs-review + escalation label +
+// orchestrator EXPLAIN dispatch（PdM が読む教材を自動生成してから裁定待ちへ）。
 const IMPL_LOOP_ESCALATION_CONTRACT = [
   'escalation: plan（issue 本文）の前提が現実（コードの現状・依存状態）と乖離している場合は、その場で再計画せず ESCALATE してください。',
   'issue が未定義の契約・ロール割当・規約新設の決定を求めている（問題は述べられているが実装解が一意でない）場合は、最小変更を発明せず ESCALATE してください。',
