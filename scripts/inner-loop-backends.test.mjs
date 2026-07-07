@@ -109,6 +109,15 @@ test('buildCodexArgs: never includes --dangerously-bypass or --ephemeral (regres
   }
 });
 
+test('buildCodexArgs: never includes --settings (AC 4 — codex spawn must not receive inner settings path)', () => {
+  // Regression guard: --settings is for `claude` spawns only (buildClaudeArgs).
+  // If --settings were added to codex argv, the codex CLI would reject or misinterpret it.
+  for (const stage of ['PLAN', 'IMPLEMENT']) {
+    const args = buildCodexArgs(stage, 'p', '/cwd', '/tmp/out.txt');
+    assert.ok(!args.includes('--settings'), `stage=${stage}: buildCodexArgs must never include --settings`);
+  }
+});
+
 test('buildCodexArgs: optional model flag (-m) is appended when provided', () => {
   const args = buildCodexArgs('PLAN', 'p', '/repo', '/tmp/out.txt', undefined, 'gpt-5.4');
   assert.ok(args.includes('-m'));

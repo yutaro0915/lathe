@@ -3,19 +3,11 @@
 // under the 500-line guard. All exports are pure functions; no spawnSync here.
 
 import { readFileSync } from 'node:fs';
-import { isAbsolute, join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isAbsolute } from 'node:path';
+import { INNER_SETTINGS_PATH } from './inner-loop-core.mjs';
 
-const __backends_dirname = dirname(fileURLToPath(import.meta.url));
-
-/**
- * Absolute path to the inner-loop Claude settings file.
- * Passed as --settings to every `claude` spawn so the spawn cwd cannot
- * influence which settings layer is loaded (belt & braces against
- * settings.local implicit merge — ADR #206 分解 C).
- * Contract: INNER_SETTINGS_PATH = <REPO_ROOT>/.claude/settings.json (PR #223).
- */
-export const INNER_SETTINGS_PATH = join(__backends_dirname, '..', '.claude', 'settings.json');
+// Re-export so callers that already import from this module continue to work.
+export { INNER_SETTINGS_PATH };
 
 // plan-task PLAN reads source GitHub issues (issue = task, ADR 0031) —
 // read-only gh access only; child issue creation is the driver's job.

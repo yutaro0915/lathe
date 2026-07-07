@@ -39,7 +39,7 @@ import {
   classifyAll, formatDecision, isDispatchClass, planBoardProjection,
 } from './orchestrator-classify.mjs';
 import { updateProjectItemStatus } from './inner-loop-projects.mjs';
-import { INNER_SETTINGS_PATH } from './inner-loop-backends.mjs';
+import { INNER_SETTINGS_PATH } from './inner-loop-core.mjs';
 import {
   ensureDoneExplainLabel, explainedIssueNumbersFrom, formatExplainPostProcessPlan,
   listExplainFileNames, runExplainPostProcess, selectDoneExplainRepairs,
