@@ -74,13 +74,22 @@ test('backendCostSourceForEnvelope: labels backend envelope cost sources', () =>
 
 // --- buildManifest / paths / naming ---
 
-test('buildManifest: wraps issue number and stages array', () => {
-  const manifest = buildManifest(9, [{ stage: 'IMPLEMENT' }], { mode: 'plan-task' });
-  assert.deepEqual(manifest, { issue: 9, mode: 'plan-task', stages: [{ stage: 'IMPLEMENT' }] });
+test('buildManifest: wraps unit and stages with unit field (AC#2 #143)', () => {
+  const unit = { kind: 'issue', id: 9 };
+  assert.deepEqual(buildManifest(unit, [{ stage: 'IMPLEMENT' }]), { unit, stages: [{ stage: 'IMPLEMENT' }] });
 });
 
-test('manifestPathFor: issue-keyed manifest path', () => {
-  assert.match(manifestPathFor(42), /\.lathe\/runs\/issue-42\.json$/);
+test('buildManifest: plan kind produces plan manifest', () => {
+  const unit = { kind: 'plan', id: 43 };
+  assert.deepEqual(buildManifest(unit, []), { unit, stages: [] });
+});
+
+test('manifestPathFor: issue unit → issue-keyed path (AC#1 #143)', () => {
+  assert.match(manifestPathFor({ kind: 'issue', id: 42 }), /\.lathe\/runs\/issue-42\.json$/);
+});
+
+test('manifestPathFor: plan unit → plan-keyed path (AC#1 #143)', () => {
+  assert.match(manifestPathFor({ kind: 'plan', id: 43 }), /\.lathe\/runs\/plan-43\.json$/);
 });
 
 test('worktreeNameFor: inner-issue naming', () => {

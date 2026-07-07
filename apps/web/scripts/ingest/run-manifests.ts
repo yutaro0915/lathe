@@ -119,9 +119,17 @@ function integerOrNull(value: unknown): number | null {
 }
 
 function sourceIssueNumber(runKey: string, manifest: JsonObject): number | null {
-  // Task-keyed runs (ADR 0025 TASK-1.1) never carry a GitHub issue number:
-  // no `manifest.issue` field is written for them (see buildManifest), and
-  // `task-<slug>` never matches the issue/plan filename fallback below.
+  // New manifests (post-#143) carry unit: { kind, id }. kind 'issue'/'plan' → id is
+  // the GitHub issue number; other kinds (e.g. 'task') carry no issue number.
+  // Legacy manifests use manifest.issue = N (backward compat).
+  // Final fallback: parse the run key for issue-N/plan-N filename patterns.
+  const unit = asObject(manifest.unit);
+  if (unit) {
+    const kind = stringOrNull(unit.kind);
+    const id = integerOrNull(unit.id);
+    if ((kind === 'issue' || kind === 'plan') && id != null) return id;
+    return null; // task or other kind — no GitHub issue number
+  }
   const explicit = integerOrNull(manifest.issue);
   if (explicit != null) return explicit;
   const match = /^(?:issue|plan)-(\d+)(?:\.attempt\d+)?$/.exec(runKey);

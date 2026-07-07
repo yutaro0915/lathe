@@ -171,6 +171,61 @@ test('deriveRunManifestRows: plan- run keys keep classifying as loopKind "plan" 
   }
 });
 
+test('deriveRunManifestRows: new unit:{kind:"issue",id} format derives sourceIssueNumber (AC#2 #143)', () => {
+  const repoRoot = makeTmpRepo('lathe-issue-unit');
+  try {
+    const manifestPath = writeManifest(repoRoot, 'issue-143.json', {
+      unit: { kind: 'issue', id: 143 },
+      stages: [{ stage: 'IMPLEMENT', session_id: 's-impl', verdict: 'IMPL_DONE' }],
+    });
+
+    const rows = deriveRunManifestRows({ repoRoot, projectId: 'project:issue-unit', manifestPath });
+
+    assert.equal(rows.run.runKey, 'issue-143');
+    assert.equal(rows.run.loopKind, 'issue');
+    assert.equal(rows.run.sourceIssueNumber, 143);
+    assert.equal(rows.run.stageCount, 1);
+    assert.equal(rows.run.lastVerdict, 'IMPL_DONE');
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('deriveRunManifestRows: new unit:{kind:"plan",id} format derives sourceIssueNumber (AC#2 #143)', () => {
+  const repoRoot = makeTmpRepo('lathe-plan-unit');
+  try {
+    const manifestPath = writeManifest(repoRoot, 'plan-43.json', {
+      unit: { kind: 'plan', id: 43 },
+      stages: [{ stage: 'PLAN', session_id: 's-plan', verdict: 'PLAN_READY' }],
+    });
+
+    const rows = deriveRunManifestRows({ repoRoot, projectId: 'project:plan-unit', manifestPath });
+
+    assert.equal(rows.run.runKey, 'plan-43');
+    assert.equal(rows.run.loopKind, 'plan');
+    assert.equal(rows.run.sourceIssueNumber, 43);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('deriveRunManifestRows: unit kind "task" yields null sourceIssueNumber (no regression)', () => {
+  const repoRoot = makeTmpRepo('lathe-task-unit-kind');
+  try {
+    const manifestPath = writeManifest(repoRoot, 'task-5.json', {
+      unit: { kind: 'task', id: 5 },
+      stages: [],
+    });
+
+    const rows = deriveRunManifestRows({ repoRoot, projectId: 'project:task-unit-kind', manifestPath });
+
+    assert.equal(rows.run.loopKind, 'task');
+    assert.equal(rows.run.sourceIssueNumber, null);
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test('deriveRunManifestRows: task-<slug> run keys classify as loopKind "task" with null sourceIssueNumber (ADR 0025 TASK-1.1)', () => {
   const repoRoot = makeTmpRepo('lathe-task-loop');
   try {

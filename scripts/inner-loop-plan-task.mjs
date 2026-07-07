@@ -27,7 +27,7 @@ import {
   PLAN_TASK_STAGES, PLAN_TASK_TERMINAL,
   UNPARSABLE_VERDICT,
   nextPlanTaskState, runStageWithUnparsableRetry,
-  buildManifestEntry, buildManifest, backendCostSourceForEnvelope,
+  buildManifestEntry, buildManifest, manifestPathFor, backendCostSourceForEnvelope,
   readManifestStages, tailLines, parseBlockedBy,
 } from './inner-loop-core.mjs';
 
@@ -302,20 +302,17 @@ export function readPlanFormatOrDie() {
 
 // --- Side-effect helpers (manifest / escalation / terminals) ---
 
-function planManifestPathFor(issueNumber) {
-  return join(REPO_ROOT, '.lathe', 'runs', `plan-${issueNumber}.json`);
-}
-
 function appendPlanManifestEntry(issueNumber, entry) {
-  const p = planManifestPathFor(issueNumber);
+  const unit = { kind: 'plan', id: issueNumber };
+  const p = manifestPathFor(unit);
   mkdirSync(dirname(p), { recursive: true });
   const stages = readManifestStages(p);
   stages.push(entry);
-  writeFileSync(p, JSON.stringify(buildManifest(issueNumber, stages, { mode: 'plan-task' }), null, 2) + '\n', 'utf8');
+  writeFileSync(p, JSON.stringify(buildManifest(unit, stages), null, 2) + '\n', 'utf8');
 }
 
 function writePlanEscalation(issueNumber, stage, verdict, resultExcerpt) {
-  const p = join(REPO_ROOT, '.lathe', 'runs', `plan-${issueNumber}.escalation.md`);
+  const p = manifestPathFor({ kind: 'plan', id: issueNumber }).replace(/\.json$/, '.escalation.md');
   mkdirSync(dirname(p), { recursive: true });
   appendFileSync(p, [
     `# escalation — plan-task issue #${issueNumber}`, '',
@@ -400,7 +397,7 @@ function completeAskPdm(issueNumber, resultText) {
 export function dryRunPlanTask(issueNumber, issue, backendFlags) {
   const planFormat = readPlanFormatOrDie();
   log(`dry-run: plan-task issue #${issueNumber} (${NEEDS_PLAN_LABEL} label present)`);
-  log(`dry-run: manifest ${planManifestPathFor(issueNumber)}`);
+  log(`dry-run: manifest ${manifestPathFor({ kind: 'plan', id: issueNumber })}`);
   const refs = parseBlockedBy(issue.body);
   log(refs.length === 0
     ? 'dry-run: blocked-by — no refs in issue body'
@@ -483,7 +480,7 @@ export function runPlanTask(issueNumber, issue, backendFlags) {
     state = next;
   }
 
-  if (state === 'ESCALATE') die(`plan-task escalated — see .lathe/runs/plan-${issueNumber}.escalation.md`);
+  if (state === 'ESCALATE') die(`plan-task escalated — see ${manifestPathFor({ kind: 'plan', id: issueNumber }).replace(/\.json$/, '.escalation.md')}`);
   if (state === 'ASK_PDM') return completeAskPdm(issueNumber, planText);
   if (state === PLAN_TASK_TERMINAL) return completeFileChildren(issueNumber, planText);
   return 0;

@@ -2,15 +2,21 @@
 // (scripts/inner-loop.mjs) and the plan-task runner
 // (scripts/inner-loop-plan-task.mjs). Split from inner-loop.mjs at the #116
 // task-loop shrink to keep every module under the 500-line file-size guard.
-//
 // After the shrink (ADR 0030 §2-3) the driver has two run types:
 //   - task loop: IMPLEMENT (worktree) → LAND (PR creation, Closes #N,
 //     auto-merge armed at PR-creation time — 監査役裁定 1/4, 2026-07-07)
 //   - plan-task: PLAN (repo root) → FILE_CHILDREN | ASK_PDM
 // The stage tables are ordered arrays so an inspection stage can be inserted
 // later without reshaping the driver (監査役裁定 2).
-//
 // Everything here is pure or fs-read-only; no spawnSync.
+
+/**
+ * @typedef {{ kind: 'issue' | 'plan', id: number }} Unit
+ * Run unit: issue-N (task loop) or plan-N (plan-task); determines path and manifest field.
+ * @typedef {{ unit: Unit, stages: object[] }} Manifest
+ * On-disk manifest at .lathe/runs/<kind>-<id>.json. Replaces legacy { issue: N, stages }
+ * (ADR 0025 drift root cause, #143). Ingest reads both formats (backward compat).
+ */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -86,7 +92,7 @@ export function runStageWithUnparsableRetry({
   recordAttempt,
   onRetry,
   maxRetries = MAX_UNPARSABLE_STAGE_RETRIES,
-} = {}) {
+}) {
   if (typeof runAttempt !== 'function') throw new TypeError('runAttempt is required');
   if (typeof recordAttempt !== 'function') throw new TypeError('recordAttempt is required');
 
@@ -297,9 +303,16 @@ export function backendCostSourceForEnvelope(envelope) {
   return null;
 }
 
-// Build the full manifest object for writing.
-export function buildManifest(issueNumber, stages, extra = {}) {
-  return { issue: issueNumber, ...extra, stages };
+/** Path for unit's manifest: .lathe/runs/<kind>-<id>.json (AC#1 #143).
+ * @param {Unit} unit @returns {string} */
+export function manifestPathFor(unit) {
+  return join(REPO_ROOT, '.lathe', 'runs', `${unit.kind}-${unit.id}.json`);
+}
+
+/** Build on-disk manifest; unit replaces legacy issue: N (AC#2 #143).
+ * @param {Unit} unit @param {object[]} stages @returns {Manifest} */
+export function buildManifest(unit, stages) {
+  return { unit, stages };
 }
 
 // Read existing manifest (if present), returning stages array or [].
@@ -382,9 +395,10 @@ export function decideResumeState({ stages, worktree }) {
   let expectedHeadSha = null;
   const skipped = [];
   let unparsableAttemptsForState = 0;
+  /** @type {() => { ok: false, reason: string } | null} */
   const shaMismatch = () => (
     expectedHeadSha && worktree.headSha !== expectedHeadSha
-      ? { ok: false, reason: `sha mismatch: manifest head_sha=${expectedHeadSha} worktree HEAD=${worktree.headSha}` }
+      ? { ok: /** @type {false} */ (false), reason: `sha mismatch: manifest head_sha=${expectedHeadSha} worktree HEAD=${worktree.headSha}` }
       : null
   );
 
