@@ -46,6 +46,7 @@ import {
 import {
   ESCALATION_LABEL, parseInnerIssueWorktrees, parseTaskRunHints, pathsOverlap,
 } from './inner-queue-decisions.mjs';
+import { beginPassLog } from './orchestrator-logs.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -424,6 +425,9 @@ if (isMain) {
   } catch (e) {
     die(`${e.message}\nusage: node scripts/orchestrator.mjs [--max K] [--max-failures N] [--dry-run]`);
   }
+
+  // パス冒頭 ISO timestamp ＋ .lathe/logs/ 生成・7 日超の簡易 rotate（#201 分解 14・非致命）
+  beginPassLog(join(REPO_ROOT, '.lathe', 'logs', 'orchestrator.log'), { log, dryRun: parsed.dryRun });
 
   let locked = false;
   if (!parsed.dryRun) {
