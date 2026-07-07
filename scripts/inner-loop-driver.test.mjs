@@ -94,11 +94,11 @@ test('hasOpenPrForBranch: returns false when gh pr list returns empty array (no 
   assert.equal(ok, false);
 });
 
-test('hasOpenPrForBranch: returns false when gh exits non-zero (fail-safe)', () => {
+test('hasOpenPrForBranch: returns true when gh exits non-zero (fail-safe: skip rebase)', () => {
   const ok = hasOpenPrForBranch('inner/issue-42', {
     spawnSync: () => ({ status: 1, stdout: '' }),
   });
-  assert.equal(ok, false);
+  assert.equal(ok, true);
 });
 
 // --- rebase skip branch: PR 存在時は rebaseWorktree を呼ばない ---

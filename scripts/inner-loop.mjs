@@ -242,15 +242,15 @@ export function rebaseWorktree(wt, deps = {}) {
 
 // Returns true when the branch already has an open PR on the remote — used to
 // guard rebaseWorktree: once a PR exists the branch must not be rebased (push
-// would be non-FF).  On gh failure the check falls back to false (safe: a
-// spurious rebase is the failure mode we are protecting against).
+// would be non-FF).  On gh failure the check falls back to true (safe: skipping
+// a spurious rebase is the failure mode we are protecting against).
 export function hasOpenPrForBranch(branch, deps = {}) {
   const run = deps.spawnSync ?? spawnSync;
   const result = run(
     'gh', ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number'],
     { encoding: 'utf8', cwd: REPO_ROOT },
   );
-  if (result.status !== 0) return false;
+  if (result.status !== 0) return true;
   try {
     const parsed = JSON.parse(result.stdout ?? '[]');
     return Array.isArray(parsed) && parsed.length > 0;
