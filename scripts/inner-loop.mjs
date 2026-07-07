@@ -240,6 +240,25 @@ export function rebaseWorktree(wt, deps = {}) {
   return false;
 }
 
+// Returns true when the branch already has an open PR on the remote — used to
+// guard rebaseWorktree: once a PR exists the branch must not be rebased (push
+// would be non-FF).  On gh failure the check falls back to false (safe: a
+// spurious rebase is the failure mode we are protecting against).
+export function hasOpenPrForBranch(branch, deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
+  const result = run(
+    'gh', ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number'],
+    { encoding: 'utf8', cwd: REPO_ROOT },
+  );
+  if (result.status !== 0) return false;
+  try {
+    const parsed = JSON.parse(result.stdout ?? '[]');
+    return Array.isArray(parsed) && parsed.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function cleanupWorktree(wt, branch) {
   spawnSync('git', ['worktree', 'remove', wt, '--force'], { cwd: REPO_ROOT, stdio: 'inherit' });
   spawnSync('git', ['branch', '-D', branch], { cwd: REPO_ROOT, stdio: 'inherit' });
@@ -359,10 +378,14 @@ if (isMain) {
     const cwd = stageCwd(state, REPO_ROOT, worktreePath);
 
     if (stageRequiresFreshMainRebase(state)) {
-      log(`rebasing worktree onto main before ${state} (issue #${issueNumber})`);
-      if (!rebaseWorktree(worktreePath)) {
-        escalateIssue(issueNumber, state, 'REBASE_CONFLICT', `git rebase main failed in worktree before ${state}`);
-        state = 'ESCALATE'; break;
+      if (hasOpenPrForBranch(branch)) {
+        log(`skipping rebase before ${state} — open PR exists for ${branch} (append-only after PR creation)`);
+      } else {
+        log(`rebasing worktree onto main before ${state} (issue #${issueNumber})`);
+        if (!rebaseWorktree(worktreePath)) {
+          escalateIssue(issueNumber, state, 'REBASE_CONFLICT', `git rebase main failed in worktree before ${state}`);
+          state = 'ESCALATE'; break;
+        }
       }
     }
 
