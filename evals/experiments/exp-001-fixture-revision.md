@@ -1,11 +1,15 @@
 ---
 id: exp-001-fixture-revision
-revision: "meta/exp-fixture の pass_to_task・origin 文言を簡潔化（v1 → v2）。機能変更なし"
+revision:
+  target: rubrics/meta/exp-fixture/rubric.json
+  diff_ref: "#271"
 task_set: []  # fixture rubric の gate 動作を直接確認する（task 集合はなし）
 predicted_diff:
   S: 変化なし（cmd check の内容 "echo '0' → eq:0" は変更しないため blocker 検出率に影響しない）
   C: 変化なし（checks 定義の追加・削除なし。網羅対象が変わらない）
-  Y: 変化なし（文言のみの改訂。gate の PASS/RED 判定ロジックに変更なし）
+  Y:
+    - "baseline PASS かつ candidate PASS → gate の PASS/RED 判定ロジックに変化なし"
+# task_set: [] の fixture 実験のため baseline/candidate 直記形式を使用
 results:
   baseline:
     outcome: PASS
@@ -13,7 +17,7 @@ results:
   candidate:
     outcome: PASS
     note: "candidate rubric（v2: pass_to_task 文言を簡潔化）を適用しても同一 check が GREEN。機能変更なし"
-verdict: ADOPT
+verdict: adopt
 landing_ref: "#271"  # exp-fixture rubric は本 PR と同一スライスで landing
 ---
 
