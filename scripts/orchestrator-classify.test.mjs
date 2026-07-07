@@ -79,8 +79,8 @@ const ISSUE_TABLE = [
     expected: WAIT_DEP,
   },
   {
-    name: 'needs-plan → PLAN（plan 未確定）',
-    issue: issueState({ labels: ['task-request', 'needs-plan', 'needs-review'] }),
+    name: 'needs-plan（無印）→ PLAN（plan 未確定）',
+    issue: issueState({ labels: ['task-request', 'needs-plan'] }),
     ctx: emptyCtx,
     expected: CLASS_PLAN,
   },
@@ -116,6 +116,18 @@ for (const row of ISSUE_TABLE) {
     assert.equal(decision.class, row.expected);
   });
 }
+
+test('classifyIssue: needs-plan × needs-review は Ready まで WAIT_APPROVAL（分解の承認前 dispatch を防ぐ）', () => {
+  const issue = { number: 171, labels: ['task-request', 'needs-plan', 'needs-review', 'done-explain'], blockedBy: [], statusName: 'Approval' };
+  const d = classifyIssue(issue, {});
+  assert.equal(d.class, WAIT_APPROVAL);
+});
+
+test('classifyIssue: needs-plan × needs-review × Ready は PLAN として dispatch される', () => {
+  const issue = { number: 171, labels: ['task-request', 'needs-plan', 'needs-review'], blockedBy: [], statusName: 'Ready' };
+  const d = classifyIssue(issue, {});
+  assert.equal(d.class, CLASS_PLAN);
+});
 
 test('classifyIssue: WAIT_DEP carries the unresolved refs', () => {
   const decision = classifyIssue(

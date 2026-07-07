@@ -93,6 +93,15 @@ export function classifyIssue(issue, ctx) {
     return { class: WAIT_DEP, reason: `blocked-by ${unresolved.map((n) => `#${n}`).join(', ')} が open`, unresolved };
   }
   if (hasLabel(issue.labels, NEEDS_PLAN_LABEL)) {
+    // needs-review が併記された分解 task は Ready（PdM 承認）まで dispatch しない。
+    // 分解は無印の子を産み、子は自動実装される——親の承認を飛ばすと ADR 0035 §1 の
+    // 承認モデルが崩れる（2026-07-07 監査検出: #171 が Ready 前に分解される経路）。
+    if (hasLabel(issue.labels, NEEDS_REVIEW_LABEL) && issue.statusName !== STATUS_READY) {
+      return {
+        class: WAIT_APPROVAL,
+        reason: 'needs-plan × needs-review — 分解も PdM の Ready 承認後（子が自動実装されるため）',
+      };
+    }
     return { class: CLASS_PLAN, reason: 'plan 未確定（needs-plan）— driver が plan-task を実行' };
   }
   if (hasLabel(issue.labels, NEEDS_REVIEW_LABEL)) {
