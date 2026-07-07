@@ -21,6 +21,7 @@ import {
 import {
   CLASS_EXPLAIN, CLASS_IMPLEMENT, CLASS_PLAN, CLASS_PR_REVIEW,
 } from './orchestrator-classify.mjs';
+import { INNER_SETTINGS_PATH } from './inner-loop-backends.mjs';
 
 // --- parseOrchestratorArgs ---
 
@@ -102,11 +103,19 @@ test('buildDispatchSpec: EXPLAIN uses the SETUP.md §6 canonical claude -p form'
   assert.equal(spec.args[0], '-p');
   assert.equal(spec.args[1], buildExplainPrompt(189));
   assert.match(spec.args[1], /issue #189 に対して \.claude\/skills\/explain-diff\/SKILL\.md の解説 loop を実行して/);
-  assert.equal(spec.args[2], '--allowedTools');
-  assert.deepEqual(spec.args.slice(3), [...EXPLAIN_ALLOWED_TOOLS]);
+  const allowedToolsIdx = spec.args.indexOf('--allowedTools');
+  assert.notEqual(allowedToolsIdx, -1, 'must include --allowedTools');
+  assert.deepEqual(spec.args.slice(allowedToolsIdx + 1), [...EXPLAIN_ALLOWED_TOOLS]);
   assert.ok(EXPLAIN_ALLOWED_TOOLS.includes('Write(explains/**)'), 'FS 書き込みは explains/ のみ');
   assert.ok(!EXPLAIN_ALLOWED_TOOLS.includes('Bash'), '無制限 Bash は許可しない');
   assert.equal(spec.logKey, 'explain-189');
+});
+
+test('buildDispatchSpec: EXPLAIN includes --settings INNER_SETTINGS_PATH', () => {
+  const spec = buildDispatchSpec({ class: CLASS_EXPLAIN, number: 189 });
+  const idx = spec.args.indexOf('--settings');
+  assert.notEqual(idx, -1, 'must include --settings');
+  assert.equal(spec.args[idx + 1], INNER_SETTINGS_PATH, '--settings value must be INNER_SETTINGS_PATH');
 });
 
 test('buildDispatchSpec: PR_REVIEW spawns the review engine with --pr', () => {

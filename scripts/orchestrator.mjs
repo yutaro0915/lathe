@@ -39,6 +39,7 @@ import {
   classifyAll, formatDecision, isDispatchClass, planBoardProjection,
 } from './orchestrator-classify.mjs';
 import { updateProjectItemStatus } from './inner-loop-projects.mjs';
+import { INNER_SETTINGS_PATH } from './inner-loop-core.mjs';
 import {
   ensureDoneExplainLabel, explainedIssueNumbersFrom, formatExplainPostProcessPlan,
   listExplainFileNames, runExplainPostProcess, selectDoneExplainRepairs,
@@ -47,7 +48,6 @@ import {
   ESCALATION_LABEL, parseInnerIssueWorktrees, parseTaskRunHints, pathsOverlap,
 } from './inner-queue-decisions.mjs';
 import { beginPassLog } from './orchestrator-logs.mjs';
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
 const RUNS_DIR = join(REPO_ROOT, '.lathe', 'runs');
@@ -209,7 +209,7 @@ export function buildDispatchSpec(decision, { execPath = process.execPath } = {}
     case CLASS_EXPLAIN:
       return {
         command: 'claude',
-        args: ['-p', buildExplainPrompt(decision.number), '--allowedTools', ...EXPLAIN_ALLOWED_TOOLS],
+        args: ['-p', buildExplainPrompt(decision.number), '--settings', INNER_SETTINGS_PATH, '--allowedTools', ...EXPLAIN_ALLOWED_TOOLS],
         logKey: `explain-${decision.number}`,
       };
     case CLASS_PR_REVIEW:

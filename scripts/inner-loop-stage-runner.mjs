@@ -12,7 +12,7 @@ import process from 'node:process';
 import {
   stagePermissions, stageSandbox, buildCodexArgs, buildClaudeArgs,
   stripFrontmatter, buildCodexPrompt, parseCodexSessionId, parseCodexCostReport,
-  selectBackend,
+  selectBackend, INNER_SETTINGS_PATH,
 } from './inner-loop-backends.mjs';
 import { REPO_ROOT } from './inner-loop-core.mjs';
 
@@ -89,7 +89,7 @@ export function logDryRunStage(stage, backendFlags, cwd, promptPreview) {
   } else {
     const { agent, permissionMode, allowedTools } = stagePermissions(stage);
     log(`dry-run: stage=${stage} backend=claude agent=${agent} permission-mode=${permissionMode} allowedTools=${(allowedTools || []).join(',')} cwd=${cwd}`);
-    log(`dry-run: claude -p '<prompt>' --agent ${agent} --output-format json --permission-mode ${permissionMode}`);
+    log(`dry-run: claude -p '<prompt>' --agent ${agent} --output-format json --permission-mode ${permissionMode} --settings ${INNER_SETTINGS_PATH}`);
   }
   log(`dry-run: prompt preview:\n${promptPreview}\n`);
 }

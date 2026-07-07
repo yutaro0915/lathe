@@ -4,6 +4,10 @@
 
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import { INNER_SETTINGS_PATH } from './inner-loop-core.mjs';
+
+// Re-export so callers that already import from this module continue to work.
+export { INNER_SETTINGS_PATH };
 
 // plan-task PLAN reads source GitHub issues (issue = task, ADR 0031) —
 // read-only gh access only; child issue creation is the driver's job.
@@ -201,7 +205,13 @@ export function buildCodexArgs(stage, prompt, cwd, lastmsgPath, repoRoot, model)
  */
 export function buildClaudeArgs(stage, prompt, resumeSessionId) {
   const { agent, permissionMode, allowedTools } = stagePermissions(stage);
-  const args = ['-p', prompt, '--agent', agent, '--output-format', 'json', '--permission-mode', permissionMode];
+  const args = [
+    '-p', prompt,
+    '--agent', agent,
+    '--output-format', 'json',
+    '--permission-mode', permissionMode,
+    '--settings', INNER_SETTINGS_PATH,
+  ];
   if (allowedTools && allowedTools.length > 0) args.push('--allowedTools', allowedTools.join(','));
   if (resumeSessionId) args.push('--resume', resumeSessionId);
   return args;
