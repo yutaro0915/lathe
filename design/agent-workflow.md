@@ -102,6 +102,11 @@ skill と rubric は**結合**している（skill はどの rubric を参照す
 
 ## 保留（意図的な deferral・2026-07-02）: provider 非依存の単一 agent/harness ディレクトリ
 
+> **解除（2026-07-07・#206／PR #223）**: 再考トリガー (a)「hooks 管理が破綻した時」が発火
+> （統治 hook が inner の planner 判断に滲む・issue-create-guard の適用範囲混線）。
+> **tracked `.claude/` = inner 専用／untracked local 層 = outer 専用**の物理分離で解消。
+> 正本 = `ops/outer-harness/`（README・install.sh）。制約「inner/outer harness 分離を壊さない」は充足。
+
 **将来形**: agent 定義・hooks 等を単一ディレクトリで管理し、実行時引数に応じて provider ごとに agent を構築して実行する（現状は役割の正本 `.claude/agents/*.md` までは単一化済みで、cc=参照注入／codex=inline と「構築」だけ実行時。未統一なのは hooks・permission 系の管理）。
 
 **今はやらない（ユーザー判断）**。根拠: lathe-phase7 で経験した問題——**inner loop と outer loop の harness が混じると面倒**。現状で回っているので、問題が出るまで現行のまま。
