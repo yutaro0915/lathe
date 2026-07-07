@@ -8,6 +8,7 @@ import {
   EXPLAIN_ALLOWED_TOOLS,
   OUTCOME_ESCALATION, OUTCOME_FAILURE, OUTCOME_SUCCESS,
   applyBreaker,
+  breakerFromLedger,
   buildDispatchSpec,
   buildExplainPrompt,
   classifyChildOutcome,
@@ -17,6 +18,7 @@ import {
   parseLiveMarker,
   parseOrchestratorArgs,
   pickNextDispatch,
+  runDispatch,
 } from './orchestrator.mjs';
 import {
   CLASS_EXPLAIN, CLASS_IMPLEMENT, CLASS_PLAN, CLASS_PR_REVIEW,
@@ -192,4 +194,119 @@ test('pickNextDispatch: returns -1 when everything conflicts', () => {
   const active = [{ kind: 'issue', number: 1, class: CLASS_IMPLEMENT, issue: { body: 'Touches: .' } }];
   const pending = [{ kind: 'issue', number: 2, class: CLASS_IMPLEMENT, issue: { body: 'Touches: scripts/x.mjs' } }];
   assert.equal(pickNextDispatch(pending, active), -1);
+});
+
+// --- runDispatch: fire-and-forget（#256 pass が dispatch 完了を待たないこと） ---
+
+test('runDispatch: spawnFn は await されない — pass は spawn 直後に返る', () => {
+  const spawned = [];
+  // spawnFn が Promise を返しても runDispatch は await しない（同期で返る）。
+  // settled=false のまま result が返れば「await されていない」証明。
+  let settled = false;
+  const spawnFn = (decision) => {
+    spawned.push(decision.number);
+    return new Promise((resolve) => { setImmediate(() => { settled = true; resolve(); }); });
+  };
+  const dispatches = [
+    { class: CLASS_IMPLEMENT, number: 1, kind: 'issue', issue: {} },
+    { class: CLASS_IMPLEMENT, number: 2, kind: 'issue', issue: {} },
+  ];
+  const result = runDispatch({ dispatches, max: 5, spawnFn });
+  assert.equal(result.dispatched, 2);
+  assert.equal(result.deferred, 0);
+  assert.equal(settled, false, 'spawnFn の Promise は await されていない（pass は即返却）');
+  assert.deepEqual(spawned.sort((a, b) => a - b), [1, 2]);
+});
+
+test('runDispatch: 並列上限 max を超えたら残りは DEFER', () => {
+  const spawned = [];
+  const spawnFn = (d) => { spawned.push(d.number); };
+  const dispatches = [
+    { class: CLASS_IMPLEMENT, number: 1, kind: 'issue', issue: {} },
+    { class: CLASS_IMPLEMENT, number: 2, kind: 'issue', issue: {} },
+    { class: CLASS_IMPLEMENT, number: 3, kind: 'issue', issue: {} },
+  ];
+  const result = runDispatch({ dispatches, max: 2, spawnFn });
+  assert.equal(result.dispatched, 2);
+  assert.equal(result.deferred, 1);
+  assert.equal(spawned.length, 2);
+});
+
+test('runDispatch: Touches 衝突は deferred（次パスで再判定）', () => {
+  const spawned = [];
+  const spawnFn = (d) => { spawned.push(d.number); };
+  // #1 と #2 は同じ Touches（scripts/）— 並列 writer を避けるため #2 は defer
+  const dispatches = [
+    { class: CLASS_IMPLEMENT, number: 1, kind: 'issue', issue: { body: 'Touches: scripts/' } },
+    { class: CLASS_IMPLEMENT, number: 2, kind: 'issue', issue: { body: 'Touches: scripts/x.mjs' } },
+  ];
+  const result = runDispatch({ dispatches, max: 5, spawnFn });
+  assert.equal(result.dispatched, 1, '#1 のみ dispatch');
+  assert.equal(result.deferred, 1, '#2 は Touches 衝突で defer');
+  assert.deepEqual(spawned, [1]);
+});
+
+// --- breakerFromLedger（cross-pass circuit breaker / AC2） ---
+
+test('breakerFromLedger: empty ledger → closed state', () => {
+  assert.deepEqual(breakerFromLedger([], 3), { consecutiveFailures: 0, open: false });
+  assert.deepEqual(breakerFromLedger(null, 3), { consecutiveFailures: 0, open: false });
+});
+
+test('breakerFromLedger: three consecutive failures open the circuit（applyBreaker と同義味論）', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+  ];
+  assert.deepEqual(breakerFromLedger(records, 3), { consecutiveFailures: 3, open: true });
+});
+
+test('breakerFromLedger: success resets consecutive count', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_SUCCESS },
+    { outcome: OUTCOME_FAILURE },
+  ];
+  assert.deepEqual(breakerFromLedger(records, 3), { consecutiveFailures: 1, open: false });
+});
+
+test('breakerFromLedger: escalation は故障と数えない（count 不変・open しない）', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_ESCALATION }, // 数えない
+    { outcome: OUTCOME_FAILURE },    // これで合計 3 → open
+  ];
+  assert.deepEqual(breakerFromLedger(records, 3), { consecutiveFailures: 3, open: true });
+  // escalation だけでは open しない
+  const esc = [{ outcome: OUTCOME_ESCALATION }, { outcome: OUTCOME_ESCALATION }];
+  assert.deepEqual(breakerFromLedger(esc, 3), { consecutiveFailures: 0, open: false });
+});
+
+test('breakerFromLedger: maxFailures=0 はブレーカー無効化', () => {
+  const records = Array.from({ length: 10 }, () => ({ outcome: OUTCOME_FAILURE }));
+  assert.deepEqual(breakerFromLedger(records, 0), { consecutiveFailures: 10, open: false });
+});
+
+test('breakerFromLedger: open になった時点で短絡（以降の record を読まない）', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },  // ← open
+    { outcome: OUTCOME_SUCCESS },  // ← 短絡で読まれない
+  ];
+  const result = breakerFromLedger(records, 3);
+  assert.equal(result.open, true);
+  assert.equal(result.consecutiveFailures, 3); // success にリセットされていない
+});
+
+test('breakerFromLedger: 壊れた record（outcome なし）は skip', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { ts: '2026-07-08T00:00:00.000Z' }, // outcome なし → skip
+    { outcome: OUTCOME_FAILURE },
+  ];
+  assert.deepEqual(breakerFromLedger(records, 3), { consecutiveFailures: 2, open: false });
 });
