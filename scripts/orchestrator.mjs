@@ -15,7 +15,10 @@
 //   escalation は故障と数えない（#201: PdM 裁定待ちの正常経路であり系の故障ではない）。
 // - dispatch は既存コマンドの spawn（新しい実行経路を作らない）:
 //     PLAN / IMPLEMENT → node scripts/inner-loop.mjs <n>（run type は driver が label で選ぶ）
-//     EXPLAIN          → claude -p（.claude/skills/explain-diff/SETUP.md §6 の正規形）
+//     EXPLAIN          → claude -p（.claude/skills/explain-diff/SETUP.md §6 の正規形）。
+//                        完走（exit 0）後は orchestrator-explain.mjs の後処理 —
+//                        explains/ 正本の自動 PR（Refs のみ・Closes しない）＋
+//                        done-explain 冪等付与（#201 分解 13・非致命）
 //     PR_REVIEW        → node scripts/review-engine.mjs --pr <n>
 // - Touches 重複の直列化は inner-queue から吸収（parseTaskRunHints / pathsOverlap）。
 //
@@ -36,6 +39,10 @@ import {
   classifyAll, formatDecision, isDispatchClass, planBoardProjection,
 } from './orchestrator-classify.mjs';
 import { updateProjectItemStatus } from './inner-loop-projects.mjs';
+import {
+  ensureDoneExplainLabel, explainedIssueNumbersFrom, formatExplainPostProcessPlan,
+  listExplainFileNames, runExplainPostProcess, selectDoneExplainRepairs,
+} from './orchestrator-explain.mjs';
 import {
   ESCALATION_LABEL, parseInnerIssueWorktrees, parseTaskRunHints, pathsOverlap,
 } from './inner-queue-decisions.mjs';
@@ -368,6 +375,16 @@ async function runDispatch({ dispatches, max, maxFailures }) {
     const before = breaker;
     breaker = applyBreaker(breaker, outcome, maxFailures);
     log(`DONE ${done.decision.class} ${done.decision.kind === 'pr' ? 'PR ' : ''}#${done.decision.number} exit=${exitCode} outcome=${outcome}`);
+    // EXPLAIN 完走後処理（#201 分解 13・非致命）: explains/ 正本の自動 PR ＋
+    // done-explain 冪等付与。runner の allowed-tools は explains/ 書き込みまで —
+    // git 着地と label 保証は機械側の責務。
+    if (done.decision.class === CLASS_EXPLAIN && outcome === OUTCOME_SUCCESS) {
+      try {
+        runExplainPostProcess(done.decision.number, { log });
+      } catch (error) {
+        log(`warning: explain post #${done.decision.number} failed (non-fatal): ${error.message}`);
+      }
+    }
     if (breaker.open && !before.open) {
       log(`CIRCUIT_OPEN after ${maxFailures} consecutive failures — dispatch halted (escalation は数えない)`);
     }
@@ -439,17 +456,31 @@ if (isMain) {
       for (const [issueNumber] of parseInnerIssueWorktrees(wt.stdout)) running.issues.add(issueNumber);
     }
 
-    // ② classify（決定的・分類表は常に表示）
-    const decisions = classifyAll(snapshot, running);
+    // ② classify（決定的・分類表は常に表示）。教材 evidence は label（derive 済み）に
+    // 加えて explains/ の対象 slug 正本（#201 分解 13 — 重複生成防止の第 2 層）。
+    const explainedIssueNumbers = explainedIssueNumbersFrom(listExplainFileNames());
+    const decisions = classifyAll(snapshot, running, { explainedIssueNumbers });
     for (const decision of decisions) log(formatDecision(decision));
     const dispatches = decisions.filter((d) => isDispatchClass(d.class));
+
+    // done-explain repair（非致命・#201 分解 13）: explains/ 正本あり × label なしの自己修復。
+    const repairs = selectDoneExplainRepairs(decisions, explainedIssueNumbers);
 
     if (parsed.dryRun) {
       const plan = planBoardProjection(decisions, snapshot.statusField);
       for (const warning of plan.warnings) log(`dry-run: projection warning: ${warning}`);
       for (const m of plan.mutations) log(`dry-run: projection #${m.number} ${m.fromName ?? '(none)'} → ${m.toName}`);
+      for (const d of repairs) log(`dry-run: done-explain repair #${d.number}（explains/ 正本あり・label 未付与 — 冪等付与する）`);
+      for (const d of dispatches.filter((x) => x.class === CLASS_EXPLAIN)) log(`dry-run: ${formatExplainPostProcessPlan(d.number)}`);
       log(`dry-run: would dispatch ${dispatches.length} item(s), 並列上限 ${parsed.max} — spawn しない`);
       process.exit(0);
+    }
+
+    for (const d of repairs) {
+      const repaired = ensureDoneExplainLabel(d.number);
+      log(repaired.ok
+        ? `done-explain repair: #${d.number}（explains/ 正本あり・label 未付与 → 冪等付与）`
+        : `warning: done-explain repair #${d.number} failed (non-fatal): ${repaired.reason}`);
     }
 
     // ③ dispatch

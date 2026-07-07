@@ -130,6 +130,13 @@ test('classifyIssue: labels are matched case-insensitively', () => {
   assert.equal(decision.class, CLASS_PLAN);
 });
 
+test('classifyIssue: needs-review × explains/ 正本あり（label なし）→ WAIT_APPROVAL（#201 分解 13 重複生成防止）', () => {
+  const issue = issueState({ labels: ['task-request', 'needs-review'] });
+  const decision = classifyIssue(issue, { ...emptyCtx, explainedIssueNumbers: new Set([100]) });
+  assert.equal(decision.class, WAIT_APPROVAL);
+  assert.match(decision.reason, /explains\/ 正本/, '証拠の種別を reason に出す');
+});
+
 // --- classifyPr: 表駆動（全クラス） ---
 
 const PR_TABLE = [
@@ -202,6 +209,20 @@ test('classifyAll: openBlockerRefs (集合外 open 参照) keep an issue in WAIT
     openBlockerRefs: [99],
   };
   assert.equal(classifyAll(snapshot)[0].class, WAIT_DEP);
+});
+
+test('classifyAll: extras.explainedIssueNumbers が EXPLAIN の再発火を抑止する', () => {
+  const snapshot = {
+    issues: [issueState({ number: 20, labels: ['task-request', 'needs-review'] })],
+    prs: [],
+    openBlockerRefs: [],
+  };
+  assert.equal(classifyAll(snapshot)[0].class, CLASS_EXPLAIN, '教材 evidence なし → EXPLAIN');
+  assert.equal(
+    classifyAll(snapshot, {}, { explainedIssueNumbers: new Set([20]) })[0].class,
+    WAIT_APPROVAL,
+    'explains/ 正本 evidence → 教材あり扱い',
+  );
 });
 
 test('classifyAll: running sets route issues and PRs to WAIT_RUNNING', () => {
