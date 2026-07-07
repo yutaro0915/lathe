@@ -32,7 +32,7 @@ import {
   MAX_PLAN_REVIEW_RETRIES,
   parseDriverArgsWith, selectRunType, nextState,
   runStageWithUnparsableRetry,
-  buildManifestEntry, buildManifest, backendCostSourceForEnvelope, readManifestStages,
+  buildManifestEntry, buildManifest, manifestPathFor, backendCostSourceForEnvelope, readManifestStages,
   buildEscalationMarkdown, decideResumeState, tailLines,
   isWorktreeStage, stageRequiresFreshMainRebase,
   parseBlockedBy, issueLabelNames, hasNeedsReviewLabel,
@@ -187,7 +187,7 @@ function inspectResumeWorktree(issueNumber) {
 }
 
 function resolveResumeState(issueNumber) {
-  const p = manifestPathFor(issueNumber);
+  const p = manifestPathFor({ kind: 'issue', id: issueNumber });
   if (!existsSync(p)) return { ok: false, reason: `missing manifest at ${p}` };
   const stages = readManifestStages(p);
   const worktree = inspectResumeWorktree(issueNumber);
@@ -210,22 +210,21 @@ function worktreeHeadShaOrDie(worktreePath, stage) {
   return head;
 }
 
-export function manifestPathFor(issueNumber) {
-  return join(REPO_ROOT, '.lathe', 'runs', `issue-${issueNumber}.json`);
-}
+// manifestPathFor(unit) is exported from inner-loop-core.mjs via `export *`.
 
 function appendManifestEntry(issueNumber, entry) {
-  const p = manifestPathFor(issueNumber);
+  const unit = { kind: 'issue', id: issueNumber };
+  const p = manifestPathFor(unit);
   mkdirSync(dirname(p), { recursive: true });
   const stages = readManifestStages(p);
   stages.push(entry);
-  writeFileSync(p, JSON.stringify(buildManifest(issueNumber, stages), null, 2) + '\n', 'utf8');
+  writeFileSync(p, JSON.stringify(buildManifest(unit, stages), null, 2) + '\n', 'utf8');
 }
 
 // Escalation markdown path for an issue run — mirrors manifestPathFor's naming.
 // Provisional escalation surface (#116 監査役裁定 3; issue 投函への置換 = #117).
 function escalationPathFor(issueNumber) {
-  return manifestPathFor(issueNumber).replace(/\.json$/, '.escalation.md');
+  return manifestPathFor({ kind: 'issue', id: issueNumber }).replace(/\.json$/, '.escalation.md');
 }
 
 function writeEscalation(issueNumber, stage, verdict, resultExcerpt) {
@@ -300,7 +299,7 @@ export function landBranch(branch, issueNumber, deps = {}) {
 
 function dryRunTaskLoop(issueNumber, issue, backendFlags) {
   const planFormat = readPlanFormatOrDie();
-  log(`dry-run: task loop issue #${issueNumber} | manifest ${manifestPathFor(issueNumber)}`);
+  log(`dry-run: task loop issue #${issueNumber} | manifest ${manifestPathFor({ kind: 'issue', id: issueNumber })}`);
   const refs = parseBlockedBy(issue.body);
   log(refs.length === 0 ? 'dry-run: blocked-by — none' : `dry-run: blocked-by — ${refs.map((n) => `#${n}`).join(', ')}`);
   const { branch: wtBranch, dirName: wtDirName } = worktreeNameFor(issueNumber);
@@ -349,7 +348,7 @@ if (isMain) {
   if (dryRun && resume) {
     const resumeState = resolveResumeState(issueNumber);
     if (!resumeState.ok) dieResumeUnavailable(issueNumber, resumeState.reason);
-    log(`dry-run: resume issue #${issueNumber} from ${manifestPathFor(issueNumber)}`);
+    log(`dry-run: resume issue #${issueNumber} from ${manifestPathFor({ kind: 'issue', id: issueNumber })}`);
     log(`dry-run: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${resumeState.state} head=${resumeState.headSha ?? '(none)'}`);
     if (resumeState.state === TASK_LOOP_TERMINAL) {
       log(`dry-run: ${TASK_LOOP_TERMINAL} — land ${resumeState.branch}: push → gh pr create (body includes Closes #${issueNumber}) → gh pr merge --auto --squash (from repo root)`);
@@ -415,7 +414,7 @@ if (isMain) {
     const prompt = buildStagePrompt(state, stageCtx);
 
     const fallback = resume
-      ? (resolveResumeBackend(readManifestStages(manifestPathFor(issueNumber))) ?? 'claude')
+      ? (resolveResumeBackend(readManifestStages(manifestPathFor({ kind: 'issue', id: issueNumber }))) ?? 'claude')
       : 'claude';
     const backend = selectBackend(state, backendFlags, fallback);
     log(`stage=${state} backend=${backend} cwd=${cwd} — spawning ${backend}`);
