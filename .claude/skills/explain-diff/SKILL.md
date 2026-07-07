@@ -68,6 +68,10 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
 - 質問・註釈は Discussion のネイティブスレッド。自動応答 runner を導入した場合のみ
   agent 返信に目印を付ける。
 - 依頼が issue 起点なら、元 issue に Discussion リンクを comment して close（解説 loop の終端）。
+- **解説対象の PR／issue（依頼 issue と別の場合）にも教材リンクを 1 行 comment する**。
+  Discussion 内で PR/issue に言及しても対象側のタイムラインに backlink は生まれない
+  （cross-reference の発生元は issue/PR のみ——2026-07-07 に PR #146 で実証）ため、
+  対象から教材へ辿れる唯一の恒久リンクがこの comment である。
 
 ### 禁則（v1〜v3 の失敗から。違反は不合格）
 
