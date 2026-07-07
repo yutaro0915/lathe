@@ -79,8 +79,8 @@ const ISSUE_TABLE = [
     expected: WAIT_DEP,
   },
   {
-    name: 'needs-plan → PLAN（plan 未確定）',
-    issue: issueState({ labels: ['task-request', 'needs-plan', 'needs-review'] }),
+    name: 'needs-plan（無印）→ PLAN（plan 未確定）',
+    issue: issueState({ labels: ['task-request', 'needs-plan'] }),
     ctx: emptyCtx,
     expected: CLASS_PLAN,
   },
