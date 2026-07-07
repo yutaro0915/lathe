@@ -18,16 +18,16 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
 
 入力は 3 形態。**主経路は「対象そのものに label」**——依頼のための独立 issue を乱造しない。
 
-1. **主経路**: 解説してほしい **issue／PR そのものに `explain` label が付く**。その本文・plan・
+1. **主経路**: 解説してほしい **issue／PR そのものに `needs-explain` label が付く**。その本文・plan・
    diff・スレッドが接地の起点（観点の指定は label 時に comment で添えてよい）。
    「#X を解説せよ」という別 issue は立てない
 2. **従経路**: label を貼る対象が存在しない場合のみ（ADR・概念・サブシステム・複数対象の横断）、
-   独立の依頼 issue（本文 = 理解対象への参照＋観点）に `explain` label を付ける
+   独立の依頼 issue（本文 = 理解対象への参照＋観点）に `needs-explain` label を付ける
 3. **直接要求**: PdM がセッション内で依頼（最軽量）
 
 監査役判断で governance 級の変更にも推奨。出力規模は要求に応じる（Discussion への註釈
 1 comment 〜 フル教材。plan-format の scale と同じ発想）。本 skill 1 個で loop は完結する
-（runner／mention 監視は任意の将来拡張。label = 未処理の依頼キューとして polling 可能）。
+（runner／mention 監視は任意の将来拡張。`needs-explain` = 未処理の依頼キューとして polling 可能）。
 
 ## 生成指示（subagent へこのまま渡す・対象と接地先だけ差し替える）
 
@@ -76,10 +76,14 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
 - 質問・註釈は Discussion のネイティブスレッド。自動応答 runner を導入した場合のみ
   agent 返信に目印を付ける。
 - **終端処理（入力形態で異なる——ここを混同しない）**:
-  - 主経路（対象に label）: 教材リンクを**その issue/PR に comment し、`explain` label を外す**。
-    **close はしない**——対象の task/PR のライフサイクルは解説と無関係（label を外すことが
-    「処理済み」の合図。close すると解説依頼が task を殺す事故になる）
-  - 従経路（独立依頼 issue）: リンク comment ＋ **close**。このとき**解説対象の PR/issue にも
+  - 主経路（対象に label）: 教材リンクを**その issue/PR に comment し、`needs-explain` を外して
+    `done-explain` に付け替える**（PR への label 操作は `gh pr edit` でなく REST
+    `gh api -X POST repos/<o>/<r>/issues/<n>/labels` を使う——pr edit は Projects classic 廃止の
+    GraphQL エラーで失敗する、2026-07-07 実証）。**close はしない**——対象の task/PR の
+    ライフサイクルは解説と無関係（close すると解説依頼が task を殺す事故になる）。
+    label 遷移が状態を表す: `needs-explain` = 未処理キュー／`done-explain` = 教材あり
+    （`label:done-explain` で解説済みの全量が検索できる）
+  - 従経路（独立依頼 issue）: リンク comment ＋ `done-explain` 付与＋ **close**。このとき**解説対象の PR/issue にも
     教材リンクを 1 行 comment する**——Discussion 内で PR/issue に言及しても対象側に
     backlink は生まれない（cross-reference の発生元は issue/PR のみ、2026-07-07 に PR #146 で
     実証）ため、対象から教材へ辿れる唯一の恒久リンクがこの comment である

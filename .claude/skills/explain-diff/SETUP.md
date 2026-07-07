@@ -23,11 +23,14 @@ Discussions タブ → カテゴリ一覧の編集（鉛筆アイコン）→ **
 
 カテゴリが無い間、skill は General に投稿する（動作はする）。
 
-## 3. `explain` label を作成
+## 3. label を 2 つ作成（状態機械: needs-explain → done-explain）
 
 ```sh
-gh label create explain \
-  --description "解説 loop の入口: 理解対象への参照を投函すると教材が返る" \
+gh label create needs-explain \
+  --description "解説 loop の依頼キュー: この issue/PR の教材を作ってほしい（対象そのものに付ける）" \
+  --color fbca04
+gh label create done-explain \
+  --description "解説済み: 教材への恒久リンクが comment にある" \
   --color 0e8a16
 ```
 
@@ -39,7 +42,7 @@ git 管理するか `.gitignore` に入れるかは repo ごとの判断
 
 ## 5. 使い方
 
-- issue に `explain` label を付けて理解対象への参照（PR 番号／plan／ADR／概念）を書く、
+- 解説してほしい issue/PR そのものに `needs-explain` label を付ける（対象が repo 物でない場合のみ、参照を書いた依頼 issue に label）、
   またはセッションに直接「〇〇を解説して」と依頼する
 - 教材が `explains/` に保存され、Explain カテゴリの Discussion として投稿される
 - 追加の質問は Discussion のスレッドにそのまま書く
