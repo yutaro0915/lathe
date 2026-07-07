@@ -161,6 +161,23 @@ test('buildPlanTaskPrompt: comments are injected when present', () => {
   assert.ok(prompt.includes('監査役裁定: arm は PR 作成時。'));
 });
 
+test('buildPlanTaskPrompt: 書式契約（Title 必須・トポロジカル順・後方参照のみ）を明文化する (#201 Wave4)', () => {
+  const prompt = buildPlanTaskPrompt(PLAN_CTX);
+  assert.ok(prompt.includes('書式契約'));
+  assert.ok(prompt.includes('`Title:` 行は各 block の必須の先頭行です'));
+  assert.ok(prompt.includes('トポロジカル順'));
+  assert.ok(prompt.includes('後方参照のみ'));
+  assert.ok(prompt.includes('前方参照・自己参照・存在しない番号・重複参照は書式違反です'));
+});
+
+test('buildPlanTaskPrompt: 書式検証 NG の所見は buildReviewFeedbackSection 経由で注入される (#201 Wave4)', () => {
+  const withFeedback = buildPlanTaskPrompt({ ...PLAN_CTX, reviewFeedback: 'plan block 1: "plan#5" references a non-existent plan block' });
+  assert.ok(withFeedback.includes('## 前回 review 所見（FILE_CHILDREN 書式検証 NG）'));
+  assert.ok(withFeedback.includes('plan block 1: "plan#5" references a non-existent plan block'));
+  assert.ok(withFeedback.includes('握り潰し禁止'));
+  assert.ok(!buildPlanTaskPrompt(PLAN_CTX).includes('前回 review 所見'));
+});
+
 // --- buildReviewFeedbackSection (#192 Major#2 — 所見注入の共通の口) ---
 
 test('buildReviewFeedbackSection: renders source, findings, and the 握り潰し禁止 contract', () => {
