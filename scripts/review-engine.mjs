@@ -33,6 +33,8 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+// 運用パラメータは inner-loop-config.mjs に集約（ADR 0030 §5 · issue #118）
+import { DIFF_CHAR_LIMIT, MAX_UNPARSABLE_RETRIES } from './inner-loop-config.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -54,8 +56,8 @@ export const REVIEW_HEADING = '## REVIEW:';
 export const REVIEW_VERDICT_TOKENS = ['PASS', 'CHANGES', 'ESCALATE'];
 // Inline-diff budget for the reviewer prompt. Oversized diffs are truncated
 // and the reviewer is told to fetch the remainder via `gh pr diff <n>`.
-export const DIFF_CHAR_LIMIT = 120_000;
-export const MAX_UNPARSABLE_RETRIES = 1;
+// （数値は inner-loop-config.mjs に集約、ここでは re-export のみ）
+export { DIFF_CHAR_LIMIT, MAX_UNPARSABLE_RETRIES };
 const PR_LIST_LIMIT = 100;
 const PR_JSON_FIELDS = 'number,title,body,isDraft,headRefName,url,comments,reviews';
 
