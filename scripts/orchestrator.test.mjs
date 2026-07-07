@@ -17,6 +17,7 @@ import {
   parseLiveMarker,
   parseOrchestratorArgs,
   pickNextDispatch,
+  runDispatch,
 } from './orchestrator.mjs';
 import {
   CLASS_EXPLAIN, CLASS_IMPLEMENT, CLASS_PLAN, CLASS_PR_REVIEW,
@@ -192,4 +193,54 @@ test('pickNextDispatch: returns -1 when everything conflicts', () => {
   const active = [{ kind: 'issue', number: 1, class: CLASS_IMPLEMENT, issue: { body: 'Touches: .' } }];
   const pending = [{ kind: 'issue', number: 2, class: CLASS_IMPLEMENT, issue: { body: 'Touches: scripts/x.mjs' } }];
   assert.equal(pickNextDispatch(pending, active), -1);
+});
+
+// --- runDispatch: fire-and-forget（#256 pass が dispatch 完了を待たないこと） ---
+
+test('runDispatch: spawnFn は await されない — pass は spawn 直後に返る', () => {
+  const spawned = [];
+  // spawnFn が Promise を返しても runDispatch は await しない（同期で返る）。
+  // settled=false のまま result が返れば「await されていない」証明。
+  let settled = false;
+  const spawnFn = (decision) => {
+    spawned.push(decision.number);
+    return new Promise((resolve) => { setImmediate(() => { settled = true; resolve(); }); });
+  };
+  const dispatches = [
+    { class: CLASS_IMPLEMENT, number: 1, kind: 'issue', issue: {} },
+    { class: CLASS_IMPLEMENT, number: 2, kind: 'issue', issue: {} },
+  ];
+  const result = runDispatch({ dispatches, max: 5, spawnFn });
+  assert.equal(result.dispatched, 2);
+  assert.equal(result.deferred, 0);
+  assert.equal(settled, false, 'spawnFn の Promise は await されていない（pass は即返却）');
+  assert.deepEqual(spawned.sort((a, b) => a - b), [1, 2]);
+});
+
+test('runDispatch: 並列上限 max を超えたら残りは DEFER', () => {
+  const spawned = [];
+  const spawnFn = (d) => { spawned.push(d.number); };
+  const dispatches = [
+    { class: CLASS_IMPLEMENT, number: 1, kind: 'issue', issue: {} },
+    { class: CLASS_IMPLEMENT, number: 2, kind: 'issue', issue: {} },
+    { class: CLASS_IMPLEMENT, number: 3, kind: 'issue', issue: {} },
+  ];
+  const result = runDispatch({ dispatches, max: 2, spawnFn });
+  assert.equal(result.dispatched, 2);
+  assert.equal(result.deferred, 1);
+  assert.equal(spawned.length, 2);
+});
+
+test('runDispatch: Touches 衝突は deferred（次パスで再判定）', () => {
+  const spawned = [];
+  const spawnFn = (d) => { spawned.push(d.number); };
+  // #1 と #2 は同じ Touches（scripts/）— 並列 writer を避けるため #2 は defer
+  const dispatches = [
+    { class: CLASS_IMPLEMENT, number: 1, kind: 'issue', issue: { body: 'Touches: scripts/' } },
+    { class: CLASS_IMPLEMENT, number: 2, kind: 'issue', issue: { body: 'Touches: scripts/x.mjs' } },
+  ];
+  const result = runDispatch({ dispatches, max: 5, spawnFn });
+  assert.equal(result.dispatched, 1, '#1 のみ dispatch');
+  assert.equal(result.deferred, 1, '#2 は Touches 衝突で defer');
+  assert.deepEqual(spawned, [1]);
 });

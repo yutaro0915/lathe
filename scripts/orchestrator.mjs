@@ -11,14 +11,12 @@
 //   .lathe/runs/live-*.json マーカー（orchestrator が spawn 時に書き exit で消す）
 //   ＋PID 生存確認で導出する。worktree 検出（inner-issue-<n>）は補助信号として
 //   union（orchestrator 外で手動起動された driver の検出）。
-// - circuit breaker: 連続 failure が --max-failures 件で dispatch 停止。
-//   escalation は故障と数えない（#201: PdM 裁定待ちの正常経路であり系の故障ではない）。
+// - dispatch は fire-and-forget（spawn して pass は即終了・live マーカーで次パスに引き継ぐ）。
+//   EXPLAIN 完走後処理（explains/ → PR＋done-explain）は次パス冒頭で untracked 検出。
+//   circuit breaker（--max-failures）は CLI では受け付けるが pass 内では使わない。
 // - dispatch は既存コマンドの spawn（新しい実行経路を作らない）:
 //     PLAN / IMPLEMENT → node scripts/inner-loop.mjs <n>（run type は driver が label で選ぶ）
-//     EXPLAIN          → claude -p（.claude/skills/explain-diff/SETUP.md §6 の正規形）。
-//                        完走（exit 0）後は orchestrator-explain.mjs の後処理 —
-//                        explains/ 正本の自動 PR（Refs のみ・Closes しない）＋
-//                        done-explain 冪等付与（#201 分解 13・非致命）
+//     EXPLAIN          → claude -p（.claude/skills/explain-diff/SETUP.md §6 の正規形）
 //     PR_REVIEW        → node scripts/review-engine.mjs --pr <n>
 // - Touches 重複の直列化は inner-queue から吸収（parseTaskRunHints / pathsOverlap）。
 //
@@ -27,7 +25,7 @@
 
 import {
   appendFileSync, closeSync, existsSync, mkdirSync, openSync,
-  readFileSync, readdirSync, rmSync, statSync, writeFileSync,
+  readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,11 +39,12 @@ import {
 import { updateProjectItemStatus } from './inner-loop-projects.mjs';
 import { INNER_SETTINGS_PATH } from './inner-loop-core.mjs';
 import {
-  ensureDoneExplainLabel, explainedIssueNumbersFrom, formatExplainPostProcessPlan,
+  detectNewExplainFiles, ensureDoneExplainLabel, explainedIssueNumbersFrom,
+  formatExplainPostProcessPlan,
   listExplainFileNames, runExplainPostProcess, selectDoneExplainRepairs,
 } from './orchestrator-explain.mjs';
 import {
-  ESCALATION_LABEL, parseInnerIssueWorktrees, parseTaskRunHints, pathsOverlap,
+  parseInnerIssueWorktrees, parseTaskRunHints, pathsOverlap,
 } from './inner-queue-decisions.mjs';
 import { beginPassLog } from './orchestrator-logs.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -275,126 +274,58 @@ export function pickNextDispatch(pending, activeDecisions) {
   return -1;
 }
 
-// --- Side effects: spawn / escalation 検出 ---
-
-// 非ゼロ exit が escalation（裁定待ちの正常経路）かを導出する。
-// ①escalation ファイル（現行 driver の provisional surface）が spawn 以降に更新
-// ②issue に escalation label（#203 で正本化される投影先）— どちらかで true。
-function detectEscalation(decision, spawnedAtMs, deps = {}) {
-  if (decision.kind !== 'issue') return false;
-  for (const kind of ['issue', 'plan']) {
-    try {
-      const stat = statSync(join(RUNS_DIR, `${kind}-${decision.number}.escalation.md`));
-      if (stat.mtimeMs >= spawnedAtMs - 1000) return true;
-    } catch { /* ファイルなし */ }
-  }
-  const run = deps.spawnSync ?? spawnSync;
-  const r = run('gh', ['issue', 'view', String(decision.number), '--json', 'labels'],
-    { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 1e7 });
-  if (r.status !== 0) return false;
-  try {
-    const labels = JSON.parse(r.stdout)?.labels ?? [];
-    return labels.some((l) => String(l?.name ?? l).toLowerCase() === ESCALATION_LABEL);
-  } catch { return false; }
-}
+// --- Side effects: spawn（fire-and-forget）---
+// dispatch は spawn して即返却。子は live マーカーで次パスに実行中状態を引き継ぐ。
+// close イベントでマーカーを掃除するが parent が先に exit しても次パスの stale 検出が拾う。
 
 function spawnDecision(decision) {
   const spec = buildDispatchSpec(decision);
-  const logPath = join(RUNS_DIR, `${spec.logKey}.log`);
   mkdirSync(RUNS_DIR, { recursive: true });
-  const spawnedAtMs = Date.now();
-  appendFileSync(logPath, `[orchestrator] start ${decision.class} ${decision.kind} #${decision.number} at ${new Date(spawnedAtMs).toISOString()}\n`);
-
-  return new Promise((resolve) => {
-    const fd = openSync(logPath, 'a');
-    let child;
-    try {
-      child = spawn(spec.command, spec.args, { cwd: REPO_ROOT, env: process.env, stdio: ['ignore', fd, fd] });
-    } catch (error) {
-      closeSync(fd);
-      appendFileSync(logPath, `[orchestrator] spawn error: ${error.message}\n`);
-      resolve({ exitCode: 1, spawnedAtMs });
-      return;
-    }
+  const logPath = join(RUNS_DIR, `${spec.logKey}.log`);
+  appendFileSync(logPath, `[orchestrator] start ${decision.class} ${decision.kind} #${decision.number} at ${new Date().toISOString()}\n`);
+  const fd = openSync(logPath, 'a');
+  let child;
+  try {
+    child = spawn(spec.command, spec.args, { cwd: REPO_ROOT, env: process.env, stdio: ['ignore', fd, fd], detached: true });
+  } catch (err) {
     closeSync(fd);
-
-    const markerPath = join(RUNS_DIR, liveMarkerName(decision.class, decision.number));
-    try {
-      writeFileSync(markerPath, `${JSON.stringify({
-        pid: child.pid, class: decision.class, kind: decision.kind, number: decision.number,
-        startedAt: new Date(spawnedAtMs).toISOString(),
-      }, null, 2)}\n`, 'utf8');
-    } catch (error) {
-      log(`warning: live marker write failed for ${markerPath}: ${error.message}`);
-    }
-
-    let settled = false;
-    const finish = (exitCode) => {
-      if (settled) return;
-      settled = true;
-      try { rmSync(markerPath, { force: true }); } catch { /* stale 掃除は次パスが拾う */ }
-      try { appendFileSync(logPath, `[orchestrator] done exit=${exitCode} at ${new Date().toISOString()}\n`); } catch { /* log は非致命 */ }
-      resolve({ exitCode, spawnedAtMs });
-    };
-    child.on('error', (error) => {
-      appendFileSync(logPath, `[orchestrator] spawn error: ${error.message}\n`);
-      finish(1);
-    });
-    child.on('close', (code) => finish(code ?? 1));
+    appendFileSync(logPath, `[orchestrator] spawn error: ${err.message}\n`);
+    return;
+  }
+  closeSync(fd);
+  const markerPath = join(RUNS_DIR, liveMarkerName(decision.class, decision.number));
+  try {
+    writeFileSync(markerPath, `${JSON.stringify({ pid: child.pid, class: decision.class, kind: decision.kind, number: decision.number, startedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
+  } catch (err) { log(`warning: live marker write failed for ${markerPath}: ${err.message}`); }
+  child.on('close', (code) => {
+    try { rmSync(markerPath, { force: true }); } catch { /* 次パスが stale 掃除 */ }
+    try { appendFileSync(logPath, `[orchestrator] done exit=${code ?? 1} at ${new Date().toISOString()}\n`); } catch { /* 非致命 */ }
   });
+  child.unref();
 }
 
-// --- Dispatch loop（1 パス・refill あり・breaker つき） ---
+// --- Dispatch（fire-and-forget・1 パス）---
 
-async function runDispatch({ dispatches, max, maxFailures }) {
+/**
+ * eligible な決定を spawn して即返却。完走を待たず live マーカーで次パスに引き継ぐ。
+ * @param {{ dispatches: object[], max: number, spawnFn?: Function }} opts
+ * @returns {{ dispatched: number, deferred: number }}
+ */
+export function runDispatch({ dispatches, max, spawnFn = spawnDecision }) {
   const pending = [...dispatches];
-  /** @type {Array<{ decision: object, promise: Promise<{exitCode:number,spawnedAtMs:number}> }>} */
-  const active = [];
-  let breaker = { consecutiveFailures: 0, open: false };
-  const counts = { dispatched: 0, success: 0, escalated: 0, failed: 0 };
-
-  while ((pending.length > 0 && !breaker.open) || active.length > 0) {
-    while (!breaker.open && pending.length > 0 && active.length < max) {
-      const idx = pickNextDispatch(pending, active.map((entry) => entry.decision));
-      if (idx < 0) break;
-      const [decision] = pending.splice(idx, 1);
-      log(`DISPATCH ${formatDecision(decision)}`);
-      counts.dispatched += 1;
-      active.push({ decision, promise: spawnDecision(decision) });
-    }
-
-    if (active.length === 0) break;
-
-    const settled = await Promise.race(
-      active.map((entry, index) => entry.promise.then((result) => ({ index, result }))),
-    );
-    const [done] = active.splice(settled.index, 1);
-    const { exitCode, spawnedAtMs } = settled.result;
-    const escalated = exitCode !== 0 && detectEscalation(done.decision, spawnedAtMs);
-    const outcome = classifyChildOutcome({ exitCode, escalated });
-    counts[outcome === OUTCOME_SUCCESS ? 'success' : outcome === OUTCOME_ESCALATION ? 'escalated' : 'failed'] += 1;
-    const before = breaker;
-    breaker = applyBreaker(breaker, outcome, maxFailures);
-    log(`DONE ${done.decision.class} ${done.decision.kind === 'pr' ? 'PR ' : ''}#${done.decision.number} exit=${exitCode} outcome=${outcome}`);
-    // EXPLAIN 完走後処理（#201 分解 13・非致命）: explains/ 正本の自動 PR ＋
-    // done-explain 冪等付与。runner の allowed-tools は explains/ 書き込みまで —
-    // git 着地と label 保証は機械側の責務。
-    if (done.decision.class === CLASS_EXPLAIN && outcome === OUTCOME_SUCCESS) {
-      try {
-        runExplainPostProcess(done.decision.number, { log });
-      } catch (error) {
-        log(`warning: explain post #${done.decision.number} failed (non-fatal): ${error.message}`);
-      }
-    }
-    if (breaker.open && !before.open) {
-      log(`CIRCUIT_OPEN after ${maxFailures} consecutive failures — dispatch halted (escalation は数えない)`);
-    }
+  const spawned = [];
+  while (pending.length > 0 && spawned.length < max) {
+    const idx = pickNextDispatch(pending, spawned);
+    if (idx < 0) break;
+    const [decision] = pending.splice(idx, 1);
+    log(`DISPATCH ${formatDecision(decision)}`);
+    spawnFn(decision);
+    spawned.push(decision);
   }
-
-  for (const decision of pending) {
-    log(`DEFER ${formatDecision(decision)} — ${breaker.open ? 'circuit open' : 'Touches が実行中と重複（次パスで再判定）'}`);
+  for (const d of pending) {
+    log(`DEFER ${formatDecision(d)} — ${spawned.length >= max ? '並列上限到達' : 'Touches が実行中と重複'}（次パスで再判定）`);
   }
-  return { ...counts, deferred: pending.length, breakerOpen: breaker.open };
+  return { dispatched: spawned.length, deferred: pending.length };
 }
 
 // --- 盤面投影（#201 分解 10・パス末尾・非致命） ---
@@ -487,13 +418,22 @@ if (isMain) {
         : `warning: done-explain repair #${d.number} failed (non-fatal): ${repaired.reason}`);
     }
 
+    // EXPLAIN 完走後処理（前パスで fire-and-forget した runner が完走済みの分）。
+    // detectNewExplainFiles は git status --porcelain で untracked のみ検出 —
+    // landing 成功後は原本が消えるため冪等（次パスは skip）。非致命。
+    for (const n of explainedIssueNumbers) {
+      try {
+        const det = detectNewExplainFiles(n);
+        if (det.ok && det.files.length > 0) runExplainPostProcess(n, { log });
+      } catch (err) { log(`warning: explain post #${n} failed (non-fatal): ${err.message}`); }
+    }
+
     // ③ dispatch
-    const result = await runDispatch({ dispatches, max: parsed.max, maxFailures: parsed.maxFailures });
+    const result = runDispatch({ dispatches, max: parsed.max });
 
     // ④ 盤面投影（実状態へ同期・非致命）
     const projected = applyBoardProjection(decisions, snapshot.statusField);
-    log(`pass complete: dispatched=${result.dispatched} success=${result.success} escalated=${result.escalated} failed=${result.failed} deferred=${result.deferred} projected=${projected}${result.breakerOpen ? ' CIRCUIT_OPEN' : ''}`);
-    process.exitCode = result.failed > 0 ? 1 : 0;
+    log(`pass complete: dispatched=${result.dispatched} deferred=${result.deferred} projected=${projected}`);
   } finally {
     if (locked) releaseLock();
   }
