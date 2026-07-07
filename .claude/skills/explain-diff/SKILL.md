@@ -111,4 +111,7 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
 - **監査役（publish 後・ブラウザ系ツールを持つ環境で）**: 実描画確認（mermaid iframe が
   render されること）。生成 agent の allowed-tools にブラウザは含まれないため、
   この確認は生成側の義務ではない（2026-07-07 の独立実走 #158→#159 で確定した分担）。
+  あわせて **upvote 清掃**: `discussion { viewerHasUpvoted }` を確認し、true なら
+  `removeUpvote` で除去する（原因不明の付与が観測されるため機械で常時是正。
+  ADR 0034——owner の操作に見えるシグナルを勝手に残さない）。
 - 初出の実物例: `explains/2026-07-07-pr110-receipt-to-ci.md`（= Discussion #154）。
