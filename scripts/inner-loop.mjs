@@ -247,8 +247,11 @@ function cleanupWorktree(wt, branch) {
 
 // Land `branch` onto main: push → gh pr create → gh pr merge --auto --squash
 // (ADR 0026 §1-2 / ADR 0030 §3). The first commit's message becomes the PR
-// title/body (with `Closes #<issue>` appended). The actual squash happens on
-// GitHub after the CI gate (required check) goes green; review is recorded
+// title/body (with `Closes #<issue>` appended by default; callers that must
+// NOT close the issue — e.g. the explains/ auto-PR, #201 分解 13, where the
+// explain lifecycle is independent of the task lifecycle — inject
+// `deps.buildPrBody` to produce a Refs-only body). The actual squash happens
+// on GitHub after the CI gate (required check) goes green; review is recorded
 // asynchronously on the PR by the review engine (#128).
 export function landBranch(branch, issueNumber, deps = {}) {
   const run = deps.spawnSync ?? spawnSync;
@@ -271,7 +274,7 @@ export function landBranch(branch, issueNumber, deps = {}) {
   if (logR.status !== 0) return fail(`could not read commit messages for ${branch}: ${logR.stderr ?? ''}`);
   const { subject, body } = splitCommitMessage(extractFirstCommitMessage(logR.stdout ?? ''));
   if (!subject) return fail(`no commits found between main and ${branch} — nothing to land`);
-  const prBody = buildPrBodyWithCloses(body, issueNumber);
+  const prBody = (deps.buildPrBody ?? buildPrBodyWithCloses)(body, issueNumber);
 
   if (!step('git', ['push', '-u', 'origin', branch])) {
     return fail(`git push failed — cannot create PR for ${branch}`);
