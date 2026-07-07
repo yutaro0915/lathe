@@ -98,7 +98,7 @@ test('buildImplementPrompt: verdict tokens are IMPL_DONE | ESCALATE only', () =>
 
 // --- plan-task PLAN prompt ---
 
-const PLAN_FORMAT = '# Plan Format — 完全形の5セクション\n問題 / 選択肢 / 方針 / 契約 / 検証';
+const PLAN_FORMAT = '# Plan Format — 完全形の6セクション\n問題 / 選択肢 / 方針 / 契約 / 検証 / 見積り';
 const PLAN_CTX = {
   issueNumber: 200,
   issueTitle: 'needs-plan: big topic',
@@ -111,7 +111,7 @@ test('buildPlanTaskPrompt: injects the full plan-format.md text (#142 吸収)', 
   const prompt = buildPlanTaskPrompt(PLAN_CTX);
   assert.ok(prompt.includes('issue #200 / stage: PLAN'));
   assert.ok(prompt.includes('design/plan-format.md'));
-  assert.ok(prompt.includes('完全形の5セクション'));
+  assert.ok(prompt.includes('完全形の6セクション'));
 });
 
 test('buildPlanTaskPrompt: fail-closed — missing/empty planFormat throws', () => {
