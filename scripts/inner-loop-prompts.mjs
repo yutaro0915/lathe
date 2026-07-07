@@ -207,11 +207,16 @@ export function buildLandReworkPrompt(ctx) {
  * (#116 が #142 を吸収): the driver reads the file at runtime and refuses to
  * start when it is missing/unreadable, and this builder refuses to build a
  * prompt without it. No silent fallback to an uninjected prompt.
- * @param {{ issueNumber: number, issueTitle: string, issueBody: string, comments?: Array<object>, planFormat: string }} ctx
+ *
+ * `reviewFeedback` carries the FILE_CHILDREN 書式検証 NG findings on a retry
+ * (#201 Wave4): the driver bounces validatePlanChildBlocks の指摘リスト back
+ * through buildReviewFeedbackSection（所見注入の単一の口）so the planner
+ * corrects the plan instead of regenerating it blind.
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, comments?: Array<object>, planFormat: string, reviewFeedback?: string }} ctx
  * @returns {string}
  */
 export function buildPlanTaskPrompt(ctx) {
-  const { issueNumber, issueTitle, issueBody, comments, planFormat } = ctx;
+  const { issueNumber, issueTitle, issueBody, comments, planFormat, reviewFeedback } = ctx;
   if (typeof planFormat !== 'string' || planFormat.trim().length === 0) {
     throw new Error('buildPlanTaskPrompt: planFormat is required (fail-closed injection of design/plan-format.md, #142)');
   }
@@ -226,6 +231,10 @@ export function buildPlanTaskPrompt(ctx) {
   const commentsBlock = formatIssueComments(comments);
   if (commentsBlock) {
     lines.push('', '## 裁定・申し送り（issue comments）', commentsBlock);
+  }
+  const feedbackBlock = buildReviewFeedbackSection({ source: 'FILE_CHILDREN 書式検証 NG', findings: reviewFeedback });
+  if (feedbackBlock) {
+    lines.push('', feedbackBlock);
   }
   lines.push(
     '',
@@ -244,6 +253,11 @@ export function buildPlanTaskPrompt(ctx) {
     'Title: <child issue title>',
     'Blocked-by: #<n>, plan#<k>（依存が無い場合は "Blocked-by: none" と明記。この行自体を省略しない。同一 plan 内の k 番目 block への依存は plan#<k> と書く）',
     'Touches: <path>, <path>',
+    '',
+    '書式契約（子 issue 投函前に機械検証されます。違反は所見付きで差し戻され、修正されなければ escalation になります）:',
+    '- `Title:` 行は各 block の必須の先頭行です。`Title:` 行の無い出力は投函できません。',
+    '- 子 issue block は依存のトポロジカル順（依存される block が先）に並べてください。',
+    '- `plan#<k>` は後方参照のみ（自 block より前の block だけを指せます）。前方参照・自己参照・存在しない番号・重複参照は書式違反です。',
     '',
     '各 block には、上記 plan format に従う plan 本文（子 issue の本文になる）を続けて書いてください。trivial クラスは軽量形（問題/修正方針/検証の 3 行〜）で可です。',
     '',

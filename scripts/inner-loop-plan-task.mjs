@@ -31,116 +31,24 @@ import {
   buildManifestEntry, buildManifest, manifestPathFor, backendCostSourceForEnvelope,
   readManifestStages, tailLines, parseBlockedBy,
 } from './inner-loop-core.mjs';
+import {
+  MAX_PLAN_CHILDREN_VALIDATION_RETRIES,
+  stripVerdictLine, parsePlanChildBlocks,
+  validatePlanChildBlocks, buildPlanValidationFeedback, decidePlanValidationAction,
+} from './inner-loop-plan-validate.mjs';
+
+// FILE_CHILDREN の書式検証層（#201 Wave4）は inner-loop-plan-validate.mjs が
+// 正本（純関数・file-size rubric のための分離）。既存 importer 向けに再輸出。
+export {
+  MAX_PLAN_CHILDREN_VALIDATION_RETRIES,
+  parseBlockedByLine, parsePlanChildBlocks,
+  validatePlanChildBlocks, buildPlanValidationFeedback, decidePlanValidationAction,
+} from './inner-loop-plan-validate.mjs';
 
 function die(msg) { process.stderr.write(`inner-loop: error: ${msg}\n`); process.exit(1); }
 function log(msg) { process.stdout.write(`[inner-loop] ${msg}\n`); }
 
 // --- Pure / testable exports ---
-
-function stripVerdictLine(text) {
-  return String(text ?? '').split(/\r?\n/).filter((line) => !/^VERDICT:\s*[A-Z_]+\s*$/.test(line)).join('\n').trim();
-}
-
-function firstMatchingLine(text, pattern) {
-  for (const line of String(text ?? '').split(/\r?\n/)) {
-    const match = line.match(pattern);
-    if (match) return match[1].trim();
-  }
-  return null;
-}
-
-/**
- * Validate a plan-task child block's `Blocked-by:` value. A missing or empty
- * line is a parser failure, not "no deps" — silently rounding "absent" down
- * to "no deps" would file child issues with unverified dependency claims.
- * Blocks with no real dependency must say so explicitly with `none`.
- * @param {string | null} rawValue - the captured value after "Blocked-by:",
- *   or null if the line itself was not found in the block.
- * @returns {{ ok: true, blockedBy: string } | { ok: false, error: string }}
- */
-export function parseBlockedByLine(rawValue) {
-  if (rawValue == null) {
-    return { ok: false, error: 'plan block is missing required "Blocked-by:" line (use "Blocked-by: none" if there are no dependencies)' };
-  }
-  const trimmed = rawValue.trim();
-  if (trimmed.length === 0) {
-    return { ok: false, error: 'plan block has an empty "Blocked-by:" value (use "Blocked-by: none" if there are no dependencies)' };
-  }
-  if (/^none$/i.test(trimmed)) {
-    return { ok: true, blockedBy: '' };
-  }
-  return { ok: true, blockedBy: trimmed };
-}
-
-function parseRejectedCandidateLine(line) {
-  const match = String(line ?? '').match(/^\s*(?:[-*]\s*)?Rejected\s*:\s*(.+?)\s+(?:—|-)\s+(.+?)\s*$/i);
-  if (!match) return null;
-  return { candidate: match[1].trim(), reason: match[2].trim() };
-}
-
-/**
- * Parse the plan-task PLAN result into child issue blocks. Each block starts
- * with a `Title:` line and must carry `Blocked-by:` and `Touches:` machine
- * lines; `Rejected: <candidate> — <reason>` lines record dropped candidates.
- * @param {string} planText
- * @returns {{ ok: true, children: Array<{ index: number, title: string, blockedBy: string, touches: string, plan: string }>, rejected: Array<{candidate: string, reason: string}> } | { ok: false, error: string }}
- */
-export function parsePlanChildBlocks(planText) {
-  const rejected = [];
-  const blockLines = [];
-  let currentBlock = null;
-
-  for (const line of String(planText ?? '').split(/\r?\n/)) {
-    if (/^VERDICT:\s*[A-Z_]+\s*$/.test(line.trim())) continue;
-
-    const rejectedCandidate = parseRejectedCandidateLine(line);
-    if (rejectedCandidate) {
-      rejected.push(rejectedCandidate);
-      continue;
-    }
-
-    if (/^\s*Title\s*:\s*.+$/i.test(line)) {
-      if (currentBlock) blockLines.push(currentBlock);
-      currentBlock = [line];
-      continue;
-    }
-
-    if (currentBlock) currentBlock.push(line);
-  }
-
-  if (currentBlock) blockLines.push(currentBlock);
-  if (blockLines.length === 0) {
-    return { ok: false, error: 'plan is missing required "Title:" line' };
-  }
-
-  const children = [];
-  for (const [zeroBasedIndex, lines] of blockLines.entries()) {
-    const index = zeroBasedIndex + 1;
-    const blockText = lines.join('\n').trim();
-    const title = firstMatchingLine(blockText, /^\s*Title\s*:\s*(.+)$/i);
-    if (!title) {
-      return { ok: false, error: `plan block ${index} is missing required "Title:" line` };
-    }
-    const blockedByRaw = firstMatchingLine(blockText, /^\s*Blocked-by\s*:\s*(.*)$/i);
-    const blockedByResult = parseBlockedByLine(blockedByRaw);
-    if (!blockedByResult.ok) {
-      return { ok: false, error: `plan block ${index}: ${blockedByResult.error}` };
-    }
-    const touches = firstMatchingLine(blockText, /^\s*Touches\s*:\s*(.*)$/i);
-    if (touches == null) {
-      return { ok: false, error: `plan block ${index} is missing required "Touches:" line` };
-    }
-    children.push({
-      index,
-      title,
-      blockedBy: blockedByResult.blockedBy,
-      touches,
-      plan: stripVerdictLine(blockText),
-    });
-  }
-
-  return { ok: true, children, rejected };
-}
 
 /**
  * Resolve plan-local `plan#<k>` references to already-created child issue
@@ -318,13 +226,28 @@ function escalatePlanTask(issueNumber, stage, verdict, resultExcerpt) {
   projectEscalation({ issueNumber, stage, verdict, resultExcerpt, runType: 'plan-task' }, { log });
 }
 
-function completeFileChildren(issueNumber, planText) {
-  const created = createChildIssues(issueNumber, planText);
+// deps 注入点（land 流儀）: runPlanTask と terminal 完了処理が共有する。
+// 省略時はモジュール既定の副作用（spawnSync / manifest 書き込み / escalation /
+// process.exit）に落ちる。
+function resolvePlanTaskDeps(issueNumber, deps = {}) {
+  return {
+    run: deps.spawnSync ?? spawnSync,
+    runStageFn: deps.runStage ?? runStage,
+    logFn: deps.log ?? log,
+    dieFn: deps.die ?? die,
+    record: deps.recordManifestEntry ?? ((entry) => appendPlanManifestEntry(issueNumber, entry)),
+    escalate: deps.escalate ?? escalatePlanTask,
+  };
+}
+
+function completeFileChildren(issueNumber, planText, deps = {}) {
+  const { run, logFn, dieFn, record, escalate } = resolvePlanTaskDeps(issueNumber, deps);
+  const created = createChildIssues(issueNumber, planText, deps);
   if (!created.ok) {
-    escalatePlanTask(issueNumber, PLAN_TASK_TERMINAL, null, created.error);
-    die(`plan-task child issue filing failed — see the escalation report comment on issue #${issueNumber}`);
+    escalate(issueNumber, PLAN_TASK_TERMINAL, null, created.error);
+    dieFn(`plan-task child issue filing failed — see the escalation report comment on issue #${issueNumber}`);
   }
-  appendPlanManifestEntry(issueNumber, buildManifestEntry({
+  record(buildManifestEntry({
     stage: PLAN_TASK_TERMINAL,
     sessionId: null,
     verdict: 'PASS',
@@ -333,24 +256,24 @@ function completeFileChildren(issueNumber, planText) {
     backend: null,
     resultText: created.children.map((child) => `created plan#${child.index} -> #${child.issueNumber}: ${child.title}`).join('\n'),
   }));
-  log(`plan-task filed ${created.children.length} child issue(s): ${created.children.map((child) => `#${child.issueNumber}`).join(', ')}`);
+  logFn(`plan-task filed ${created.children.length} child issue(s): ${created.children.map((child) => `#${child.issueNumber}`).join(', ')}`);
 
   const comment = buildPlanTaskCloseComment({
     children: created.children,
     rejected: created.rejected,
     planText,
   });
-  const r = spawnSync('gh', ['issue', 'close', String(issueNumber), '--reason', 'completed', '--comment', comment], {
+  const r = run('gh', ['issue', 'close', String(issueNumber), '--reason', 'completed', '--comment', comment], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
   });
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr);
   if (r.status !== 0) {
-    escalatePlanTask(issueNumber, 'CLOSE_SOURCE', null, `gh issue close failed\n\n${tailLines(`${r.stdout ?? ''}${r.stderr ?? ''}`)}`);
-    die(`plan-task source close failed — see the escalation report comment on issue #${issueNumber}`);
+    escalate(issueNumber, 'CLOSE_SOURCE', null, `gh issue close failed\n\n${tailLines(`${r.stdout ?? ''}${r.stderr ?? ''}`)}`);
+    dieFn(`plan-task source close failed — see the escalation report comment on issue #${issueNumber}`);
   }
-  appendPlanManifestEntry(issueNumber, buildManifestEntry({
+  record(buildManifestEntry({
     stage: 'CLOSE_SOURCE',
     sessionId: null,
     verdict: 'PASS',
@@ -359,20 +282,21 @@ function completeFileChildren(issueNumber, planText) {
     backend: null,
     resultText: `closed source issue #${issueNumber}`,
   }));
-  log(`plan-task done — plan confirmed, child issue(s) ${created.children.map((child) => `#${child.issueNumber}`).join(', ')} filed, source issue #${issueNumber} closed.`);
+  logFn(`plan-task done — plan confirmed, child issue(s) ${created.children.map((child) => `#${child.issueNumber}`).join(', ')} filed, source issue #${issueNumber} closed.`);
   return 0;
 }
 
-function completeAskPdm(issueNumber, resultText) {
+function completeAskPdm(issueNumber, resultText, deps = {}) {
+  const { run, logFn, dieFn, record } = resolvePlanTaskDeps(issueNumber, deps);
   const body = buildAskPdmComment({ resultText });
-  const r = spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body-file', '-'], {
+  const r = run('gh', ['issue', 'comment', String(issueNumber), '--body-file', '-'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     input: body,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  if (r.status !== 0) die(`gh issue comment failed for ASK_PDM terminal: ${r.stderr || r.stdout}`);
-  appendPlanManifestEntry(issueNumber, buildManifestEntry({
+  if (r.status !== 0) dieFn(`gh issue comment failed for ASK_PDM terminal: ${r.stderr || r.stdout}`);
+  record(buildManifestEntry({
     stage: 'ASK_PDM',
     sessionId: null,
     verdict: 'ASK_PDM',
@@ -381,7 +305,7 @@ function completeAskPdm(issueNumber, resultText) {
     backend: null,
     resultText: body,
   }));
-  log(`plan-task paused at PdM decision (正常終端) — options posted as a comment on issue #${issueNumber}; the issue stays open.`);
+  logFn(`plan-task paused at PdM decision (正常終端) — options posted as a comment on issue #${issueNumber}; the issue stays open.`);
   return 0;
 }
 
@@ -407,9 +331,9 @@ export function dryRunPlanTask(issueNumber, issue, backendFlags) {
     });
     logDryRunStage(stage, backendFlags, REPO_ROOT, promptPreview);
   }
-  log(`dry-run: ${PLAN_TASK_TERMINAL} — parse child blocks (Title/Blocked-by/Touches), gh issue create --label ${TASK_REQUEST_LABEL} per block (body carries blocked-by #${issueNumber} + resolved plan#<k> refs), then gh issue close ${issueNumber} --reason completed --comment '<confirmed plan + children>'`);
+  log(`dry-run: ${PLAN_TASK_TERMINAL} — validate child blocks (validatePlanChildBlocks: Title/Blocked-by/Touches + plan#<k> 後方参照のみ), gh issue create --label ${TASK_REQUEST_LABEL} per block (body carries blocked-by #${issueNumber} + resolved plan#<k> refs), then gh issue close ${issueNumber} --reason completed --comment '<confirmed plan + children>'`);
   log('dry-run: ASK_PDM — post the options as an issue comment and exit 0 with the source issue left open (正常終端)');
-  log('dry-run: transition plan — PLAN_READY->FILE_CHILDREN, ASK_PDM->ASK_PDM (normal terminal), missing/unparsable VERDICT->same stage retry once then ESCALATE');
+  log(`dry-run: transition plan — PLAN_READY->validate->FILE_CHILDREN (format RED -> 所見を PLAN へ差し戻して再試行、上限 ${MAX_PLAN_CHILDREN_VALIDATION_RETRIES}・再 RED -> ESCALATE), ASK_PDM->ASK_PDM (normal terminal), missing/unparsable VERDICT->same stage retry once then ESCALATE`);
 }
 
 /**
@@ -417,12 +341,20 @@ export function dryRunPlanTask(issueNumber, issue, backendFlags) {
  * @param {number} issueNumber
  * @param {{ title: string, body: string, comments?: Array<object> }} issue
  * @param {{ global: string|null, stages: Record<string,string> }} backendFlags
+ * @param {{ runStage?: Function, spawnSync?: Function, recordManifestEntry?: Function,
+ *           escalate?: Function, log?: Function, die?: Function }} deps
+ *   land 流儀の注入点（テスト用。省略時はモジュール既定の副作用）。
  * @returns {number}
  */
-export function runPlanTask(issueNumber, issue, backendFlags) {
+export function runPlanTask(issueNumber, issue, backendFlags, deps = {}) {
+  const { runStageFn, logFn, dieFn, record, escalate } = resolvePlanTaskDeps(issueNumber, deps);
   const planFormat = readPlanFormatOrDie();
   let state = PLAN_TASK_STAGES[0];
   let planText = '';
+  // FILE_CHILDREN 書式検証の修正周回（#201 Wave4）: NG 所見は次の PLAN prompt
+  // に buildReviewFeedbackSection 経由で注入される。
+  let validationRetriesUsed = 0;
+  let validationFeedback = null;
 
   while (PLAN_TASK_STAGES.includes(state)) {
     const prompt = buildStagePrompt(state, {
@@ -431,18 +363,19 @@ export function runPlanTask(issueNumber, issue, backendFlags) {
       issueBody: issue.body,
       comments: issue.comments,
       planFormat,
+      reviewFeedback: validationFeedback ?? undefined,
     });
     const backend = selectBackend(state, backendFlags);
-    log(`plan-task stage=${state} backend=${backend} cwd=${REPO_ROOT} — spawning ${backend}`);
+    logFn(`plan-task stage=${state} backend=${backend} cwd=${REPO_ROOT} — spawning ${backend}`);
     const stageResult = runStageWithUnparsableRetry({
       runAttempt: () => {
         const stageStartedAt = Date.now();
-        const envelope = runStage(state, prompt, REPO_ROOT, null, backend);
+        const envelope = runStageFn(state, prompt, REPO_ROOT, null, backend);
         const durationMs = Math.max(1, Date.now() - stageStartedAt);
         return { envelope, durationMs };
       },
       recordAttempt: ({ envelope, manifestVerdict, durationMs }) => {
-        appendPlanManifestEntry(issueNumber, buildManifestEntry({
+        record(buildManifestEntry({
           stage: state,
           sessionId: envelope.session_id ?? null,
           verdict: manifestVerdict,
@@ -455,12 +388,12 @@ export function runPlanTask(issueNumber, issue, backendFlags) {
           resultText: envelope.result ?? '',
         }));
       },
-      onRetry: () => log(`plan-task stage=${state} verdict=${UNPARSABLE_VERDICT} -> retrying same stage once`),
+      onRetry: () => logFn(`plan-task stage=${state} verdict=${UNPARSABLE_VERDICT} -> retrying same stage once`),
     });
     const { envelope, verdict } = stageResult;
 
     if (verdict === null) {
-      escalatePlanTask(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? '');
+      escalate(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? '');
       state = 'ESCALATE';
       break;
     }
@@ -468,13 +401,45 @@ export function runPlanTask(issueNumber, issue, backendFlags) {
     if (verdict === 'PLAN_READY' || verdict === 'ASK_PDM') planText = envelope.result;
 
     const { next } = nextPlanTaskState(state, verdict);
-    if (next === 'ESCALATE') escalatePlanTask(issueNumber, state, verdict, envelope.result ?? '');
-    log(`plan-task stage=${state} verdict=${verdict} -> next=${next}`);
+
+    // FILE_CHILDREN 前の書式検証（#201 Wave4）: 書式逸脱は escalate 即死させず、
+    // 指摘リストを PLAN に差し戻して informed retry（上限 1）。再 NG は escalation。
+    // 黙った推測補正はしない — 検証・差し戻し・escalation の 3 段のみ。
+    if (next === PLAN_TASK_TERMINAL) {
+      const validation = validatePlanChildBlocks(planText);
+      const action = decidePlanValidationAction({ validation, retriesUsed: validationRetriesUsed });
+      if (action.action !== 'file') {
+        const feedback = buildPlanValidationFeedback(validation.findings);
+        record(buildManifestEntry({
+          stage: PLAN_TASK_TERMINAL,
+          sessionId: null,
+          verdict: 'RED',
+          backendCostUsd: null,
+          backendCostSource: null,
+          backend: null,
+          resultText: feedback,
+        }));
+        if (action.action === 'retry') {
+          validationRetriesUsed += 1;
+          validationFeedback = feedback;
+          logFn(`plan-task stage=${state} verdict=${verdict} -> ${PLAN_TASK_TERMINAL} format validation RED (${validation.findings.length} finding(s)) — PLAN へ差し戻して再試行 (${validationRetriesUsed}/${MAX_PLAN_CHILDREN_VALIDATION_RETRIES})`);
+          state = PLAN_TASK_STAGES[0];
+          continue;
+        }
+        escalate(issueNumber, PLAN_TASK_TERMINAL, verdict, `${action.reason}\n\n${feedback}`);
+        logFn(`plan-task stage=${state} verdict=${verdict} -> ${PLAN_TASK_TERMINAL} format validation RED again — ${action.reason}`);
+        state = 'ESCALATE';
+        break;
+      }
+    }
+
+    if (next === 'ESCALATE') escalate(issueNumber, state, verdict, envelope.result ?? '');
+    logFn(`plan-task stage=${state} verdict=${verdict} -> next=${next}`);
     state = next;
   }
 
-  if (state === 'ESCALATE') die(`plan-task escalated — see the escalation label + report comment on issue #${issueNumber}`);
-  if (state === 'ASK_PDM') return completeAskPdm(issueNumber, planText);
-  if (state === PLAN_TASK_TERMINAL) return completeFileChildren(issueNumber, planText);
+  if (state === 'ESCALATE') dieFn(`plan-task escalated — see the escalation label + report comment on issue #${issueNumber}`);
+  if (state === 'ASK_PDM') return completeAskPdm(issueNumber, planText, deps);
+  if (state === PLAN_TASK_TERMINAL) return completeFileChildren(issueNumber, planText, deps);
   return 0;
 }
