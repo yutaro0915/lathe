@@ -193,6 +193,41 @@ export function buildAskPdmComment({ resultText }) {
   ].join('\n');
 }
 
+/**
+ * GitHub の issue comment 本文上限（65,536 文字）で body を分割する。
+ * 改行境界で切り、改行が見つからない場合は maxLen でハード分割する。
+ * @param {string} body
+ * @param {number} [maxLen]
+ * @returns {string[]}
+ */
+export const COMMENT_BODY_MAX = 65536;
+
+export function splitCommentBody(body, maxLen = COMMENT_BODY_MAX) {
+  const s = String(body ?? '');
+  if (s.length <= maxLen) return [s];
+  const chunks = [];
+  let start = 0;
+  while (start < s.length) {
+    if (start + maxLen >= s.length) {
+      chunks.push(s.slice(start));
+      break;
+    }
+    // Find the last newline within the window
+    const windowEnd = start + maxLen - 1;
+    let splitAt = s.lastIndexOf('\n', windowEnd);
+    if (splitAt <= start) {
+      // No newline found in window — hard split at maxLen
+      splitAt = start + maxLen;
+      chunks.push(s.slice(start, splitAt));
+      start = splitAt;
+    } else {
+      chunks.push(s.slice(start, splitAt));
+      start = splitAt + 1; // skip the newline itself
+    }
+  }
+  return chunks;
+}
+
 // Fail-closed read of design/plan-format.md (#142 absorbed into #116): a
 // plan-task run must not start with an uninjected prompt.
 export function readPlanFormatOrDie() {
@@ -289,13 +324,16 @@ function completeFileChildren(issueNumber, planText, deps = {}) {
 function completeAskPdm(issueNumber, resultText, deps = {}) {
   const { run, logFn, dieFn, record } = resolvePlanTaskDeps(issueNumber, deps);
   const body = buildAskPdmComment({ resultText });
-  const r = run('gh', ['issue', 'comment', String(issueNumber), '--body-file', '-'], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    input: body,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  if (r.status !== 0) dieFn(`gh issue comment failed for ASK_PDM terminal: ${r.stderr || r.stdout}`);
+  const chunks = splitCommentBody(body);
+  for (const chunk of chunks) {
+    const r = run('gh', ['issue', 'comment', String(issueNumber), '--body-file', '-'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      input: chunk,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (r.status !== 0) dieFn(`gh issue comment failed for ASK_PDM terminal: ${r.stderr || r.stdout}`);
+  }
   record(buildManifestEntry({
     stage: 'ASK_PDM',
     sessionId: null,

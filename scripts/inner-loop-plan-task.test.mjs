@@ -16,6 +16,8 @@ import {
   createChildIssues,
   buildPlanTaskCloseComment,
   buildAskPdmComment,
+  splitCommentBody,
+  COMMENT_BODY_MAX,
   runPlanTask,
 } from './inner-loop-plan-task.mjs';
 import { parseBlockedBy } from './inner-loop-core.mjs';
@@ -323,6 +325,32 @@ test('buildAskPdmComment: plan 全文（Title: block を含む）が comment 本
   assert.ok(!comment.includes('VERDICT:'));
 });
 
+// --- splitCommentBody（AC3: 65k 分割境界 unit） ---
+
+test('splitCommentBody: body ≤ maxLen -> 1 要素の配列（分割なし）', () => {
+  assert.deepEqual(splitCommentBody('short body', 100), ['short body']);
+  // デフォルト maxLen = COMMENT_BODY_MAX (65536)
+  assert.equal(COMMENT_BODY_MAX, 65536);
+  assert.equal(splitCommentBody('x'.repeat(COMMENT_BODY_MAX)).length, 1);
+});
+
+test('splitCommentBody: body > maxLen かつ改行あり -> 改行境界で分割する', () => {
+  // 'line1\nline2' = 11 chars, maxLen=12 → splits before 'line3'
+  const chunks = splitCommentBody('line1\nline2\nline3', 12);
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks[0], 'line1\nline2');
+  assert.equal(chunks[1], 'line3');
+});
+
+test('splitCommentBody: body > maxLen かつ改行なし -> maxLen でハード分割する', () => {
+  const body = 'a'.repeat(150);
+  const chunks = splitCommentBody(body, 100);
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks[0].length, 100);
+  assert.equal(chunks[1].length, 50);
+  assert.equal(chunks.join(''), body); // データロスなし
+});
+
 // --- runPlanTask（#201 Wave4: 書式検証の修正周回。全副作用を fake deps で注入） ---
 
 const BACKEND_FLAGS = { global: null, stages: {} };
@@ -440,6 +468,29 @@ test('runPlanTask: ASK_PDM 経路で comment 本文に plan 全文（Title: bloc
   assert.ok(spawnCalls[0].input.includes('選択肢 A: foo / 選択肢 B: bar'));
   // VERDICT 行はストリップされること
   assert.ok(!spawnCalls[0].input.includes('VERDICT:'), 'VERDICT 行はストリップされること');
-  // manifest に ASK_PDM エントリが記録されること
-  assert.ok(recorded.some((e) => e.stage === 'ASK_PDM' && e.verdict === 'ASK_PDM'));
+  // manifest に ASK_PDM エントリが記録されること（AC4: result_text に全文が入ること）
+  const askPdmEntry = recorded.find((e) => e.stage === 'ASK_PDM' && e.verdict === 'ASK_PDM');
+  assert.ok(askPdmEntry, 'ASK_PDM manifest entry が存在すること');
+  assert.ok(askPdmEntry.result_text.includes('Title: feat: child'), 'result_text に plan 全文（Title: block）が含まれること');
+  assert.ok(askPdmEntry.result_text.includes('選択肢 A: foo / 選択肢 B: bar'), 'result_text に裁定要求が含まれること');
+});
+
+test('runPlanTask: ASK_PDM 経路 — 65k 超の本文は複数の gh issue comment 呼び出しに分割される', () => {
+  const longBody = 'x'.repeat(COMMENT_BODY_MAX); // header を加えると必ず超える
+  const ASK_PDM_LARGE = `Title: feat: child\nBlocked-by: none\nTouches: scripts/a.mjs\n\n${longBody}\n\nVERDICT: ASK_PDM`;
+  const commentInputs = [];
+  const deps = {
+    runStage: () => ({ session_id: 'x', result: ASK_PDM_LARGE, total_cost_usd: 0, backend: 'claude' }),
+    spawnSync: (cmd, args, opts) => {
+      if (cmd === 'gh' && args[1] === 'comment') { commentInputs.push(opts?.input ?? ''); return { status: 0, stdout: '', stderr: '' }; }
+      throw new Error(`unexpected: ${cmd} ${args.join(' ')}`);
+    },
+    log: () => {}, recordManifestEntry: () => {}, escalate: () => {},
+    die: (msg) => { throw new Error(msg); },
+  };
+  assert.equal(runPlanTask(200, { title: 't', body: 'b', comments: [] }, BACKEND_FLAGS, deps), 0);
+  assert.ok(commentInputs.length > 1, `gh issue comment が複数回呼ばれること（実際: ${commentInputs.length} 回）`);
+  for (const chunk of commentInputs) {
+    assert.ok(chunk.length <= COMMENT_BODY_MAX, `chunk が COMMENT_BODY_MAX 以下であること`);
+  }
 });
