@@ -22,6 +22,7 @@
 | **escalation 対応** | PdM（＋監査役の補助） | **escalation label**（機械が投函・レポートは comment） | 盤面 Escalated 列で読む → 裁定を issue に書く | **裁定 comment → label 除去（または Ready／close）** |
 | **前進（outer 対話）** | 監査役（このセッション類） | PdM との対話 | 問題の言語化・選択肢の提示。**loop 外の起票は PdM の明示承認が必須**（hook が確認を強制） | **起票 or 記録された不起票判断** |
 | **rubric・統治管理** | 監査役が起草 | 基準・文書の欠落/誤り | rubrics/・skills/・design/・adr/ の改訂起草（外部空間は inner に触らせない） | **ゲート経由の landing** |
+| **harness-release（版改修）** | 監査役（outer）＋PdM 一括承認 | loop 本体・ゲート・配車の意味論に触る改修（ADR 0036） | 版として scope 全確定 → **bootstrap 編成（worktree 隔離 subagent の波状並列）で一括実装**。各着地は PR＋前置 review＋CI。**走行中の loop 自身に改修を食わせない** | **全スライス着地 → 常駐再読込 → 事前定義の機械検証 GREEN → 完了記録付き close** |
 | **harness-hotfix（緊急路）** | 監査役＋PdM 同期承認 | gate/loop 自体の故障 | 最小修正 | **生きているゲートを全て通した着地＋記録** |
 | 感知（meta-loop） | `scripts/meta-loop.mjs` | cadence／PdM 指示 | run 監査 → 結果分類 13 行 | finding 記録（**実走実績ゼロ・未通電**） |
 | 実験 loop | 未実装（#129・Approval 待ち） | rubric/skill 改訂案 | 前後比較実験 → 評価 → 採否 | 採否判断の記録 |
