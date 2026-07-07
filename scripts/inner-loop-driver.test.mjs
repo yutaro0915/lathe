@@ -12,6 +12,7 @@ import {
   setupWorktreeDeps,
   prepareWorktree,
   rebaseWorktree,
+  hasOpenPrForBranch,
   runStage,
   WORKTREE_DEPS_INSTALL_ARGS,
 } from './inner-loop.mjs';
@@ -75,6 +76,60 @@ test('rebaseWorktree: failed rebase aborts before returning false', () => {
   });
   assert.equal(ok, false);
   assert.deepEqual(calls, ['-C /tmp/wt rebase main', '-C /tmp/wt rebase --abort']);
+});
+
+// --- hasOpenPrForBranch ---
+
+test('hasOpenPrForBranch: returns true when gh pr list returns non-empty array', () => {
+  const ok = hasOpenPrForBranch('inner/issue-42', {
+    spawnSync: () => ({ status: 0, stdout: JSON.stringify([{ number: 42 }]) }),
+  });
+  assert.equal(ok, true);
+});
+
+test('hasOpenPrForBranch: returns false when gh pr list returns empty array (no open PR)', () => {
+  const ok = hasOpenPrForBranch('inner/issue-42', {
+    spawnSync: () => ({ status: 0, stdout: JSON.stringify([]) }),
+  });
+  assert.equal(ok, false);
+});
+
+test('hasOpenPrForBranch: returns true when gh exits non-zero (fail-safe: skip rebase)', () => {
+  const ok = hasOpenPrForBranch('inner/issue-42', {
+    spawnSync: () => ({ status: 1, stdout: '' }),
+  });
+  assert.equal(ok, true);
+});
+
+// --- rebase skip branch: PR 存在時は rebaseWorktree を呼ばない ---
+
+test('rebase skip: rebaseWorktree is not called when open PR exists (hasOpenPrForBranch=true)', () => {
+  // Reproduces the guard in the driver loop: if hasOpenPrForBranch → true, skip rebaseWorktree.
+  const rebaseCalls = [];
+  const hasPr = hasOpenPrForBranch('inner/issue-99', {
+    spawnSync: () => ({ status: 0, stdout: JSON.stringify([{ number: 10 }]) }),
+  });
+  if (!hasPr) {
+    rebaseWorktree('/tmp/wt', {
+      spawnSync: (cmd, args) => { rebaseCalls.push(args.join(' ')); return { status: 0 }; },
+    });
+  }
+  assert.equal(hasPr, true, 'open PR detected');
+  assert.equal(rebaseCalls.length, 0, 'rebaseWorktree must not be called when PR exists');
+});
+
+test('rebase runs: rebaseWorktree is called when no open PR exists (hasOpenPrForBranch=false)', () => {
+  const rebaseCalls = [];
+  const hasPr = hasOpenPrForBranch('inner/issue-99', {
+    spawnSync: () => ({ status: 0, stdout: JSON.stringify([]) }),
+  });
+  if (!hasPr) {
+    rebaseWorktree('/tmp/wt', {
+      spawnSync: (cmd, args) => { rebaseCalls.push(args.join(' ')); return { status: 0 }; },
+    });
+  }
+  assert.equal(hasPr, false, 'no open PR');
+  assert.deepEqual(rebaseCalls, ['-C /tmp/wt rebase main'], 'rebaseWorktree called when no PR exists');
 });
 
 // --- runStage backend env ---
