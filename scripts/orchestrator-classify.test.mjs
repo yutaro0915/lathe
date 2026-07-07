@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {
   CLASS_EXPLAIN, CLASS_IMPLEMENT, CLASS_PLAN, CLASS_PR_REVIEW,
   SKIP_DRAFT, SKIP_DRIVER_PR, SKIP_NON_TASK, SKIP_REVIEWED,
-  WAIT_APPROVAL, WAIT_DEP, WAIT_ESCALATION, WAIT_PR, WAIT_RUNNING,
+  WAIT_APPROVAL, WAIT_DEP, WAIT_ESCALATION, WAIT_HOLD, WAIT_PR, WAIT_RUNNING,
   STATUS_APPROVAL, STATUS_ESCALATED, STATUS_READY,
   classifyAll, classifyIssue, classifyPr, formatDecision, isDispatchClass,
   planBoardProjection,
@@ -59,6 +59,12 @@ const ISSUE_TABLE = [
     issue: issueState({ labels: ['task-request', 'escalation', 'needs-plan'], blockedBy: [1] }),
     ctx: { ...emptyCtx, openIssueNumbers: new Set([1]) },
     expected: WAIT_ESCALATION,
+  },
+  {
+    name: 'hold label → WAIT_HOLD（故障に数えない・dispatch しない）',
+    issue: issueState({ labels: ['task-request', 'hold', 'needs-plan'], blockedBy: [1] }),
+    ctx: { ...emptyCtx, openIssueNumbers: new Set([1]) },
+    expected: WAIT_HOLD,
   },
   {
     name: '実行中（live マーカー） → WAIT_RUNNING（dep より先）',
@@ -116,6 +122,21 @@ for (const row of ISSUE_TABLE) {
     assert.equal(decision.class, row.expected);
   });
 }
+
+test('classifyIssue: hold label → WAIT_HOLD（escalation より後・running/dep より先）', () => {
+  // escalation と hold が同時に付いた場合は escalation が優先（escalation が hold より先に判定）
+  const escalationAndHold = classifyIssue(
+    issueState({ labels: ['task-request', 'escalation', 'hold'] }),
+    emptyCtx,
+  );
+  assert.equal(escalationAndHold.class, WAIT_ESCALATION, 'escalation が hold より優先');
+  // hold は dep（blocked-by open）より先に判定
+  const holdWithDep = classifyIssue(
+    issueState({ labels: ['task-request', 'hold'], blockedBy: [1] }),
+    { ...emptyCtx, openIssueNumbers: new Set([1]) },
+  );
+  assert.equal(holdWithDep.class, WAIT_HOLD, 'hold は dep より先に判定');
+});
 
 test('classifyIssue: needs-plan × needs-review は Ready まで WAIT_APPROVAL（分解の承認前 dispatch を防ぐ）', () => {
   const issue = { number: 171, labels: ['task-request', 'needs-plan', 'needs-review', 'done-explain'], blockedBy: [], statusName: 'Approval' };
@@ -253,7 +274,7 @@ test('isDispatchClass: exactly the four dispatch classes', () => {
   for (const cls of [CLASS_PLAN, CLASS_EXPLAIN, CLASS_IMPLEMENT, CLASS_PR_REVIEW]) {
     assert.equal(isDispatchClass(cls), true, cls);
   }
-  for (const cls of [WAIT_APPROVAL, WAIT_DEP, WAIT_ESCALATION, WAIT_PR, WAIT_RUNNING, SKIP_NON_TASK, SKIP_DRAFT]) {
+  for (const cls of [WAIT_APPROVAL, WAIT_DEP, WAIT_ESCALATION, WAIT_HOLD, WAIT_PR, WAIT_RUNNING, SKIP_NON_TASK, SKIP_DRAFT]) {
     assert.equal(isDispatchClass(cls), false, cls);
   }
 });

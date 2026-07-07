@@ -14,6 +14,7 @@
 //   PR_REVIEW  — 非 driver 産 open PR × review 記録なし → review engine
 // 待機系（dispatch しない）:
 //   WAIT_ESCALATION — escalation label（裁定 loop 材料。故障と数えない、ADR 0030 追記 E）
+//   WAIT_HOLD       — hold label（dispatch を一時停止。故障と数えない、ADR 0037）
 //   WAIT_RUNNING    — live マーカー等で実行中（worktree 非依存の判定は shell 側）
 //   WAIT_PR         — open PR が issue を参照（In Progress、ADR 0031 §2 導出）
 //   WAIT_DEP        — blocked-by 参照が open
@@ -34,6 +35,7 @@ export const CLASS_IMPLEMENT = 'IMPLEMENT';
 export const CLASS_PR_REVIEW = 'PR_REVIEW';
 
 export const WAIT_ESCALATION = 'WAIT_ESCALATION';
+export const WAIT_HOLD = 'WAIT_HOLD';
 export const WAIT_RUNNING = 'WAIT_RUNNING';
 export const WAIT_PR = 'WAIT_PR';
 export const WAIT_DEP = 'WAIT_DEP';
@@ -43,6 +45,9 @@ export const SKIP_NON_TASK = 'SKIP_NON_TASK';
 export const SKIP_DRAFT = 'SKIP_DRAFT';
 export const SKIP_DRIVER_PR = 'SKIP_DRIVER_PR';
 export const SKIP_REVIEWED = 'SKIP_REVIEWED';
+
+// hold（dispatch 一時停止 label、ADR 0037）
+export const HOLD_LABEL = 'hold';
 
 // 教材（解説 loop の label 状態機械の終端、skills/explain-diff）
 export const DONE_EXPLAIN_LABEL = 'done-explain';
@@ -68,7 +73,7 @@ export function isDispatchClass(cls) {
 }
 
 /**
- * 1 issue の分類。判定順: task-request → escalation → 実行中 → open PR 参照 →
+ * 1 issue の分類。判定順: task-request → escalation → hold → 実行中 → open PR 参照 →
  * blocked-by → needs-plan → needs-review（Ready / 教材 / 承認待ち）→ 無印実装。
  * @param {{ number: number, labels: string[], blockedBy: number[], statusName: string|null }} issue
  * @param {{ openIssueNumbers: Set<number>, inProgressIssueNumbers: Set<number>,
@@ -81,6 +86,9 @@ export function classifyIssue(issue, ctx) {
   }
   if (hasLabel(issue.labels, ESCALATION_LABEL)) {
     return { class: WAIT_ESCALATION, reason: 'escalation label — PdM 裁定待ち（裁定 loop 材料）' };
+  }
+  if (hasLabel(issue.labels, HOLD_LABEL)) {
+    return { class: WAIT_HOLD, reason: 'hold label — dispatch を一時停止（故障と数えない、ADR 0037）' };
   }
   if (ctx.runningIssueNumbers?.has(issue.number)) {
     return { class: WAIT_RUNNING, reason: 'live マーカー/worktree が実行中を示す' };

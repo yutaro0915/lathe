@@ -31,7 +31,7 @@
 
 - **label**: `task-request`（task の印）／`needs-review`（人間承認要 — Ready まで実装しない）／
   `needs-plan`（分解型。planner 統合まで暫定維持）／`needs-explain`→`done-explain`（教材）／
-  `escalation`（裁定待ち）
+  `escalation`（裁定待ち）／`hold`（dispatch を一時停止 — 故障に数えない・ADR 0037）
 - **盤面（Projects #2・機械が読むのは Ready のみ、他列は投影）**: Backlog（機械作業中）→
   Approval（needs-review・教材あり・読む番）→ **Ready（承認＝人間だけが動かす）** →
   In progress → In review → Escalated（裁定待ち）→ Done（close 自動）
