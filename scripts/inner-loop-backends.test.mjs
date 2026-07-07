@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isAbsolute } from 'node:path';
 import {
   stagePermissions,
   stageSandbox,
@@ -11,6 +12,7 @@ import {
   parseBackendFlags,
   selectBackend,
   detectMainDirty,
+  INNER_SETTINGS_PATH,
 } from './inner-loop-backends.mjs';
 
 // --- stagePermissions: only PLAN (plan-task) and IMPLEMENT remain (#116) ---
@@ -172,6 +174,26 @@ test('buildClaudeArgs: includes --resume when resumeSessionId is provided', () =
 test('buildClaudeArgs: no --resume when resumeSessionId is null', () => {
   const args = buildClaudeArgs('PLAN', 'p', null);
   assert.ok(!args.includes('--resume'));
+});
+
+// --- INNER_SETTINGS_PATH ---
+
+test('INNER_SETTINGS_PATH: is an absolute path ending in .claude/settings.json', () => {
+  assert.ok(isAbsolute(INNER_SETTINGS_PATH), 'must be absolute');
+  assert.ok(
+    INNER_SETTINGS_PATH.endsWith('/.claude/settings.json') ||
+    INNER_SETTINGS_PATH.endsWith('\\.claude\\settings.json'),
+    `expected path ending in /.claude/settings.json, got: ${INNER_SETTINGS_PATH}`,
+  );
+});
+
+test('buildClaudeArgs: includes --settings INNER_SETTINGS_PATH in every stage', () => {
+  for (const stage of ['PLAN', 'IMPLEMENT', 'TASK_PLAN', 'PLAN_REVIEW']) {
+    const args = buildClaudeArgs(stage, 'p', null);
+    const idx = args.indexOf('--settings');
+    assert.notEqual(idx, -1, `stage=${stage}: must include --settings`);
+    assert.equal(args[idx + 1], INNER_SETTINGS_PATH, `stage=${stage}: --settings value must be INNER_SETTINGS_PATH`);
+  }
 });
 
 // --- stripFrontmatter ---

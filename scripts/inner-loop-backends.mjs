@@ -3,7 +3,19 @@
 // under the 500-line guard. All exports are pure functions; no spawnSync here.
 
 import { readFileSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __backends_dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Absolute path to the inner-loop Claude settings file.
+ * Passed as --settings to every `claude` spawn so the spawn cwd cannot
+ * influence which settings layer is loaded (belt & braces against
+ * settings.local implicit merge — ADR #206 分解 C).
+ * Contract: INNER_SETTINGS_PATH = <REPO_ROOT>/.claude/settings.json (PR #223).
+ */
+export const INNER_SETTINGS_PATH = join(__backends_dirname, '..', '.claude', 'settings.json');
 
 // plan-task PLAN reads source GitHub issues (issue = task, ADR 0031) —
 // read-only gh access only; child issue creation is the driver's job.
@@ -201,7 +213,13 @@ export function buildCodexArgs(stage, prompt, cwd, lastmsgPath, repoRoot, model)
  */
 export function buildClaudeArgs(stage, prompt, resumeSessionId) {
   const { agent, permissionMode, allowedTools } = stagePermissions(stage);
-  const args = ['-p', prompt, '--agent', agent, '--output-format', 'json', '--permission-mode', permissionMode];
+  const args = [
+    '-p', prompt,
+    '--agent', agent,
+    '--output-format', 'json',
+    '--permission-mode', permissionMode,
+    '--settings', INNER_SETTINGS_PATH,
+  ];
   if (allowedTools && allowedTools.length > 0) args.push('--allowedTools', allowedTools.join(','));
   if (resumeSessionId) args.push('--resume', resumeSessionId);
   return args;
