@@ -317,6 +317,12 @@ test('buildPlanReviewPrompt: no comments -> no 裁定 section', () => {
   assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: PASS | RED'));
 });
 
+test('buildPlanReviewPrompt: 見積り欄検査項目（4.）が含まれる', () => {
+  const prompt = buildStagePrompt('PLAN_REVIEW', { ...PLAN_REVIEW_CTX, comments: [] });
+  assert.ok(prompt.includes('見積り'), '見積り が検査項目に含まれること');
+  assert.ok(prompt.includes('4.'), '4番目の検査項目が存在すること');
+});
+
 // --- dispatch ---
 
 test('buildStagePrompt: PLAN, TASK_PLAN, PLAN_REVIEW, and IMPLEMENT builders exist', () => {

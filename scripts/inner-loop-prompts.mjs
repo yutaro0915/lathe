@@ -361,7 +361,7 @@ export function buildPlanReviewPrompt(ctx) {
     '1. plan-format 準拠（acceptance criteria・変更対象・検証方法が明記されているか）',
     '2. 実装可能性（曖昧な前提・未定義の依存・解が一意でない設計判断はないか）',
     '3. scope の明確さ（acceptance criteria が機械的に検証可能か）',
-    '4. 見積り欄（standard クラス plan に diff 規模・想定 implement 分数が明記されているか。trivial クラスは省略可）',
+    '4. 見積り欄（diff 規模・想定 implement 分数が明記されているか）',
     '',
     'PASS: 上記すべて問題なし。実装を続行できる。',
     'RED: 重大な問題あり。問題点を具体的に列挙してください（planner が修正に使います）。',

@@ -142,6 +142,14 @@ test('loadProfile: loads existing profile', () => {
   assert.ok(Array.isArray(result.profile.questions));
 });
 
+test('loadProfile: run-health には粒度超過検知の question が含まれる', () => {
+  const result = loadProfile('run-health');
+  assert.equal(result.ok, true);
+  const questions = result.profile.questions.join('\n');
+  assert.ok(questions.includes('粒度超過'), 'run-health questions に「粒度超過」が含まれること');
+  assert.ok(questions.includes('run_stages.duration_ms'), 'run-health questions に「run_stages.duration_ms」が含まれること');
+});
+
 test('loadProfile: gate-effectiveness profile exists', () => {
   const result = loadProfile('gate-effectiveness');
   assert.equal(result.ok, true);
