@@ -25,11 +25,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
-import { parseBlockedBy, issueLabelNames, TASK_REQUEST_LABEL } from './inner-loop-core.mjs';
+import { parseBlockedBy, issueLabelNames, TASK_REQUEST_LABEL, NEEDS_REVIEW_LABEL } from './inner-loop-core.mjs';
 import {
   planDryRun, runQueue, formatDecision,
   deriveReadyTaskIds, deriveInProgressIssueNumbers, parseInnerIssueWorktrees,
+  NEEDS_REVIEW_LABEL_QUEUE,
 } from './inner-queue-decisions.mjs';
+import { queryProjectItem, isReadyOptionId } from './inner-loop-projects.mjs';
 
 export * from './inner-queue-decisions.mjs';
 
@@ -114,6 +116,34 @@ function fetchReadyTaskIds(tasks) {
 function fetchInProgressIssueNumbers() {
   const prs = ghJson(['pr', 'list', '--state', 'open', '--json', 'number,body,headRefName', '--limit', String(ISSUE_LIST_LIMIT)]);
   return deriveInProgressIssueNumbers(prs);
+}
+
+// Fetch the set of issue numbers that are Ready in Projects (ADR 0035 §3/§7).
+// Only needs-review-labelled tasks require this check; for others the gate is
+// skipped (no human needed, ADR 0035 §1). A failed Projects query is logged
+// and treated as "not approved" to avoid unintended execution.
+export function fetchApprovedIssueNumbers(tasks) {
+  const needsReviewTasks = tasks.filter((task) =>
+    (task.labels ?? []).some((l) => String(l).toLowerCase() === NEEDS_REVIEW_LABEL_QUEUE),
+  );
+  const approved = new Set();
+  for (const task of needsReviewTasks) {
+    let result;
+    try {
+      result = queryProjectItem(task.id);
+    } catch (e) {
+      process.stderr.write(`[inner-queue] warning: Projects query error for #${task.id}: ${e.message}\n`);
+      continue;
+    }
+    if (!result.ok) {
+      process.stderr.write(`[inner-queue] warning: Projects query failed for #${task.id}: ${result.reason}\n`);
+      continue;
+    }
+    if (isReadyOptionId(result.optionId)) {
+      approved.add(task.id);
+    }
+  }
+  return approved;
 }
 
 function fetchIssueState(issueNumber) {
@@ -235,10 +265,12 @@ if (isMain) {
   let tasks;
   let readyTaskIds;
   let inProgressIssueNumbers;
+  let approvedIssueNumbers;
   try {
     tasks = fetchQueueTasks();
     readyTaskIds = fetchReadyTaskIds(tasks);
     inProgressIssueNumbers = fetchInProgressIssueNumbers();
+    approvedIssueNumbers = fetchApprovedIssueNumbers(tasks);
   } catch (e) {
     die(e.message);
   }
@@ -250,6 +282,7 @@ if (isMain) {
       readyTaskIds,
       runningWorktrees,
       inProgressIssueNumbers,
+      approvedIssueNumbers,
       max: parsed.max,
     });
     for (const decision of decisions) {
@@ -263,6 +296,7 @@ if (isMain) {
     readyTaskIds,
     runningWorktrees,
     inProgressIssueNumbers,
+    approvedIssueNumbers,
     max: parsed.max,
     maxFailures: parsed.maxFailures,
     spawnTask: spawnInnerLoop,

@@ -1,28 +1,15 @@
 #!/usr/bin/env node
 // CLI: node scripts/inner-loop.mjs <issue#> [--resume] [--dry-run] [--backend claude|codex]
 //      [--backend-<stage> claude|codex]
-// inner loop driver — code state machine driving headless named agents for one
-// GitHub issue (= one task, ADR 0031: TASK-N = issue #N).
-//
-// Two run types, selected by the issue's labels (ADR 0030 追記 A — the machine
-// reads only the label, never the body structure):
-//   - task loop (no needs-plan label): IMPLEMENT (worktree) → LAND
-//     (push → gh pr create with `Closes #N` → gh pr merge --auto --squash;
-//     auto-merge is armed at PR creation — review is a record, not a gate,
-//     #116 監査役裁定 1). Review is recorded on the PR by the review engine
-//     (#128, ADR 0030 追記 B); verify(tier=test) runs in CI. The local
-//     PLAN/REVIEW/VERIFY/TRIAGE stages are gone (ADR 0030 §2-3, #116).
-//   - plan-task (needs-plan label): see inner-loop-plan-task.mjs.
-//
-// Startability gates (derived on every run, never stored — ADR 0031): the
-// issue must be open and blocked-by #N refs must all be closed (ADR 0031 §2).
-//
-// Module layout (each under the 500-line guard): inner-loop-core.mjs (pure
-// shared logic) / inner-loop-prompts.mjs / inner-loop-backends.mjs /
-// inner-loop-stage-runner.mjs (backend spawn) / inner-loop-plan-task.mjs.
-// This file re-exports their public symbols so existing importers (tests,
-// meta-loop.mjs, inner-queue.mjs) keep one import surface.
-// ADR 0013 (driver) / 0014 (backends) / 0030 (two-gate) / 0031.
+// inner loop driver — state machine over GitHub issue = task (ADR 0031).
+// Run types (from labels, never body): task loop (no needs-plan):
+//   TASK_PLAN -> PLAN_REVIEW -> IMPLEMENT -> LAND (ADR 0035 §1);
+//   plan-task (needs-plan): see inner-loop-plan-task.mjs.
+// Startability gates (derived, never stored, ADR 0031 §2): open + unblocked.
+// Module layout: inner-loop-core.mjs / -prompts.mjs / -backends.mjs /
+//   -stage-runner.mjs / -plan-task.mjs / -projects.mjs.
+// Re-exports public symbols from split modules (single import surface).
+// ADR 0013 (driver) / 0014 (backends) / 0030 (gates) / 0031 / 0035.
 
 import { existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -42,17 +29,21 @@ import {
   REPO_ROOT,
   TASK_LOOP_STAGES, TASK_LOOP_TERMINAL,
   UNPARSABLE_VERDICT, WORKTREE_DEPS_INSTALL_ARGS,
+  MAX_PLAN_REVIEW_RETRIES,
   parseDriverArgsWith, selectRunType, nextState,
   runStageWithUnparsableRetry,
   buildManifestEntry, buildManifest, backendCostSourceForEnvelope, readManifestStages,
   buildEscalationMarkdown, decideResumeState, tailLines,
   isWorktreeStage, stageRequiresFreshMainRebase,
-  parseBlockedBy, issueLabelNames,
+  parseBlockedBy, issueLabelNames, hasNeedsReviewLabel,
   worktreeNameFor, extractFirstCommitMessage, splitCommitMessage,
   buildPrBodyWithCloses, buildPrCreateArgs, buildPrMergeArgs,
 } from './inner-loop-core.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
-import { runPlanTask, dryRunPlanTask } from './inner-loop-plan-task.mjs';
+import { runPlanTask, dryRunPlanTask, readPlanFormatOrDie } from './inner-loop-plan-task.mjs';
+import {
+  trySetProjectStatus, PROJECTS_STATUS_OPTIONS,
+} from './inner-loop-projects.mjs';
 
 // Re-export the split modules' public symbols so tests / meta-loop.mjs /
 // inner-queue.mjs keep importing from this file.
@@ -308,27 +299,28 @@ export function landBranch(branch, issueNumber, deps = {}) {
 // --- Dry-run (task loop) ---
 
 function dryRunTaskLoop(issueNumber, issue, backendFlags) {
-  log(`dry-run: task loop issue #${issueNumber}`);
-  log(`dry-run: manifest ${manifestPathFor(issueNumber)}`);
+  const planFormat = readPlanFormatOrDie();
+  log(`dry-run: task loop issue #${issueNumber} | manifest ${manifestPathFor(issueNumber)}`);
   const refs = parseBlockedBy(issue.body);
-  log(refs.length === 0
-    ? 'dry-run: blocked-by — no refs in issue body'
-    : `dry-run: blocked-by — would check ${refs.map((n) => `#${n}`).join(', ')} via gh issue view --json state; any OPEN ref refuses the run`);
+  log(refs.length === 0 ? 'dry-run: blocked-by — none' : `dry-run: blocked-by — ${refs.map((n) => `#${n}`).join(', ')}`);
   const { branch: wtBranch, dirName: wtDirName } = worktreeNameFor(issueNumber);
   const wtPath = join(REPO_ROOT, '.claude', 'worktrees', wtDirName);
-  log(`dry-run: stage plan — ${TASK_LOOP_STAGES.join(' -> ')} -> ${TASK_LOOP_TERMINAL}`);
-  log(`dry-run: would create worktree ${wtPath} on branch ${wtBranch}`);
-  log(`dry-run: would run pnpm ${WORKTREE_DEPS_INSTALL_ARGS.join(' ')} in ${wtPath}`);
-  log('dry-run: pnpm install failure would warn and continue with P3 fallback');
+  log(`dry-run: stages — ${TASK_LOOP_STAGES.join(' -> ')} -> ${TASK_LOOP_TERMINAL}`);
+  log(hasNeedsReviewLabel(issue)
+    ? `dry-run: needs-review=YES — queue skips unless Projects Status=Ready (ADR 0035 §1)`
+    : `dry-run: needs-review=NO — zero human gate (ADR 0035 §1)`);
+  log(`dry-run: PLAN_REVIEW RED → retry TASK_PLAN max=${MAX_PLAN_REVIEW_RETRIES}; exhausted → needs-review+escalation labels, stop (ADR 0035 §5)`);
+  log(`dry-run: Projects: In progress on start / In review at PR creation (non-fatal); plan-format ${planFormat.length} chars injected into TASK_PLAN fail-closed`);
+  log(`dry-run: worktree ${wtPath} on ${wtBranch}; pnpm install failure → P3 fallback`);
   for (const stage of TASK_LOOP_STAGES) {
     const cwd = stageCwd(stage, REPO_ROOT, wtPath);
-    const promptPreview = buildStagePrompt(stage, {
-      issueNumber, issueTitle: issue.title, issueBody: issue.body, comments: issue.comments,
-    });
-    logDryRunStage(stage, backendFlags, cwd, promptPreview);
+    const ctx = { issueNumber, issueTitle: issue.title, issueBody: issue.body, comments: issue.comments };
+    if (stage === 'TASK_PLAN') ctx.planFormat = planFormat;
+    if (stage === 'PLAN_REVIEW') ctx.planText = '(TASK_PLAN result)';
+    logDryRunStage(stage, backendFlags, cwd, buildStagePrompt(stage, ctx));
   }
-  log(`dry-run: ${TASK_LOOP_TERMINAL} — land ${wtBranch}: push → gh pr create (body includes Closes #${issueNumber}) → gh pr merge --auto --squash (arm at PR creation; review is recorded on the PR by the review engine)`);
-  log('dry-run: transition plan — IMPL_DONE->LAND, missing/unparsable VERDICT->same stage retry once then ESCALATE');
+  log(`dry-run: LAND — push → gh pr create (Closes #${issueNumber}) → gh pr merge --auto --squash`);
+  log('dry-run: TASK_PLAN PLAN_READY->PLAN_REVIEW, PLAN_REVIEW PASS->IMPLEMENT, IMPL_DONE->LAND, RED->retry, unparsable->retry once then ESCALATE');
 }
 
 // --- CLI entrypoint ---
@@ -399,6 +391,10 @@ if (isMain) {
     state = TASK_LOOP_STAGES[0];
   }
 
+  let planText = '';
+  let planReviewRetries = 0;
+  trySetProjectStatus(issueNumber, PROJECTS_STATUS_OPTIONS.InProgress, 'In progress', { log });
+
   while (state !== TASK_LOOP_TERMINAL && state !== 'ESCALATE') {
     const cwd = stageCwd(state, REPO_ROOT, worktreePath);
 
@@ -414,9 +410,9 @@ if (isMain) {
       ? (spawnSync('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim() || null)
       : null;
 
-    const prompt = buildStagePrompt(state, {
-      issueNumber, issueTitle: issue.title, issueBody: issue.body, comments: issue.comments,
-    });
+    const stageCtx = { issueNumber, issueTitle: issue.title, issueBody: issue.body, comments: issue.comments,
+      ...(state === 'TASK_PLAN' && { planFormat: readPlanFormatOrDie() }), ...(state === 'PLAN_REVIEW' && { planText }) };
+    const prompt = buildStagePrompt(state, stageCtx);
 
     const fallback = resume
       ? (resolveResumeBackend(readManifestStages(manifestPathFor(issueNumber))) ?? 'claude')
@@ -450,6 +446,17 @@ if (isMain) {
 
     if (verdict === null) { writeEscalation(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? ''); state = 'ESCALATE'; break; }
 
+    if (state === 'TASK_PLAN' && verdict === 'PLAN_READY') { // capture + post plan comment (ADR 0035 §1)
+      planText = envelope.result ?? '';
+      if (spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body-file', '-'], { cwd: REPO_ROOT, encoding: 'utf8', input: `## plan\n\n${planText}`, stdio: ['pipe', 'pipe', 'pipe'] }).status !== 0) log(`warning: plan comment failed for #${issueNumber}`);
+    }
+    if (state === 'PLAN_REVIEW' && verdict === 'RED') { // retry TASK_PLAN or label+stop (ADR 0035 §5)
+      if (++planReviewRetries <= MAX_PLAN_REVIEW_RETRIES) { log(`PLAN_REVIEW RED → retry TASK_PLAN (${planReviewRetries}/${MAX_PLAN_REVIEW_RETRIES})`); state = 'TASK_PLAN'; continue; }
+      spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', 'needs-review,escalation'], { cwd: REPO_ROOT, stdio: 'inherit' });
+      writeEscalation(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${MAX_PLAN_REVIEW_RETRIES} retries.\n\n${envelope.result ?? ''}`);
+      state = 'ESCALATE'; break;
+    }
+
     if (detectHollowImplement({ verdict, baseSha: implementBaseSha, headSha: stageHeadSha })) {
       writeEscalation(issueNumber, 'IMPLEMENT', verdict, 'hollow completion: zero new commits');
       state = 'ESCALATE'; break;
@@ -479,6 +486,7 @@ if (isMain) {
   log(`backstop: main working tree clean — proceeding with landing.`);
 
   log(`landing branch ${branch}: push → gh pr create (Closes #${issueNumber}) → gh pr merge --auto --squash`);
+  trySetProjectStatus(issueNumber, PROJECTS_STATUS_OPTIONS.InReview, 'In review', { log });
   const landResult = landBranch(branch, issueNumber);
   if (!landResult.ok) {
     writeEscalation(issueNumber, TASK_LOOP_TERMINAL, null, `landing failed\n\n${tailLines(landResult.output)}`);

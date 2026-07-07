@@ -168,8 +168,92 @@ export function buildPlanTaskPrompt(ctx) {
   return lines.join('\n');
 }
 
+/**
+ * TASK_PLAN stage prompt — task-loop plan stage. Planner reads the issue and
+ * produces a plan-format.md compliant plan for THIS issue (not child issues).
+ * The driver posts the plan as a comment on the issue after PLAN_READY, then
+ * PLAN_REVIEW evaluates it (ADR 0035 §1).
+ *
+ * `planFormat` is the full text of design/plan-format.md, injected fail-closed
+ * (same contract as buildPlanTaskPrompt — #142 absorbed into #116).
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, comments?: Array<object>, planFormat: string }} ctx
+ * @returns {string}
+ */
+export function buildTaskLoopPlanPrompt(ctx) {
+  const { issueNumber, issueTitle, issueBody, comments, planFormat } = ctx;
+  if (typeof planFormat !== 'string' || planFormat.trim().length === 0) {
+    throw new Error('buildTaskLoopPlanPrompt: planFormat is required (fail-closed injection of design/plan-format.md, #142)');
+  }
+  const lines = [
+    marker(issueNumber, 'TASK_PLAN'),
+    '',
+    `以下の issue の実装 plan を作成してください。plan-format.md の規約に従ってください。`,
+    '',
+    `## issue #${issueNumber}: ${issueTitle}`,
+    issueBody ?? '',
+  ];
+  const commentsBlock = formatIssueComments(comments);
+  if (commentsBlock) {
+    lines.push('', '## 裁定・申し送り（issue comments）', commentsBlock);
+  }
+  lines.push(
+    '',
+    '## plan format（正本 design/plan-format.md）',
+    '',
+    planFormat.trim(),
+    '',
+    '## 出力契約',
+    '',
+    'この issue 自体の実装 plan を plan-format.md に従って出力してください。',
+    '子 issue を作成する必要はありません。この issue の acceptance criteria・変更対象・検証方法を明確にしてください。',
+    '',
+    IMPL_LOOP_ESCALATION_CONTRACT,
+    '',
+    verdictInstruction(['PLAN_READY', 'ESCALATE']),
+  );
+  return lines.join('\n');
+}
+
+/**
+ * PLAN_REVIEW stage prompt — machine plan review (ADR 0035 §1). An independent
+ * reviewer agent evaluates the plan produced by TASK_PLAN. Returns PASS when
+ * the plan is actionable and RED when critical issues are found (driver retries
+ * TASK_PLAN up to MAX_PLAN_REVIEW_RETRIES times).
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, planText: string }} ctx
+ * @returns {string}
+ */
+export function buildPlanReviewPrompt(ctx) {
+  const { issueNumber, issueTitle, issueBody, planText } = ctx;
+  const lines = [
+    marker(issueNumber, 'PLAN_REVIEW'),
+    '',
+    `以下の plan を ADR 0035 §1 の機械 plan review として検査してください。`,
+    '',
+    `## issue #${issueNumber}: ${issueTitle}`,
+    issueBody ?? '',
+    '',
+    '## 検査対象 plan',
+    '',
+    planText ?? '(plan not provided)',
+    '',
+    '## 検査項目',
+    '',
+    '1. plan-format 準拠（acceptance criteria・変更対象・検証方法が明記されているか）',
+    '2. 実装可能性（曖昧な前提・未定義の依存・解が一意でない設計判断はないか）',
+    '3. scope の明確さ（acceptance criteria が機械的に検証可能か）',
+    '',
+    'PASS: 上記すべて問題なし。実装を続行できる。',
+    'RED: 重大な問題あり。問題点を具体的に列挙してください（planner が修正に使います）。',
+    '',
+    verdictInstruction(['PASS', 'RED']),
+  ];
+  return lines.join('\n');
+}
+
 export const STAGE_PROMPT_BUILDERS = {
   PLAN: buildPlanTaskPrompt,
+  TASK_PLAN: buildTaskLoopPlanPrompt,
+  PLAN_REVIEW: buildPlanReviewPrompt,
   IMPLEMENT: buildImplementPrompt,
 };
 

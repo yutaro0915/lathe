@@ -12,6 +12,7 @@ import { parseBlockedBy } from './inner-loop-core.mjs';
 
 export const READY_NOW = 'READY_NOW';
 export const WAIT_DEP = 'WAIT_DEP';
+export const WAIT_APPROVAL = 'WAIT_APPROVAL';
 export const SKIP_RUNNING = 'SKIP_RUNNING';
 export const SKIP_IN_PROGRESS = 'SKIP_IN_PROGRESS';
 export const SKIP_ESCALATION = 'SKIP_ESCALATION';
@@ -19,6 +20,7 @@ export const DEFER_TOUCHES = 'DEFER_TOUCHES';
 export const DEFER_CAPACITY = 'DEFER_CAPACITY';
 
 export const ESCALATION_LABEL = 'escalation';
+export const NEEDS_REVIEW_LABEL_QUEUE = 'needs-review';
 
 /**
  * Parse machine-readable inner-loop hints from an issue body. Only Touches
@@ -155,15 +157,21 @@ function firstTouchOverlap(task, activeTasks) {
 
 /**
  * Classify one task against the escalation label, in-progress PRs, running
- * worktrees, dependency readiness, active task touches, and capacity.
+ * worktrees, dependency readiness, needs-review approval gate, active task
+ * touches, and capacity.
  *
- * @param {{ task: object, readyTaskIds?: Set<number>, runningWorktrees?: Map<number,string>|Set<number>|Record<number,string>, inProgressIssueNumbers?: Set<number>, activeTasks?: object[], activeSlots?: number, max?: number }} p
+ * `approvedIssueNumbers`: set of issue numbers confirmed Ready in Projects
+ * (ADR 0035 §3). Only relevant for needs-review-labelled tasks — for others
+ * the gate is skipped (zero human needed, ADR 0035 §1).
+ *
+ * @param {{ task: object, readyTaskIds?: Set<number>, runningWorktrees?: Map<number,string>|Set<number>|Record<number,string>, inProgressIssueNumbers?: Set<number>, approvedIssueNumbers?: Set<number>, activeTasks?: object[], activeSlots?: number, max?: number }} p
  */
 export function classifyTask({
   task,
   readyTaskIds = new Set(),
   runningWorktrees = new Map(),
   inProgressIssueNumbers = new Set(),
+  approvedIssueNumbers = new Set(),
   activeTasks = [],
   activeSlots = 0,
   max = Number.POSITIVE_INFINITY,
@@ -188,6 +196,14 @@ export function classifyTask({
     return { status: WAIT_DEP, task: enriched, unresolved };
   }
 
+  // needs-review gate (ADR 0035 §1/§3): tasks with needs-review label require
+  // PdM approval (Projects Status=Ready) before the driver can start.
+  if ((enriched.labels ?? []).some((name) => String(name).toLowerCase() === NEEDS_REVIEW_LABEL_QUEUE)) {
+    if (!approvedIssueNumbers.has(enriched.id)) {
+      return { status: WAIT_APPROVAL, task: enriched };
+    }
+  }
+
   const overlap = firstTouchOverlap(enriched, activeTasks);
   if (overlap) {
     return { status: DEFER_TOUCHES, task: enriched, overlaps: overlap.taskId, path: overlap.path };
@@ -205,13 +221,14 @@ export function classifyTask({
  * issue-number order, so lower-numbered ready tasks reserve capacity/touches
  * first.
  *
- * @param {{ tasks: object[], readyTaskIds?: Set<number>, runningWorktrees?: Map<number,string>|Set<number>|Record<number,string>, inProgressIssueNumbers?: Set<number>, max?: number }} p
+ * @param {{ tasks: object[], readyTaskIds?: Set<number>, runningWorktrees?: Map<number,string>|Set<number>|Record<number,string>, inProgressIssueNumbers?: Set<number>, approvedIssueNumbers?: Set<number>, max?: number }} p
  */
 export function planDryRun({
   tasks,
   readyTaskIds = new Set(),
   runningWorktrees = new Map(),
   inProgressIssueNumbers = new Set(),
+  approvedIssueNumbers = new Set(),
   max = 2,
 }) {
   const enrichedTasks = [...tasks].map(enrichTask).sort((a, b) => a.id - b.id);
@@ -226,6 +243,7 @@ export function planDryRun({
       readyTaskIds,
       runningWorktrees,
       inProgressIssueNumbers,
+      approvedIssueNumbers,
       activeTasks,
       activeSlots: activeTasks.length,
       max,
@@ -242,13 +260,17 @@ export function planDryRun({
  * promise resolving to { status }. Touch conflicts against queue-launched
  * active tasks are re-evaluated after each completion.
  *
- * @param {{ tasks: object[], readyTaskIds?: Set<number>, runningWorktrees?: Map<number,string>|Set<number>|Record<number,string>, inProgressIssueNumbers?: Set<number>, max?: number, maxFailures?: number, spawnTask: (task: object) => Promise<{status:number|null}>, log?: (line:string)=>void }} p
+ * `approvedIssueNumbers`: set of issue numbers confirmed Ready in Projects
+ * (ADR 0035 §3). Populated by the queue CLI for needs-review issues.
+ *
+ * @param {{ tasks: object[], readyTaskIds?: Set<number>, runningWorktrees?: Map<number,string>|Set<number>|Record<number,string>, inProgressIssueNumbers?: Set<number>, approvedIssueNumbers?: Set<number>, max?: number, maxFailures?: number, spawnTask: (task: object) => Promise<{status:number|null}>, log?: (line:string)=>void }} p
  */
 export async function runQueue({
   tasks,
   readyTaskIds = new Set(),
   runningWorktrees = new Map(),
   inProgressIssueNumbers = new Set(),
+  approvedIssueNumbers = new Set(),
   max = 2,
   maxFailures = 3,
   spawnTask,
@@ -280,11 +302,12 @@ export async function runQueue({
       readyTaskIds,
       runningWorktrees,
       inProgressIssueNumbers,
+      approvedIssueNumbers,
       activeTasks: runningTasks,
       activeSlots: runningTasks.length,
       max,
     });
-    if ([SKIP_RUNNING, SKIP_IN_PROGRESS, SKIP_ESCALATION, WAIT_DEP].includes(decision.status)) {
+    if ([SKIP_RUNNING, SKIP_IN_PROGRESS, SKIP_ESCALATION, WAIT_DEP, WAIT_APPROVAL].includes(decision.status)) {
       log(formatDecision(decision));
       skipped.push(decision);
       removePending(task.id);
@@ -307,6 +330,7 @@ export async function runQueue({
           readyTaskIds,
           runningWorktrees,
           inProgressIssueNumbers,
+          approvedIssueNumbers,
           activeTasks,
           activeSlots: runningTasks.length + active.length,
           max,
@@ -375,6 +399,8 @@ export function formatDecision(decision) {
       return `${READY_NOW} ${id}`;
     case WAIT_DEP:
       return `${WAIT_DEP} ${id} unresolved=${decision.unresolved.map((n) => `#${n}`).join(',')}`;
+    case WAIT_APPROVAL:
+      return `${WAIT_APPROVAL} ${id} (needs-review label — awaiting Projects Status=Ready before driver can start, ADR 0035 §1)`;
     case DEFER_TOUCHES:
       return `${DEFER_TOUCHES} ${id} overlaps=#${decision.overlaps} path=${decision.path}`;
     case SKIP_RUNNING:

@@ -190,19 +190,18 @@ function runDriverCli(args, fakeBin) {
   });
 }
 
-test('CLI dry-run (task loop): prints the shrunk stage plan and LAND with Closes #N', () => {
+test('CLI dry-run (task loop): prints the ADR-0035 stage plan and LAND with Closes #N', () => {
   const fake = setupFakeGh('task', { labels: ['task-request'], body: 'plan body\nblocked-by #7' });
   try {
     const r = runDriverCli(['4242', '--dry-run'], fake.fakeBin);
     assert.equal(r.status, 0, r.stderr);
     assert.ok(r.stdout.includes('dry-run: task loop issue #4242'));
-    assert.ok(r.stdout.includes('stage plan — IMPLEMENT -> LAND'));
-    assert.ok(r.stdout.includes('blocked-by — would check #7'));
+    assert.ok(r.stdout.includes('stages — TASK_PLAN -> PLAN_REVIEW -> IMPLEMENT -> LAND'));
+    assert.ok(r.stdout.includes('blocked-by — #7'));
     assert.ok(r.stdout.includes('Closes #4242'));
     assert.ok(r.stdout.includes('IMPL_DONE->LAND'));
     assert.ok(r.stdout.includes('裁定 comment'));
-    // removed stages must not appear in the transition plan
-    assert.ok(!r.stdout.includes('REVIEW PASS'));
+    // fully-removed stages must not appear in the transition plan
     assert.ok(!r.stdout.includes('TRIAGE'));
   } finally {
     fake.cleanup();
