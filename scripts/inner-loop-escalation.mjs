@@ -1,5 +1,5 @@
-// inner-loop-escalation.mjs — escalation の issue 化 (#201 分解 6, 設計正本は
-// issue #201/#203). ESCALATE 終端は対象 issue への投影に一本化する:
+// inner-loop-escalation.mjs — escalation の issue 化（#201 分解 6, #117 ADR 0035 §4）。
+// ESCALATE 終端は対象 issue への投影に一本化する:
 //   escalation label（無ければ gh label create で新設）＋レポート全文の comment。
 // ローカル .lathe/runs/*.escalation.md は廃止（状態は gh から導出 = ADR 0031。
 // 旧 provisional surface は #116 監査役裁定 3）。escalation label 付き issue は
@@ -7,6 +7,9 @@
 // label 除去で再開。driver（task loop）と plan-task の両経路がここを通る
 // 単一の出口。meta-loop の escalation は別 loop・別監視（run-health.json）で
 // scope 外。投影失敗は非致命（warn して続行）— run を止めるかは呼び出し側の管轄。
+//
+// triage 分類は inner-loop-escalation-triage.mjs の classifyEscalation が担う
+// （ADR 0035 §4）。escalateIssue（inner-loop.mjs）が分類を受けて分岐する。
 
 import { spawnSync } from 'node:child_process';
 import { REPO_ROOT, ESCALATION_LABEL } from './inner-loop-core.mjs';

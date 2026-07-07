@@ -32,7 +32,7 @@ import {
   REPO_ROOT,
   TASK_LOOP_STAGES, TASK_LOOP_TERMINAL,
   UNPARSABLE_VERDICT, WORKTREE_DEPS_INSTALL_ARGS,
-  NEEDS_REVIEW_LABEL,
+  NEEDS_REVIEW_LABEL, TASK_REQUEST_LABEL,
   parseDriverArgsWith, selectRunType, nextState,
   runStageWithUnparsableRetry,
   buildManifestEntry, buildManifest, manifestPathFor, backendCostSourceForEnvelope, readManifestStages,
@@ -43,16 +43,17 @@ import {
 } from './inner-loop-core.mjs';
 import { landBranchWithReview, extractLatestPlanCommentText } from './inner-loop-land.mjs';
 import { projectEscalation } from './inner-loop-escalation.mjs';
+import { classifyEscalation } from './inner-loop-escalation-triage.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
 import { runPlanTask, dryRunPlanTask, readPlanFormatOrDie } from './inner-loop-plan-task.mjs';
 import {
   trySetProjectStatus, PROJECTS_STATUS_NAMES,
 } from './inner-loop-projects.mjs';
 
-// Re-export the split modules' public symbols so tests / meta-loop.mjs /
-// inner-queue.mjs keep importing from this file.
+// Re-export the split modules' public symbols so tests / meta-loop.mjs / inner-queue.mjs keep importing from this file.
 export * from './inner-loop-core.mjs';
 export * from './inner-loop-escalation.mjs';
+export * from './inner-loop-escalation-triage.mjs';
 export * from './inner-loop-land.mjs';
 export {
   parseBlockedByLine, parsePlanChildBlocks, resolvePlanChildDependency,
@@ -225,9 +226,17 @@ function appendManifestEntry(issueNumber, entry) {
   writeFileSync(p, JSON.stringify(buildManifest(unit, stages), null, 2) + '\n', 'utf8');
 }
 
-// escalation の issue 化 (#201 分解 6): 対象 issue に escalation label ＋
-// レポート全文 comment を投影する（.escalation.md は廃止・非致命）。
+// escalation triage（#117, ADR 0035 §4）: 'environment'→env-repair task 起票（escalation label 不付与）/ 'decision'→needs-review+PdM 裁定。
 function escalateIssue(issueNumber, stage, verdict, resultExcerpt) {
+  if (classifyEscalation({ verdict }) === 'environment') { // (ii) env 修理 task を起票。元 issue に escalation label を付けない
+    const r = spawnSync('gh', ['issue', 'create', '--label', `${TASK_REQUEST_LABEL},env-repair`, '--title', `env-repair: ${verdict ?? 'env-failure'} at stage ${stage} (#${issueNumber})`, '--body', `env failure: #${issueNumber} stage=${stage} verdict=${verdict ?? '(none)'}. see test-failure-playbook.md`], { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    if (r.status !== 0) log(`warning: could not create env-repair task-request for #${issueNumber} (continuing)`);
+    return;
+  }
+  // (iii) decision — needs-review label + projectEscalation（PdM 裁定キュー）
+  const nr = spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', NEEDS_REVIEW_LABEL],
+    { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  if (nr.status !== 0) log(`warning: could not add ${NEEDS_REVIEW_LABEL} label to #${issueNumber} (continuing)`);
   projectEscalation({ issueNumber, stage, verdict, resultExcerpt }, { log });
 }
 
@@ -436,8 +445,7 @@ if (isMain) {
     if (state === 'PLAN_REVIEW' && verdict === 'RED') { // retry TASK_PLAN with 所見注入 (#192 Major#2) or label+stop (ADR 0035 §5)
       planReviewFeedback = envelope.result ?? '';
       if (++planReviewRetries <= DRIVER_CONFIG.maxPlanReviewRetries) { log(`PLAN_REVIEW RED → retry TASK_PLAN (${planReviewRetries}/${DRIVER_CONFIG.maxPlanReviewRetries})`); state = 'TASK_PLAN'; continue; }
-      spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', NEEDS_REVIEW_LABEL], { cwd: REPO_ROOT, stdio: 'inherit' }); // escalation label は escalateIssue が付与
-      escalateIssue(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${DRIVER_CONFIG.maxPlanReviewRetries} retries.\n\n${envelope.result ?? ''}`);
+      escalateIssue(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${DRIVER_CONFIG.maxPlanReviewRetries} retries.\n\n${envelope.result ?? ''}`); // needs-review は triage 'decision' で付与
       state = 'ESCALATE'; break;
     }
 

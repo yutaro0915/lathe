@@ -73,10 +73,11 @@ test('buildImplementPrompt: points to the implement skill and main-freshness con
   assert.ok(prompt.includes('git rebase main'));
 });
 
-test('buildImplementPrompt: premise break escalates without replanning (裁定 3: 暫定維持)', () => {
+test('buildImplementPrompt: premise break → driver triage（agent ESCALATE 廃止, #117 ADR 0035 §4）', () => {
   const prompt = buildImplementPrompt(IMPLEMENT_CTX);
-  assert.ok(prompt.includes('再計画せず ESCALATE'));
-  assert.ok(prompt.includes('最小変更を発明せず ESCALATE'));
+  // agent ESCALATE は廃止。driver が triage する旨を出力して IMPL_DONE で終えるよう指示
+  assert.ok(prompt.includes('driver が triage'));
+  assert.ok(prompt.includes('IMPL_DONE で終えてください'));
 });
 
 test('buildImplementPrompt: driver-owned mechanical checks are not assigned to the agent', () => {
@@ -91,9 +92,9 @@ test('buildImplementPrompt: commit discipline (explicit git add, one commit)', (
   assert.ok(prompt.includes('`git add -A` / `git add .` は禁止'));
 });
 
-test('buildImplementPrompt: verdict tokens are IMPL_DONE | ESCALATE only', () => {
+test('buildImplementPrompt: verdict token は IMPL_DONE のみ（ESCALATE 廃止, #117 ADR 0035 §4）', () => {
   const prompt = buildImplementPrompt(IMPLEMENT_CTX);
-  assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: IMPL_DONE | ESCALATE'));
+  assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: IMPL_DONE'));
 });
 
 // --- plan-task PLAN prompt ---
@@ -247,7 +248,7 @@ test('buildLandReworkPrompt: 同一 worktree 追い commit 契約（rebase/amend
   assert.ok(prompt.includes('新しい PR・branch を作らない'));
   assert.ok(prompt.includes('`git add -A` / `git add .` は禁止'));
   assert.ok(prompt.includes('VERDICT: <TOKEN>'));
-  assert.ok(prompt.includes('IMPL_DONE | ESCALATE'));
+  assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: IMPL_DONE'));
 });
 
 test('buildLandReworkPrompt: zero-commit（全指摘却下・理由列挙）を適法とする（#188 対応可否）', () => {

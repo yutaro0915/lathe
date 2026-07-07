@@ -1,9 +1,10 @@
-// Tests for escalation の issue 化 (#201 分解 6 / #203): ESCALATE 終端は
-// 対象 issue への escalation label ＋ レポート全文 comment（.escalation.md 廃止）。
+// Tests for escalation の issue 化 + triage 二分岐 (#201 分解 6, #117 ADR 0035 §4):
+// ESCALATE 終端は対象 issue への escalation label ＋ レポート全文 comment（.escalation.md 廃止）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ESCALATION_LABEL } from './inner-loop-core.mjs';
 import { buildEscalationMarkdown, projectEscalation } from './inner-loop-escalation.mjs';
+import { classifyEscalation } from './inner-loop-escalation-triage.mjs';
 
 // --- buildEscalationMarkdown (report body) ---
 
@@ -91,4 +92,33 @@ test('projectEscalation: comment failure alone still returns labelOk=true / ok=f
     },
   );
   assert.deepEqual(result, { ok: false, labelOk: true, commentOk: false });
+});
+
+// --- classifyEscalation (ADR 0035 §4 triage 二分岐) ---
+// 返値は 'environment' | 'decision' の 2 値。
+// 'context'（UNPARSABLE）は bounded-retry が吸収するため出口 triage には現れない → 'decision' で扱う。
+
+test('classifyEscalation: REBASE_CONFLICT → environment', () => {
+  assert.equal(classifyEscalation({ verdict: 'REBASE_CONFLICT' }), 'environment');
+});
+
+test('classifyEscalation: MAIN_DIRTY_BACKSTOP → environment', () => {
+  assert.equal(classifyEscalation({ verdict: 'MAIN_DIRTY_BACKSTOP' }), 'environment');
+});
+
+test('classifyEscalation: null verdict（bounded-retry 上限超過）→ decision', () => {
+  assert.equal(classifyEscalation({ verdict: null }), 'decision');
+});
+
+test('classifyEscalation: UNPARSABLE（bounded-retry 上限超過）→ decision', () => {
+  assert.equal(classifyEscalation({ verdict: 'UNPARSABLE' }), 'decision');
+});
+
+test('classifyEscalation: RED → decision', () => {
+  assert.equal(classifyEscalation({ verdict: 'RED' }), 'decision');
+});
+
+test('classifyEscalation: その他の verdict → decision（デフォルト）', () => {
+  assert.equal(classifyEscalation({ verdict: 'IMPL_DONE' }), 'decision');
+  assert.equal(classifyEscalation({ verdict: 'UNKNOWN_TOKEN' }), 'decision');
 });
