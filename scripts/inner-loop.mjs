@@ -32,7 +32,7 @@ import {
   REPO_ROOT,
   TASK_LOOP_STAGES, TASK_LOOP_TERMINAL,
   UNPARSABLE_VERDICT, WORKTREE_DEPS_INSTALL_ARGS,
-  NEEDS_REVIEW_LABEL,
+  NEEDS_REVIEW_LABEL, TASK_REQUEST_LABEL,
   parseDriverArgsWith, selectRunType, nextState,
   runStageWithUnparsableRetry,
   buildManifestEntry, buildManifest, manifestPathFor, backendCostSourceForEnvelope, readManifestStages,
@@ -42,17 +42,18 @@ import {
   worktreeNameFor,
 } from './inner-loop-core.mjs';
 import { landBranchWithReview, extractLatestPlanCommentText } from './inner-loop-land.mjs';
-import { projectEscalation, triageEscalationCategory } from './inner-loop-escalation.mjs';
+import { projectEscalation } from './inner-loop-escalation.mjs';
+import { classifyEscalation } from './inner-loop-escalation-triage.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
 import { runPlanTask, dryRunPlanTask, readPlanFormatOrDie } from './inner-loop-plan-task.mjs';
 import {
   trySetProjectStatus, PROJECTS_STATUS_NAMES,
 } from './inner-loop-projects.mjs';
 
-// Re-export the split modules' public symbols so tests / meta-loop.mjs /
-// inner-queue.mjs keep importing from this file.
+// Re-export the split modules' public symbols so tests / meta-loop.mjs / inner-queue.mjs keep importing from this file.
 export * from './inner-loop-core.mjs';
 export * from './inner-loop-escalation.mjs';
+export * from './inner-loop-escalation-triage.mjs';
 export * from './inner-loop-land.mjs';
 export {
   parseBlockedByLine, parsePlanChildBlocks, resolvePlanChildDependency,
@@ -225,17 +226,17 @@ function appendManifestEntry(issueNumber, entry) {
   writeFileSync(p, JSON.stringify(buildManifest(unit, stages), null, 2) + '\n', 'utf8');
 }
 
-// escalation の issue 化 + triage 三分岐 (#201 分解 6, #117 ADR 0035 §4)。
+// escalation triage（#117, ADR 0035 §4）: 'environment'→env-repair task 起票（escalation label 不付与）/ 'decision'→needs-review+PdM 裁定。
 function escalateIssue(issueNumber, stage, verdict, resultExcerpt) {
-  const category = triageEscalationCategory({ verdict });
-  if (category === 'decision') {
-    // (iii) needs-review を付与 → orchestrator が EXPLAIN dispatch（ADR 0035 §4 ③）
-    const r = spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', NEEDS_REVIEW_LABEL],
-      { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    if (r.status !== 0) log(`warning: could not add ${NEEDS_REVIEW_LABEL} label to #${issueNumber} (continuing)`);
-  } else if (category === 'env') {
-    log(`triage: env — stage=${stage} verdict=${verdict ?? '(none)'}: see design/test-failure-playbook.md`);
+  if (classifyEscalation({ verdict }) === 'environment') { // (ii) env 修理 task を起票。元 issue に escalation label を付けない
+    const r = spawnSync('gh', ['issue', 'create', '--label', `${TASK_REQUEST_LABEL},env-repair`, '--title', `env-repair: ${verdict ?? 'env-failure'} at stage ${stage} (#${issueNumber})`, '--body', `env failure: #${issueNumber} stage=${stage} verdict=${verdict ?? '(none)'}. see test-failure-playbook.md`], { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    if (r.status !== 0) log(`warning: could not create env-repair task-request for #${issueNumber} (continuing)`);
+    return;
   }
+  // (iii) decision — needs-review label + projectEscalation（PdM 裁定キュー）
+  const nr = spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', NEEDS_REVIEW_LABEL],
+    { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  if (nr.status !== 0) log(`warning: could not add ${NEEDS_REVIEW_LABEL} label to #${issueNumber} (continuing)`);
   projectEscalation({ issueNumber, stage, verdict, resultExcerpt }, { log });
 }
 

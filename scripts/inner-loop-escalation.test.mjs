@@ -1,9 +1,10 @@
-// Tests for escalation の issue 化 + triage 三分岐 (#201 分解 6, #117 ADR 0035 §4):
+// Tests for escalation の issue 化 + triage 二分岐 (#201 分解 6, #117 ADR 0035 §4):
 // ESCALATE 終端は対象 issue への escalation label ＋ レポート全文 comment（.escalation.md 廃止）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ESCALATION_LABEL } from './inner-loop-core.mjs';
-import { buildEscalationMarkdown, projectEscalation, triageEscalationCategory } from './inner-loop-escalation.mjs';
+import { buildEscalationMarkdown, projectEscalation } from './inner-loop-escalation.mjs';
+import { classifyEscalation } from './inner-loop-escalation-triage.mjs';
 
 // --- buildEscalationMarkdown (report body) ---
 
@@ -93,33 +94,31 @@ test('projectEscalation: comment failure alone still returns labelOk=true / ok=f
   assert.deepEqual(result, { ok: false, labelOk: true, commentOk: false });
 });
 
-// --- triageEscalationCategory (ADR 0035 §4 triage 三分岐) ---
+// --- classifyEscalation (ADR 0035 §4 triage 二分岐) ---
+// 返値は 'environment' | 'decision' の 2 値。
+// 'context'（UNPARSABLE）は bounded-retry が吸収するため出口 triage には現れない → 'decision' で扱う。
 
-test('triageEscalationCategory: null verdict → context（UNPARSABLE 再試行済み）', () => {
-  assert.equal(triageEscalationCategory({ verdict: null }), 'context');
+test('classifyEscalation: REBASE_CONFLICT → environment', () => {
+  assert.equal(classifyEscalation({ verdict: 'REBASE_CONFLICT' }), 'environment');
 });
 
-test('triageEscalationCategory: UNPARSABLE → context', () => {
-  assert.equal(triageEscalationCategory({ verdict: 'UNPARSABLE' }), 'context');
+test('classifyEscalation: MAIN_DIRTY_BACKSTOP → environment', () => {
+  assert.equal(classifyEscalation({ verdict: 'MAIN_DIRTY_BACKSTOP' }), 'environment');
 });
 
-test('triageEscalationCategory: REBASE_CONFLICT → env', () => {
-  assert.equal(triageEscalationCategory({ verdict: 'REBASE_CONFLICT' }), 'env');
+test('classifyEscalation: null verdict（bounded-retry 上限超過）→ decision', () => {
+  assert.equal(classifyEscalation({ verdict: null }), 'decision');
 });
 
-test('triageEscalationCategory: MAIN_DIRTY_BACKSTOP → env', () => {
-  assert.equal(triageEscalationCategory({ verdict: 'MAIN_DIRTY_BACKSTOP' }), 'env');
+test('classifyEscalation: UNPARSABLE（bounded-retry 上限超過）→ decision', () => {
+  assert.equal(classifyEscalation({ verdict: 'UNPARSABLE' }), 'decision');
 });
 
-test('triageEscalationCategory: ESCALATE → decision（意思決定が必要）', () => {
-  assert.equal(triageEscalationCategory({ verdict: 'ESCALATE' }), 'decision');
+test('classifyEscalation: RED → decision', () => {
+  assert.equal(classifyEscalation({ verdict: 'RED' }), 'decision');
 });
 
-test('triageEscalationCategory: RED → decision', () => {
-  assert.equal(triageEscalationCategory({ verdict: 'RED' }), 'decision');
-});
-
-test('triageEscalationCategory: その他の verdict → decision（デフォルト）', () => {
-  assert.equal(triageEscalationCategory({ verdict: 'IMPL_DONE' }), 'decision');
-  assert.equal(triageEscalationCategory({ verdict: 'UNKNOWN_TOKEN' }), 'decision');
+test('classifyEscalation: その他の verdict → decision（デフォルト）', () => {
+  assert.equal(classifyEscalation({ verdict: 'IMPL_DONE' }), 'decision');
+  assert.equal(classifyEscalation({ verdict: 'UNKNOWN_TOKEN' }), 'decision');
 });

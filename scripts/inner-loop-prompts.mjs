@@ -31,12 +31,11 @@ function verdictInstruction(tokens) {
   return `最終行に必ず次の形式で verdict を出力してください（他の形式は不可）:\nVERDICT: <TOKEN>\n<TOKEN> は次のいずれか: ${tokens.join(' | ')}`;
 }
 
-// Agent-side ESCALATE is retained and routed through triage (#117, ADR 0035 §4):
-// agent ESCALATE → driver triage 'decision' → needs-review + escalation label +
-// orchestrator EXPLAIN dispatch（PdM が読む教材を自動生成してから裁定待ちへ）。
+// Agent-side ESCALATE is removed from IMPLEMENT/LAND_REWORK (#117, ADR 0035 §4):
+// driver gates handle env/decision escalation via classifyEscalation at the single exit.
+// IMPL_DONE is the only valid verdict token for these stages.
 const IMPL_LOOP_ESCALATION_CONTRACT = [
-  'escalation: plan（issue 本文）の前提が現実（コードの現状・依存状態）と乖離している場合は、その場で再計画せず ESCALATE してください。',
-  'issue が未定義の契約・ロール割当・規約新設の決定を求めている（問題は述べられているが実装解が一意でない）場合は、最小変更を発明せず ESCALATE してください。',
+  'escalation: plan（issue 本文）の前提が現実（コードの現状・依存状態）と乖離している場合、あるいは実装解が一意でない場合は、その旨を出力して IMPL_DONE で終えてください（driver が triage します）。',
   'VERDICT 不能・merge 失敗・main dirty は driver が機械的に検知・執行する条件です。あなた（agent）は検査しないでください。',
   'repo の清浄度判定は agent の仕事ではありません（untracked の扱いを含む定義判断も driver 管轄です）。',
 ].join(' ');
@@ -122,7 +121,7 @@ export function buildImplementPrompt(ctx) {
     `以下の issue（本文 = plan）に従って issue #${issueNumber}: ${issueTitle} を実装してください。`,
     '',
     `あなたは implementer です。既に worktree \`${dirName}\`（branch \`${branch}\`）の**中**に居ます。その場で編集してください。**ネストした subagent を spawn しない・main（repo root）に書かない・別 worktree を切らない**。`,
-    '`.claude/skills/implement/SKILL.md` に従ってください。着手前に `git rebase main` で current local `main` に合わせ、pristine な開始状態だけ `git reset --hard main` を使えます。編集後・コミット後に `reset --hard main` で成果物を消す運用は禁止です。完了前にも `git rebase main` し、競合したら `ESCALATE` してください。',
+    '`.claude/skills/implement/SKILL.md` に従ってください。着手前に `git rebase main` で current local `main` に合わせ、pristine な開始状態だけ `git reset --hard main` を使えます。編集後・コミット後に `reset --hard main` で成果物を消す運用は禁止です。完了前にも `git rebase main` し、競合が解決できない場合はその旨を出力して IMPL_DONE で終えてください（driver が REBASE_CONFLICT として env 修理 task に変換します）。',
     '',
     '## issue（本文 = plan）',
     issueBody ?? '',
@@ -138,7 +137,7 @@ export function buildImplementPrompt(ctx) {
     '1 commit にまとめること。明示 `git add <paths>` を使うこと（`git add -A` / `git add .` は禁止）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
     '',
-    verdictInstruction(['IMPL_DONE', 'ESCALATE']),
+    verdictInstruction(['IMPL_DONE']),
   );
   return lines.join('\n');
 }
@@ -194,7 +193,7 @@ export function buildLandReworkPrompt(ctx) {
     '全指摘を「対応しない」と判断した場合は commit を作らず、指摘ごとの理由を出力に列挙して IMPL_DONE で終えてよい（再 review が対応表明を審査します）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
     '',
-    verdictInstruction(['IMPL_DONE', 'ESCALATE']),
+    verdictInstruction(['IMPL_DONE']),
   );
   return lines.join('\n');
 }
