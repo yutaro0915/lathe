@@ -285,16 +285,16 @@ flowchart TD
 **c**。Ready への移動は「計画承認」そのものであり、PdM だけが動かす（骨子 1・4）。機械にとって Ready 列は**読む**対象（承認入力）であって書く対象ではない——機械が書くのは In Progress / In Review の投影だけである。a や b を許すと、承認シグナルに機械の書き込みが混ざり、ADR 0034 が THUMBS_UP リアクションで直面した「agent の操作が PdM の操作と区別できない」問題（承認意味論の汚染）を列で再演することになる。
 </details>
 
-**Q2. 「明白な 1 行バグ修正」の issue は改訂後どう扱われるか？**
+**Q2. 「明白な 1 行バグ修正」の issue（needs-review 無し）は改訂後どう扱われるか？**
 
-- a. 従来どおり直接実装（trivial は例外）
-- b. plan-format の trivial scale の数行 plan で同じレールに乗り、plan review と Ready 承認を経る
+- a. 従来どおり plan なしで直接実装される（trivial は例外）
+- b. plan-format の trivial scale の数行 plan と機械 plan review を経た後、**Ready を待たずに実装まで自動で進む**（人手ゼロ）
 - c. harness-hotfix 経路に回る
-- d. PdM が Backlog から直接 In Progress へ動かして着手させる
+- d. PdM が Ready へ動かすまで待機する
 
 <details><summary>答えと解説</summary>
 
-**b**。骨子 2 が「trivial（明白なバグ等）も例外を作らず、plan-format の trivial scale（数行 plan）で同じレールに乗せる」と明記する。例外を作らないのは「実装専用 issue は存在しない」原則の帰結である。なお `design/plan-format.md`（2026-07-05）の trivial 行は「承認不要」と書いており、この行との整合（追随改訂）は未決（§2.3 の NOTE）。c の hotfix は「gate 自体の故障」専用の別 loop であり trivial バグの経路ではない（`design/loops.md`）。
+**b**（骨子 v2 反映改訂・2026-07-07）。人間分岐は needs-review label であり、**無印の issue は plan → 機械 plan review → 実装 → PR まで人手ゼロで自動消化される。Ready 移動は不要**——Ready 承認を要するのは needs-review 付きのみで、「Ready 待ち = 重要で教材付きの needs-review だけ」が PdM の認知モデル（issue #180 骨子 v2）。ただし plan を書くこと自体は省かれない（「実装専用 issue は存在しない」原則）。d は needs-review 付きの場合の挙動。c の hotfix は「gate 自体の故障」専用の別 loop（`design/loops.md`）。plan-format.md trivial 行との整合は未決注記のまま。
 </details>
 
 **Q3. driver が着手時に In Progress への投影書き込みに失敗した。何が起きるか？**
