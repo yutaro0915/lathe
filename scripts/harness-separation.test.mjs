@@ -12,7 +12,8 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { INNER_SETTINGS_PATH, REPO_ROOT } from './inner-loop-core.mjs';
-import { buildClaudeArgs } from './inner-loop-backends.mjs';
+import { buildClaudeArgs, buildCodexArgs } from './inner-loop-backends.mjs';
+import { runStage } from './inner-loop-stage-runner.mjs';
 import { buildDispatchSpec } from './orchestrator.mjs';
 import { CLASS_EXPLAIN } from './orchestrator-classify.mjs';
 import { decideIssueCreate } from '../ops/outer-harness/hooks/issue-create-guard.mjs';
@@ -142,5 +143,41 @@ test('(d) buildDispatchSpec CLASS_EXPLAIN: --settings INNER_SETTINGS_PATH を ar
     spec.args[settingsIdx + 1],
     INNER_SETTINGS_PATH,
     `--settings の値が INNER_SETTINGS_PATH と一致しない: got ${spec.args[settingsIdx + 1]}`,
+  );
+});
+
+test('(d) runStage(claude) deps.spawnSync fake 注入: spawnSync に渡す argv が --settings INNER_SETTINGS_PATH を含む', () => {
+  let capturedCmd = null;
+  let capturedArgs = null;
+  const fakeSpawnSync = (cmd, args, _opts) => {
+    capturedCmd = cmd;
+    capturedArgs = args;
+    // runStageClaude は stdout を JSON.parse するため有効な envelope を返す
+    return {
+      status: 0,
+      stdout: JSON.stringify({ session_id: 'fake', result: '', total_cost_usd: 0 }),
+      stderr: '',
+    };
+  };
+
+  runStage('IMPLEMENT', 'test prompt', REPO_ROOT, null, 'claude', { spawnSync: fakeSpawnSync });
+
+  assert.equal(capturedCmd, 'claude', 'fake spawnSync の第 1 引数 (command) が "claude" でない');
+  assert.ok(capturedArgs !== null, 'fake spawnSync が呼ばれなかった');
+  const settingsIdx = capturedArgs.indexOf('--settings');
+  assert.ok(settingsIdx !== -1, 'runStage(claude) が spawnSync に渡す argv に --settings フラグがない — 統合照合の穴');
+  assert.equal(
+    capturedArgs[settingsIdx + 1],
+    INNER_SETTINGS_PATH,
+    `--settings の値が INNER_SETTINGS_PATH と一致しない: got ${capturedArgs[settingsIdx + 1]}`,
+  );
+});
+
+test('(d) buildCodexArgs: --settings を argv に含まない（codex には settings pin 不要）', () => {
+  // codex に誤って INNER_SETTINGS_PATH が混入しないことを収束 assert する
+  const argv = buildCodexArgs('IMPLEMENT', 'dummy prompt', REPO_ROOT, '/tmp/lathe-lastmsg.txt', REPO_ROOT);
+  assert.ok(
+    !argv.includes('--settings'),
+    `buildCodexArgs の argv に --settings が混入している — codex は settings pin 対象外: ${argv.join(' ')}`,
   );
 });
