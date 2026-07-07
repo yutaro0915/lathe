@@ -14,7 +14,20 @@ if [ ! -f .claude/settings.local.json ]; then
   cp ops/outer-harness/settings.local.template.json .claude/settings.local.json
   echo "== settings.local.json を新設（issue-create-guard 配線）"
 else
-  echo "== settings.local.json は既存 — issue-create-guard の配線が入っているか目視確認: "
-  grep -q issue-create-guard .claude/settings.local.json && echo "   配線あり OK" || echo "   ⚠ 配線なし — template を手で merge してください"
+  if grep -q issue-create-guard .claude/settings.local.json; then
+    echo "== settings.local.json 既存・issue-create-guard 配線あり OK"
+  else
+    node -e '
+      const fs = require("node:fs");
+      const p = ".claude/settings.local.json";
+      const d = JSON.parse(fs.readFileSync(p, "utf8"));
+      const t = JSON.parse(fs.readFileSync("ops/outer-harness/settings.local.template.json", "utf8"));
+      d.hooks = d.hooks ?? {};
+      d.hooks.PreToolUse = d.hooks.PreToolUse ?? [];
+      d.hooks.PreToolUse.push(t.hooks.PreToolUse[0]);
+      fs.writeFileSync(p, JSON.stringify(d, null, 2));
+    '
+    echo "== settings.local.json 既存 — issue-create-guard 配線を自動 merge した"
+  fi
 fi
 echo "== outer harness 導入完了（対象: $(pwd)）"
