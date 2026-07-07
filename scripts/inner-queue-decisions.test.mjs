@@ -1,15 +1,12 @@
-// Tests for the gh-wired inner queue (#116, ADR 0031): open task-request
-// issues as tasks, blocked-by readiness, In Progress derivation from open
-// PRs, escalation-label skip, touches overlap, and dispatch mechanics.
+// Tests for the pure inner-queue decision logic (#116, ADR 0031): open
+// task-request issues as tasks, blocked-by readiness, In Progress derivation
+// from open PRs, escalation-label skip, touches overlap, and queue mechanics.
+// The gh/spawn side (old inner-queue.mjs CLI) was absorbed by orchestrator.mjs
+// (#201 分解 9) — dispatch mechanics are now tested in orchestrator.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { NEEDS_REVIEW_LABEL, ESCALATION_LABEL } from './inner-loop-core.mjs';
 import {
-  buildInnerLoopSpawnSpec,
   DEFER_CAPACITY,
   DEFER_TOUCHES,
   READY_NOW,
@@ -27,8 +24,7 @@ import {
   pathsOverlap,
   planDryRun,
   runQueue,
-  spawnInnerLoop,
-} from './inner-queue.mjs';
+} from './inner-queue-decisions.mjs';
 
 // --- parseTaskRunHints ---
 
@@ -172,58 +168,6 @@ test('formatDecision: renders issue-numbered decisions', () => {
   assert.equal(formatDecision({ status: READY_NOW, task: { id: 9 } }), 'READY_NOW #9');
   assert.equal(formatDecision({ status: WAIT_DEP, task: { id: 9 }, unresolved: [1, 2] }), 'WAIT_DEP #9 unresolved=#1,#2');
   assert.match(formatDecision({ status: SKIP_ESCALATION, task: { id: 9 } }), /escalation label/);
-});
-
-// --- buildInnerLoopSpawnSpec ---
-
-test('buildInnerLoopSpawnSpec: spawns the driver with the bare issue number and log fd stdio', () => {
-  const spec = buildInnerLoopSpawnSpec({ id: 42 }, 7);
-  assert.equal(spec.command, process.execPath);
-  assert.deepEqual(spec.args, ['scripts/inner-loop.mjs', '42']);
-  assert.deepEqual(spec.options.stdio, ['ignore', 7, 7]);
-});
-
-// --- spawnInnerLoop ---
-
-test('spawnInnerLoop: skips an issue that is no longer open at dispatch without spawning', async () => {
-  const logRoot = mkdtempSync(join(tmpdir(), 'lathe-queue-test-'));
-  const lines = [];
-  let spawned = 0;
-  try {
-    const result = await spawnInnerLoop({ id: 42 }, {
-      checkState: () => 'CLOSED',
-      spawnChild: () => { spawned += 1; return new EventEmitter(); },
-      log: (line) => lines.push(line),
-      logRoot,
-    });
-    assert.deepEqual(result, { status: 0 });
-    assert.equal(spawned, 0);
-    assert.ok(lines.some((line) => line.includes('SKIP_NOT_OPEN #42')));
-    assert.ok(readFileSync(join(logRoot, 'issue-42.log'), 'utf8').includes('SKIP_NOT_OPEN #42'));
-  } finally {
-    rmSync(logRoot, { recursive: true, force: true });
-  }
-});
-
-test('spawnInnerLoop: spawns an OPEN issue after the dispatch state check', async () => {
-  const logRoot = mkdtempSync(join(tmpdir(), 'lathe-queue-test-'));
-  let spec = null;
-  try {
-    const child = new EventEmitter();
-    const resultPromise = spawnInnerLoop({ id: 42 }, {
-      checkState: () => 'OPEN',
-      spawnChild: (command, args, options) => { spec = { command, args, options }; return child; },
-      log: () => {},
-      logRoot,
-    });
-    await new Promise((resolve) => setImmediate(resolve));
-    child.emit('close', 0, null);
-    const result = await resultPromise;
-    assert.deepEqual(result, { status: 0 });
-    assert.deepEqual(spec.args, ['scripts/inner-loop.mjs', '42']);
-  } finally {
-    rmSync(logRoot, { recursive: true, force: true });
-  }
 });
 
 // --- runQueue ---
