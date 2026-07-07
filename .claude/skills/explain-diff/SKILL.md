@@ -2,6 +2,7 @@
 name: explain-diff
 description: 理解対象（PR/commit・issue 上の plan・ADR/設計文書・概念）の接地された解説教材を GitHub Flavored Markdown で 1 本生成し、explains/ に保存して GitHub Discussion に投稿する。理解が新しいボトルネック（Litt 2026-07-02）への一次対応。要約でなく教材。生成は subagent へ委譲してよい（メイン context 温存）。
 grounded_in: []
+allowed-tools: Read, Grep, Glob, Write(explains/**), Edit(explains/**), Bash(gh:*), Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(git ls-files:*)
 ---
 
 # explain-diff — 解説教材（GFM）を生成し Discussions で配信する
@@ -46,6 +47,13 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
 - UI モック・図中への実データ埋め込みは md では表現不能——表＋コードブロック分離で代替する
   （既知の到達限界。Discussion #154 付録の到達度表を参照）。
 - 表・脚注 `[^1]`・目次アンカー可。絵文字なし。日本語・である調。
+
+### 権限（最小権限の原則）
+
+本 skill の実行は**読み取り＋`explains/` への書き込みだけ**で完結する。frontmatter の
+`allowed-tools` がこれを宣言する（FS 書き込みは `explains/**` のみ・Bash は `gh` と git 読み系のみ）。
+独立 runner として回す場合は SETUP.md の起動例（`--allowedTools`）でハード強制する。
+対象 repo のコード・設計文書への書き込みは解説 loop の終端に存在しない（loops.md）。
 
 ### 正本と配信（ADR 0033）
 
