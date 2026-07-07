@@ -259,11 +259,15 @@ export function buildTaskLoopPlanPrompt(ctx) {
  * reviewer agent evaluates the plan produced by TASK_PLAN. Returns PASS when
  * the plan is actionable and RED when critical issues are found (driver retries
  * TASK_PLAN up to MAX_PLAN_REVIEW_RETRIES times).
- * @param {{ issueNumber: number, issueTitle: string, issueBody: string, planText: string }} ctx
+ *
+ * `comments` (裁定・申し送り) are injected so the reviewer holds the same
+ * context the planner planned with — without them, comment-driven plan
+ * decisions look unfounded and cause false RED (#192 Minor#4).
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, comments?: Array<object>, planText: string }} ctx
  * @returns {string}
  */
 export function buildPlanReviewPrompt(ctx) {
-  const { issueNumber, issueTitle, issueBody, planText } = ctx;
+  const { issueNumber, issueTitle, issueBody, comments, planText } = ctx;
   const lines = [
     marker(issueNumber, 'PLAN_REVIEW'),
     '',
@@ -271,6 +275,12 @@ export function buildPlanReviewPrompt(ctx) {
     '',
     `## issue #${issueNumber}: ${issueTitle}`,
     issueBody ?? '',
+  ];
+  const commentsBlock = formatIssueComments(comments);
+  if (commentsBlock) {
+    lines.push('', '## 裁定・申し送り（issue comments。planner はこの文脈を前提に plan を作っている。審査でも同じ前提に立つこと）', commentsBlock);
+  }
+  lines.push(
     '',
     '## 検査対象 plan',
     '',
@@ -286,7 +296,7 @@ export function buildPlanReviewPrompt(ctx) {
     'RED: 重大な問題あり。問題点を具体的に列挙してください（planner が修正に使います）。',
     '',
     verdictInstruction(['PASS', 'RED']),
-  ];
+  );
   return lines.join('\n');
 }
 

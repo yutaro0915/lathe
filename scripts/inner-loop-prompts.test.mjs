@@ -212,6 +212,28 @@ test('buildTaskLoopPlanPrompt: no reviewFeedback -> no 所見 section (initial a
   assert.ok(!promptEmpty.includes('前回 review 所見'));
 });
 
+// --- PLAN_REVIEW prompt: comments 注入 (#192 Minor#4) ---
+
+const PLAN_REVIEW_CTX = {
+  issueNumber: 42,
+  issueTitle: 'fix: the thing',
+  issueBody: 'body',
+  planText: 'the plan under review',
+};
+
+test('buildPlanReviewPrompt: comments (裁定・申し送り) are injected for the reviewer', () => {
+  const prompt = buildStagePrompt('PLAN_REVIEW', { ...PLAN_REVIEW_CTX, comments: COMMENTS });
+  assert.ok(prompt.includes('裁定・申し送り'));
+  assert.ok(prompt.includes('監査役裁定: arm は PR 作成時。'));
+  assert.ok(prompt.includes('the plan under review'), 'plan text still present');
+});
+
+test('buildPlanReviewPrompt: no comments -> no 裁定 section', () => {
+  const prompt = buildStagePrompt('PLAN_REVIEW', { ...PLAN_REVIEW_CTX, comments: [] });
+  assert.ok(!prompt.includes('裁定・申し送り'));
+  assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: PASS | RED'));
+});
+
 // --- dispatch ---
 
 test('buildStagePrompt: PLAN, TASK_PLAN, PLAN_REVIEW, and IMPLEMENT builders exist', () => {
