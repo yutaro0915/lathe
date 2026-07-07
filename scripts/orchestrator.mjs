@@ -26,7 +26,7 @@
 // してテスト対象。side effect（spawn/fs/gh）は下段に隔離。
 
 import {
-  existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync,
+  closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -301,18 +301,30 @@ export function pickNextDispatch(pending, activeDecisions) {
 
 function spawnDecision(decision) {
   mkdirSync(RUNS_DIR, { recursive: true });
+  // dispatch-runner の log() 警告（live marker 失敗・outcome 記録失敗等）を
+  // logPath に集約する（stdio: 'ignore' だと非致命警告が無音になる運用リスクの解消）。
+  const spec = buildDispatchSpec(decision);
+  const logPath = join(RUNS_DIR, `${spec.logKey}.log`);
+  let outFd = null;
+  try { outFd = openSync(logPath, 'a'); } catch { /* 開けなくても spawn は試みる */ }
   let child;
   try {
     child = spawn(process.execPath, [
       DISPATCH_RUNNER, decision.class, decision.kind, String(decision.number),
     ], {
-      cwd: REPO_ROOT, env: process.env, stdio: 'ignore', detached: true,
+      cwd: REPO_ROOT,
+      env: process.env,
+      stdio: ['ignore', outFd ?? 'ignore', outFd ?? 'ignore'],
+      detached: true,
     });
   } catch (err) {
+    if (outFd !== null) closeSync(outFd);
     log(`warning: spawn dispatch-runner failed for ${decision.class} #${decision.number}: ${err.message}`);
     return;
   }
   child.unref();
+  // fd は子プロセスに継承済み — 親コピーは閉じてよい
+  if (outFd !== null) closeSync(outFd);
 }
 
 // --- Outcome ledger（cross-pass circuit breaker） ---

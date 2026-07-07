@@ -53,18 +53,39 @@ export function parseDispatchRunnerArgs(argv) {
  * @param {{ class: string, kind: string, number: number }} decision
  * @param {string} outcome  'success' | 'escalation' | 'failure'
  * @param {number | null} exitCode
- * @param {string} ts  ISO 8601 timestamp（テスト注入用）
+ * @param {string} finishedAt  ISO 8601 timestamp（テスト注入用）
  * @returns {object}
  */
-export function buildOutcomeRecord(decision, outcome, exitCode, ts) {
+export function buildOutcomeRecord(decision, outcome, exitCode, finishedAt) {
   return {
-    ts: ts ?? new Date().toISOString(),
+    finishedAt: finishedAt ?? new Date().toISOString(),
     class: decision.class,
     kind: decision.kind,
     number: decision.number,
     outcome,
     exitCode: exitCode ?? null,
   };
+}
+
+// --- EXPLAIN 後処理ルーティング（deps inject 可・AC5） ---
+
+/**
+ * CLASS_EXPLAIN の時のみ detectNewExplainFiles → runExplainPostProcess を呼ぶ。
+ * 非致命（throw は log して握る）。deps 注入でユニットテスト可能。
+ * @param {{ class: string, number: number }} decision
+ * @param {{ detectNewExplainFiles?: Function, runExplainPostProcess?: Function, log?: Function }} deps
+ */
+export function runExplainIfNeeded(decision, deps = {}) {
+  if (decision.class !== CLASS_EXPLAIN) return;
+  const detectFn = deps.detectNewExplainFiles ?? detectNewExplainFiles;
+  const runFn = deps.runExplainPostProcess ?? runExplainPostProcess;
+  const writeLog = deps.log ?? log;
+  try {
+    const det = detectFn(decision.number);
+    if (det.ok && det.files.length > 0) runFn(decision.number, { log: writeLog });
+  } catch (err) {
+    writeLog(`warning: explain post-process #${decision.number} failed (non-fatal): ${err.message}`);
+  }
 }
 
 // --- CLI entrypoint ---
@@ -116,15 +137,8 @@ if (isMain) {
     closeSync(fd);
   }
 
-  // ③ EXPLAIN 後処理（AC5: EXPLAIN クラスのみ・非致命）
-  if (decision.class === CLASS_EXPLAIN) {
-    try {
-      const det = detectNewExplainFiles(decision.number);
-      if (det.ok && det.files.length > 0) runExplainPostProcess(decision.number, { log });
-    } catch (err) {
-      log(`warning: explain post-process #${decision.number} failed (non-fatal): ${err.message}`);
-    }
-  }
+  // ③ EXPLAIN 後処理（AC5: CLASS_EXPLAIN のみ・非致命）
+  runExplainIfNeeded(decision, { log });
 
   // ④ outcome 記録（outcomes.jsonl — circuit breaker が cross-pass で読む）
   // escalation の exit code 規約は現状未定義 → exit 0 = success / non-zero = failure で記録。

@@ -7,6 +7,7 @@ import {
   OUTCOMES_PATH,
   buildOutcomeRecord,
   parseDispatchRunnerArgs,
+  runExplainIfNeeded,
 } from './dispatch-runner.mjs';
 import {
   CLASS_EXPLAIN, CLASS_IMPLEMENT, CLASS_PLAN, CLASS_PR_REVIEW,
@@ -52,7 +53,7 @@ test('buildOutcomeRecord: success record の構造', () => {
   const decision = { class: CLASS_IMPLEMENT, kind: 'issue', number: 256 };
   const rec = buildOutcomeRecord(decision, OUTCOME_SUCCESS, 0, '2026-07-08T00:00:00.000Z');
   assert.deepEqual(rec, {
-    ts: '2026-07-08T00:00:00.000Z',
+    finishedAt: '2026-07-08T00:00:00.000Z',
     class: CLASS_IMPLEMENT,
     kind: 'issue',
     number: 256,
@@ -93,4 +94,55 @@ test('buildOutcomeRecord: exitCode null は null のまま保存', () => {
 
 test('OUTCOMES_PATH は .lathe/runs/outcomes.jsonl を指す', () => {
   assert.ok(OUTCOMES_PATH.endsWith('.lathe/runs/outcomes.jsonl'), `unexpected: ${OUTCOMES_PATH}`);
+});
+
+// --- runExplainIfNeeded（AC5: CLASS_EXPLAIN ルーティングの deps-inject unit）---
+
+test('runExplainIfNeeded: CLASS_EXPLAIN・新規ファイルあり → runExplainPostProcess を呼ぶ', () => {
+  const decision = { class: CLASS_EXPLAIN, kind: 'issue', number: 189 };
+  const calls = [];
+  const deps = {
+    detectNewExplainFiles: (num) => ({ ok: true, files: [`2026-07-08-issue${num}-test.md`], others: [] }),
+    runExplainPostProcess: (num, d) => calls.push({ num, hasLog: typeof d?.log === 'function' }),
+    log: () => {},
+  };
+  runExplainIfNeeded(decision, deps);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], { num: 189, hasLog: true });
+});
+
+test('runExplainIfNeeded: CLASS_IMPLEMENT → runExplainPostProcess を呼ばない', () => {
+  const decision = { class: CLASS_IMPLEMENT, kind: 'issue', number: 256 };
+  let called = false;
+  const deps = {
+    detectNewExplainFiles: () => ({ ok: true, files: ['foo.md'], others: [] }),
+    runExplainPostProcess: () => { called = true; },
+    log: () => {},
+  };
+  runExplainIfNeeded(decision, deps);
+  assert.equal(called, false);
+});
+
+test('runExplainIfNeeded: CLASS_EXPLAIN・新規ファイルなし → runExplainPostProcess を呼ばない', () => {
+  const decision = { class: CLASS_EXPLAIN, kind: 'issue', number: 200 };
+  let called = false;
+  const deps = {
+    detectNewExplainFiles: () => ({ ok: true, files: [], others: [] }),
+    runExplainPostProcess: () => { called = true; },
+    log: () => {},
+  };
+  runExplainIfNeeded(decision, deps);
+  assert.equal(called, false);
+});
+
+test('runExplainIfNeeded: CLASS_EXPLAIN・detect ok: false → runExplainPostProcess を呼ばない', () => {
+  const decision = { class: CLASS_EXPLAIN, kind: 'issue', number: 200 };
+  let called = false;
+  const deps = {
+    detectNewExplainFiles: () => ({ ok: false, reason: 'git failed', files: [], others: [] }),
+    runExplainPostProcess: () => { called = true; },
+    log: () => {},
+  };
+  runExplainIfNeeded(decision, deps);
+  assert.equal(called, false);
 });
