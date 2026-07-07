@@ -210,8 +210,6 @@ function worktreeHeadShaOrDie(worktreePath, stage) {
   return head;
 }
 
-// manifestPathFor(unit) is exported from inner-loop-core.mjs via `export *`.
-
 function appendManifestEntry(issueNumber, entry) {
   const unit = { kind: 'issue', id: issueNumber };
   const p = manifestPathFor(unit);
@@ -221,8 +219,7 @@ function appendManifestEntry(issueNumber, entry) {
   writeFileSync(p, JSON.stringify(buildManifest(unit, stages), null, 2) + '\n', 'utf8');
 }
 
-// Escalation markdown path for an issue run — mirrors manifestPathFor's naming.
-// Provisional escalation surface (#116 監査役裁定 3; issue 投函への置換 = #117).
+// Provisional escalation surface (#116 裁定 3; issue 投函への置換 = #201 分解 6).
 function escalationPathFor(issueNumber) {
   return manifestPathFor({ kind: 'issue', id: issueNumber }).replace(/\.json$/, '.escalation.md');
 }
@@ -394,6 +391,7 @@ if (isMain) {
 
   let planText = '';
   let planReviewRetries = 0;
+  let planReviewFeedback = ''; // 前回 PLAN_REVIEW RED の所見 (#192 Major#2)
   trySetProjectStatus(issueNumber, PROJECTS_STATUS_OPTIONS.InProgress, 'In progress', { log });
 
   while (state !== TASK_LOOP_TERMINAL && state !== 'ESCALATE') {
@@ -412,7 +410,7 @@ if (isMain) {
       : null;
 
     const stageCtx = { issueNumber, issueTitle: issue.title, issueBody: issue.body, comments: issue.comments,
-      ...(state === 'TASK_PLAN' && { planFormat: readPlanFormatOrDie() }), ...(state === 'PLAN_REVIEW' && { planText }) };
+      ...(state === 'TASK_PLAN' && { planFormat: readPlanFormatOrDie(), reviewFeedback: planReviewFeedback }), ...(state === 'PLAN_REVIEW' && { planText }) };
     const prompt = buildStagePrompt(state, stageCtx);
 
     const fallback = resume
@@ -451,7 +449,8 @@ if (isMain) {
       planText = envelope.result ?? '';
       if (spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body-file', '-'], { cwd: REPO_ROOT, encoding: 'utf8', input: `## plan\n\n${planText}`, stdio: ['pipe', 'pipe', 'pipe'] }).status !== 0) log(`warning: plan comment failed for #${issueNumber}`);
     }
-    if (state === 'PLAN_REVIEW' && verdict === 'RED') { // retry TASK_PLAN or label+stop (ADR 0035 §5)
+    if (state === 'PLAN_REVIEW' && verdict === 'RED') { // retry TASK_PLAN with 所見注入 (#192 Major#2) or label+stop (ADR 0035 §5)
+      planReviewFeedback = envelope.result ?? '';
       if (++planReviewRetries <= MAX_PLAN_REVIEW_RETRIES) { log(`PLAN_REVIEW RED → retry TASK_PLAN (${planReviewRetries}/${MAX_PLAN_REVIEW_RETRIES})`); state = 'TASK_PLAN'; continue; }
       spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', 'needs-review,escalation'], { cwd: REPO_ROOT, stdio: 'inherit' });
       writeEscalation(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${MAX_PLAN_REVIEW_RETRIES} retries.\n\n${envelope.result ?? ''}`);
