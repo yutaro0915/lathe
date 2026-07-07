@@ -1,0 +1,46 @@
+# Discussions の @claude 応答（ADR 0033 の任意 runner 拡張・2026-07-07）
+# - 発火は repo owner のコメントのみ（public repo で第三者がサブスク枠を使うのを防ぐ author ガード）
+# - 認証は claude_code_oauth_token（サブスク）。API key は使わない
+# - Claude は read-only 接地＋gh GraphQL での返信のみ（コード編集はしない）
+name: claude-discussions
+
+on:
+  discussion_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  discussions: write
+
+jobs:
+  respond:
+    if: github.event.comment.user.login == 'yutaro0915' && contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: '--allowedTools "Read,Grep,Glob,Bash(gh api:*),Bash(gh issue view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git ls-files:*)"'
+          prompt: |
+            あなたは lathe repo の Discussion 上の質問に答える応答エージェントである。checkout 済みの repo に read-only で接地して回答せよ。
+
+            質問（Discussion #${{ github.event.discussion.number }}「${{ github.event.discussion.title }}」への comment）:
+            ---
+            ${{ github.event.comment.body }}
+            ---
+
+            手順:
+            1. 質問と Discussion の文脈を理解する（必要なら gh api graphql で discussion 本文・スレッドを読む。discussion の node id: ${{ github.event.discussion.node_id }}）
+            2. repo の正本（ADR・design/・コード・explains/）に接地して回答を作る。事実は根拠（ファイルパス・ADR/PR 番号）付きで書き、推測はしない。不明は「未確認」と明記。日本語・である調・簡潔（長くても 30 行程度）。GFM 可（mermaid・表）
+            3. 同じスレッドに返信する。gh api graphql で addDiscussionComment を使う:
+               - discussionId = "${{ github.event.discussion.node_id }}"
+               - replyToId = 発火 comment の parent（"${{ github.event.comment.parent_id }}" が空/null でなければその node id を GraphQL で解決して使い、空なら発火 comment 自身の node id "${{ github.event.comment.node_id }}"）
+               - body = 回答本文（末尾に「— claude（discussions runner）」と付ける）
+            4. 返信の投稿までがあなたの仕事。repo のファイル編集・issue/PR への書き込みはしない
