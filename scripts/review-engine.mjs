@@ -15,11 +15,13 @@
 // diff + body + linked issue, then post the verdict + findings back as a
 // marker-carrying PR comment.
 //
-// Since the task-loop shrink (#116, ADR 0030 §3) the driver's landBranch()
-// posts no landing-time review comment — this engine is THE review executor
-// for all PRs regardless of origin (task-loop PRs and the auditor's ADR PRs
-// alike). The `## REVIEW:` heading detection still recognises historical
-// landing-time comments (pre-#116 PRs).
+// Since the LAND review 前置 (#201 分解 11-12 / #188), the driver reviews its
+// own PRs synchronously at LAND (reusing this engine's prompt / spawn / marker
+// / verdict-parse functions) and posts the same marker comment — so driver PRs
+// arrive here already carrying a review record and are skipped. This engine
+// remains the review recorder for PRs not produced by the driver (#201 分類
+// 規則 4: 非 driver 産 PR の記録係として不変). The `## REVIEW:` heading
+// detection still recognises historical landing-time comments (pre-#116 PRs).
 //
 // Out of scope (issue #117): CI RED / CHANGES non-convergence pickup and
 // escalation. This engine drives reviews only.
@@ -150,17 +152,38 @@ export function truncateDiff(diffText, limit = DIFF_CHAR_LIMIT) {
   return { text: text.slice(0, limit), truncated: true };
 }
 
+// Bare `VERDICT: <TOKEN>` lines are noise when reviewer output is embedded in
+// a comment or a follow-up prompt (only the heading / driver parse carries the
+// verdict). Shared by formatReviewComment and the rereview 前回所見 injection.
+function stripBareVerdictLines(text) {
+  return String(text ?? '')
+    .split(/\r?\n/)
+    .filter((line) => !/^VERDICT:\s*[A-Z_]+\s*$/.test(line.trim()))
+    .join('\n')
+    .trim();
+}
+
 /**
  * Reviewer prompt for one PR. Follows the review skill's viewpoints but adapts
  * the diff source: the PR branch is not necessarily checked out locally, so
  * the diff comes inline (from `gh pr diff`), not from `git diff main...HEAD`.
  * No new review criteria are invented here — plan and rubrics stay the source.
+ *
+ * LAND review 前置 (#201 分解 11-12) extensions, both optional so the engine's
+ * standalone pass is unchanged:
+ *   - `planText`: the issue's confirmed plan (TASK_PLAN comment) for plan 照合.
+ *   - `rereview` (#188 設計要求「再 review の文脈」): 前回所見＋implementer の
+ *     対応表明＋前回 head からの差分を注入し、同一指摘の再発と新規を区別可能にする。
  * @param {{ pr: {number: number, title: string, url?: string, headRefName?: string, body?: string},
  *           diffText: string, diffTruncated: boolean,
- *           issue?: {number: number, title?: string, body?: string}|null }} ctx
+ *           issue?: {number: number, title?: string, body?: string}|null,
+ *           planText?: string|null,
+ *           rereview?: { round: number, maxRounds: number, previousFindings?: string|null,
+ *                        implementerResponse?: string|null, previousHeadSha?: string|null,
+ *                        deltaDiffText?: string|null, deltaDiffTruncated?: boolean }|null }} ctx
  * @returns {string}
  */
-export function buildEngineReviewPrompt({ pr, diffText, diffTruncated, issue = null }) {
+export function buildEngineReviewPrompt({ pr, diffText, diffTruncated, issue = null, planText = null, rereview = null }) {
   const lines = [
     `PR #${pr.number} / stage: REVIEW (review engine)`,
     '',
@@ -188,6 +211,14 @@ export function buildEngineReviewPrompt({ pr, diffText, diffTruncated, issue = n
       issue.body ?? '',
     );
   }
+  if (planText) {
+    lines.push(
+      '',
+      '## 確定 plan（issue の plan comment。PR diff はこの plan にも照らして審査すること）',
+      '',
+      planText,
+    );
+  }
   lines.push(
     '',
     diffTruncated
@@ -195,6 +226,37 @@ export function buildEngineReviewPrompt({ pr, diffText, diffTruncated, issue = n
       : `## diff（\`gh pr diff ${pr.number}\`）`,
     '',
     diffText,
+  );
+  if (rereview) {
+    lines.push(
+      '',
+      `## 再 review 文脈（CHANGES 差し戻し後の修正周回 ${rereview.round}/${rereview.maxRounds}）`,
+      '',
+      'この PR は前回 review で CHANGES となり、implementer が同一 branch への追い commit（または理由付きの対応表明のみ）で応答済みです。',
+      '前回所見と前回 head からの差分を踏まえ、指摘ごとに「解消 / 同一指摘の再発（未解消） / 新規」を区別して書くこと。対応しない理由が表明された指摘は、その理由の妥当性を審査すること。',
+      '',
+      '### 前回 review 所見',
+      '',
+      stripBareVerdictLines(rereview.previousFindings) || '(前回所見なし)',
+    );
+    if (rereview.implementerResponse) {
+      lines.push(
+        '',
+        '### implementer の対応表明（指摘ごとの対応可否）',
+        '',
+        stripBareVerdictLines(rereview.implementerResponse),
+      );
+    }
+    lines.push(
+      '',
+      rereview.deltaDiffTruncated
+        ? `### 前回 head（${rereview.previousHeadSha ?? '(unknown)'}）からの差分（截断。全量は \`gh pr diff ${pr.number}\` で確認）`
+        : `### 前回 head（${rereview.previousHeadSha ?? '(unknown)'}）からの差分`,
+      '',
+      rereview.deltaDiffText?.trim() ? rereview.deltaDiffText : '(差分なし — implementer は commit を積まず対応表明のみ返しています)',
+    );
+  }
+  lines.push(
     '',
     `最終行に必ず次の形式で verdict を出力してください（他の形式は不可）:\nVERDICT: <TOKEN>\n<TOKEN> は次のいずれか: ${REVIEW_VERDICT_TOKENS.join(' | ')}`,
   );
@@ -224,12 +286,7 @@ export function parseReviewVerdict(resultText) {
  * @returns {string}
  */
 export function formatReviewComment({ verdict, resultText }) {
-  const findings = String(resultText ?? '')
-    .split(/\r?\n/)
-    .filter((line) => !/^VERDICT:\s*[A-Z_]+\s*$/.test(line.trim()))
-    .join('\n')
-    .trim();
-  return `${ENGINE_MARKER}\n${REVIEW_HEADING} ${verdict}\n\n${findings}\n`;
+  return `${ENGINE_MARKER}\n${REVIEW_HEADING} ${verdict}\n\n${stripBareVerdictLines(resultText)}\n`;
 }
 
 /**
@@ -319,6 +376,29 @@ export function runReviewer(prompt, deps = {}) {
   }
 }
 
+/**
+ * Spawn the reviewer with the engine's unparsable-verdict retry convention
+ * (one fresh retry, mirroring the driver). Shared by the engine pass
+ * (reviewOnePr) and the driver's LAND review 前置 (#201 分解 11 — reviewer
+ * spawn・verdict parse の流儀を再利用する単一の実装).
+ * @param {string} prompt
+ * @param {{ spawnSync?: Function }} deps
+ * @param {{ onRetry?: (attempt: number) => void }} hooks
+ * @returns {{ envelope: { session_id: string|null, result: string, total_cost_usd: number|null }|null, verdict: string|null }}
+ */
+export function spawnReviewerWithRetry(prompt, deps = {}, { onRetry } = {}) {
+  let envelope = null;
+  let verdict = null;
+  for (let attempt = 0; attempt <= MAX_UNPARSABLE_RETRIES; attempt++) {
+    if (attempt > 0) onRetry?.(attempt);
+    envelope = runReviewer(prompt, deps);
+    if (envelope === null) return { envelope: null, verdict: null };
+    verdict = parseReviewVerdict(envelope.result);
+    if (verdict !== null) break;
+  }
+  return { envelope, verdict };
+}
+
 /** Post the review comment (non-fatal — review is a record, not a gate). */
 export function postReviewComment(prNumber, body, deps = {}) {
   const run = deps.spawnSync ?? spawnSync;
@@ -345,15 +425,10 @@ export function reviewOnePr(pr, deps = {}) {
   const issue = fetchLinkedIssue(pr, deps);
   const prompt = buildEngineReviewPrompt({ pr, diffText, diffTruncated, issue });
 
-  let envelope = null;
-  let verdict = null;
-  for (let attempt = 0; attempt <= MAX_UNPARSABLE_RETRIES; attempt++) {
-    if (attempt > 0) log(`PR #${pr.number}: verdict unparsable -> retrying reviewer once`);
-    envelope = runReviewer(prompt, deps);
-    if (envelope === null) return { ok: false, reason: 'reviewer spawn failed' };
-    verdict = parseReviewVerdict(envelope.result);
-    if (verdict !== null) break;
-  }
+  const { envelope, verdict } = spawnReviewerWithRetry(prompt, deps, {
+    onRetry: () => log(`PR #${pr.number}: verdict unparsable -> retrying reviewer once`),
+  });
+  if (envelope === null) return { ok: false, reason: 'reviewer spawn failed' };
   if (verdict === null) {
     return { ok: false, sessionId: envelope.session_id, reason: 'unparsable verdict after retry' };
   }

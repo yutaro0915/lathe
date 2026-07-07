@@ -144,6 +144,62 @@ export function buildImplementPrompt(ctx) {
 }
 
 /**
+ * LAND rework prompt (#201 分解 12 / #188 CHANGES 差し戻し) — implementer agent,
+ * cwd = 元の IMPLEMENT と同一の task worktree。branch tip は PR として push 済み
+ * なので、契約が IMPLEMENT と異なる:
+ *   - 追い commit のみ (#188 設計要求「同一 worktree 追い commit・PR は push 更新」):
+ *     push 済み commit の rebase / amend / reset は禁止（force-push 不可のため）。
+ *     push・PR 操作は driver の管轄（新 PR・新 branch を作らない）。
+ *   - 所見は buildReviewFeedbackSection 経由で注入 (#188 設計要求「注入形式」:
+ *     所見注入の単一の口。指摘ごとの対応可否を出力させ、握り潰しを禁止)。全指摘を
+ *     理由付きで却下する場合は commit ゼロでもよい — 対応表明を再 review が裁く。
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string,
+ *           comments?: Array<object>, reviewFeedback: string,
+ *           round: number, maxRounds: number, prNumber?: number|null }} ctx
+ * @returns {string}
+ */
+export function buildLandReworkPrompt(ctx) {
+  const { issueNumber, issueTitle, issueBody, comments, reviewFeedback, round, maxRounds, prNumber } = ctx;
+  const feedbackBlock = buildReviewFeedbackSection({
+    source: `LAND review CHANGES — PR #${prNumber ?? '?'} 修正周回 ${round}/${maxRounds}`,
+    findings: reviewFeedback,
+  });
+  if (!feedbackBlock) {
+    throw new Error('buildLandReworkPrompt: reviewFeedback is required (CHANGES 差し戻しは所見が空では成立しない)');
+  }
+  const dirName = `inner-issue-${issueNumber}`;
+  const branch = `inner/issue-${issueNumber}`;
+  const lines = [
+    marker(issueNumber, 'IMPLEMENT'),
+    '',
+    `issue #${issueNumber}: ${issueTitle} の実装は PR #${prNumber ?? '?'} として提出済みですが、LAND review で CHANGES（差し戻し）になりました。以下の所見を反映してください（修正周回 ${round}/${maxRounds}）。`,
+    '',
+    `あなたは implementer です。既に worktree \`${dirName}\`（branch \`${branch}\`）の**中**に居ます。その場で編集してください。**ネストした subagent を spawn しない・main（repo root）に書かない・別 worktree を切らない**。`,
+    'この branch の既存 commit は PR として push 済みです。修正は**追い commit として積む**こと。`git rebase` / `git commit --amend` / `git reset` で push 済み commit を書き換えることは禁止です（force-push 不可）。push・PR 操作はしないでください（driver が push し、既存 PR が自動更新されます。新しい PR・branch を作らない）。',
+    '',
+    feedbackBlock,
+    '',
+    '## issue（本文 = plan。所見の解釈に必要な元の文脈）',
+    issueBody ?? '',
+  ];
+  const commentsBlock = formatIssueComments(comments);
+  if (commentsBlock) {
+    lines.push('', '## 裁定・申し送り（issue comments）', commentsBlock);
+  }
+  lines.push(
+    '',
+    IMPL_LOOP_ESCALATION_CONTRACT,
+    '',
+    '変更は明示 `git add <paths>` で stage すること（`git add -A` / `git add .` は禁止）。',
+    '全指摘を「対応しない」と判断した場合は commit を作らず、指摘ごとの理由を出力に列挙して IMPL_DONE で終えてよい（再 review が対応表明を審査します）。',
+    '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
+    '',
+    verdictInstruction(['IMPL_DONE', 'ESCALATE']),
+  );
+  return lines.join('\n');
+}
+
+/**
  * PLAN stage prompt for a plan-task — planner agent, cwd = repo root,
  * read-only (ADR 0030 §2: plan-task の終端は plan 確定＋子 issue 投函).
  *

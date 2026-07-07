@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
   buildStagePrompt,
   buildImplementPrompt,
+  buildLandReworkPrompt,
   buildPlanTaskPrompt,
   buildTaskLoopPlanPrompt,
   buildReviewFeedbackSection,
@@ -187,6 +188,63 @@ test('buildReviewFeedbackSection: empty / missing / verdict-only findings -> emp
 test('buildReviewFeedbackSection: source label is caller-defined (LAND review 前置での再利用の口, #188)', () => {
   const section = buildReviewFeedbackSection({ source: 'LAND review CHANGES', findings: 'split the commit' });
   assert.ok(section.includes('## 前回 review 所見（LAND review CHANGES）'));
+});
+
+// --- buildLandReworkPrompt (#201 分解 12 / #188 CHANGES 差し戻し) ---
+
+const REWORK_CTX = {
+  issueNumber: 42,
+  issueTitle: 'fix: the thing',
+  issueBody: 'plan body',
+  comments: [],
+  reviewFeedback: '1. missing test\n2. wrong path\nVERDICT: CHANGES',
+  round: 1,
+  maxRounds: 2,
+  prNumber: 77,
+};
+
+test('buildLandReworkPrompt: 所見は buildReviewFeedbackSection の単一の口経由（握り潰し禁止付き）', () => {
+  const prompt = buildLandReworkPrompt(REWORK_CTX);
+  assert.ok(prompt.includes('## 前回 review 所見（LAND review CHANGES — PR #77 修正周回 1/2）'));
+  assert.ok(prompt.includes('missing test'));
+  assert.ok(prompt.includes('握り潰し禁止'));
+  // 注入所見の bare VERDICT 行は落ちる（末尾の verdict 指示のみが VERDICT を含む）
+  assert.ok(!prompt.includes('VERDICT: CHANGES'));
+});
+
+test('buildLandReworkPrompt: 同一 worktree 追い commit 契約（rebase/amend/reset・push・新 PR の禁止）', () => {
+  const prompt = buildLandReworkPrompt(REWORK_CTX);
+  assert.match(prompt, /^issue #42 \/ stage: IMPLEMENT/);
+  assert.ok(prompt.includes('inner-issue-42'));
+  assert.ok(prompt.includes('inner/issue-42'));
+  assert.ok(prompt.includes('追い commit として積む'));
+  assert.ok(prompt.includes('force-push 不可'));
+  assert.ok(prompt.includes('新しい PR・branch を作らない'));
+  assert.ok(prompt.includes('`git add -A` / `git add .` は禁止'));
+  assert.ok(prompt.includes('VERDICT: <TOKEN>'));
+  assert.ok(prompt.includes('IMPL_DONE | ESCALATE'));
+});
+
+test('buildLandReworkPrompt: zero-commit（全指摘却下・理由列挙）を適法とする（#188 対応可否）', () => {
+  const prompt = buildLandReworkPrompt(REWORK_CTX);
+  assert.ok(prompt.includes('commit を作らず'));
+  assert.ok(prompt.includes('再 review が対応表明を審査'));
+});
+
+test('buildLandReworkPrompt: issue 本文と comments が文脈として注入される', () => {
+  const prompt = buildLandReworkPrompt({ ...REWORK_CTX, comments: COMMENTS });
+  assert.ok(prompt.includes('plan body'));
+  assert.ok(prompt.includes('裁定・申し送り'));
+  assert.ok(prompt.includes('監査役裁定: arm は PR 作成時。'));
+});
+
+test('buildLandReworkPrompt: 空所見は fail-closed（throw）', () => {
+  assert.throws(() => buildLandReworkPrompt({ ...REWORK_CTX, reviewFeedback: '' }), /reviewFeedback is required/);
+  assert.throws(() => buildLandReworkPrompt({ ...REWORK_CTX, reviewFeedback: 'VERDICT: CHANGES' }), /reviewFeedback is required/);
+});
+
+test('buildLandReworkPrompt: STAGE_PROMPT_BUILDERS には載せない（IMPLEMENT の正規 prompt を壊さない）', () => {
+  assert.ok(!Object.values(STAGE_PROMPT_BUILDERS).includes(buildLandReworkPrompt));
 });
 
 // --- TASK_PLAN prompt: RED 所見の注入 (#192 Major#2) ---

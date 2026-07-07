@@ -41,6 +41,15 @@ export const ESCALATION_LABEL = 'escalation';
 // escalation and stopping (ADR 0035 §5).
 export const MAX_PLAN_REVIEW_RETRIES = 2;
 
+// LAND review 前置 (#201 分解 11-12 / #188): CHANGES 差し戻しの修正周回上限
+// （超過は escalation — 分岐は inner-loop-land.mjs decideLandReviewAction）。
+export const MAX_LAND_REVIEW_REWORK_ROUNDS = 2;
+// Manifest-only stage names for the LAND review phase: observability records
+// (cost/session/verdict), not resume checkpoints (decideResumeState excludes them).
+export const LAND_REVIEW_MANIFEST_STAGE = 'LAND_REVIEW';
+export const LAND_REWORK_MANIFEST_STAGE = 'LAND_REWORK';
+export const LAND_PHASE_MANIFEST_STAGES = [LAND_REVIEW_MANIFEST_STAGE, LAND_REWORK_MANIFEST_STAGE];
+
 // Stage tables — ordered so a later stage insertion is a one-line change
 // (append to the array + add its ok-verdict). The terminal after the last
 // stage is a driver action, not an agent stage.
@@ -365,9 +374,12 @@ export function decideResumeState({ stages, worktree }) {
   if (!worktree.headSha) return { ok: false, reason: 'could not determine worktree HEAD sha' };
 
   // recordAttempt writes every stage (observability); only worktree stages are
-  // resume checkpoints — plan stages re-run read-only at repo root, keeping the
-  // PLAN_REVIEW gate intact (#192 Major#1). Unknown stages still fail below.
-  const walkEntries = stages.filter((entry) => isWorktreeStage(entry?.stage) || !TASK_LOOP_STAGES.includes(entry?.stage));
+  // resume checkpoints — plan stages re-run read-only at repo root (#192 Major#1).
+  // LAND-phase entries (#201 分解 11-12) are records too, not checkpoints: a run
+  // that died mid-LAND resumes at LAND and re-runs the review 前置 from round 0
+  // (earlier rounds stay traceable as PR comments). Unknown stages still fail below.
+  const walkEntries = stages.filter((entry) => !LAND_PHASE_MANIFEST_STAGES.includes(entry?.stage)
+    && (isWorktreeStage(entry?.stage) || !TASK_LOOP_STAGES.includes(entry?.stage)));
   // Died during the plan stages → restart the plan pipeline from the top.
   if (walkEntries.length === 0) return { ok: true, state: TASK_LOOP_STAGES[0], headSha: worktree.headSha, skipped: [] };
 
@@ -424,6 +436,15 @@ export function decideResumeState({ stages, worktree }) {
     state = next.next;
   }
 
+  // LAND rework 追い commits (#201 分解 12) advance the worktree HEAD past the
+  // IMPLEMENT entry's head_sha — the latest LAND_REWORK record carries the sha
+  // the worktree must match for the landing phase to be resumable.
+  for (const entry of stages) {
+    if (entry?.stage === LAND_REWORK_MANIFEST_STAGE && typeof entry.head_sha === 'string' && entry.head_sha) {
+      expectedHeadSha = entry.head_sha;
+    }
+  }
+
   if (expectedHeadSha && worktree.headSha !== expectedHeadSha) {
     return { ok: false, reason: `sha mismatch: manifest head_sha=${expectedHeadSha} worktree HEAD=${worktree.headSha}` };
   }
@@ -474,3 +495,5 @@ export function buildPrCreateArgs({ base, head, title, body }) {
 export function buildPrMergeArgs({ branch }) {
   return ['pr', 'merge', branch, '--auto', '--squash'];
 }
+// LAND review 前置の純関数と orchestration は inner-loop-land.mjs（#201 分解
+// 11-12）。ここは decideResumeState が参照する LAND_PHASE 定数だけを持つ。

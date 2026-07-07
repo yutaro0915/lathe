@@ -17,6 +17,7 @@ import {
   reviewerArgs,
   runReviewer,
   reviewOnePr,
+  spawnReviewerWithRetry,
 } from './review-engine.mjs';
 
 // --- parseEngineFlags ---
@@ -152,6 +153,48 @@ test('buildEngineReviewPrompt: includes linked issue section when provided', () 
   assert.ok(prompt.includes('issue body'));
 });
 
+test('buildEngineReviewPrompt: planText injects a plan 照合 section (LAND review 前置)', () => {
+  const prompt = buildEngineReviewPrompt({ pr: PR, diffText: 'd', diffTruncated: false, planText: 'the confirmed plan' });
+  assert.ok(prompt.includes('## 確定 plan'));
+  assert.ok(prompt.includes('the confirmed plan'));
+  // Engine standalone pass (no planText) stays unchanged.
+  const bare = buildEngineReviewPrompt({ pr: PR, diffText: 'd', diffTruncated: false });
+  assert.ok(!bare.includes('## 確定 plan'));
+});
+
+test('buildEngineReviewPrompt: rereview injects 前回所見・対応表明・前回 head からの差分 (#188 再 review の文脈)', () => {
+  const prompt = buildEngineReviewPrompt({
+    pr: PR, diffText: 'd', diffTruncated: false,
+    rereview: {
+      round: 1, maxRounds: 2,
+      previousFindings: 'finding A\nVERDICT: CHANGES',
+      implementerResponse: '指摘Aは対応済み\nVERDICT: IMPL_DONE',
+      previousHeadSha: 'abc1234',
+      deltaDiffText: '+fixed line', deltaDiffTruncated: false,
+    },
+  });
+  assert.ok(prompt.includes('## 再 review 文脈（CHANGES 差し戻し後の修正周回 1/2）'));
+  assert.ok(prompt.includes('### 前回 review 所見'));
+  assert.ok(prompt.includes('finding A'));
+  assert.ok(prompt.includes('### implementer の対応表明'));
+  assert.ok(prompt.includes('指摘Aは対応済み'));
+  assert.ok(prompt.includes('前回 head（abc1234）からの差分'));
+  assert.ok(prompt.includes('+fixed line'));
+  // 同一指摘の再発と新規を区別させる指示が入る
+  assert.ok(prompt.includes('同一指摘の再発'));
+  // Bare VERDICT lines are stripped from injected findings/response (prompt noise).
+  assert.ok(!/^VERDICT:/m.test(prompt.split('## 再 review 文脈')[1].split('最終行に必ず')[0]));
+});
+
+test('buildEngineReviewPrompt: rereview with zero-commit rework says so explicitly', () => {
+  const prompt = buildEngineReviewPrompt({
+    pr: PR, diffText: 'd', diffTruncated: false,
+    rereview: { round: 2, maxRounds: 2, previousFindings: 'f', previousHeadSha: 'abc', deltaDiffText: '', deltaDiffTruncated: false },
+  });
+  assert.ok(prompt.includes('差分なし'));
+  assert.ok(prompt.includes('対応表明のみ'));
+});
+
 // --- parseReviewVerdict ---
 
 test('parseReviewVerdict: last VERDICT wins, restricted to review tokens', () => {
@@ -216,6 +259,34 @@ test('runReviewer: parses the claude envelope', () => {
 test('runReviewer: spawn failure / bad JSON -> null', () => {
   assert.equal(runReviewer('p', { spawnSync: () => ({ status: 1, stdout: '', stderr: 'boom' }) }), null);
   assert.equal(runReviewer('p', { spawnSync: () => ({ status: 0, stdout: 'not json', stderr: '' }) }), null);
+});
+
+// --- spawnReviewerWithRetry (共有 spawn+retry — LAND review 前置が再利用) ---
+
+test('spawnReviewerWithRetry: unparsable first attempt retries once and reports via onRetry', () => {
+  let call = 0;
+  const retries = [];
+  const deps = {
+    spawnSync: () => {
+      call++;
+      return { status: 0, stdout: fakeEnvelope(call === 1 ? 'no verdict' : 'ok\nVERDICT: PASS'), stderr: '' };
+    },
+  };
+  const r = spawnReviewerWithRetry('<p>', deps, { onRetry: (attempt) => retries.push(attempt) });
+  assert.equal(r.verdict, 'PASS');
+  assert.equal(call, 2);
+  assert.deepEqual(retries, [1]);
+});
+
+test('spawnReviewerWithRetry: spawn failure -> envelope null', () => {
+  const r = spawnReviewerWithRetry('<p>', { spawnSync: () => ({ status: 1, stdout: '', stderr: 'boom' }) });
+  assert.deepEqual(r, { envelope: null, verdict: null });
+});
+
+test('spawnReviewerWithRetry: unparsable after retry -> verdict null, envelope kept', () => {
+  const r = spawnReviewerWithRetry('<p>', { spawnSync: () => ({ status: 0, stdout: fakeEnvelope('no verdict'), stderr: '' }) });
+  assert.equal(r.verdict, null);
+  assert.equal(r.envelope.session_id, 'sess-1');
 });
 
 // One fake spawnSync routing gh pr diff / gh issue view / claude / gh pr comment.
