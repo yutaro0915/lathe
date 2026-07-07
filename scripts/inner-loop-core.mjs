@@ -458,8 +458,8 @@ export function worktreeNameFor(issueNumber) {
   return { branch: `inner/issue-${issueNumber}`, dirName: `inner-issue-${issueNumber}` };
 }
 
-// --- Landing pure functions (ADR 0030 §3; landBranch itself lives in
-// inner-loop.mjs because it spawns) ---
+// --- Landing pure functions (ADR 0030 §3; the landing orchestration
+// landBranchWithReview lives in inner-loop-land.mjs because it spawns) ---
 
 /** First commit message from `git log --reverse --format=%B%x00` (NUL-separated records).
  * @param {string} logOutput @returns {string} */

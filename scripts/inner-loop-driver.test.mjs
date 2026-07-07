@@ -1,7 +1,7 @@
 // Tests for the driver's side-effect helpers and the new single-issue CLI
-// (#116): worktree setup, stage runner env, landBranch (PR body carries
-// Closes #N, auto-merge armed at PR creation, no review-body posting), and
-// dry-run behaviour for both run types via a fake gh on PATH.
+// (#116): worktree setup, stage runner env, and dry-run behaviour for both
+// run types via a fake gh on PATH. The landing itself (review 前置, #201
+// 分解 11-12) is tested in inner-loop-land.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -13,7 +13,6 @@ import {
   prepareWorktree,
   rebaseWorktree,
   runStage,
-  landBranch,
   WORKTREE_DEPS_INSTALL_ARGS,
 } from './inner-loop.mjs';
 
@@ -93,69 +92,6 @@ test('runStage: claude backend passes LATHE_STAGE env for the stage', () => {
   assert.equal(envelope.result, 'VERDICT: IMPL_DONE');
 });
 
-// --- landBranch ---
-
-function fakeLandRun({ failAt = null } = {}) {
-  const calls = [];
-  const run = (cmd, args) => {
-    const key = `${cmd} ${args.slice(0, 2).join(' ')}`.trim();
-    calls.push({ cmd, args, key });
-    if (cmd === 'git' && args[0] === 'log') {
-      return { status: 0, stdout: 'feat: subject line\n\ncommit body text\0fix: follow-up\0', stderr: '' };
-    }
-    if (failAt && key.startsWith(failAt)) return { status: 1, stdout: '', stderr: 'boom' };
-    return { status: 0, stdout: '', stderr: '' };
-  };
-  return { run, calls };
-}
-
-test('landBranch: happy path — push → pr create (Closes #N in body) → auto-merge arm at PR creation', () => {
-  const { run, calls } = fakeLandRun();
-  const result = landBranch('inner/issue-42', 42, { spawnSync: run });
-  assert.equal(result.ok, true);
-  const keys = calls.map((c) => c.key);
-  assert.deepEqual(keys, ['git log --reverse', 'git push -u', 'gh pr create', 'gh pr merge']);
-
-  const prCreate = calls.find((c) => c.key === 'gh pr create');
-  const bodyIndex = prCreate.args.indexOf('--body') + 1;
-  assert.equal(prCreate.args[bodyIndex], 'commit body text\n\nCloses #42');
-  const titleIndex = prCreate.args.indexOf('--title') + 1;
-  assert.equal(prCreate.args[titleIndex], 'feat: subject line');
-});
-
-test('landBranch: no gh pr review step remains (LATHE_REVIEW_BODY_FILE 過渡形の撤去)', () => {
-  const { run, calls } = fakeLandRun();
-  landBranch('inner/issue-42', 42, { spawnSync: run });
-  assert.ok(!calls.some((c) => c.cmd === 'gh' && c.args[1] === 'review'));
-});
-
-test('landBranch: no commits between main and branch → fails before push', () => {
-  const calls = [];
-  const run = (cmd, args) => {
-    calls.push(`${cmd} ${args[0]}`);
-    if (cmd === 'git' && args[0] === 'log') return { status: 0, stdout: '\0', stderr: '' };
-    return { status: 0, stdout: '', stderr: '' };
-  };
-  const result = landBranch('inner/issue-42', 42, { spawnSync: run });
-  assert.equal(result.ok, false);
-  assert.match(result.output, /no commits found/);
-  assert.ok(!calls.includes('git push'));
-});
-
-test('landBranch: git push failure → fails without any gh call', () => {
-  const { run, calls } = fakeLandRun({ failAt: 'git push' });
-  const result = landBranch('inner/issue-42', 42, { spawnSync: run });
-  assert.equal(result.ok, false);
-  assert.ok(!calls.some((c) => c.cmd === 'gh'));
-});
-
-test('landBranch: gh pr create failure → fails without arming auto-merge', () => {
-  const { run, calls } = fakeLandRun({ failAt: 'gh pr create' });
-  const result = landBranch('inner/issue-42', 42, { spawnSync: run });
-  assert.equal(result.ok, false);
-  assert.ok(!calls.some((c) => c.key === 'gh pr merge'));
-});
-
 // --- CLI dry-run with a fake gh on PATH ---
 
 function setupFakeGh(testId, { labels, body }) {
@@ -201,6 +137,11 @@ test('CLI dry-run (task loop): prints the ADR-0035 stage plan and LAND with Clos
     assert.ok(r.stdout.includes('Closes #4242'));
     assert.ok(r.stdout.includes('IMPL_DONE->LAND'));
     assert.ok(r.stdout.includes('裁定 comment'));
+    // LAND review 前置 (#201 分解 11-12): arm は PASS 後・CHANGES 差し戻し上限 2
+    assert.ok(r.stdout.includes('arm しない'));
+    assert.ok(r.stdout.includes('PASS で gh pr merge --auto --squash'));
+    assert.ok(r.stdout.includes('修正周回上限 2'));
+    assert.ok(r.stdout.includes('再 review'));
     // fully-removed stages must not appear in the transition plan
     assert.ok(!r.stdout.includes('TRIAGE'));
   } finally {

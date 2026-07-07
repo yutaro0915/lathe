@@ -27,7 +27,7 @@ import { copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { REPO_ROOT } from './inner-loop-core.mjs';
-import { landBranch } from './inner-loop.mjs';
+import { landBranch } from './inner-loop-land.mjs';
 import { REPO_OWNER, REPO_NAME } from './orchestrator-derive.mjs';
 import { DONE_EXPLAIN_LABEL, SKIP_NON_TASK } from './orchestrator-classify.mjs';
 

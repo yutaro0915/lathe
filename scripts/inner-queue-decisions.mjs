@@ -119,8 +119,9 @@ export function deriveReadyTaskIds(tasks, openIssueNumbers) {
 /**
  * Derive "In Progress" issue numbers from open PRs (ADR 0031 §2: In Progress
  * = an open PR references the issue). A PR references an issue via a
- * closing keyword in its body (`Closes/Fixes/Resolves #N` — landBranch always
- * writes `Closes #N`, #116) or via the `inner/issue-<n>` head branch.
+ * closing keyword in its body (`Closes/Fixes/Resolves #N` — the driver's
+ * landing (inner-loop-land.mjs) always writes `Closes #N`, #116) or via the
+ * `inner/issue-<n>` head branch.
  * @param {Array<{ body?: string, headRefName?: string }>} prs
  * @returns {Set<number>}
  */
