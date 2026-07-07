@@ -29,3 +29,17 @@ Discussion に 👍 を押すだけ）。同時に、agent が Discussion へ勝
 ## 実装
 
 着手判定は #116（issue 結線）に統合。skill／workflow の禁則追記は本 PR。
+
+## 追記（2026-07-07 PdM 裁定・承認シグナルの変更: 👍 → Discussion close）
+
+承認シグナルを **教材 Discussion の close** に変更する（👍 リアクションは導出が煩雑
+〔reactionGroups の走査〕で、一覧上の視認性も無い。close は `discussion { closed }` の
+boolean 1 発で導出でき、Discussions 一覧で「処理済み」が見た目で区切れる）。
+
+- **承認 = PdM が教材 Discussion を close する**（読了・理解・承認の 1 操作。close 後も
+  comment は可能なので註釈スレッドは死なない）
+- 着手判定 §2 を読み替え: `done-explain` 付き issue は、最新の教材 Discussion が
+  **closed でなければ着手不可**
+- 禁則の拡張: **agent は Discussion を close しない**（リアクション禁止と同じ理由——
+  承認シグナルの汚染防止。解説 loop の終端は comment＋label 遷移のみで従来どおり close を含まない）
+- 👍 は自由なフィードバックに戻る（機械は読まない）
