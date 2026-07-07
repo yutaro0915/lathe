@@ -1,13 +1,10 @@
 # Agent Workflow — lathe の変更を回す開発フロー（正本）
 
-> **⚠ loop 台帳（2026-07-05・[ADR 0026](../adr/0026-single-landing-gate-and-simplification.md)）**:
-> 「全ての会話は規定された loop の一つ・各 loop の唯一の終端・harness-hotfix 緊急路・
-> セッション冒頭の loop 宣言」の正本は **[loops.md](./loops.md)**。本書は inner loop の
-> 段構成の詳細に限る。あわせて ADR 0026 で **着地の単一ゲート化（PR + CI・receipt 制度廃止・
-> 監査役の直接編集特権廃止）** が決定済み（TASK-15/16 で移行中。完了までは本書の
-> merge.mjs/receipt 記述が現行）。
-
-> **⚠ 実行単位の移行（2026-07-04・[ADR 0025](../adr/0025-task-substrate-backlog-md.md)）**: 開発の実行単位は **GitHub Issue → Backlog.md task** へ移行済み（Phase 2 完了、正本は `backlog/tasks/`）。本書中の「issue」は原則 **Backlog.md task** と読み替える（`node_modules/.bin/backlog task ...`／worktree `inner-task-<slug>`／manifest `.lathe/runs/task-<slug>.json`／ingest `loop_kind='task'`）。outer の「issue 化」は「`backlog task create`」、queue は `backlog sequence`、plan-loop の起票も task。**GitHub Issues は外部レポート窓口へ降格**（実行単位ではない）。残: 新 driver の live-fire e2e（AC#5）。
+> **⚠ 本文は歴史的記述（2026-07-04 以前の世界）**。実行単位・段構成・ゲートは全面再編済み——
+> **現行の正本は [loops.md](./loops.md) と ADR 0030〜0035**（issue=task／単一 orchestrator／
+> LAND review 前置／escalation の issue 化／盤面 Ready 承認）。本文中の Backlog.md task・
+> `backlog` CLI・`merge.mjs`・receipt・`inner-queue` は**すべて廃止済み**で、読み替えは
+> loops.md の台帳に従う（2026-07-07 #201 再編・Wave1〜4 で着地）。
 
 > status: revised 2026-07-01（**outer loop / inner loop の二層**に整理。旧「OPUS」表記は**モデル名の役割への誤用**なので役割名へ改めた）
 > **二つのループ**（model ⟂ role。**opus はモデル名であって役割名ではない**＝ADR 0005 / 0009「agent をエンティティ化しない・runner/model は記録属性」）:

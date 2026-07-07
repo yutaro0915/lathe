@@ -34,14 +34,3 @@ reviewer agent がこれに従う。**read-only**（コード編集・git をし
 - reviewer は read-only。コード編集・git 操作・merge をしない。
 - 機械で測れる規範は rubric＝verifier が見る。reviewer はそれを再実行せず、**設計判断**に集中する（責務分離）。
 
-## receipt（必須 — ただし手動/bootstrap 経路のみ）
-
-**driver（`scripts/inner-loop.mjs`）経由の実行では、driver があなたの VERDICT から receipt を刻む。あなたは receipt を発行しない・発行を試みない**（権限が無く、リトライはトークンの浪費。2026-07-02 meta-audit F3）。以下は outer が手動で review を依頼した場合のみ:
-
-**この receipt は cwd=対象 worktree で実行する**（`git rev-parse HEAD` がブランチ tip を指すように。main で実行すると sha 不一致で merge が拒否される）
-
-```shell
-LATHE_AGENT=reviewer node scripts/receipt.mjs review "$(git rev-parse HEAD)" <PASS|CHANGES>
-```
-
-blocking 指摘が無い時（verdict=approve）だけ PASS。CHANGES は major/blocker あり。
