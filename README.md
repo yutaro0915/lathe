@@ -10,6 +10,7 @@ per-session & per-project stats, token **cost**, sub-agent and **harness**
 ## Requirements
 
 - **Node ≥ 24**
+- **pnpm** (via corepack — run `corepack enable` once; version pinned to 10.18.1 in `package.json`)
 - **Docker Compose** for the development Postgres dependency
 - Your own transcripts on this machine: Claude Code (`~/.claude/projects/**`)
   and/or Codex (`~/.codex/sessions/**`)
