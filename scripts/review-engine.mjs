@@ -10,15 +10,16 @@
 //
 // One pass (run from cron or by hand; no resident loop): list open PRs →
 // derive "awaiting review" — a PR is done when any comment/review already
-// carries the `## REVIEW:` heading (landBranch's landing-time comment) or this
-// engine's marker. State is derived, never stored (ADR 0031). For each target,
-// spawn the reviewer with the PR diff + body + linked issue, then post the
-// verdict + findings back as a marker-carrying PR comment.
+// carries the `## REVIEW:` heading or this engine's marker. State is derived,
+// never stored (ADR 0031). For each target, spawn the reviewer with the PR
+// diff + body + linked issue, then post the verdict + findings back as a
+// marker-carrying PR comment.
 //
-// Complements landBranch() in inner-loop.mjs: task-loop PRs get their review
-// comment at landing time (`gh pr review --comment`), which this engine
-// detects and skips; every other PR (e.g. the auditor's ADR PRs) is picked up
-// here — the engine applies to all PRs regardless of origin.
+// Since the task-loop shrink (#116, ADR 0030 §3) the driver's landBranch()
+// posts no landing-time review comment — this engine is THE review executor
+// for all PRs regardless of origin (task-loop PRs and the auditor's ADR PRs
+// alike). The `## REVIEW:` heading detection still recognises historical
+// landing-time comments (pre-#116 PRs).
 //
 // Out of scope (issue #117): CI RED / CHANGES non-convergence pickup and
 // escalation. This engine drives reviews only.
@@ -43,8 +44,9 @@ function log(msg) { process.stdout.write(`[review-engine] ${msg}\n`); }
 // based, not author-based: the engine and the human operator share one
 // GitHub account).
 export const ENGINE_MARKER = '<!-- lathe-review-engine -->';
-// Heading shared with landBranch()'s landing-time review comment
-// (`## REVIEW: PASS` — see inner-loop.mjs). Either record means "reviewed".
+// Review-record heading (`## REVIEW: <verdict>`). Written by this engine;
+// also matches historical landing-time comments from the pre-#116 driver.
+// Either record means "reviewed".
 export const REVIEW_HEADING = '## REVIEW:';
 // Same tokens as the task-loop REVIEW stage (inner-loop-prompts.mjs).
 export const REVIEW_VERDICT_TOKENS = ['PASS', 'CHANGES', 'ESCALATE'];
@@ -91,7 +93,7 @@ export function parseEngineFlags(argv) {
 /**
  * True when the PR already carries a review record: any issue comment or
  * PR review whose body contains the engine marker or the `## REVIEW:`
- * heading (landBranch posts the latter via `gh pr review --comment`).
+ * heading (also written by the pre-#116 driver's landing-time comment).
  * @param {{ comments?: Array<{body?: string}>, reviews?: Array<{body?: string}> }} pr
  * @returns {boolean}
  */
@@ -216,7 +218,7 @@ export function parseReviewVerdict(resultText) {
 
 /**
  * PR comment body: engine marker + `## REVIEW: <verdict>` heading (shared
- * with landBranch's landing comment so one detection predicate covers both)
+ * with the pre-#116 driver's landing comment so one detection predicate covers both)
  * + the reviewer's findings with bare VERDICT lines stripped.
  * @param {{ verdict: string, resultText: string }} p
  * @returns {string}

@@ -3,64 +3,44 @@
 // scripts/ is outside the file-size rubric scope but long prompt strings hurt
 // readability of the state machine itself).
 //
-// Each builder returns the full prompt string for `claude -p "<prompt>" --agent <name>`.
-// Every prompt ends with the VERDICT instruction (ADR 0013 §機構詳細 verdict 規約):
-// the agent must emit `VERDICT: <TOKEN>` as the last line, which the driver parses
-// from the envelope's `result` field.
+// After the task-loop shrink (#116, ADR 0030 §2-3) only two local stages
+// remain: IMPLEMENT (task loop, worktree) and PLAN (plan-task, repo root).
+// Review runs on the PR via the review engine (#128); verify(tier=test) runs
+// in CI. Each builder returns the full prompt string for
+// `claude -p "<prompt>" --agent <name>`. Every prompt ends with the VERDICT
+// instruction (ADR 0013 §機構詳細 verdict 規約): the agent must emit
+// `VERDICT: <TOKEN>` as the last line, which the driver parses from the
+// envelope's `result` field.
 
 /**
- * True when `issueNumber` is actually a Backlog.md task unit
- * ({ kind: 'task', id }) rather than a plain GitHub issue number
- * (ADR 0025 §4 / TASK-1.2). Kept local to this module — inner-loop.mjs has
- * its own copy for its own call sites (no shared import to keep the two
- * files' pure-function boundaries independent, per ADR 0013's split).
- * @param {unknown} value
- * @returns {boolean}
- */
-function isTaskUnit(value) {
-  return Boolean(value && typeof value === 'object' && value.kind === 'task');
-}
-
-/**
- * Display label for "the unit" in prompts: "issue #<n>" (unchanged, backward
- * compatible) or "task <ID>" for a Backlog.md task unit.
- * @param {number|{kind:'task',id:string}} issueNumber
- * @returns {string}
- */
-function unitLabel(issueNumber) {
-  return isTaskUnit(issueNumber) ? `task ${issueNumber.id}` : `issue #${issueNumber}`;
-}
-
-/**
- * Common issue/stage marker line, per ADR 0013 §2: "段 prompt に issue #<n> / stage: <STAGE>
- * マーカーを入れる（title に乗る保険）". Accepts a task unit the same way
- * (ADR 0025 §4 / TASK-1.2): "task TASK-1 / stage: <STAGE>".
- * @param {number|{kind:'task',id:string}} issueNumber
+ * Common issue/stage marker line, per ADR 0013 §2: "段 prompt に issue #<n> /
+ * stage: <STAGE> マーカーを入れる（title に乗る保険）".
+ * @param {number} issueNumber
  * @param {string} stage
  * @returns {string}
  */
 function marker(issueNumber, stage) {
-  return `${unitLabel(issueNumber)} / stage: ${stage}`;
+  return `issue #${issueNumber} / stage: ${stage}`;
 }
 
 /**
- * @param {string[]} tokens  valid VERDICT tokens for this stage, e.g. ['PLAN_READY', 'ESCALATE']
+ * @param {string[]} tokens  valid VERDICT tokens for this stage, e.g. ['IMPL_DONE', 'ESCALATE']
  * @returns {string}
  */
 function verdictInstruction(tokens) {
   return `最終行に必ず次の形式で verdict を出力してください（他の形式は不可）:\nVERDICT: <TOKEN>\n<TOKEN> は次のいずれか: ${tokens.join(' | ')}`;
 }
 
-const PLAN_LOOP_ESCALATION_CONTRACT = [
-  'plan-loop escalation: ユーザー裁可が必要な設計判断、調査結果による目標不成立・前提矛盾、生成 task の依存が既存 open issue と衝突する場合は ESCALATE してください。',
-  'PLAN_REVIEW の差し戻し指摘が未定義の契約・ロール割当・規約新設の決定を求めている（問題は述べられているが実装解が一意でない）場合は、CHANGES で planner に押し返さないでください。最小変更を発明せず ESCALATE してください。',
-].join(' ');
+// Agent-side ESCALATE is provisionally retained (#116 監査役裁定 3, 2026-07-07):
+// escalation の intake 統一（関門一元化・agent 自発 verdict 廃止 = ADR 0030 追記 E）
+// は #117 scope。それまでは現行の escalation 契約を維持する。
 const IMPL_LOOP_ESCALATION_CONTRACT = [
-  'impl-loop escalation: plan の前提が現実（コードの現状・依存状態）と乖離している場合は、その場で再計画せず ESCALATE してください。',
-  '差し戻し指摘が未定義の契約・ロール割当・規約新設の決定を求めている（問題は述べられているが実装解が一意でない）場合は、最小変更を発明せず ESCALATE してください。',
-  'VERDICT 不能・周回超過・NOVEL RED・merge 失敗・main dirty は driver が機械的に検知・執行する条件です。あなた（agent）は検査しないでください。',
+  'escalation: plan（issue 本文）の前提が現実（コードの現状・依存状態）と乖離している場合は、その場で再計画せず ESCALATE してください。',
+  'issue が未定義の契約・ロール割当・規約新設の決定を求めている（問題は述べられているが実装解が一意でない）場合は、最小変更を発明せず ESCALATE してください。',
+  'VERDICT 不能・merge 失敗・main dirty は driver が機械的に検知・執行する条件です。あなた（agent）は検査しないでください。',
   'repo の清浄度判定は agent の仕事ではありません（untracked の扱いを含む定義判断も driver 管轄です）。',
 ].join(' ');
+
 const EXTERNAL_SPACE_PATHS = [
   '`rubrics/`',
   '`.claude/skills/`',
@@ -68,154 +48,61 @@ const EXTERNAL_SPACE_PATHS = [
   '`.claude/hooks/`',
   '`design/test-failure-playbook.md`',
 ].join('・');
-const PLAN_REVIEW_EXTERNAL_SPACE_CONTRACT = [
-  `plan が次の外部空間パスの編集を含んでいたら approve しないでください: ${EXTERNAL_SPACE_PATHS}。`,
-  '内容の当否に関わらず無条件 CHANGES（CHANGES verdict）にしてください。',
-  '指摘文には「当該変更をスライスから外し、必要なら escalate で監査役に提案せよ」と書いてください。',
-].join(' ');
-const REVIEW_EXTERNAL_SPACE_CONTRACT = [
-  `diff が次の外部空間パスに触れていたら、内容の当否に関わらず無条件 CHANGES（CHANGES verdict）にしてください: ${EXTERNAL_SPACE_PATHS}。`,
-  '指摘文には「当該変更をスライスから外し、必要なら escalate で監査役に提案せよ」と書いてください。',
+
+const PLAN_TASK_EXTERNAL_SPACE_CONTRACT = [
+  `子 issue の plan に次の外部空間パスの編集を含めないでください: ${EXTERNAL_SPACE_PATHS}。`,
+  '外部空間の変更が必要だと判断した場合は、その旨を選択肢として明記し VERDICT: ASK_PDM で終えてください（監査役の管轄です）。',
 ].join(' ');
 
 /**
- * RESEARCH stage prompt — researcher agent, cwd = repo root.
- * @param {{ issueNumber: number, issueTitle: string, issueBody: string, touchesGrounding?: string }} ctx
- * @returns {string}
+ * Format issue comments (裁定・申し送り, ADR 0031 §2) for prompt injection.
+ * @param {Array<{ author?: { login?: string }, createdAt?: string, body?: string }>} comments
+ * @returns {string} empty string when there are no comments
  */
-export function buildResearchPrompt(ctx) {
-  const { issueNumber, issueTitle, issueBody, touchesGrounding } = ctx;
-  const lines = [
-    marker(issueNumber, 'RESEARCH'),
-    '',
-    `以下の needs-plan issue を実装 issue に落とすため、現在のコード・ADR・関連 issue を調査してください。`,
-    '',
-    `## source issue #${issueNumber}: ${issueTitle}`,
-    issueBody ?? '',
-    '',
-  ];
-  const grounding = typeof touchesGrounding === 'string' ? touchesGrounding.trim() : '';
-  if (grounding) {
-    lines.push('## touches grounding', grounding, '');
-  }
-  lines.push(
-    PLAN_LOOP_ESCALATION_CONTRACT,
-    '',
-    '調査結果には、実装境界、依存候補、Touches 候補、未解決のリスクを含めてください。',
-    '',
-    verdictInstruction(['PASS', 'ESCALATE']),
-  );
-  return lines.join('\n');
-}
-
-/**
- * PLAN stage prompt — planner agent, cwd = repo root.
- * @param {{ issueNumber: number, issueTitle: string, issueBody: string, mode?: string, research?: string, feedback?: string }} ctx
- * @returns {string}
- */
-export function buildPlanPrompt(ctx) {
-  const { issueNumber, issueTitle, issueBody, mode, research, feedback } = ctx;
-  if (mode === 'plan-loop') {
-    const lines = [
-      marker(issueNumber, 'PLAN'),
-      '',
-      `以下の source issue と research 結果から、inner-loop で実行可能な実装 issue block 群の plan を作成してください。`,
-      '',
-      `## source issue #${issueNumber}: ${issueTitle}`,
-      issueBody ?? '',
-      '',
-      '## research',
-      research ?? '',
-    ];
-    if (feedback) {
-      lines.push('', '## PLAN-REVIEW feedback', feedback);
-    }
-    lines.push(
-      '',
-      PLAN_LOOP_ESCALATION_CONTRACT,
-      '',
-      'RESEARCH が提示した全 issue 候補を必ず処置してください。処置は起票または却下の 2 種だけです。silent drop 禁止です。',
-      '- 起票: 候補ごとに 1 つの issue block を出力してください。複数 block 可です。',
-      '- 却下: `Rejected: <candidate> — <reason>` を 1 行で出力してください。',
-      '',
-      '各 issue block は以下の機械可読行 3 行を必ず含めてください。',
-      'Title: <implementation issue title>',
-      'Depends-on: #<n>, #<m>（依存が無い場合は "Depends-on: none" と明記。この行自体を省略しない。同一 plan 内の k 番目 block への依存は plan#<k> と書く）',
-      'Touches: <path>, <path>',
-      '',
-      '各 block には、実装 agent がそのまま実行できる scoped implementation plan を続けて書いてください。受け入れ基準・対象ファイル・検証方法（gate/tier）を明示してください。',
-      '',
-      verdictInstruction(['PLAN_READY', 'ESCALATE']),
-    );
-    return lines.join('\n');
-  }
-
-  return [
-    marker(issueNumber, 'PLAN'),
-    '',
-    `以下の issue を実装するための scoped implementation plan を作成してください。`,
-    '',
-    `## ${unitLabel(issueNumber)}: ${issueTitle}`,
-    issueBody ?? '',
-    '',
-    '受け入れ基準・対象ファイル・検証方法（gate/tier）を明示してください。',
-    '',
-    'rigor は影響クラスでスケールします。**低リスク小変更は軽量 plan で可**（受け入れ基準・検証方法・scope 境界だけ falsifiable に示す）。',
-    '',
-    IMPL_LOOP_ESCALATION_CONTRACT,
-    '',
-    verdictInstruction(['PLAN_READY', 'ESCALATE']),
-  ].join('\n');
+export function formatIssueComments(comments) {
+  if (!Array.isArray(comments) || comments.length === 0) return '';
+  return comments
+    .map((c) => {
+      const author = c?.author?.login ?? '(unknown)';
+      const ts = c?.createdAt ?? '(no timestamp)';
+      const body = String(c?.body ?? '').trim();
+      return `### ${author} — ${ts}\n${body}`;
+    })
+    .join('\n\n');
 }
 
 /**
  * IMPLEMENT stage prompt — implementer agent, cwd = worktree.
- * @param {{ issueNumber: number, issueTitle: string, issueBody: string, plan: string, feedback?: string }} ctx
+ * The issue body IS the plan (ADR 0030 §2 "すべての task は plan を持って
+ * 生まれる"; ADR 0031 §2 plan 本文 = issue body). Comments carry rulings and
+ * scope addenda and are injected verbatim.
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, comments?: Array<object> }} ctx
  * @returns {string}
  */
-// Worktree dir/branch name literals for the IMPLEMENT prompt's role contract
-// — mirrors inner-loop.mjs's worktreeNameFor (ADR 0025 §4 / TASK-1.2). Kept
-// local (not imported) for the same reason `marker`/`isTaskUnit` are local:
-// this module's pure prompt builders stay independent of inner-loop.mjs's
-// side-effectful worktree code.
-function worktreeLiteralsFor(issueNumber) {
-  if (isTaskUnit(issueNumber)) {
-    // Mirror taskUnitToSlug (inner-loop.mjs, TASK-1.1) then strip the
-    // resulting "task-" prefix, matching inner-loop.mjs's worktreeNameFor:
-    // "TASK-1.2" -> run_key slug "task-1-2" -> worktree slug "1-2" ->
-    // "inner-task-1-2" (not "inner-task-task-1-2").
-    const runKeySlug = String(issueNumber.id).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    const slug = runKeySlug.replace(/^task-/, '');
-    return { dirName: `inner-task-${slug}`, branch: `inner/task-${slug}` };
-  }
-  return { dirName: `inner-issue-${issueNumber}`, branch: `inner/issue-${issueNumber}` };
-}
-
 export function buildImplementPrompt(ctx) {
-  const { issueNumber, issueTitle, issueBody, plan, feedback } = ctx;
-  const { dirName, branch } = worktreeLiteralsFor(issueNumber);
+  const { issueNumber, issueTitle, issueBody, comments } = ctx;
+  const dirName = `inner-issue-${issueNumber}`;
+  const branch = `inner/issue-${issueNumber}`;
   const lines = [
     marker(issueNumber, 'IMPLEMENT'),
     '',
-    `以下の plan に従って ${unitLabel(issueNumber)}: ${issueTitle} を実装してください。`,
+    `以下の issue（本文 = plan）に従って issue #${issueNumber}: ${issueTitle} を実装してください。`,
     '',
     `あなたは implementer です。既に worktree \`${dirName}\`（branch \`${branch}\`）の**中**に居ます。その場で編集してください。**ネストした subagent を spawn しない・main（repo root）に書かない・別 worktree を切らない**。`,
-    '`.claude/skills/implement/SKILL.md` に従ってください。着手前に `git rebase main` で current local `main` に合わせ、pristine な開始状態だけ `git reset --hard main` を使えます。編集後・コミット後に `reset --hard main` で成果物を消す運用は禁止です。review handoff 前にも `git rebase main` し、競合したら `ESCALATE` してください。',
+    '`.claude/skills/implement/SKILL.md` に従ってください。着手前に `git rebase main` で current local `main` に合わせ、pristine な開始状態だけ `git reset --hard main` を使えます。編集後・コミット後に `reset --hard main` で成果物を消す運用は禁止です。完了前にも `git rebase main` し、競合したら `ESCALATE` してください。',
     '',
-    '## issue',
+    '## issue（本文 = plan）',
     issueBody ?? '',
-    '',
-    '## plan',
-    plan ?? '',
   ];
-  if (feedback) {
-    lines.push('', '## 差し戻し指摘（前段からの feedback。対処すること）', feedback);
+  const commentsBlock = formatIssueComments(comments);
+  if (commentsBlock) {
+    lines.push('', '## 裁定・申し送り（issue comments。scope 追記や確定裁定を含む。plan と併せて従うこと）', commentsBlock);
   }
   lines.push(
     '',
     IMPL_LOOP_ESCALATION_CONTRACT,
     '',
-    '1 commit にまとめること（差し戻しの場合は amend）。明示 `git add <paths>` を使うこと（`git add -A` / `git add .` は禁止）。',
+    '1 commit にまとめること。明示 `git add <paths>` を使うこと（`git add -A` / `git add .` は禁止）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
     '',
     verdictInstruction(['IMPL_DONE', 'ESCALATE']),
@@ -224,128 +111,66 @@ export function buildImplementPrompt(ctx) {
 }
 
 /**
- * PLAN_REVIEW stage prompt — plan review stage, cwd = repo root.
- * @param {{ issueNumber: number, issueTitle: string, issueBody: string, research: string, plan: string }} ctx
+ * PLAN stage prompt for a plan-task — planner agent, cwd = repo root,
+ * read-only (ADR 0030 §2: plan-task の終端は plan 確定＋子 issue 投函).
+ *
+ * `planFormat` is the full text of design/plan-format.md, injected fail-closed
+ * (#116 が #142 を吸収): the driver reads the file at runtime and refuses to
+ * start when it is missing/unreadable, and this builder refuses to build a
+ * prompt without it. No silent fallback to an uninjected prompt.
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, comments?: Array<object>, planFormat: string }} ctx
  * @returns {string}
  */
-export function buildPlanReviewPrompt(ctx) {
-  const { issueNumber, issueTitle, issueBody, research, plan } = ctx;
-  return [
-    marker(issueNumber, 'PLAN-REVIEW'),
+export function buildPlanTaskPrompt(ctx) {
+  const { issueNumber, issueTitle, issueBody, comments, planFormat } = ctx;
+  if (typeof planFormat !== 'string' || planFormat.trim().length === 0) {
+    throw new Error('buildPlanTaskPrompt: planFormat is required (fail-closed injection of design/plan-format.md, #142)');
+  }
+  const lines = [
+    marker(issueNumber, 'PLAN'),
     '',
-    '以下の plan-loop 出力を、実装 issue として起票してよいかレビューしてください。',
+    `以下の needs-plan issue から、実装 task として投函できる子 issue 群の plan を作成してください。`,
     '',
     `## source issue #${issueNumber}: ${issueTitle}`,
     issueBody ?? '',
-    '',
-    '## research',
-    research ?? '',
-    '',
-    '## plan candidate',
-    plan ?? '',
-    '',
-    PLAN_LOOP_ESCALATION_CONTRACT,
-    PLAN_REVIEW_EXTERNAL_SPACE_CONTRACT,
-    '',
-    'PASS は各 issue block に Title / Depends-on / Touches と実行可能な scoped plan が揃い、RESEARCH の issue 候補がすべて起票 block または Rejected 行で処置されている場合だけです。RESEARCH の候補で処置の無いものがあれば CHANGES にしてください。修正で足りる場合は CHANGES、裁可事項・目標不成立・依存衝突は ESCALATE してください。',
-    '',
-    verdictInstruction(['PASS', 'CHANGES', 'ESCALATE']),
-  ].join('\n');
-}
-
-/**
- * REVIEW stage prompt — reviewer agent, cwd = worktree.
- * Note: receipt issuance is NOT part of this prompt — the driver stamps the
- * REVIEW receipt itself from the parsed verdict (see inner-loop.mjs
- * buildReceiptArgs), because an agent-issued `LATHE_AGENT=... node
- * scripts/receipt.mjs ...` command silently fails the Bash allowlist
- * (env-prefixed commands don't prefix-match `Bash(node scripts/receipt.mjs *)`).
- * @param {{ issueNumber: number, plan: string, headSha: string, reviewHistory?: string }} ctx
- * @returns {string}
- */
-export function buildReviewPrompt(ctx) {
-  const { issueNumber, plan, reviewHistory } = ctx;
-  const lines = [
-    marker(issueNumber, 'REVIEW'),
-    '',
-    '`.claude/skills/review/SKILL.md` の手順に従い、未コミットではなく main からの branch diff（現在の HEAD）を plan ＋ 該当 rubric に照らしてレビューしてください。',
-    '現在の HEAD は driver / implementer が rebase 済みにした branch tip であり、merged-main 実体として扱ってください。stale branch を救済しないでください。',
-    'diff は **inline の `git diff main...HEAD`** で取得すること。単純な diff 収集を subagent に委譲しない。',
-    'PLAN と変更全体を一度に照合し、major/blocker は初回で出し切る（逐次開示しない）。major は plan/rubric/明文原則違反に限る。過剰 flag 禁止。',
-    REVIEW_EXTERNAL_SPACE_CONTRACT,
-    '',
-    '**receipt（受領証）は driver が刻みます。あなたは発行しないでください**。最終行に `VERDICT: <TOKEN>` のみを出力すること。',
-    '',
-    '## plan',
-    plan ?? '',
   ];
-  if (reviewHistory) {
-    lines.push(
-      '',
-      '## 前周までの REVIEW 履歴',
-      reviewHistory,
-      '',
-      '前言と矛盾する新指摘を出す場合は、矛盾する前言を明示的に撤回し、その理由を述べてください。',
-    );
+  const commentsBlock = formatIssueComments(comments);
+  if (commentsBlock) {
+    lines.push('', '## 裁定・申し送り（issue comments）', commentsBlock);
   }
-  lines.push('', verdictInstruction(['PASS', 'CHANGES', 'ESCALATE']));
+  lines.push(
+    '',
+    '## plan format（正本 design/plan-format.md。子 issue の plan 本文はこの規約に従うこと）',
+    '',
+    planFormat.trim(),
+    '',
+    '## 出力契約',
+    '',
+    '各 task は「人間が数分（理想 1 分）で完全に理解できる範囲」に閉じるまで分割してください（ADR 0030 §5。分離して意味が保てる最小単位まで。1 行単位まで刻む趣旨ではありません）。',
+    '検討した候補は必ず処置してください。処置は起票または却下の 2 種だけです。silent drop 禁止です。',
+    '- 起票: 候補ごとに 1 つの子 issue block を出力してください。複数 block 可です。',
+    '- 却下: `Rejected: <candidate> — <reason>` を 1 行で出力してください。',
+    '',
+    '各子 issue block は以下の機械可読行 3 行で始めてください。',
+    'Title: <child issue title>',
+    'Blocked-by: #<n>, plan#<k>（依存が無い場合は "Blocked-by: none" と明記。この行自体を省略しない。同一 plan 内の k 番目 block への依存は plan#<k> と書く）',
+    'Touches: <path>, <path>',
+    '',
+    '各 block には、上記 plan format に従う plan 本文（子 issue の本文になる）を続けて書いてください。trivial クラスは軽量形（問題/修正方針/検証の 3 行〜）で可です。',
+    '',
+    PLAN_TASK_EXTERNAL_SPACE_CONTRACT,
+    '',
+    'PdM 判断が必要な選択肢（価値判断・scope 裁定・工数トレードオフ）に到達した場合は、選択肢と推奨を明記して VERDICT: ASK_PDM で終えてください（escalation ではなく正常終端です。ADR 0030 追記 E）。',
+    '調査の結果、目標不成立・前提矛盾が判明した場合は ESCALATE してください。',
+    '',
+    verdictInstruction(['PLAN_READY', 'ASK_PDM', 'ESCALATE']),
+  );
   return lines.join('\n');
 }
 
-/**
- * VERIFY stage prompt — verifier agent, cwd = worktree.
- * Note: receipt issuance is NOT part of this prompt — the driver stamps the
- * VERIFY receipt itself from the parsed verdict (see inner-loop.mjs
- * buildReceiptArgs); see buildReviewPrompt's note for why.
- * @param {{ issueNumber: number, headSha: string }} ctx
- * @returns {string}
- */
-export function buildVerifyPrompt(ctx) {
-  const { issueNumber } = ctx;
-  return [
-    marker(issueNumber, 'VERIFY'),
-    '',
-    '`.claude/skills/verify/SKILL.md` の手順に厳密に従い、変更の影響範囲に該当する gate/test を独立実行してください。',
-    '現在の HEAD は driver / implementer が rebase 済みにした branch tip であり、merged-main 実体として扱ってください。stale branch を救済しないでください。',
-    '実 exit code で判定すること（推測で GREEN と書かない）。',
-    '',
-    '**receipt（受領証）は driver が刻みます。あなたは発行しないでください**。最終行に `VERDICT: <TOKEN>` のみを出力すること。',
-    '',
-    verdictInstruction(['GREEN', 'RED', 'ESCALATE']),
-  ].join('\n');
-}
-
-/**
- * TRIAGE stage prompt — test-triage agent, cwd = worktree, read-only.
- * @param {{ issueNumber: number, verifyResult: string }} ctx
- * @returns {string}
- */
-export function buildTriagePrompt(ctx) {
-  const { issueNumber, verifyResult } = ctx;
-  return [
-    marker(issueNumber, 'TRIAGE'),
-    '',
-    '`.claude/skills/test-triage/SKILL.md` の手順に従い、以下の verifier の RED を既知/新規に分類してください。',
-    '',
-    '## verifier の RED 結果',
-    verifyResult ?? '',
-    '',
-    '既知（KNOWN）は、IMPLEMENT 段に戻してコードまたは検証手順の変更で解消できる失敗に限ります。その場合は playbook の対処を明示してください（IMPLEMENT 段に差し戻します）。',
-    'playbook P4 / Codex sandbox EPERM は既知でも実装コードでは直らない環境・backend 問題です。該当する場合は sandbox/backend 設定確認または VERIFY=Claude fallback を対処として書き、最終行は `VERDICT: ESCALATE` にしてください。`VERDICT: KNOWN` で IMPLEMENT に戻してはいけません。',
-    '新規（NOVEL）の場合は evidence と仮説を添えてください（エスカレーションします）。',
-    '',
-    verdictInstruction(['KNOWN', 'NOVEL', 'ESCALATE']),
-  ].join('\n');
-}
-
 export const STAGE_PROMPT_BUILDERS = {
-  RESEARCH: buildResearchPrompt,
-  PLAN: buildPlanPrompt,
-  PLAN_REVIEW: buildPlanReviewPrompt,
+  PLAN: buildPlanTaskPrompt,
   IMPLEMENT: buildImplementPrompt,
-  REVIEW: buildReviewPrompt,
-  VERIFY: buildVerifyPrompt,
-  TRIAGE: buildTriagePrompt,
 };
 
 /**
