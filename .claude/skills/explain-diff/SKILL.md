@@ -14,12 +14,20 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
 `.lathe/reports/2026-07-05-explain-pr110-receipt-to-ci.html` を実物参照に残置）。
 **要約（圧縮）でなく教材（展開）を作る** — 読者がゼロから世界を組み立てられること。
 
-## 起動条件（解説 loop — loops.md / ADR 0032・0033）
+## 起動条件と入力（解説 loop — loops.md / ADR 0032・0033）
 
-- `explain` label の issue 到着、または PdM の直接要求。監査役判断で governance 級の変更にも推奨。
-- **対象は理解対象への参照一般**: PR/commit・issue 上の plan・ADR/設計文書・概念/サブシステム。
-- 出力規模は要求に応じる（Discussion への註釈 1 comment 〜 フル教材。plan-format の scale と同じ発想）。
-- 本 skill 1 個で loop は完結する（runner／mention 監視は任意の将来拡張）。
+入力は 3 形態。**主経路は「対象そのものに label」**——依頼のための独立 issue を乱造しない。
+
+1. **主経路**: 解説してほしい **issue／PR そのものに `explain` label が付く**。その本文・plan・
+   diff・スレッドが接地の起点（観点の指定は label 時に comment で添えてよい）。
+   「#X を解説せよ」という別 issue は立てない
+2. **従経路**: label を貼る対象が存在しない場合のみ（ADR・概念・サブシステム・複数対象の横断）、
+   独立の依頼 issue（本文 = 理解対象への参照＋観点）に `explain` label を付ける
+3. **直接要求**: PdM がセッション内で依頼（最軽量）
+
+監査役判断で governance 級の変更にも推奨。出力規模は要求に応じる（Discussion への註釈
+1 comment 〜 フル教材。plan-format の scale と同じ発想）。本 skill 1 個で loop は完結する
+（runner／mention 監視は任意の将来拡張。label = 未処理の依頼キューとして polling 可能）。
 
 ## 生成指示（subagent へこのまま渡す・対象と接地先だけ差し替える）
 
@@ -67,11 +75,15 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
   運用側（監査役／ユーザー）が後から PR で拾う。ignore する repo では何も要らない。
 - 質問・註釈は Discussion のネイティブスレッド。自動応答 runner を導入した場合のみ
   agent 返信に目印を付ける。
-- 依頼が issue 起点なら、元 issue に Discussion リンクを comment して close（解説 loop の終端）。
-- **解説対象の PR／issue（依頼 issue と別の場合）にも教材リンクを 1 行 comment する**。
-  Discussion 内で PR/issue に言及しても対象側のタイムラインに backlink は生まれない
-  （cross-reference の発生元は issue/PR のみ——2026-07-07 に PR #146 で実証）ため、
-  対象から教材へ辿れる唯一の恒久リンクがこの comment である。
+- **終端処理（入力形態で異なる——ここを混同しない）**:
+  - 主経路（対象に label）: 教材リンクを**その issue/PR に comment し、`explain` label を外す**。
+    **close はしない**——対象の task/PR のライフサイクルは解説と無関係（label を外すことが
+    「処理済み」の合図。close すると解説依頼が task を殺す事故になる）
+  - 従経路（独立依頼 issue）: リンク comment ＋ **close**。このとき**解説対象の PR/issue にも
+    教材リンクを 1 行 comment する**——Discussion 内で PR/issue に言及しても対象側に
+    backlink は生まれない（cross-reference の発生元は issue/PR のみ、2026-07-07 に PR #146 で
+    実証）ため、対象から教材へ辿れる唯一の恒久リンクがこの comment である
+  - 直接要求: 教材リンクの提示のみ（対象に issue/PR があれば同様に comment を残す）
 
 ### 禁則（v1〜v3 の失敗から。違反は不合格）
 
