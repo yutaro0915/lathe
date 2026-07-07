@@ -6,7 +6,9 @@
 //   PLAN       — plan 未確定（needs-plan label、ADR 0030 追記 A の機械的事実）。
 //                driver が run type を label から選ぶため dispatch コマンドは実装と
 //                同じ `node scripts/inner-loop.mjs <n>`（plan-task になる）
-//   EXPLAIN    — needs-review × 教材なし（done-explain label なし）→ explain runner
+//   EXPLAIN    — needs-review × 教材なし（done-explain label なし・explains/ 正本なし）
+//                → explain runner。教材の証拠は label または explains/ の対象 slug 正本
+//                の 2 層（#201 分解 13: label 付与失敗の窓でも再生成しない）
 //   IMPLEMENT  — 無印（plan review PASS は driver の TASK_PLAN→PLAN_REVIEW→IMPLEMENT
 //                が run 内で強制、ADR 0035 §1）／needs-review は盤面 Status=Ready 検出後
 //   PR_REVIEW  — 非 driver 産 open PR × review 記録なし → review engine
@@ -70,7 +72,7 @@ export function isDispatchClass(cls) {
  * blocked-by → needs-plan → needs-review（Ready / 教材 / 承認待ち）→ 無印実装。
  * @param {{ number: number, labels: string[], blockedBy: number[], statusName: string|null }} issue
  * @param {{ openIssueNumbers: Set<number>, inProgressIssueNumbers: Set<number>,
- *           runningIssueNumbers: Set<number> }} ctx
+ *           runningIssueNumbers: Set<number>, explainedIssueNumbers?: Set<number> }} ctx
  * @returns {{ class: string, reason: string, unresolved?: number[] }}
  */
 export function classifyIssue(issue, ctx) {
@@ -97,10 +99,17 @@ export function classifyIssue(issue, ctx) {
     if (issue.statusName === STATUS_READY) {
       return { class: CLASS_IMPLEMENT, reason: 'needs-review × 盤面 Ready — 承認済み' };
     }
-    if (!hasLabel(issue.labels, DONE_EXPLAIN_LABEL)) {
+    // 教材の証拠は 2 層: done-explain label（第 1）または explains/ の対象 slug 正本
+    // （第 2、#201 分解 13 — label 付与失敗の窓での重複生成を防ぐ）。
+    const hasLabelEvidence = hasLabel(issue.labels, DONE_EXPLAIN_LABEL);
+    const hasFileEvidence = ctx.explainedIssueNumbers?.has(issue.number) === true;
+    if (!hasLabelEvidence && !hasFileEvidence) {
       return { class: CLASS_EXPLAIN, reason: 'needs-review × 教材なし — PdM が読む教材を先に作る' };
     }
-    return { class: WAIT_APPROVAL, reason: 'needs-review × 教材あり × 非 Ready — PdM の読む番' };
+    return {
+      class: WAIT_APPROVAL,
+      reason: `needs-review × 教材あり（${hasLabelEvidence ? 'done-explain' : 'explains/ 正本'}）× 非 Ready — PdM の読む番`,
+    };
   }
   return { class: CLASS_IMPLEMENT, reason: '無印 — plan review PASS は driver の run 内で強制（ADR 0035 §1）' };
 }
@@ -135,10 +144,12 @@ export function classifyPr(pr, ctx = {}) {
  * Touches 直列化や投影に使う）。
  * @param {{ issues?: object[], prs?: object[], openBlockerRefs?: number[] }} snapshot  orchestrator-derive の OrchestratorSnapshot
  * @param {{ issues?: Set<number>, prs?: Set<number> }} running  実行中 target（worktree 非依存判定は shell 側）
+ * @param {{ explainedIssueNumbers?: Set<number> }} extras  explains/ 由来の教材 evidence
+ *   （shell 側が explains/ の実在ファイルから導出、orchestrator-explain.mjs）
  * @returns {Array<{ kind: 'issue'|'pr', number: number, class: string, reason: string,
  *   unresolved?: number[], issue?: object, pr?: object }>}
  */
-export function classifyAll(snapshot, running = {}) {
+export function classifyAll(snapshot, running = {}, extras = {}) {
   const openIssueNumbers = new Set([
     ...(snapshot.issues ?? []).map((i) => i.number),
     ...(snapshot.openBlockerRefs ?? []),
@@ -147,6 +158,7 @@ export function classifyAll(snapshot, running = {}) {
     openIssueNumbers,
     inProgressIssueNumbers: deriveInProgressIssueNumbers(snapshot.prs ?? []),
     runningIssueNumbers: running.issues ?? new Set(),
+    explainedIssueNumbers: extras.explainedIssueNumbers ?? new Set(),
   };
   const decisions = [];
   for (const issue of [...(snapshot.issues ?? [])].sort((a, b) => a.number - b.number)) {
