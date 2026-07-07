@@ -3,11 +3,13 @@
 //      [--backend-<stage> claude|codex]
 // inner loop driver — state machine over GitHub issue = task (ADR 0031).
 // Run types (from labels, never body): task loop (no needs-plan):
-//   TASK_PLAN -> PLAN_REVIEW -> IMPLEMENT -> LAND (ADR 0035 §1);
+//   TASK_PLAN -> PLAN_REVIEW -> IMPLEMENT -> LAND (ADR 0035 §1); LAND は
+//   review 前置 (#201 分解 11-12 / #188): PR 作成（arm しない）→ reviewer →
+//   PASS で arm ／ CHANGES 差し戻し（上限 2 周）— inner-loop-land.mjs.
 //   plan-task (needs-plan): see inner-loop-plan-task.mjs.
 // Startability gates (derived, never stored, ADR 0031 §2): open + unblocked.
 // Module layout: inner-loop-core.mjs / -prompts.mjs / -backends.mjs /
-//   -stage-runner.mjs / -plan-task.mjs / -projects.mjs.
+//   -stage-runner.mjs / -plan-task.mjs / -projects.mjs / -land.mjs.
 // Re-exports public symbols from split modules (single import surface).
 // ADR 0013 (driver) / 0014 (backends) / 0030 (gates) / 0031 / 0035.
 
@@ -30,15 +32,16 @@ import {
   TASK_LOOP_STAGES, TASK_LOOP_TERMINAL,
   UNPARSABLE_VERDICT, WORKTREE_DEPS_INSTALL_ARGS,
   MAX_PLAN_REVIEW_RETRIES, NEEDS_REVIEW_LABEL,
+  MAX_LAND_REVIEW_REWORK_ROUNDS,
   parseDriverArgsWith, selectRunType, nextState,
   runStageWithUnparsableRetry,
   buildManifestEntry, buildManifest, manifestPathFor, backendCostSourceForEnvelope, readManifestStages,
-  decideResumeState, tailLines,
+  decideResumeState,
   isWorktreeStage, stageRequiresFreshMainRebase,
   parseBlockedBy, issueLabelNames, hasNeedsReviewLabel,
-  worktreeNameFor, extractFirstCommitMessage, splitCommitMessage,
-  buildPrBodyWithCloses, buildPrCreateArgs, buildPrMergeArgs,
+  worktreeNameFor,
 } from './inner-loop-core.mjs';
+import { landBranchWithReview, extractLatestPlanCommentText } from './inner-loop-land.mjs';
 import { projectEscalation } from './inner-loop-escalation.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
 import { runPlanTask, dryRunPlanTask, readPlanFormatOrDie } from './inner-loop-plan-task.mjs';
@@ -50,6 +53,7 @@ import {
 // inner-queue.mjs keep importing from this file.
 export * from './inner-loop-core.mjs';
 export * from './inner-loop-escalation.mjs';
+export * from './inner-loop-land.mjs';
 export {
   parseBlockedByLine, parsePlanChildBlocks, resolvePlanChildDependency,
   buildChildIssueBody, parseCreatedIssueNumber, createChildIssues,
@@ -241,52 +245,10 @@ function cleanupWorktree(wt, branch) {
   spawnSync('git', ['branch', '-D', branch], { cwd: REPO_ROOT, stdio: 'inherit' });
 }
 
-// --- Landing (ADR 0030 §3: merge.mjs dismantled in #115 — the driver runs
-// the three landing steps directly. #116: the local run ends at PR creation;
-// the PR body carries `Closes #N` so merge closes the issue = Done, ADR 0031.) ---
-
-// Land `branch` onto main: push → gh pr create → gh pr merge --auto --squash
-// (ADR 0026 §1-2 / ADR 0030 §3). The first commit's message becomes the PR
-// title/body (with `Closes #<issue>` appended by default; callers that must
-// NOT close the issue — e.g. the explains/ auto-PR, #201 分解 13, where the
-// explain lifecycle is independent of the task lifecycle — inject
-// `deps.buildPrBody` to produce a Refs-only body). The actual squash happens
-// on GitHub after the CI gate (required check) goes green; review is recorded
-// asynchronously on the PR by the review engine (#128).
-export function landBranch(branch, issueNumber, deps = {}) {
-  const run = deps.spawnSync ?? spawnSync;
-  const outputs = [];
-  const step = (cmd, args) => {
-    const r = run(cmd, args, { encoding: 'utf8', cwd: REPO_ROOT });
-    if (r.stdout) process.stdout.write(r.stdout);
-    if (r.stderr) process.stderr.write(r.stderr);
-    outputs.push(r.stdout ?? '', r.stderr ?? '');
-    return r.status === 0;
-  };
-  const fail = (msg) => {
-    outputs.push(`${msg}\n`);
-    return { ok: false, output: outputs.join('') };
-  };
-
-  // --format=%B%x00: NUL-separated so multi-paragraph bodies / trailers don't
-  // collide with the inter-commit separator.
-  const logR = run('git', ['log', '--reverse', '--format=%B%x00', `main..${branch}`], { encoding: 'utf8', cwd: REPO_ROOT });
-  if (logR.status !== 0) return fail(`could not read commit messages for ${branch}: ${logR.stderr ?? ''}`);
-  const { subject, body } = splitCommitMessage(extractFirstCommitMessage(logR.stdout ?? ''));
-  if (!subject) return fail(`no commits found between main and ${branch} — nothing to land`);
-  const prBody = (deps.buildPrBody ?? buildPrBodyWithCloses)(body, issueNumber);
-
-  if (!step('git', ['push', '-u', 'origin', branch])) {
-    return fail(`git push failed — cannot create PR for ${branch}`);
-  }
-  if (!step('gh', buildPrCreateArgs({ base: 'main', head: branch, title: subject, body: prBody }))) {
-    return fail(`gh pr create failed for ${branch}`);
-  }
-  if (!step('gh', buildPrMergeArgs({ branch }))) {
-    return fail(`gh pr merge --auto failed for ${branch}`);
-  }
-  return { ok: true, output: outputs.join('') };
-}
+// --- Landing (ADR 0030 §3: merge.mjs dismantled in #115; #116: the local run
+// ends at PR creation with `Closes #N`. #201 分解 11-12 / #188: the landing
+// itself — push → PR 確保（arm しない）→ review 周回 → PASS で arm ／ CHANGES
+// 差し戻し — lives in inner-loop-land.mjs (landBranchWithReview).) ---
 
 // --- Dry-run (task loop) ---
 
@@ -311,7 +273,8 @@ function dryRunTaskLoop(issueNumber, issue, backendFlags) {
     if (stage === 'PLAN_REVIEW') ctx.planText = '(TASK_PLAN result)';
     logDryRunStage(stage, backendFlags, cwd, buildStagePrompt(stage, ctx));
   }
-  log(`dry-run: LAND — push → gh pr create (Closes #${issueNumber}) → gh pr merge --auto --squash`);
+  log(`dry-run: LAND — push → gh pr create (Closes #${issueNumber}, arm しない) → reviewer spawn (PR diff＋plan 照合・marker 付き PR comment) → PASS で gh pr merge --auto --squash (#201 分解 11)`);
+  log(`dry-run: LAND — CHANGES → 所見注入 rework（同一 worktree 追い commit → push で PR 自動更新）→ 再 review（前回所見＋前回 head からの差分）。修正周回上限 ${MAX_LAND_REVIEW_REWORK_ROUNDS}・超過/不正 verdict → escalation (#201 分解 12 / #188)`);
   log('dry-run: TASK_PLAN PLAN_READY->PLAN_REVIEW, PLAN_REVIEW PASS->IMPLEMENT, IMPL_DONE->LAND, RED->retry, unparsable->retry once then ESCALATE');
 }
 
@@ -344,7 +307,7 @@ if (isMain) {
     log(`dry-run: resume issue #${issueNumber} from ${manifestPathFor({ kind: 'issue', id: issueNumber })}`);
     log(`dry-run: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${resumeState.state} head=${resumeState.headSha ?? '(none)'}`);
     if (resumeState.state === TASK_LOOP_TERMINAL) {
-      log(`dry-run: ${TASK_LOOP_TERMINAL} — land ${resumeState.branch}: push → gh pr create (body includes Closes #${issueNumber}) → gh pr merge --auto --squash (from repo root)`);
+      log(`dry-run: ${TASK_LOOP_TERMINAL} — land ${resumeState.branch}: push → PR 確保 (既存 open PR 再利用 or gh pr create, Closes #${issueNumber}, arm しない) → review 周回 (PASS で gh pr merge --auto --squash／CHANGES 差し戻し上限 ${MAX_LAND_REVIEW_REWORK_ROUNDS}) (from repo root)`);
       process.exit(0);
     }
     const backend = selectBackend(resumeState.state, backendFlags);
@@ -369,7 +332,9 @@ if (isMain) {
     if (!resumeState.ok) dieResumeUnavailable(issueNumber, resumeState.reason);
     ({ worktreePath, branch, state } = resumeState);
     log(`resume: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${state} head=${resumeState.headSha ?? '(none)'}`);
-    if (state !== TASK_LOOP_TERMINAL) issue = fetchIssue(issueNumber);
+    // Always fetch — LAND now needs the issue too (review 前置の plan 照合と
+    // 差し戻し rework の文脈, #201 分解 11-12).
+    issue = fetchIssue(issueNumber);
   } else {
     issue = fetchIssue(issueNumber);
     assertStartableOrDie(issueNumber, issue);
@@ -481,15 +446,24 @@ if (isMain) {
   }
   log(`backstop: main working tree clean — proceeding with landing.`);
 
-  log(`landing branch ${branch}: push → gh pr create (Closes #${issueNumber}) → gh pr merge --auto --squash`);
+  log(`landing branch ${branch}: push → PR 確保 (Closes #${issueNumber}, arm しない) → review 前置 (PASS で arm／CHANGES 差し戻し上限 ${MAX_LAND_REVIEW_REWORK_ROUNDS}) (#201 分解 11-12)`);
   trySetProjectStatus(issueNumber, PROJECTS_STATUS_NAMES.InReview, { log });
-  const landResult = landBranch(branch, issueNumber);
+  const landBackendFallback = resume
+    ? (resolveResumeBackend(readManifestStages(manifestPathFor({ kind: 'issue', id: issueNumber }))) ?? 'claude')
+    : 'claude';
+  const landResult = landBranchWithReview({
+    branch, issueNumber, worktreePath, issue,
+    // plan 照合: 同一プロセスで TASK_PLAN が走っていれば planText、resume で LAND
+    // 直行なら issue の plan comment から導出（状態は gh から導出 = ADR 0031）。
+    planText: planText || extractLatestPlanCommentText(issue?.comments),
+    backend: selectBackend('IMPLEMENT', backendFlags, landBackendFallback),
+  }, { log, recordManifestEntry: (entry) => appendManifestEntry(issueNumber, entry) });
   if (!landResult.ok) {
-    escalateIssue(issueNumber, TASK_LOOP_TERMINAL, null, `landing failed\n\n${tailLines(landResult.output)}`);
-    die(`landing failed — see the escalation report comment on issue #${issueNumber}`);
+    escalateIssue(issueNumber, landResult.stage ?? TASK_LOOP_TERMINAL, landResult.verdict ?? null, landResult.excerpt);
+    die(`landing failed at ${landResult.stage ?? TASK_LOOP_TERMINAL} — see the escalation report comment on issue #${issueNumber}`);
   }
 
   cleanupWorktree(worktreePath, branch);
-  log(`done — PR created for issue #${issueNumber} (Closes #${issueNumber}), auto-merge (squash) armed. CI gate completes the landing; the review engine records the review on the PR.`);
+  log(`done — PR #${landResult.prNumber} for issue #${issueNumber} (Closes #${issueNumber}) reviewed PASS${landResult.reworkRoundsUsed > 0 ? ` (rework ${landResult.reworkRoundsUsed} 周)` : ''}, auto-merge (squash) armed. CI gate completes the landing.`);
   process.exit(0);
 }

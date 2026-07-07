@@ -257,6 +257,35 @@ test('decideResumeState: ESCALATE without result_text is not resumable (legacy m
   assert.match(decision.reason, /lacks result_text/);
 });
 
+// --- decideResumeState × LAND review 前置 (#201 分解 11-12): LAND-phase entries
+// are observability records, not resume checkpoints ---
+
+function landReviewEntry(verdict, headSha = 'sha-1') {
+  return { stage: 'LAND_REVIEW', verdict, head_sha: headSha, result_text: `findings\nVERDICT: ${verdict}` };
+}
+
+function landReworkEntry(headSha) {
+  return { stage: 'LAND_REWORK', verdict: 'IMPL_DONE', head_sha: headSha, result_text: 'done\nVERDICT: IMPL_DONE' };
+}
+
+test('decideResumeState: trailing LAND_REVIEW entries do not break the walk — resumes at LAND', () => {
+  const stages = [implEntry(), landReviewEntry('CHANGES')];
+  const decision = decideResumeState({ stages, worktree: CLEAN_WORKTREE });
+  assert.equal(decision.ok, true);
+  assert.equal(decision.state, 'LAND');
+  assert.deepEqual(decision.skipped, ['IMPLEMENT']);
+});
+
+test('decideResumeState: LAND_REWORK 追い commit advances the expected sha (最新 rework の head で照合)', () => {
+  const stages = [implEntry(), landReviewEntry('CHANGES'), landReworkEntry('sha-2')];
+  const stale = decideResumeState({ stages, worktree: CLEAN_WORKTREE }); // worktree still sha-1
+  assert.equal(stale.ok, false);
+  assert.match(stale.reason, /sha mismatch/);
+  const fresh = decideResumeState({ stages, worktree: { ...CLEAN_WORKTREE, headSha: 'sha-2' } });
+  assert.equal(fresh.ok, true);
+  assert.equal(fresh.state, 'LAND');
+});
+
 test('decideResumeState: IMPLEMENT entry without head_sha is not resumable', () => {
   const stages = [implEntry({ head_sha: undefined })];
   const decision = decideResumeState({ stages, worktree: CLEAN_WORKTREE });
