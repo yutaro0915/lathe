@@ -33,8 +33,9 @@ import process from 'node:process';
 import { deriveSnapshot } from './orchestrator-derive.mjs';
 import {
   CLASS_EXPLAIN, CLASS_IMPLEMENT, CLASS_PLAN, CLASS_PR_REVIEW,
-  classifyAll, formatDecision, isDispatchClass,
+  classifyAll, formatDecision, isDispatchClass, planBoardProjection,
 } from './orchestrator-classify.mjs';
+import { updateProjectItemStatus } from './inner-loop-projects.mjs';
 import {
   ESCALATION_LABEL, parseInnerIssueWorktrees, parseTaskRunHints, pathsOverlap,
 } from './inner-queue-decisions.mjs';
@@ -378,6 +379,23 @@ async function runDispatch({ dispatches, max, maxFailures }) {
   return { ...counts, deferred: pending.length, breakerOpen: breaker.open };
 }
 
+// --- 盤面投影（#201 分解 10・パス末尾・非致命） ---
+
+// Approval 列（needs-review×教材あり×非 Ready）と Escalated 列（escalation label）
+// への投影＋Escalated 残骸の Backlog 戻し。option id は derive の名前解決結果を使う。
+// 失敗は warning のみ（正本は導出、ADR 0035 §7 と同じ非致命規約）。
+function applyBoardProjection(decisions, statusField, deps = {}) {
+  const apply = deps.updateProjectItemStatus ?? updateProjectItemStatus;
+  const { mutations, warnings } = planBoardProjection(decisions, statusField);
+  for (const warning of warnings) log(`projection warning: ${warning}`);
+  for (const m of mutations) {
+    const result = apply(m.itemId, m.optionId);
+    if (result.ok) log(`projection: #${m.number} ${m.fromName ?? '(none)'} → ${m.toName}`);
+    else log(`projection warning: #${m.number} → ${m.toName} failed (non-fatal): ${result.reason}`);
+  }
+  return mutations.length;
+}
+
 // --- CLI entrypoint ---
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
@@ -427,13 +445,19 @@ if (isMain) {
     const dispatches = decisions.filter((d) => isDispatchClass(d.class));
 
     if (parsed.dryRun) {
+      const plan = planBoardProjection(decisions, snapshot.statusField);
+      for (const warning of plan.warnings) log(`dry-run: projection warning: ${warning}`);
+      for (const m of plan.mutations) log(`dry-run: projection #${m.number} ${m.fromName ?? '(none)'} → ${m.toName}`);
       log(`dry-run: would dispatch ${dispatches.length} item(s), 並列上限 ${parsed.max} — spawn しない`);
       process.exit(0);
     }
 
     // ③ dispatch
     const result = await runDispatch({ dispatches, max: parsed.max, maxFailures: parsed.maxFailures });
-    log(`pass complete: dispatched=${result.dispatched} success=${result.success} escalated=${result.escalated} failed=${result.failed} deferred=${result.deferred}${result.breakerOpen ? ' CIRCUIT_OPEN' : ''}`);
+
+    // ④ 盤面投影（実状態へ同期・非致命）
+    const projected = applyBoardProjection(decisions, snapshot.statusField);
+    log(`pass complete: dispatched=${result.dispatched} success=${result.success} escalated=${result.escalated} failed=${result.failed} deferred=${result.deferred} projected=${projected}${result.breakerOpen ? ' CIRCUIT_OPEN' : ''}`);
     process.exitCode = result.failed > 0 ? 1 : 0;
   } finally {
     if (locked) releaseLock();

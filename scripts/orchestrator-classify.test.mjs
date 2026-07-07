@@ -7,8 +7,9 @@ import {
   CLASS_EXPLAIN, CLASS_IMPLEMENT, CLASS_PLAN, CLASS_PR_REVIEW,
   SKIP_DRAFT, SKIP_DRIVER_PR, SKIP_NON_TASK, SKIP_REVIEWED,
   WAIT_APPROVAL, WAIT_DEP, WAIT_ESCALATION, WAIT_PR, WAIT_RUNNING,
-  STATUS_READY,
+  STATUS_APPROVAL, STATUS_ESCALATED, STATUS_READY,
   classifyAll, classifyIssue, classifyPr, formatDecision, isDispatchClass,
+  planBoardProjection,
 } from './orchestrator-classify.mjs';
 
 function issueState(overrides = {}) {
@@ -233,4 +234,64 @@ test('formatDecision: renders issue and PR targets', () => {
     formatDecision({ kind: 'pr', number: 9, class: CLASS_PR_REVIEW }),
     'PR_REVIEW PR #9',
   );
+});
+
+// --- planBoardProjection（#201 分解 10 — 名前解決 id・非致命） ---
+
+const STATUS_FIELD = {
+  fieldId: 'F1',
+  options: { Backlog: 'opt-backlog', Approval: 'opt-approval', Ready: 'opt-ready', Escalated: 'opt-escalated' },
+};
+
+function decisionOf(cls, issueOverrides = {}) {
+  const issue = issueState(issueOverrides);
+  return { kind: 'issue', number: issue.number, class: cls, issue };
+}
+
+test('planBoardProjection: WAIT_ESCALATION → Escalated 列（名前解決した option id）', () => {
+  const { mutations, warnings } = planBoardProjection(
+    [decisionOf(WAIT_ESCALATION, { number: 50, statusName: 'In progress' })],
+    STATUS_FIELD,
+  );
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(mutations, [{
+    number: 50, itemId: 'ITEM_100', fromName: 'In progress', toName: STATUS_ESCALATED, optionId: 'opt-escalated',
+  }]);
+});
+
+test('planBoardProjection: WAIT_APPROVAL → Approval 列; 既に一致していれば no-op', () => {
+  const { mutations } = planBoardProjection([
+    decisionOf(WAIT_APPROVAL, { number: 51, statusName: 'Backlog' }),
+    decisionOf(WAIT_APPROVAL, { number: 52, statusName: STATUS_APPROVAL }),
+  ], STATUS_FIELD);
+  assert.deepEqual(mutations.map((m) => [m.number, m.toName, m.optionId]), [[51, STATUS_APPROVAL, 'opt-approval']]);
+});
+
+test('planBoardProjection: Escalated からの掃き出しはしない（旧 .escalation.md 経路の移行窓を守る）', () => {
+  const { mutations } = planBoardProjection([
+    decisionOf(CLASS_IMPLEMENT, { number: 53, statusName: STATUS_ESCALATED }),
+    decisionOf(CLASS_EXPLAIN, { number: 54, statusName: STATUS_ESCALATED }),
+  ], STATUS_FIELD);
+  assert.deepEqual(mutations, [], '列へ入れる投影のみ — label 未付与の裁定待ち signal を消さない');
+});
+
+test('planBoardProjection: 盤面外 issue・未知の列・PR・非 task は warning/skip（非致命）', () => {
+  const offBoard = decisionOf(WAIT_APPROVAL, { number: 55, projectItemId: null });
+  const nonTask = decisionOf(SKIP_NON_TASK, { number: 56, statusName: STATUS_ESCALATED });
+  const pr = { kind: 'pr', number: 300, class: CLASS_PR_REVIEW, pr: {} };
+  const noColumn = planBoardProjection(
+    [decisionOf(WAIT_APPROVAL, { number: 57 })],
+    { fieldId: 'F1', options: { Backlog: 'opt-backlog' } }, // Approval 列が無い盤面
+  );
+  const { mutations, warnings } = planBoardProjection([offBoard, nonTask, pr], STATUS_FIELD);
+  assert.deepEqual(mutations, []);
+  assert.equal(warnings.length, 1, '盤面外の task issue だけが warning（非 task と PR は対象外）');
+  assert.deepEqual(noColumn.mutations, []);
+  assert.equal(noColumn.warnings.length, 1);
+});
+
+test('planBoardProjection: Status field 未解決なら全 skip（fail-closed・非致命）', () => {
+  const { mutations, warnings } = planBoardProjection([decisionOf(WAIT_ESCALATION)], null);
+  assert.deepEqual(mutations, []);
+  assert.equal(warnings.length, 1);
 });

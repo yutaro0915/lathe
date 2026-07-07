@@ -167,3 +167,52 @@ export function formatDecision(decision) {
   const target = decision.kind === 'pr' ? `PR #${decision.number}` : `#${decision.number}`;
   return `${decision.class} ${target}${decision.reason ? ` — ${decision.reason}` : ''}`;
 }
+
+// --- 盤面投影の計画（#201 分解 10 — 適用は orchestrator.mjs、ここは純関数） ---
+
+/**
+ * パス末尾の盤面同期の計画。実状態（分類結果）→ Status 列の写像:
+ *   WAIT_ESCALATION（escalation label）            → Escalated 列
+ *   WAIT_APPROVAL（needs-review×教材あり×非 Ready）→ Approval 列
+ * 列へ「入れる」投影のみ行い、Escalated からの掃き出しはしない — 旧
+ * .escalation.md 経路の escalation（label 未付与、#203 で label へ移行）が
+ * 盤面 Escalated に残っている移行窓で、PdM の裁定待ち signal を消さないため。
+ * 掃き出しは後続の実状態投影（driver の In progress／本関数の Approval）が行う。
+ * option id は使う直前に名前→id で引く（derive が名前解決した statusField。
+ * id 直書きはしない）。盤面に無い issue・無い列は warning にして skip（非致命）。
+ * @param {Array<{ kind: string, number: number, class: string, issue?: object }>} decisions
+ * @param {{ fieldId: string, options: Object<string, string> } | null} statusField
+ * @returns {{ mutations: Array<{ number: number, itemId: string, fromName: string|null,
+ *   toName: string, optionId: string }>, warnings: string[] }}
+ */
+export function planBoardProjection(decisions, statusField) {
+  const warnings = [];
+  const mutations = [];
+  if (!statusField) {
+    return { mutations, warnings: ['Status field 未解決 — 盤面投影を skip（非致命）'] };
+  }
+  for (const decision of decisions ?? []) {
+    if (decision.kind !== 'issue' || !decision.issue || decision.class === SKIP_NON_TASK) continue;
+    let toName = null;
+    if (decision.class === WAIT_ESCALATION) toName = STATUS_ESCALATED;
+    else if (decision.class === WAIT_APPROVAL) toName = STATUS_APPROVAL;
+    if (!toName || decision.issue.statusName === toName) continue;
+    if (!decision.issue.projectItemId) {
+      warnings.push(`#${decision.number}: 盤面に載っていない — ${toName} 投影を skip`);
+      continue;
+    }
+    const optionId = statusField.options?.[toName];
+    if (!optionId) {
+      warnings.push(`#${decision.number}: 盤面に option "${toName}" が無い — 投影を skip`);
+      continue;
+    }
+    mutations.push({
+      number: decision.number,
+      itemId: decision.issue.projectItemId,
+      fromName: decision.issue.statusName ?? null,
+      toName,
+      optionId,
+    });
+  }
+  return { mutations, warnings };
+}
