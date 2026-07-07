@@ -95,8 +95,9 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
 - **相対時間の禁止**（日付・PR/ADR 番号の絶対参照のみ）。
 - **評価ラベルの見出し禁止**（「勘所」「ポイント」等。重要さは構成から立ち上がらせる）。
 - **接地必須**: 事実は diff・ADR・コード・API 実測から。推測で書かない。不明は「未確認」と明記。
-- **リアクション付与の禁止**（ADR 0034）: Discussion・issue・PR に reaction／upvote を付けない。
-  agent は PdM の認証で動くため、**PdM の 👍 = 承認**という意味論を汚染する。
+- **リアクション付与・Discussion close の禁止**（ADR 0034＋追記）: Discussion・issue・PR に
+  reaction／upvote を付けず、**Discussion を close しない**。agent は PdM の認証で動くため、
+  **PdM による教材 Discussion の close = 承認**という意味論を汚染する。
 
 ### 重複の扱い（PdM 2026-07-05）
 
