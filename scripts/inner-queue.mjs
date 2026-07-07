@@ -30,7 +30,7 @@ import {
   planDryRun, runQueue, formatDecision,
   deriveReadyTaskIds, deriveInProgressIssueNumbers, parseInnerIssueWorktrees,
 } from './inner-queue-decisions.mjs';
-import { queryProjectItem, isReadyOptionId } from './inner-loop-projects.mjs';
+import { queryProjectItem, isReadyStatusName } from './inner-loop-projects.mjs';
 
 export * from './inner-queue-decisions.mjs';
 
@@ -138,7 +138,7 @@ export function fetchApprovedIssueNumbers(tasks) {
       process.stderr.write(`[inner-queue] warning: Projects query failed for #${task.id}: ${result.reason}\n`);
       continue;
     }
-    if (isReadyOptionId(result.optionId)) {
+    if (isReadyStatusName(result.statusName)) {
       approved.add(task.id);
     }
   }

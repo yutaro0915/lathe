@@ -42,7 +42,7 @@ import {
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
 import { runPlanTask, dryRunPlanTask, readPlanFormatOrDie } from './inner-loop-plan-task.mjs';
 import {
-  trySetProjectStatus, PROJECTS_STATUS_OPTIONS,
+  trySetProjectStatus, PROJECTS_STATUS_NAMES,
 } from './inner-loop-projects.mjs';
 
 // Re-export the split modules' public symbols so tests / meta-loop.mjs /
@@ -392,7 +392,7 @@ if (isMain) {
   let planText = '';
   let planReviewRetries = 0;
   let planReviewFeedback = ''; // 前回 PLAN_REVIEW RED の所見 (#192 Major#2)
-  trySetProjectStatus(issueNumber, PROJECTS_STATUS_OPTIONS.InProgress, 'In progress', { log });
+  trySetProjectStatus(issueNumber, PROJECTS_STATUS_NAMES.InProgress, { log });
 
   while (state !== TASK_LOOP_TERMINAL && state !== 'ESCALATE') {
     const cwd = stageCwd(state, REPO_ROOT, worktreePath);
@@ -486,7 +486,7 @@ if (isMain) {
   log(`backstop: main working tree clean — proceeding with landing.`);
 
   log(`landing branch ${branch}: push → gh pr create (Closes #${issueNumber}) → gh pr merge --auto --squash`);
-  trySetProjectStatus(issueNumber, PROJECTS_STATUS_OPTIONS.InReview, 'In review', { log });
+  trySetProjectStatus(issueNumber, PROJECTS_STATUS_NAMES.InReview, { log });
   const landResult = landBranch(branch, issueNumber);
   if (!landResult.ok) {
     writeEscalation(issueNumber, TASK_LOOP_TERMINAL, null, `landing failed\n\n${tailLines(landResult.output)}`);
