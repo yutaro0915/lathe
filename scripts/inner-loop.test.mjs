@@ -42,7 +42,12 @@ import {
   WORKTREE_DEPS_INSTALL_ARGS,
   setupWorktreeDeps,
   prepareWorktree,
-  markTaskDoneInWorktree,
+  extractFirstCommitMessage,
+  splitCommitMessage,
+  buildPrCreateArgs,
+  buildPrMergeArgs,
+  buildPrReviewArgs,
+  landBranch,
 } from './inner-loop.mjs';
 import {
   buildStagePrompt,
@@ -1986,76 +1991,212 @@ test('worktreeNameFor: plain issue number is unaffected (backward compatible)', 
   assert.deepEqual(named, { branch: 'inner/issue-46', dirName: 'inner-issue-46' });
 });
 
-// --- markTaskDoneInWorktree (ADR 0025 §4 / TASK-1.2 AC#4) ---
+// --- landing helpers (moved from merge.test.mjs — ADR 0030 §3 merge.mjs dismantled) ---
 
-test('markTaskDoneInWorktree: edits status, commits backlog/, returns new headSha (ADR 0026: no receipt re-stamp)', () => {
-  const calls = [];
-  const fakeSpawnSync = (cmd, args) => {
-    calls.push({ cmd, args });
-    if (cmd === 'fake-backlog') return { status: 0, stdout: 'task TASK-1.2 status -> Done\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: ' M backlog/tasks/task-1.2.md\n', stderr: '' };
-    if (cmd === 'git' && args[2] === 'commit') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'rev-parse') return { status: 0, stdout: 'new-sha-after-done\n', stderr: '' };
-    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
-  };
-
-  const result = markTaskDoneInWorktree('TASK-1.2', '/worktree/inner-task-1-2', 'old-reviewed-sha', {
-    spawnSync: fakeSpawnSync,
-    backlogBin: 'fake-backlog',
-  });
-
-  assert.equal(result.ok, true);
-  assert.equal(result.headSha, 'new-sha-after-done');
-
-  const editCall = calls.find((c) => c.cmd === 'fake-backlog');
-  assert.deepEqual(editCall.args, ['task', 'edit', 'TASK-1.2', '--status', 'Done']);
-
-  const commitCall = calls.find((c) => c.cmd === 'git' && c.args[2] === 'commit');
-  assert.match(commitCall.args.join(' '), /backlog: TASK-1\.2 -> Done/);
-
-  // ADR 0026: receipt re-stamp removed; no node/receipt.mjs calls expected
-  assert.equal(calls.some((c) => c.cmd === 'node'), false);
+// extractFirstCommitMessage — squash commit message extraction
+// Input format: git log --reverse --format=%B%x00 (NUL-separated commit bodies)
+test('extractFirstCommitMessage: single commit → returns its full message', () => {
+  // Single commit: body + NUL + trailing empty
+  const gitLog = 'feat(workflow): add squash merge\n\nBody line.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\0';
+  const result = extractFirstCommitMessage(gitLog);
+  assert.equal(result, 'feat(workflow): add squash merge\n\nBody line.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>');
 });
 
-test('markTaskDoneInWorktree: no backlog/ diff after edit -> no commit, no receipt re-stamp (idempotent re-run)', () => {
-  const calls = [];
-  const fakeSpawnSync = (cmd, args) => {
-    calls.push({ cmd, args });
-    if (cmd === 'fake-backlog') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'add') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'git' && args[2] === 'status') return { status: 0, stdout: '', stderr: '' };
-    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
-  };
-
-  const result = markTaskDoneInWorktree('TASK-1.2', '/worktree/inner-task-1-2', 'already-reviewed-sha', {
-    spawnSync: fakeSpawnSync,
-    backlogBin: 'fake-backlog',
-  });
-
-  assert.equal(result.ok, true);
-  assert.equal(result.headSha, 'already-reviewed-sha');
-  assert.equal(calls.some((c) => c.cmd === 'git' && c.args[2] === 'commit'), false);
-  assert.equal(calls.some((c) => c.cmd === 'node'), false);
+test('extractFirstCommitMessage: two commits → returns first commit message only', () => {
+  // Two commits: first body + NUL + second body + NUL + trailing empty
+  const gitLog = 'feat(workflow): add squash merge\n\nBody of first commit.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\0fix(workflow): review fix\n\nBody of second commit.\n\0';
+  const result = extractFirstCommitMessage(gitLog);
+  assert.equal(result, 'feat(workflow): add squash merge\n\nBody of first commit.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>');
 });
 
+test('extractFirstCommitMessage: three commits → returns first commit message only', () => {
+  const gitLog = 'feat(foo): implement foo\n\nDetails here.\n\nCo-Authored-By: Claude <x>\n\0fix(foo): review fix 1\n\nAnother body.\n\0fix(foo): review fix 2\n\n\0';
+  const result = extractFirstCommitMessage(gitLog);
+  assert.equal(result, 'feat(foo): implement foo\n\nDetails here.\n\nCo-Authored-By: Claude <x>');
+});
 
+test('extractFirstCommitMessage: no body (subject only) → returns subject', () => {
+  // Subject-only commit: git log emits subject + \n\n as the body for %B
+  const gitLog = 'feat(bar): add bar\n\n\0';
+  const result = extractFirstCommitMessage(gitLog);
+  assert.equal(result, 'feat(bar): add bar');
+});
 
-test('markTaskDoneInWorktree: backlog task edit failure short-circuits before any git call', () => {
+// --- splitCommitMessage ---
+
+test('splitCommitMessage: subject + body → splits correctly', () => {
+  const msg = 'feat(ci): add PR-based landing\n\nSwitches to gh pr create + auto-merge.\n\nCo-Authored-By: Claude <noreply@anthropic.com>';
+  const { subject, body } = splitCommitMessage(msg);
+  assert.equal(subject, 'feat(ci): add PR-based landing');
+  assert.equal(body, 'Switches to gh pr create + auto-merge.\n\nCo-Authored-By: Claude <noreply@anthropic.com>');
+});
+
+test('splitCommitMessage: subject only → body falls back to subject', () => {
+  const msg = 'feat(ci): subject only';
+  const { subject, body } = splitCommitMessage(msg);
+  assert.equal(subject, 'feat(ci): subject only');
+  assert.equal(body, 'feat(ci): subject only');
+});
+
+test('splitCommitMessage: empty string → empty subject, body falls back to subject', () => {
+  const { subject, body } = splitCommitMessage('');
+  assert.equal(subject, '');
+  assert.equal(body, '');
+});
+
+test('splitCommitMessage: trims subject line', () => {
+  const { subject } = splitCommitMessage('  feat: trimmed  \n\nbody text');
+  assert.equal(subject, 'feat: trimmed');
+});
+
+// --- buildPrCreateArgs ---
+
+test('buildPrCreateArgs: returns correct gh argv', () => {
+  const args = buildPrCreateArgs({
+    base: 'main',
+    head: 'inner/task-15',
+    title: 'feat(ci): PR-based landing',
+    body: 'Body text here.',
+  });
+  assert.deepEqual(args, [
+    'pr', 'create',
+    '--base', 'main',
+    '--head', 'inner/task-15',
+    '--title', 'feat(ci): PR-based landing',
+    '--body', 'Body text here.',
+  ]);
+});
+
+test('buildPrCreateArgs: multi-line body is preserved as-is (no shell escaping needed for spawnSync)', () => {
+  const body = 'Line one.\n\nLine two.';
+  const args = buildPrCreateArgs({ base: 'main', head: 'feat', title: 'feat: x', body });
+  assert.equal(args[args.indexOf('--body') + 1], body);
+});
+
+// --- buildPrMergeArgs ---
+
+test('buildPrMergeArgs: returns correct gh argv', () => {
+  const args = buildPrMergeArgs({ branch: 'inner/task-15' });
+  assert.deepEqual(args, [
+    'pr', 'merge', 'inner/task-15',
+    '--auto', '--squash',
+  ]);
+});
+
+test('buildPrMergeArgs: --auto flag is present (ensures CI gate controls landing)', () => {
+  const args = buildPrMergeArgs({ branch: 'feat/foo' });
+  assert.ok(args.includes('--auto'), '--auto must be present');
+});
+
+test('buildPrMergeArgs: --squash flag is present', () => {
+  const args = buildPrMergeArgs({ branch: 'feat/foo' });
+  assert.ok(args.includes('--squash'), '--squash must be present');
+});
+
+test('buildPrMergeArgs: --delete-branch flag is NOT present (driver worktree owns local branch cleanup)', () => {
+  const args = buildPrMergeArgs({ branch: 'feat/foo' });
+  assert.ok(!args.includes('--delete-branch'), '--delete-branch must NOT be present');
+});
+
+// --- buildPrReviewArgs ---
+
+test('buildPrReviewArgs: returns correct gh argv for PR review comment', () => {
+  const args = buildPrReviewArgs({ branch: 'inner/task-16', bodyFile: '/tmp/lathe-review-body-TASK-16.md' });
+  assert.deepEqual(args, [
+    'pr', 'review', 'inner/task-16',
+    '--comment', '--body-file', '/tmp/lathe-review-body-TASK-16.md',
+  ]);
+});
+
+test('buildPrReviewArgs: does not include --approve (self-authored PR)', () => {
+  const args = buildPrReviewArgs({ branch: 'inner/task-1', bodyFile: '/tmp/body.md' });
+  assert.ok(!args.includes('--approve'), '--approve must not be present for self-authored PRs');
+});
+
+// --- landBranch (ADR 0030 §3: push → gh pr create → auto-merge arm, driver-direct) ---
+
+function landBranchFake(overrides = {}) {
   const calls = [];
   const fakeSpawnSync = (cmd, args) => {
     calls.push({ cmd, args });
-    return { status: 1, stdout: '', stderr: 'backlog: task not found' };
+    const key = `${cmd} ${args.slice(0, 2).join(' ')}`;
+    if (cmd === 'git' && args[0] === 'log') {
+      return overrides.gitLog ?? { status: 0, stdout: 'feat(x): subject\n\nBody line.\n\0', stderr: '' };
+    }
+    if (cmd === 'git' && args[0] === 'push') return overrides.gitPush ?? { status: 0, stdout: '', stderr: '' };
+    if (key === 'gh pr create') return overrides.prCreate ?? { status: 0, stdout: '', stderr: '' };
+    if (key === 'gh pr review') return overrides.prReview ?? { status: 0, stdout: '', stderr: '' };
+    if (key === 'gh pr merge') return overrides.prMerge ?? { status: 0, stdout: '', stderr: '' };
+    throw new Error(`unexpected spawnSync call: ${cmd} ${args.join(' ')}`);
   };
+  return { calls, fakeSpawnSync };
+}
 
-  const result = markTaskDoneInWorktree('TASK-999', '/worktree/inner-task-999', 'sha', {
-    spawnSync: fakeSpawnSync,
-    backlogBin: 'fake-backlog',
-  });
+test('landBranch: happy path — push → pr create (first commit message as title/body) → auto-merge arm', () => {
+  const { calls, fakeSpawnSync } = landBranchFake();
+  const result = landBranch('inner/task-30', null, { spawnSync: fakeSpawnSync });
+
+  assert.equal(result.ok, true);
+  const sequence = calls.map((c) => `${c.cmd} ${c.args[0]}${c.args[0] === 'pr' ? ` ${c.args[1]}` : ''}`);
+  assert.deepEqual(sequence, ['git log', 'git push', 'gh pr create', 'gh pr merge']);
+
+  const pushCall = calls.find((c) => c.cmd === 'git' && c.args[0] === 'push');
+  assert.deepEqual(pushCall.args, ['push', '-u', 'origin', 'inner/task-30']);
+
+  const createCall = calls.find((c) => c.cmd === 'gh' && c.args[1] === 'create');
+  assert.equal(createCall.args[createCall.args.indexOf('--title') + 1], 'feat(x): subject');
+  assert.equal(createCall.args[createCall.args.indexOf('--body') + 1], 'Body line.');
+
+  const mergeCall = calls.find((c) => c.cmd === 'gh' && c.args[1] === 'merge');
+  assert.deepEqual(mergeCall.args, ['pr', 'merge', 'inner/task-30', '--auto', '--squash']);
+});
+
+test('landBranch: no commits between main and branch → fails before push', () => {
+  const { calls, fakeSpawnSync } = landBranchFake({ gitLog: { status: 0, stdout: '', stderr: '' } });
+  const result = landBranch('inner/task-30', null, { spawnSync: fakeSpawnSync });
 
   assert.equal(result.ok, false);
-  assert.match(result.output, /task not found/);
-  assert.equal(calls.length, 1);
+  assert.match(result.output, /no commits found between main and inner\/task-30/);
+  assert.equal(calls.some((c) => c.args[0] === 'push'), false);
+});
+
+test('landBranch: git push failure → fails before any gh call', () => {
+  const { calls, fakeSpawnSync } = landBranchFake({ gitPush: { status: 1, stdout: '', stderr: 'remote rejected' } });
+  const result = landBranch('inner/task-30', null, { spawnSync: fakeSpawnSync });
+
+  assert.equal(result.ok, false);
+  assert.match(result.output, /remote rejected/);
+  assert.match(result.output, /git push failed/);
+  assert.equal(calls.some((c) => c.cmd === 'gh'), false);
+});
+
+test('landBranch: gh pr create failure → fails without arming auto-merge', () => {
+  const { calls, fakeSpawnSync } = landBranchFake({ prCreate: { status: 1, stdout: '', stderr: 'pr create boom' } });
+  const result = landBranch('inner/task-30', null, { spawnSync: fakeSpawnSync });
+
+  assert.equal(result.ok, false);
+  assert.match(result.output, /gh pr create failed/);
+  assert.equal(calls.some((c) => c.cmd === 'gh' && c.args[1] === 'merge'), false);
+});
+
+test('landBranch: reviewBodyFile posts PR review comment between create and merge (ADR 0028)', () => {
+  const { calls, fakeSpawnSync } = landBranchFake();
+  const result = landBranch('inner/task-16', '/tmp/lathe-review-body-TASK-16.md', { spawnSync: fakeSpawnSync });
+
+  assert.equal(result.ok, true);
+  const reviewIdx = calls.findIndex((c) => c.cmd === 'gh' && c.args[1] === 'review');
+  const mergeIdx = calls.findIndex((c) => c.cmd === 'gh' && c.args[1] === 'merge');
+  assert.ok(reviewIdx > -1, 'gh pr review must be called');
+  assert.ok(reviewIdx < mergeIdx, 'review comment posts before auto-merge arm');
+  assert.deepEqual(calls[reviewIdx].args, ['pr', 'review', 'inner/task-16', '--comment', '--body-file', '/tmp/lathe-review-body-TASK-16.md']);
+});
+
+test('landBranch: gh pr review failure is non-fatal — auto-merge still armed', () => {
+  const { calls, fakeSpawnSync } = landBranchFake({ prReview: { status: 1, stdout: '', stderr: 'review boom' } });
+  const result = landBranch('inner/task-16', '/tmp/body.md', { spawnSync: fakeSpawnSync });
+
+  assert.equal(result.ok, true);
+  assert.equal(calls.some((c) => c.cmd === 'gh' && c.args[1] === 'merge'), true);
 });
 
 

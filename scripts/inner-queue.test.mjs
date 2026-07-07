@@ -45,7 +45,7 @@ test('pathsOverlap: exact and parent-child matches overlap only at segment bound
   assert.equal(pathsOverlap('apps/web/lib', './apps/web/lib/'), true);
   assert.equal(pathsOverlap('apps/web/lib', 'apps/web/lib/db.ts'), true);
   assert.equal(pathsOverlap('apps/web/liberation', 'apps/web/lib'), false);
-  assert.equal(pathsOverlap('scripts/inner-loop.mjs', 'scripts/merge.mjs'), false);
+  assert.equal(pathsOverlap('scripts/inner-loop.mjs', 'scripts/inner-queue.mjs'), false);
 });
 
 test('parseInnerTaskWorktrees: extracts inner task worktrees from git porcelain output', () => {

@@ -276,7 +276,7 @@ export function isCodexSandboxEpermTriageResult(resultText) {
 
 /**
  * State transition table. Returns next state and updated cycle count.
- * Terminal states: MERGE (driver runs merge.mjs), ESCALATE, DONE.
+ * Terminal states: MERGE (driver lands the branch via PR, ADR 0030 §3), ESCALATE, DONE.
  * @param {string} state
  * @param {string | null} verdict
  * @param {number} cycles
@@ -1388,43 +1388,83 @@ export function rebaseWorktree(wt, deps = {}) {
   return false;
 }
 
-function runMerge(branch, reviewBodyFile = null) {
-  const mergeEnv = { ...process.env };
-  if (reviewBodyFile) mergeEnv.LATHE_REVIEW_BODY_FILE = reviewBodyFile;
-  const r = spawnSync('node', ['scripts/merge.mjs', branch], { encoding: 'utf8', cwd: REPO_ROOT, env: mergeEnv });
-  if (r.stdout) process.stdout.write(r.stdout);
-  if (r.stderr) process.stderr.write(r.stderr);
-  return { ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+// --- Landing (ADR 0030 §3: merge.mjs dismantled — the driver runs the three
+// landing steps directly. Receipt check / backstop gate (duplicated CI) /
+// landing lock (GitHub serializes merges) are gone; the checks-then-merge
+// fallback was a branch-protection-gap bridge and is gone too.) ---
+
+/** First commit message from `git log --reverse --format=%B%x00` (NUL-separated records).
+ * @param {string} logOutput @returns {string} */
+export function extractFirstCommitMessage(logOutput) {
+  return logOutput.split('\0')[0].trim();
 }
 
-// Mark a Backlog.md task Done in the worktree (CLI-only edit, no md hand-edit)
-// and fold that edit into the branch as a NEW commit (not an amend of the
-// reviewed/verified commit). The bookkeeping commit rides along in the squash-
-// merged PR. ADR 0026: receipt mechanism removed; merge gate is now CI rubric.
-export function markTaskDoneInWorktree(taskId, worktreePath, reviewedHeadSha, deps = {}) {
+/** subject = first line; body = rest (falls back to subject when subject-only).
+ * @param {string} msg @returns {{subject:string,body:string}} */
+export function splitCommitMessage(msg) {
+  const lines = (msg ?? '').split('\n');
+  const subject = (lines[0] ?? '').trim();
+  const body = lines.slice(1).join('\n').trim();
+  return { subject, body: body || subject };
+}
+
+/** @param {{base:string,head:string,title:string,body:string}} p @returns {string[]} */
+export function buildPrCreateArgs({ base, head, title, body }) {
+  return ['pr', 'create', '--base', base, '--head', head, '--title', title, '--body', body];
+}
+
+/** @param {{branch:string}} p @returns {string[]} argv for gh pr merge --auto --squash */
+export function buildPrMergeArgs({ branch }) {
+  return ['pr', 'merge', branch, '--auto', '--squash'];
+}
+
+/** argv for `gh pr review <branch> --comment --body-file <file>` (non-blocking record).
+ * @param {{branch:string, bodyFile:string}} p @returns {string[]} */
+export function buildPrReviewArgs({ branch, bodyFile }) {
+  return ['pr', 'review', branch, '--comment', '--body-file', bodyFile];
+}
+
+// Land `branch` onto main: push → gh pr create → gh pr merge --auto --squash
+// (ADR 0026 §1-2 / ADR 0030 §3). The first commit's message becomes the PR
+// title/body, so review-fix commits don't pollute the PR title. The actual
+// squash happens on GitHub after the CI gate (required check) goes green.
+// `reviewBodyFile` posts the reviewer verdict as a PR review comment
+// (ADR 0028: non-blocking, record purpose).
+export function landBranch(branch, reviewBodyFile = null, deps = {}) {
   const run = deps.spawnSync ?? spawnSync;
-  const backlogBin = deps.backlogBin ?? BACKLOG_BIN;
+  const outputs = [];
+  const step = (cmd, args) => {
+    const r = run(cmd, args, { encoding: 'utf8', cwd: REPO_ROOT });
+    if (r.stdout) process.stdout.write(r.stdout);
+    if (r.stderr) process.stderr.write(r.stderr);
+    outputs.push(r.stdout ?? '', r.stderr ?? '');
+    return r.status === 0;
+  };
+  const fail = (msg) => {
+    outputs.push(`${msg}\n`);
+    return { ok: false, output: outputs.join('') };
+  };
 
-  const r = run(backlogBin, ['task', 'edit', taskId, '--status', 'Done'], {
-    cwd: worktreePath,
-    encoding: 'utf8',
-  });
-  if (r.status !== 0) return { ok: false, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+  // --format=%B%x00: NUL-separated so multi-paragraph bodies / trailers don't
+  // collide with the inter-commit separator.
+  const logR = run('git', ['log', '--reverse', '--format=%B%x00', `main..${branch}`], { encoding: 'utf8', cwd: REPO_ROOT });
+  if (logR.status !== 0) return fail(`could not read commit messages for ${branch}: ${logR.stderr ?? ''}`);
+  const { subject, body } = splitCommitMessage(extractFirstCommitMessage(logR.stdout ?? ''));
+  if (!subject) return fail(`no commits found between main and ${branch} — nothing to land`);
 
-  const add = run('git', ['-C', worktreePath, 'add', 'backlog/'], { encoding: 'utf8' });
-  if (add.status !== 0) return { ok: false, output: `git add backlog/ failed: ${add.stderr || add.stdout}` };
-
-  const status = run('git', ['-C', worktreePath, 'status', '--porcelain', '--', 'backlog/'], { encoding: 'utf8' });
-  if ((status.stdout ?? '').trim() === '') return { ok: true, output: 'no backlog/ changes to commit (already Done?)', headSha: reviewedHeadSha };
-
-  const commit = run('git', ['-C', worktreePath, 'commit', '-m', `backlog: ${taskId} -> Done`], { encoding: 'utf8' });
-  if (commit.status !== 0) return { ok: false, output: `git commit failed: ${commit.stderr || commit.stdout}` };
-
-  const headResult = run('git', ['-C', worktreePath, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
-  const newHeadSha = headResult.status === 0 ? headResult.stdout.trim() : null;
-  if (!newHeadSha) return { ok: false, output: 'could not determine worktree HEAD after status=Done commit' };
-
-  return { ok: true, output: `${r.stdout ?? ''}`, headSha: newHeadSha };
+  if (!step('git', ['push', '-u', 'origin', branch])) {
+    return fail(`git push failed — cannot create PR for ${branch}`);
+  }
+  if (!step('gh', buildPrCreateArgs({ base: 'main', head: branch, title: subject, body }))) {
+    return fail(`gh pr create failed for ${branch}`);
+  }
+  if (reviewBodyFile && !step('gh', buildPrReviewArgs({ branch, bodyFile: reviewBodyFile }))) {
+    log(`warning: gh pr review --comment failed for ${branch} (non-fatal)`);
+  }
+  if (!step('gh', buildPrMergeArgs({ branch }))) {
+    return fail(`gh pr merge --auto failed for ${branch}`);
+  }
+  return { ok: true, output: outputs.join('') };
 }
 
 function cleanupWorktree(wt, branch) {
@@ -1676,7 +1716,7 @@ if (isMain) {
       log(`dry-run: resume ${unitDisplayLabel(issueNumber)} from ${manifestPathFor(issueNumber)}`);
       log(`dry-run: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${resumeState.state} head=${resumeState.headSha ?? '(none)'} cycles=${resumeState.cycles}`);
       if (resumeState.state === 'MERGE') {
-        log(`dry-run: MERGE — node scripts/merge.mjs ${resumeState.branch} (from repo root)`);
+        log(`dry-run: MERGE — land ${resumeState.branch}: push → gh pr create → gh pr merge --auto --squash (from repo root)`);
         process.exit(0);
       }
       const backend = selectBackend(resumeState.state, backendFlags);
@@ -1712,7 +1752,7 @@ if (isMain) {
     log('dry-run: pnpm install failure would warn and continue with P3 fallback');
     for (const stage of runPlan.stages) {
       if (stage === 'MERGE') {
-        log(`dry-run: MERGE — node scripts/merge.mjs ${wtBranch} (from repo root)`);
+        log(`dry-run: MERGE — land ${wtBranch}: push → gh pr create → gh pr merge --auto --squash (from repo root)`);
         continue;
       }
       const cwd = stageCwd(stage, REPO_ROOT, wtPath);
@@ -1721,9 +1761,6 @@ if (isMain) {
         plan: runPlan.approvedPlan || '<plan>', headSha: '<sha>', verifyResult: '<verify result>',
       });
       logDryRunStage(stage, backendFlags, cwd, promptPreview);
-    }
-    if (isTaskUnitLike(issueNumber)) {
-      log(`dry-run: MERGE-pre — backlog task edit ${issueNumber.id} --status Done in worktree, committed`);
     }
     log('dry-run: transition plan — PLAN_READY->IMPLEMENT, IMPL_DONE->REVIEW, REVIEW PASS->VERIFY / CHANGES->IMPLEMENT (max 2 cycles), VERIFY GREEN->MERGE / RED->TRIAGE, TRIAGE KNOWN->IMPLEMENT only when implementable / P4 Codex sandbox EPERM->ESCALATE / NOVEL->ESCALATE, missing/unparsable VERDICT->same stage retry once then ESCALATE');
     process.exit(0);
@@ -1868,20 +1905,6 @@ if (isMain) {
   }
   log(`backstop: main working tree clean — proceeding with merge.`);
 
-  // Terminal status=Done (ADR 0025 §4 / TASK-1.2 AC#4): for a task unit, mark
-  // the Backlog.md task Done in the worktree BEFORE merge, so the bookkeeping
-  // commit rides along in the single squash-merged commit. ADR 0026: receipt
-  // mechanism removed; merge gate is now CI rubric-gate.
-  if (isTaskUnitLike(issueNumber)) {
-    log(`marking task ${issueNumber.id} Done in worktree before merge...`);
-    const doneResult = markTaskDoneInWorktree(issueNumber.id, worktreePath, headSha);
-    if (!doneResult.ok) {
-      writeEscalation(issueNumber, 'MERGE', null, `backlog task edit --status Done failed\n\n${tailLines(doneResult.output)}`);
-      die(`status=Done failed — see ${escalationPathFor(issueNumber)}`);
-    }
-    log(`status=Done: ${doneResult.output || '(no output)'}`);
-  }
-
   // Write reviewer verdict to /tmp for PR review comment (ADR 0028: non-blocking, record purpose).
   let reviewBodyFile = null;
   try {
@@ -1890,17 +1913,17 @@ if (isMain) {
       reviewBodyFile = join(tmpdir(), `lathe-review-body-${unitSlug}.md`);
       writeFileSync(reviewBodyFile, `## REVIEW: PASS\n\n${reviewBody}`, 'utf8');
     }
-    log(`merging branch ${branch} onto main`);
-    const mergeResult = runMerge(branch, reviewBodyFile);
-    if (!mergeResult.ok) {
-      writeEscalation(issueNumber, 'MERGE', null, `node scripts/merge.mjs failed\n\n${tailLines(mergeResult.output)}`);
-      die(`merge failed — see ${escalationPathFor(issueNumber)}`);
+    log(`landing branch ${branch}: push → gh pr create → gh pr merge --auto --squash`);
+    const landResult = landBranch(branch, reviewBodyFile);
+    if (!landResult.ok) {
+      writeEscalation(issueNumber, 'MERGE', null, `landing failed\n\n${tailLines(landResult.output)}`);
+      die(`landing failed — see ${escalationPathFor(issueNumber)}`);
     }
   } finally {
     if (reviewBodyFile) { try { unlinkSync(reviewBodyFile); } catch { /* non-fatal */ } }
   }
 
   cleanupWorktree(worktreePath, branch);
-  log(`done — ${unitDisplayLabel(issueNumber)} merged onto main.`);
+  log(`done — PR created for ${unitDisplayLabel(issueNumber)}, auto-merge (squash) armed. CI gate will complete the landing.`);
   process.exit(0);
 }

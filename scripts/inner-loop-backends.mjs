@@ -173,8 +173,8 @@ export function stageSandbox(stage) {
  * `git commit` inside the worktree needs write access there too. Granting the
  * whole .git directory (rather than enumerating subpaths) is deliberate: git's
  * internal layout there is not a stable fine-grained surface to allowlist, and
- * protecting main is already the job of merge.mjs's backstop gate plus the
- * IMPLEMENT stage's role contract — that is what this sandbox boundary is for.
+ * protecting main is already the job of the PR+CI landing gate (ADR 0026/0030)
+ * plus the IMPLEMENT stage's role contract — that is what this sandbox boundary is for.
  * @param {string} stage
  * @param {string} prompt
  * @param {string} cwd
