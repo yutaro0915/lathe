@@ -44,4 +44,15 @@ git 管理するか `.gitignore` に入れるかは repo ごとの判断
 - 教材が `explains/` に保存され、Explain カテゴリの Discussion として投稿される
 - 追加の質問は Discussion のスレッドにそのまま書く
 
+## 6. 独立 runner として回す場合（任意・最小権限のハード強制）
+
+```sh
+claude -p "issue #<N> に対して .claude/skills/explain-diff/SKILL.md の解説 loop を実行して" \
+  --allowedTools "Read" "Grep" "Glob" "Write(explains/**)" "Edit(explains/**)" \
+    "Bash(gh:*)" "Bash(git log:*)" "Bash(git diff:*)" "Bash(git show:*)" "Bash(git ls-files:*)"
+```
+
+FS 書き込みは `explains/` のみ、他は読み取りと gh／git 読み系だけになる
+（SKILL.md frontmatter の `allowed-tools` と同内容。skill 実行に必要十分）。
+
 形式・禁則・検収の正本は同ディレクトリの [SKILL.md](./SKILL.md)。
