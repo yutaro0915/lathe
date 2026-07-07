@@ -21,13 +21,18 @@ const REPO_ROOT = join(__dirname, '..');
 export const PROJECTS_PROJECT_ID = 'PVT_kwHOBH34q84Bcgbt';
 export const PROJECTS_FIELD_ID = 'PVTSSF_lAHOBH34q84BcgbtzhXItAg';
 
-/** Status field single-select option ids. */
+/** Status field single-select option ids.
+ * 2026-07-07 hotfix: 盤面列の再構築（Approval/Escalated 追加）で全 option id が再生成された
+ * ため差し替え（旧 id のままでは Ready 検出と投影が全滅する）。id 直書きは列変更に脆い——
+ * 恒久対処は名前解決（#201 orchestrator の子 task）。 */
 export const PROJECTS_STATUS_OPTIONS = Object.freeze({
-  Backlog: 'f75ad846',
-  Ready: '61e4505c',
-  InProgress: '47fc9ee4',
-  InReview: 'df73e18b',
-  Done: '98236657',
+  Backlog: 'f3b47cea',
+  Approval: '58f4900a',
+  Ready: '58a14a9e',
+  InProgress: 'a317183e',
+  InReview: '24a5f315',
+  Escalated: '2dd8a491',
+  Done: '48b8d251',
 });
 
 const REPO_OWNER = 'yutaro0915';
