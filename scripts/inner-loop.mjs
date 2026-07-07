@@ -358,6 +358,8 @@ if (isMain) {
     const cwd = stageCwd(resumeState.state, REPO_ROOT, resumeState.worktreePath);
     const promptPreview = buildStagePrompt(resumeState.state, {
       issueNumber, issueTitle: '<title>', issueBody: '<body>', comments: [],
+      // resume can restart at TASK_PLAN (#192 Major#1) — inject fail-closed.
+      ...(resumeState.state === 'TASK_PLAN' && { planFormat: readPlanFormatOrDie() }),
     });
     log(`dry-run: stage=${resumeState.state} backend=${backend} cwd=${cwd}`);
     log(`dry-run: prompt preview:\n${promptPreview}\n`);

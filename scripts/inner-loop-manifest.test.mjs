@@ -161,6 +161,52 @@ function implEntry(overrides = {}) {
   };
 }
 
+// Plan stages (TASK_PLAN/PLAN_REVIEW) are written to the manifest by
+// recordAttempt but are NOT resume checkpoints (#192 Major#1) — the walk
+// filters them out and re-runs the plan pipeline when needed.
+function planEntry(stage, verdict) {
+  return { stage, verdict, result_text: `text\nVERDICT: ${verdict}` };
+}
+
+test('decideResumeState: TASK_PLAN 実行後の --resume が成功する（#192 Major#1）', () => {
+  const stages = [planEntry('TASK_PLAN', 'PLAN_READY')];
+  const decision = decideResumeState({ stages, worktree: CLEAN_WORKTREE });
+  assert.equal(decision.ok, true);
+  assert.equal(decision.state, 'TASK_PLAN', 'plan-stage-only manifest restarts the plan pipeline');
+  assert.deepEqual(decision.skipped, []);
+  assert.equal(decision.headSha, 'sha-1');
+});
+
+test('decideResumeState: PLAN_REVIEW まで走った run も plan pipeline から再開する', () => {
+  const stages = [planEntry('TASK_PLAN', 'PLAN_READY'), planEntry('PLAN_REVIEW', 'RED'), planEntry('TASK_PLAN', 'PLAN_READY')];
+  const decision = decideResumeState({ stages, worktree: CLEAN_WORKTREE });
+  assert.equal(decision.ok, true);
+  assert.equal(decision.state, 'TASK_PLAN');
+});
+
+test('decideResumeState: plan 段エントリ入り full-cycle manifest は LAND へ resume する', () => {
+  const stages = [
+    planEntry('TASK_PLAN', 'PLAN_READY'),
+    planEntry('PLAN_REVIEW', 'PASS'),
+    implEntry(),
+  ];
+  const decision = decideResumeState({ stages, worktree: CLEAN_WORKTREE });
+  assert.equal(decision.ok, true);
+  assert.equal(decision.state, 'LAND');
+  assert.deepEqual(decision.skipped, ['IMPLEMENT']);
+});
+
+test('decideResumeState: plan 段エントリは IMPLEMENT retry 判定を汚さない', () => {
+  const stages = [
+    planEntry('TASK_PLAN', 'PLAN_READY'),
+    planEntry('PLAN_REVIEW', 'PASS'),
+    implEntry({ verdict: 'UNPARSABLE', result_text: 'no verdict' }),
+  ];
+  const decision = decideResumeState({ stages, worktree: CLEAN_WORKTREE });
+  assert.equal(decision.ok, true);
+  assert.equal(decision.state, 'IMPLEMENT', 'single trailing UNPARSABLE retries IMPLEMENT');
+});
+
 test('decideResumeState: IMPL_DONE resumes at LAND with IMPLEMENT skipped', () => {
   const decision = decideResumeState({ stages: [implEntry()], worktree: CLEAN_WORKTREE });
   assert.equal(decision.ok, true);

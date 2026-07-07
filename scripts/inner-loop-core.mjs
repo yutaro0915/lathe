@@ -388,8 +388,13 @@ export function decideResumeState({ stages, worktree }) {
   if (!worktree.clean) return { ok: false, reason: 'dirty worktree' };
   if (!worktree.headSha) return { ok: false, reason: 'could not determine worktree HEAD sha' };
 
-  // Only worktree stages appear in the manifest (TASK_PLAN/PLAN_REVIEW run in
-  // the repo root and do not write manifest entries). Walk only those stages.
+  // recordAttempt writes every stage (observability); only worktree stages are
+  // resume checkpoints — plan stages re-run read-only at repo root, keeping the
+  // PLAN_REVIEW gate intact (#192 Major#1). Unknown stages still fail below.
+  const walkEntries = stages.filter((entry) => isWorktreeStage(entry?.stage) || !TASK_LOOP_STAGES.includes(entry?.stage));
+  // Died during the plan stages → restart the plan pipeline from the top.
+  if (walkEntries.length === 0) return { ok: true, state: TASK_LOOP_STAGES[0], headSha: worktree.headSha, skipped: [] };
+
   const walkable = TASK_LOOP_STAGES.filter(isWorktreeStage);
   let state = walkable[0];
   let expectedHeadSha = null;
@@ -402,7 +407,7 @@ export function decideResumeState({ stages, worktree }) {
       : null
   );
 
-  for (const entry of stages) {
+  for (const entry of walkEntries) {
     if (!entry || entry.stage !== state) {
       return { ok: false, reason: `manifest stage order mismatch: expected ${state}, got ${entry?.stage ?? '(missing)'}` };
     }
