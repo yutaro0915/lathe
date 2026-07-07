@@ -1,0 +1,24 @@
+{
+  "schema_version": "2",
+  "id": "meta/exp-fixture",
+  "title": "実験 loop 動作検証フィクスチャ（業務ロジックを検査しない）",
+  "version": "2",
+  "scope": ["experiments"],
+  "pass_to_task": "実験 loop の一巡検証専用 fixture。echo '0' が eq:0 を返すことを確認する（v2: pass_to_task 文言を簡潔化）。",
+  "origin": "issue #129 — experiment-loop の一巡検証 fixture。v2: pass_to_task を簡潔化（機能変更なし）。",
+  "checks": [
+    {
+      "id": "fixture-always-pass",
+      "value": "実験 loop（experiment-loop.mjs）が前後比較・採否判断・記録の一巡を回せることを確認する fixture check。実際のコード品質は検査しない。",
+      "severity": "blocker",
+      "verify": {
+        "kind": "cmd",
+        "metric": "count",
+        "cmd": "echo '0'",
+        "expect": "eq:0",
+        "tolerance": "常に 0（fixture）。echo '0' の出力が eq:0 を満たす。"
+      },
+      "evidence": "echo '0' → 0 → eq:0 GREEN（fixture: 常に PASS）"
+    }
+  ]
+}

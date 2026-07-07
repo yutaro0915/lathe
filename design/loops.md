@@ -25,7 +25,7 @@
 | **harness-release（版改修）** | 監査役（outer）＋PdM 一括承認 | loop 本体・ゲート・配車の意味論に触る改修（ADR 0036） | 版として scope 全確定 → **bootstrap 編成（worktree 隔離 subagent の波状並列）で一括実装**。各着地は PR＋前置 review＋CI。**走行中の loop 自身に改修を食わせない** | **全スライス着地 → 常駐再読込 → 事前定義の機械検証 GREEN → 完了記録付き close** |
 | **harness-hotfix（緊急路）** | 監査役＋PdM 同期承認 | gate/loop 自体の故障 | 最小修正 | **生きているゲートを全て通した着地＋記録** |
 | 感知（meta-loop） | `scripts/meta-loop.mjs` | cadence／PdM 指示 | run 監査 → 結果分類 13 行 | finding 記録（**実走実績ゼロ・未通電**） |
-| 実験 loop | 未実装（#129・Approval 待ち） | rubric/skill 改訂案 | 前後比較実験 → 評価 → 採否 | 採否判断の記録 |
+| **実験 loop** | `node scripts/experiment-loop.mjs --experiment <path>` | rubric/skill 改訂案（`experiments/<id>/experiment.json`：改訂前後の rubric ファイル＋事前宣言の予想差分） | 同一 rubric を baseline → candidate の順で gate 実行し、予想差分と観測を照合→採否判断 | **採否判断の記録**（`.lathe/experiments/<id>.json`）。採用の場合も main への着地は別途 PR+CI 経由（ADR 0030 §0） |
 
 ## 状態の台帳（機械が読む面）
 
