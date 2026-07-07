@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { NEEDS_REVIEW_LABEL } from './inner-loop-core.mjs';
 import {
   buildInnerLoopSpawnSpec,
   DEFER_CAPACITY,
@@ -15,6 +16,7 @@ import {
   SKIP_RUNNING,
   SKIP_IN_PROGRESS,
   SKIP_ESCALATION,
+  WAIT_APPROVAL,
   WAIT_DEP,
   classifyTask,
   formatDecision,
@@ -108,6 +110,17 @@ test('classifyTask: open PR referencing the issue means In Progress', () => {
     inProgressIssueNumbers: new Set([5]),
   });
   assert.equal(decision.status, SKIP_IN_PROGRESS);
+});
+
+test('classifyTask: needs-review gate uses the single-sourced core label constant (#192 Minor#3)', () => {
+  // The label the driver/core write and the label the queue gates on must be
+  // the same constant — a task labelled with inner-loop-core's
+  // NEEDS_REVIEW_LABEL waits for Projects Ready approval.
+  const task = { id: 5, body: '', labels: ['task-request', NEEDS_REVIEW_LABEL] };
+  const waiting = classifyTask({ task, readyTaskIds: new Set([5]) });
+  assert.equal(waiting.status, WAIT_APPROVAL);
+  const approved = classifyTask({ task, readyTaskIds: new Set([5]), approvedIssueNumbers: new Set([5]) });
+  assert.equal(approved.status, READY_NOW);
 });
 
 test('classifyTask: running worktree wins over dependency wait', () => {

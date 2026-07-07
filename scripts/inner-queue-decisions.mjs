@@ -8,7 +8,9 @@
 // work (ADR 0030 追記 E). No side effects here.
 
 import { basename, posix } from 'node:path';
-import { parseBlockedBy } from './inner-loop-core.mjs';
+// Label constants are single-sourced in inner-loop-core.mjs (#192 Minor#3 /
+// #201 分解 3 — the old NEEDS_REVIEW_LABEL_QUEUE twin risked a one-sided edit).
+import { parseBlockedBy, NEEDS_REVIEW_LABEL } from './inner-loop-core.mjs';
 
 export const READY_NOW = 'READY_NOW';
 export const WAIT_DEP = 'WAIT_DEP';
@@ -20,7 +22,6 @@ export const DEFER_TOUCHES = 'DEFER_TOUCHES';
 export const DEFER_CAPACITY = 'DEFER_CAPACITY';
 
 export const ESCALATION_LABEL = 'escalation';
-export const NEEDS_REVIEW_LABEL_QUEUE = 'needs-review';
 
 /**
  * Parse machine-readable inner-loop hints from an issue body. Only Touches
@@ -198,7 +199,7 @@ export function classifyTask({
 
   // needs-review gate (ADR 0035 §1/§3): tasks with needs-review label require
   // PdM approval (Projects Status=Ready) before the driver can start.
-  if ((enriched.labels ?? []).some((name) => String(name).toLowerCase() === NEEDS_REVIEW_LABEL_QUEUE)) {
+  if ((enriched.labels ?? []).some((name) => String(name).toLowerCase() === NEEDS_REVIEW_LABEL)) {
     if (!approvedIssueNumbers.has(enriched.id)) {
       return { status: WAIT_APPROVAL, task: enriched };
     }
