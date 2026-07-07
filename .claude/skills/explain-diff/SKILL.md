@@ -63,6 +63,8 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
   無ければ General）。`gh api graphql` の `createDiscussion`（repositoryId / categoryId は query で取得）。
   repo 側の 1 回きりの準備（カテゴリ・label 作成）は同梱の [SETUP.md](./SETUP.md)（人間向け）。
 - **publish 後は不変**。改訂は新版として別ファイル・別 Discussion、追補はスレッド comment。
+- **正本の git 着地は loop の終端に含めない**（最小権限の維持）。explains/ を track する repo では
+  運用側（監査役／ユーザー）が後から PR で拾う。ignore する repo では何も要らない。
 - 質問・註釈は Discussion のネイティブスレッド。自動応答 runner を導入した場合のみ
   agent 返信に目印を付ける。
 - 依頼が issue 起点なら、元 issue に Discussion リンクを comment して close（解説 loop の終端）。
@@ -79,8 +81,11 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
 同じ背景解説が複数の教材で繰り返し出てきたら、**その時に**そのセクションだけ正本
 （`design/` 等）へ抽出して参照に切り替える。事前の共通化はしない。
 
-## 検収（監査役が生成物に対して機械照合してから publish）
+## 検収（生成 agent の自己点検＋監査役の事後照合）
 
-- 禁則語 grep（昨日/門番/運命/勘所 等）・4 節の存在・`<details>` の開閉対応・
-  mermaid 構文の自己点検＋**投稿後の実描画確認**（iframe が render されること）。
+- **生成 agent（publish 前・必須）**: 禁則語 grep（昨日/門番/運命/勘所 等）・4 節の存在・
+  `<details>` の開閉対応・mermaid 構文の自己点検（skill の構文規律に対する機械照合）。
+- **監査役（publish 後・ブラウザ系ツールを持つ環境で）**: 実描画確認（mermaid iframe が
+  render されること）。生成 agent の allowed-tools にブラウザは含まれないため、
+  この確認は生成側の義務ではない（2026-07-07 の独立実走 #158→#159 で確定した分担）。
 - 初出の実物例: `explains/2026-07-07-pr110-receipt-to-ci.md`（= Discussion #154）。
