@@ -382,14 +382,14 @@ async function runDispatch({ dispatches, max, maxFailures }) {
 // --- 盤面投影（#201 分解 10・パス末尾・非致命） ---
 
 // Approval 列（needs-review×教材あり×非 Ready）と Escalated 列（escalation label）
-// への投影＋Escalated 残骸の Backlog 戻し。option id は derive の名前解決結果を使う。
+// への投影のみ（Escalated からの掃き出しはしない — 裁定待ち signal を消さないため）。option id は derive の名前解決結果を使う。
 // 失敗は warning のみ（正本は導出、ADR 0035 §7 と同じ非致命規約）。
 function applyBoardProjection(decisions, statusField, deps = {}) {
   const apply = deps.updateProjectItemStatus ?? updateProjectItemStatus;
   const { mutations, warnings } = planBoardProjection(decisions, statusField);
   for (const warning of warnings) log(`projection warning: ${warning}`);
   for (const m of mutations) {
-    const result = apply(m.itemId, m.optionId);
+    const result = apply(m.itemId, { fieldId: statusField.fieldId, optionId: m.optionId });
     if (result.ok) log(`projection: #${m.number} ${m.fromName ?? '(none)'} → ${m.toName}`);
     else log(`projection warning: #${m.number} → ${m.toName} failed (non-fatal): ${result.reason}`);
   }
