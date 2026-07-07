@@ -8,6 +8,7 @@ import {
   EXPLAIN_ALLOWED_TOOLS,
   OUTCOME_ESCALATION, OUTCOME_FAILURE, OUTCOME_SUCCESS,
   applyBreaker,
+  breakerFromLedger,
   buildDispatchSpec,
   buildExplainPrompt,
   classifyChildOutcome,
@@ -243,4 +244,69 @@ test('runDispatch: Touches 衝突は deferred（次パスで再判定）', () =>
   assert.equal(result.dispatched, 1, '#1 のみ dispatch');
   assert.equal(result.deferred, 1, '#2 は Touches 衝突で defer');
   assert.deepEqual(spawned, [1]);
+});
+
+// --- breakerFromLedger（cross-pass circuit breaker / AC2） ---
+
+test('breakerFromLedger: empty ledger → closed state', () => {
+  assert.deepEqual(breakerFromLedger([], 3), { consecutiveFailures: 0, open: false });
+  assert.deepEqual(breakerFromLedger(null, 3), { consecutiveFailures: 0, open: false });
+});
+
+test('breakerFromLedger: three consecutive failures open the circuit（applyBreaker と同義味論）', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+  ];
+  assert.deepEqual(breakerFromLedger(records, 3), { consecutiveFailures: 3, open: true });
+});
+
+test('breakerFromLedger: success resets consecutive count', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_SUCCESS },
+    { outcome: OUTCOME_FAILURE },
+  ];
+  assert.deepEqual(breakerFromLedger(records, 3), { consecutiveFailures: 1, open: false });
+});
+
+test('breakerFromLedger: escalation は故障と数えない（count 不変・open しない）', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_ESCALATION }, // 数えない
+    { outcome: OUTCOME_FAILURE },    // これで合計 3 → open
+  ];
+  assert.deepEqual(breakerFromLedger(records, 3), { consecutiveFailures: 3, open: true });
+  // escalation だけでは open しない
+  const esc = [{ outcome: OUTCOME_ESCALATION }, { outcome: OUTCOME_ESCALATION }];
+  assert.deepEqual(breakerFromLedger(esc, 3), { consecutiveFailures: 0, open: false });
+});
+
+test('breakerFromLedger: maxFailures=0 はブレーカー無効化', () => {
+  const records = Array.from({ length: 10 }, () => ({ outcome: OUTCOME_FAILURE }));
+  assert.deepEqual(breakerFromLedger(records, 0), { consecutiveFailures: 10, open: false });
+});
+
+test('breakerFromLedger: open になった時点で短絡（以降の record を読まない）', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },
+    { outcome: OUTCOME_FAILURE },  // ← open
+    { outcome: OUTCOME_SUCCESS },  // ← 短絡で読まれない
+  ];
+  const result = breakerFromLedger(records, 3);
+  assert.equal(result.open, true);
+  assert.equal(result.consecutiveFailures, 3); // success にリセットされていない
+});
+
+test('breakerFromLedger: 壊れた record（outcome なし）は skip', () => {
+  const records = [
+    { outcome: OUTCOME_FAILURE },
+    { ts: '2026-07-08T00:00:00.000Z' }, // outcome なし → skip
+    { outcome: OUTCOME_FAILURE },
+  ];
+  assert.deepEqual(breakerFromLedger(records, 3), { consecutiveFailures: 2, open: false });
 });

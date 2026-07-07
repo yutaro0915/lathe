@@ -14,7 +14,7 @@
 
 | loop | 回す者 | 起動条件 | やること | **唯一の終端** |
 |---|---|---|---|---|
-| **orchestrator（配車）** | launchd（5 分間隔）→ `scripts/orchestrator.mjs` | 常駐 cadence | gh 全状態を導出 → 分類（下記 4 クラス＋待機）→ 並列 dispatch（上限 5・live マーカーで実行中 skip）→ 盤面/label 投影 | **1 パス完了**（escalation は故障と数えない breaker） |
+| **orchestrator（配車）** | launchd（5 分間隔）→ `scripts/orchestrator.mjs` | 常駐 cadence | gh 全状態を導出 → 分類（下記 4 クラス＋待機）→ 並列 dispatch（上限 5・live マーカーで実行中 skip）→ 盤面/label 投影 | **全子 spawn 完了**（子ライフサイクルは `dispatch-runner.mjs` に委譲・cross-pass breaker は `outcomes.jsonl` ledger） |
 | **実装（task loop）** | driver `scripts/inner-loop.mjs <n>` | open task-request：無印は即・needs-review は **盤面 Ready** 検出後 | TASK_PLAN（plan-format 注入）→ PLAN_REVIEW（機械・RED は所見注入で再試行 2）→ IMPLEMENT（worktree）→ **LAND**＝PR 作成（arm しない）→ review 周回（PASS で arm／CHANGES 差し戻し 2 周・全周回所見は PR コメント） | **CI GREEN → merge → issue close（Done 導出）**、または **escalation label 投函** |
 | **plan-task（分解）** | 同 driver（needs-plan label） | needs-plan 付き issue | PLAN → 出力検証（書式 NG は所見差し戻し 1 周）→ **子 issue 投函**（blocked-by・in-loop 起票は個別承認不要 = hook スコープ裁定）→ 親 close | **子の投函＋親 close**（PdM 判断が要る時のみ ASK_PDM 停止） |
 | **教材（explain）** | orchestrator が runner（`claude -p`・最小権限）を dispatch | needs-review × 読み物なし | skill（explain-diff）で教材生成 → Discussion（Explain）投稿 → done-explain 冪等付与 → **explains/ 正本の自動 PR** | **publish**（対象へのリンク comment 込み） |

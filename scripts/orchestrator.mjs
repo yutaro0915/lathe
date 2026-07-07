@@ -12,8 +12,10 @@
 //   ＋PID 生存確認で導出する。worktree 検出（inner-issue-<n>）は補助信号として
 //   union（orchestrator 外で手動起動された driver の検出）。
 // - dispatch は fire-and-forget（spawn して pass は即終了・live マーカーで次パスに引き継ぐ）。
-//   EXPLAIN 完走後処理（explains/ → PR＋done-explain）は次パス冒頭で untracked 検出。
-//   circuit breaker（--max-failures）は CLI では受け付けるが pass 内では使わない。
+//   子ライフサイクル（live marker 書き込み・EXPLAIN 後処理・outcome 記録）は
+//   orchestrator 所有ラッパ scripts/dispatch-runner.mjs に集約。
+//   circuit breaker は cross-pass ledger（.lathe/runs/outcomes.jsonl）で管理し、
+//   breakerFromLedger が pass 冒頭で dispatch を抑制する。
 // - dispatch は既存コマンドの spawn（新しい実行経路を作らない）:
 //     PLAN / IMPLEMENT → node scripts/inner-loop.mjs <n>（run type は driver が label で選ぶ）
 //     EXPLAIN          → claude -p（.claude/skills/explain-diff/SETUP.md §6 の正規形）
@@ -24,8 +26,7 @@
 // してテスト対象。side effect（spawn/fs/gh）は下段に隔離。
 
 import {
-  appendFileSync, closeSync, existsSync, mkdirSync, openSync,
-  readFileSync, readdirSync, rmSync, writeFileSync,
+  existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,9 +40,9 @@ import {
 import { updateProjectItemStatus } from './inner-loop-projects.mjs';
 import { INNER_SETTINGS_PATH } from './inner-loop-core.mjs';
 import {
-  detectNewExplainFiles, ensureDoneExplainLabel, explainedIssueNumbersFrom,
+  ensureDoneExplainLabel, explainedIssueNumbersFrom,
   formatExplainPostProcessPlan,
-  listExplainFileNames, runExplainPostProcess, selectDoneExplainRepairs,
+  listExplainFileNames, selectDoneExplainRepairs,
 } from './orchestrator-explain.mjs';
 import {
   parseInnerIssueWorktrees, parseTaskRunHints, pathsOverlap,
@@ -51,6 +52,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
 const RUNS_DIR = join(REPO_ROOT, '.lathe', 'runs');
 const LOCK_PATH = join(REPO_ROOT, '.lathe', 'orchestrator.lock');
+const OUTCOMES_PATH = join(RUNS_DIR, 'outcomes.jsonl');
+const DISPATCH_RUNNER = join(__dirname, 'dispatch-runner.mjs');
 
 function log(msg) { process.stdout.write(`[orchestrator] ${msg}\n`); }
 function die(msg) { process.stderr.write(`orchestrator: error: ${msg}\n`); process.exit(1); }
@@ -249,6 +252,24 @@ export function applyBreaker(state, outcome, maxFailures) {
   return { consecutiveFailures, open };
 }
 
+/**
+ * outcomes.jsonl の全レコードを fold して cross-pass breaker 状態を返す。
+ * applyBreaker と同じ意味論を保存した跨パス純関数: success はリセット・failure は加算・
+ * escalation は数えない。open になった時点で短絡（以降は読まない）。
+ * @param {Array<{ outcome: string } | null>} records  JSON.parse 済みの ledger レコード
+ * @param {number} maxFailures
+ * @returns {{ consecutiveFailures: number, open: boolean }}
+ */
+export function breakerFromLedger(records, maxFailures) {
+  let state = { consecutiveFailures: 0, open: false };
+  for (const rec of records ?? []) {
+    if (!rec?.outcome) continue;
+    state = applyBreaker(state, rec.outcome, maxFailures);
+    if (state.open) return state;
+  }
+  return state;
+}
+
 // --- Touches 直列化つきの選択（inner-queue から吸収） ---
 
 function decisionTouches(decision) {
@@ -275,33 +296,34 @@ export function pickNextDispatch(pending, activeDecisions) {
 }
 
 // --- Side effects: spawn（fire-and-forget）---
-// dispatch は spawn して即返却。子は live マーカーで次パスに実行中状態を引き継ぐ。
-// close イベントでマーカーを掃除するが parent が先に exit しても次パスの stale 検出が拾う。
+// dispatch は dispatch-runner.mjs を spawn して即返却。
+// 子ライフサイクル（live marker・EXPLAIN 後処理・outcome 記録）は dispatch-runner が担う。
 
 function spawnDecision(decision) {
-  const spec = buildDispatchSpec(decision);
   mkdirSync(RUNS_DIR, { recursive: true });
-  const logPath = join(RUNS_DIR, `${spec.logKey}.log`);
-  appendFileSync(logPath, `[orchestrator] start ${decision.class} ${decision.kind} #${decision.number} at ${new Date().toISOString()}\n`);
-  const fd = openSync(logPath, 'a');
   let child;
   try {
-    child = spawn(spec.command, spec.args, { cwd: REPO_ROOT, env: process.env, stdio: ['ignore', fd, fd], detached: true });
+    child = spawn(process.execPath, [
+      DISPATCH_RUNNER, decision.class, decision.kind, String(decision.number),
+    ], {
+      cwd: REPO_ROOT, env: process.env, stdio: 'ignore', detached: true,
+    });
   } catch (err) {
-    closeSync(fd);
-    appendFileSync(logPath, `[orchestrator] spawn error: ${err.message}\n`);
+    log(`warning: spawn dispatch-runner failed for ${decision.class} #${decision.number}: ${err.message}`);
     return;
   }
-  closeSync(fd);
-  const markerPath = join(RUNS_DIR, liveMarkerName(decision.class, decision.number));
-  try {
-    writeFileSync(markerPath, `${JSON.stringify({ pid: child.pid, class: decision.class, kind: decision.kind, number: decision.number, startedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
-  } catch (err) { log(`warning: live marker write failed for ${markerPath}: ${err.message}`); }
-  child.on('close', (code) => {
-    try { rmSync(markerPath, { force: true }); } catch { /* 次パスが stale 掃除 */ }
-    try { appendFileSync(logPath, `[orchestrator] done exit=${code ?? 1} at ${new Date().toISOString()}\n`); } catch { /* 非致命 */ }
-  });
   child.unref();
+}
+
+// --- Outcome ledger（cross-pass circuit breaker） ---
+
+function readOutcomeLedger() {
+  try {
+    const content = readFileSync(OUTCOMES_PATH, 'utf8');
+    return content.trim().split('\n').filter(Boolean).map((line) => {
+      try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+  } catch { return []; }
 }
 
 // --- Dispatch（fire-and-forget・1 パス）---
@@ -418,17 +440,16 @@ if (isMain) {
         : `warning: done-explain repair #${d.number} failed (non-fatal): ${repaired.reason}`);
     }
 
-    // EXPLAIN 完走後処理（前パスで fire-and-forget した runner が完走済みの分）。
-    // detectNewExplainFiles は git status --porcelain で untracked のみ検出 —
-    // landing 成功後は原本が消えるため冪等（次パスは skip）。非致命。
-    for (const n of explainedIssueNumbers) {
-      try {
-        const det = detectNewExplainFiles(n);
-        if (det.ok && det.files.length > 0) runExplainPostProcess(n, { log });
-      } catch (err) { log(`warning: explain post #${n} failed (non-fatal): ${err.message}`); }
+    // ③ dispatch（EXPLAIN 後処理は dispatch-runner が子完走後に担う）
+    // cross-pass circuit breaker: ledger の連続 failure が maxFailures に達していたら skip。
+    const ledgerRecords = readOutcomeLedger();
+    const breakerState = breakerFromLedger(ledgerRecords, parsed.maxFailures);
+    if (breakerState.open) {
+      log(`circuit breaker open (consecutiveFailures=${breakerState.consecutiveFailures}, maxFailures=${parsed.maxFailures}) — dispatch skipped this pass`);
+      const projected = applyBoardProjection(decisions, snapshot.statusField);
+      log(`pass complete: dispatched=0 deferred=${dispatches.length} projected=${projected} (breaker open)`);
+      process.exit(0);
     }
-
-    // ③ dispatch
     const result = runDispatch({ dispatches, max: parsed.max });
 
     // ④ 盤面投影（実状態へ同期・非致命）
