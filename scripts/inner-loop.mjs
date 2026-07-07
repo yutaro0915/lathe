@@ -11,7 +11,7 @@
 // Re-exports public symbols from split modules (single import surface).
 // ADR 0013 (driver) / 0014 (backends) / 0030 (gates) / 0031 / 0035.
 
-import { existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -29,16 +29,17 @@ import {
   REPO_ROOT,
   TASK_LOOP_STAGES, TASK_LOOP_TERMINAL,
   UNPARSABLE_VERDICT, WORKTREE_DEPS_INSTALL_ARGS,
-  MAX_PLAN_REVIEW_RETRIES,
+  MAX_PLAN_REVIEW_RETRIES, NEEDS_REVIEW_LABEL,
   parseDriverArgsWith, selectRunType, nextState,
   runStageWithUnparsableRetry,
   buildManifestEntry, buildManifest, manifestPathFor, backendCostSourceForEnvelope, readManifestStages,
-  buildEscalationMarkdown, decideResumeState, tailLines,
+  decideResumeState, tailLines,
   isWorktreeStage, stageRequiresFreshMainRebase,
   parseBlockedBy, issueLabelNames, hasNeedsReviewLabel,
   worktreeNameFor, extractFirstCommitMessage, splitCommitMessage,
   buildPrBodyWithCloses, buildPrCreateArgs, buildPrMergeArgs,
 } from './inner-loop-core.mjs';
+import { projectEscalation } from './inner-loop-escalation.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
 import { runPlanTask, dryRunPlanTask, readPlanFormatOrDie } from './inner-loop-plan-task.mjs';
 import {
@@ -48,6 +49,7 @@ import {
 // Re-export the split modules' public symbols so tests / meta-loop.mjs /
 // inner-queue.mjs keep importing from this file.
 export * from './inner-loop-core.mjs';
+export * from './inner-loop-escalation.mjs';
 export {
   parseBlockedByLine, parsePlanChildBlocks, resolvePlanChildDependency,
   buildChildIssueBody, parseCreatedIssueNumber, createChildIssues,
@@ -219,19 +221,10 @@ function appendManifestEntry(issueNumber, entry) {
   writeFileSync(p, JSON.stringify(buildManifest(unit, stages), null, 2) + '\n', 'utf8');
 }
 
-// Provisional escalation surface (#116 裁定 3; issue 投函への置換 = #201 分解 6).
-function escalationPathFor(issueNumber) {
-  return manifestPathFor({ kind: 'issue', id: issueNumber }).replace(/\.json$/, '.escalation.md');
-}
-
-function writeEscalation(issueNumber, stage, verdict, resultExcerpt) {
-  const p = escalationPathFor(issueNumber);
-  mkdirSync(dirname(p), { recursive: true });
-  appendFileSync(p, buildEscalationMarkdown({ issueNumber, stage, verdict, resultExcerpt }), 'utf8');
-  const cr = spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body',
-    `inner-loop escalated at stage ${stage} (verdict: ${verdict ?? 'none'}). See ${p}`],
-    { cwd: REPO_ROOT, stdio: 'inherit' });
-  if (cr.status !== 0) log(`warning: gh issue comment failed (continuing) for issue #${issueNumber}`);
+// escalation の issue 化 (#201 分解 6): 対象 issue に escalation label ＋
+// レポート全文 comment を投影する（.escalation.md は廃止・非致命）。
+function escalateIssue(issueNumber, stage, verdict, resultExcerpt) {
+  projectEscalation({ issueNumber, stage, verdict, resultExcerpt }, { log });
 }
 
 export function rebaseWorktree(wt, deps = {}) {
@@ -400,7 +393,7 @@ if (isMain) {
     if (stageRequiresFreshMainRebase(state)) {
       log(`rebasing worktree onto main before ${state} (issue #${issueNumber})`);
       if (!rebaseWorktree(worktreePath)) {
-        writeEscalation(issueNumber, state, 'REBASE_CONFLICT', `git rebase main failed in worktree before ${state}`);
+        escalateIssue(issueNumber, state, 'REBASE_CONFLICT', `git rebase main failed in worktree before ${state}`);
         state = 'ESCALATE'; break;
       }
     }
@@ -443,7 +436,7 @@ if (isMain) {
     });
     const { envelope, verdict, stageHeadSha } = stageResult;
 
-    if (verdict === null) { writeEscalation(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? ''); state = 'ESCALATE'; break; }
+    if (verdict === null) { escalateIssue(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? ''); state = 'ESCALATE'; break; }
 
     if (state === 'TASK_PLAN' && verdict === 'PLAN_READY') { // capture + post plan comment (ADR 0035 §1)
       planText = envelope.result ?? '';
@@ -452,23 +445,23 @@ if (isMain) {
     if (state === 'PLAN_REVIEW' && verdict === 'RED') { // retry TASK_PLAN with 所見注入 (#192 Major#2) or label+stop (ADR 0035 §5)
       planReviewFeedback = envelope.result ?? '';
       if (++planReviewRetries <= MAX_PLAN_REVIEW_RETRIES) { log(`PLAN_REVIEW RED → retry TASK_PLAN (${planReviewRetries}/${MAX_PLAN_REVIEW_RETRIES})`); state = 'TASK_PLAN'; continue; }
-      spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', 'needs-review,escalation'], { cwd: REPO_ROOT, stdio: 'inherit' });
-      writeEscalation(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${MAX_PLAN_REVIEW_RETRIES} retries.\n\n${envelope.result ?? ''}`);
+      spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', NEEDS_REVIEW_LABEL], { cwd: REPO_ROOT, stdio: 'inherit' }); // escalation label は escalateIssue が付与
+      escalateIssue(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${MAX_PLAN_REVIEW_RETRIES} retries.\n\n${envelope.result ?? ''}`);
       state = 'ESCALATE'; break;
     }
 
     if (detectHollowImplement({ verdict, baseSha: implementBaseSha, headSha: stageHeadSha })) {
-      writeEscalation(issueNumber, 'IMPLEMENT', verdict, 'hollow completion: zero new commits');
+      escalateIssue(issueNumber, 'IMPLEMENT', verdict, 'hollow completion: zero new commits');
       state = 'ESCALATE'; break;
     }
 
     const { next } = nextState(state, verdict);
-    if (next === 'ESCALATE') writeEscalation(issueNumber, state, verdict, envelope.result ?? '');
+    if (next === 'ESCALATE') escalateIssue(issueNumber, state, verdict, envelope.result ?? '');
     log(`stage=${state} verdict=${verdict} -> next=${next}`);
     state = next;
   }
 
-  if (state === 'ESCALATE') die(`escalated — see ${escalationPathFor(issueNumber)}`);
+  if (state === 'ESCALATE') die(`escalated — see the escalation label + report comment on issue #${issueNumber}`);
 
   // Backstop: verify that main working tree has no unexpected tracked changes
   // before landing the branch. The codex workspace-write sandbox should have
@@ -480,8 +473,8 @@ if (isMain) {
   const { dirty: mainDirty, paths: dirtyPaths } = detectMainDirty(mainStatusR.stdout ?? '');
   if (mainDirty) {
     const excerpt = `main working tree has ${dirtyPaths.length} unexpected tracked change(s) — sandbox write-isolation may have been breached:\n${dirtyPaths.join('\n')}`;
-    writeEscalation(issueNumber, TASK_LOOP_TERMINAL, 'MAIN_DIRTY_BACKSTOP', excerpt);
-    die(`escalated — main has ${dirtyPaths.length} unexpected tracked change(s) before landing. See ${escalationPathFor(issueNumber)}`);
+    escalateIssue(issueNumber, TASK_LOOP_TERMINAL, 'MAIN_DIRTY_BACKSTOP', excerpt);
+    die(`escalated — main has ${dirtyPaths.length} unexpected tracked change(s) before landing. See the report comment on issue #${issueNumber}`);
   }
   log(`backstop: main working tree clean — proceeding with landing.`);
 
@@ -489,8 +482,8 @@ if (isMain) {
   trySetProjectStatus(issueNumber, PROJECTS_STATUS_NAMES.InReview, { log });
   const landResult = landBranch(branch, issueNumber);
   if (!landResult.ok) {
-    writeEscalation(issueNumber, TASK_LOOP_TERMINAL, null, `landing failed\n\n${tailLines(landResult.output)}`);
-    die(`landing failed — see ${escalationPathFor(issueNumber)}`);
+    escalateIssue(issueNumber, TASK_LOOP_TERMINAL, null, `landing failed\n\n${tailLines(landResult.output)}`);
+    die(`landing failed — see the escalation report comment on issue #${issueNumber}`);
   }
 
   cleanupWorktree(worktreePath, branch);

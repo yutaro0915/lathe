@@ -34,6 +34,8 @@ export const MAX_UNPARSABLE_STAGE_RETRIES = 1;
 export const NEEDS_PLAN_LABEL = 'needs-plan';
 export const NEEDS_REVIEW_LABEL = 'needs-review';
 export const TASK_REQUEST_LABEL = 'task-request';
+// escalation の issue 化 (#201 分解 6): driver が投影し、queue が skip する label。
+export const ESCALATION_LABEL = 'escalation';
 
 // Maximum PLAN_REVIEW RED-verdict retries before labelling needs-review +
 // escalation and stopping (ADR 0035 §5).
@@ -324,35 +326,9 @@ export function readManifestStages(manifestPath) {
   } catch { return []; }
 }
 
-// --- Escalation markdown (provisional surface, #116 監査役裁定 3;
-// escalation-issue 投函への置換は #117 scope) ---
-
-function clippedExcerpt(text, maxChars = 4000) {
-  const value = String(text ?? '').trim();
-  if (value.length <= maxChars) return value;
-  return `...${value.slice(-maxChars)}`;
-}
-
-/**
- * @param {{ issueNumber: number, stage: string, verdict: string|null, ts?: string, resultExcerpt?: string|null }} p
- * @returns {string}
- */
-export function buildEscalationMarkdown({ issueNumber, stage, verdict, ts, resultExcerpt }) {
-  return [
-    `# escalation — issue #${issueNumber}`,
-    '',
-    `stage: ${stage}`,
-    `verdict: ${verdict ?? '(none/unparsable)'}`,
-    `ts: ${ts ?? new Date().toISOString()}`,
-    '',
-    '## result excerpt',
-    '',
-    '```',
-    clippedExcerpt(resultExcerpt, 4000),
-    '```',
-    '',
-  ].join('\n');
-}
+// Escalation rendering/projection lives in inner-loop-escalation.mjs
+// (#201 分解 6: escalation label + report comment on the issue replaced the
+// provisional .escalation.md surface of #116 監査役裁定 3).
 
 // --- Resume ---
 

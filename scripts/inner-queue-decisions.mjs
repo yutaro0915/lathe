@@ -10,7 +10,11 @@
 import { basename, posix } from 'node:path';
 // Label constants are single-sourced in inner-loop-core.mjs (#192 Minor#3 /
 // #201 分解 3 — the old NEEDS_REVIEW_LABEL_QUEUE twin risked a one-sided edit).
-import { parseBlockedBy, NEEDS_REVIEW_LABEL } from './inner-loop-core.mjs';
+// ESCALATION_LABEL is the label projectEscalation writes (#201 分解 6): an
+// escalation-labelled issue is 裁定 loop material and the queue must skip it.
+import { parseBlockedBy, NEEDS_REVIEW_LABEL, ESCALATION_LABEL } from './inner-loop-core.mjs';
+
+export { ESCALATION_LABEL };
 
 export const READY_NOW = 'READY_NOW';
 export const WAIT_DEP = 'WAIT_DEP';
@@ -20,8 +24,6 @@ export const SKIP_IN_PROGRESS = 'SKIP_IN_PROGRESS';
 export const SKIP_ESCALATION = 'SKIP_ESCALATION';
 export const DEFER_TOUCHES = 'DEFER_TOUCHES';
 export const DEFER_CAPACITY = 'DEFER_CAPACITY';
-
-export const ESCALATION_LABEL = 'escalation';
 
 /**
  * Parse machine-readable inner-loop hints from an issue body. Only Touches

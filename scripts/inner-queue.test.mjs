@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { NEEDS_REVIEW_LABEL } from './inner-loop-core.mjs';
+import { NEEDS_REVIEW_LABEL, ESCALATION_LABEL } from './inner-loop-core.mjs';
 import {
   buildInnerLoopSpawnSpec,
   DEFER_CAPACITY,
@@ -101,6 +101,13 @@ test('deriveInProgressIssueNumbers: Closes body refs and inner/issue-<n> branche
 
 test('classifyTask: escalation label is skipped (裁定 loop material, ADR 0030 追記 E)', () => {
   const decision = classifyTask({ task: { id: 5, body: '', labels: ['task-request', 'escalation'] } });
+  assert.equal(decision.status, SKIP_ESCALATION);
+});
+
+test('classifyTask: projectEscalation が投影する core 定数の label で skip する（#201 分解 6）', () => {
+  // driver 側の投影 label（inner-loop-core の ESCALATION_LABEL）と queue 側の
+  // skip 判定が同じ単一正本であることの機械照合。
+  const decision = classifyTask({ task: { id: 5, body: '', labels: [ESCALATION_LABEL] }, readyTaskIds: new Set([5]) });
   assert.equal(decision.status, SKIP_ESCALATION);
 });
 

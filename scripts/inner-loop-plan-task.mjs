@@ -15,13 +15,14 @@
 // Pure logic is exported for unit testing; gh side effects take a deps
 // injection point ({ spawnSync }).
 
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 import { buildStagePrompt } from './inner-loop-prompts.mjs';
 import { selectBackend } from './inner-loop-backends.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
+import { projectEscalation } from './inner-loop-escalation.mjs';
 import {
   REPO_ROOT, PLAN_FORMAT_PATH, TASK_REQUEST_LABEL, NEEDS_PLAN_LABEL,
   PLAN_TASK_STAGES, PLAN_TASK_TERMINAL,
@@ -311,25 +312,17 @@ function appendPlanManifestEntry(issueNumber, entry) {
   writeFileSync(p, JSON.stringify(buildManifest(unit, stages), null, 2) + '\n', 'utf8');
 }
 
-function writePlanEscalation(issueNumber, stage, verdict, resultExcerpt) {
-  const p = manifestPathFor({ kind: 'plan', id: issueNumber }).replace(/\.json$/, '.escalation.md');
-  mkdirSync(dirname(p), { recursive: true });
-  appendFileSync(p, [
-    `# escalation — plan-task issue #${issueNumber}`, '',
-    `stage: ${stage}`, `verdict: ${verdict ?? '(none/unparsable)'}`, `ts: ${new Date().toISOString()}`, '',
-    '## result excerpt', '', '```', (resultExcerpt ?? '').slice(-4000), '```', '',
-  ].join('\n'), 'utf8');
-  const cr = spawnSync('gh', ['issue', 'comment', String(issueNumber), '--body',
-    `plan-task escalated at stage ${stage} (verdict: ${verdict ?? 'none'}). See ${p}`],
-    { cwd: REPO_ROOT, stdio: 'inherit' });
-  if (cr.status !== 0) log(`warning: gh issue comment failed (continuing) for source issue #${issueNumber}`);
+// escalation の issue 化 (#201 分解 6): 対象 issue に escalation label ＋
+// レポート全文 comment を投影する（.escalation.md は廃止・非致命）。
+function escalatePlanTask(issueNumber, stage, verdict, resultExcerpt) {
+  projectEscalation({ issueNumber, stage, verdict, resultExcerpt, runType: 'plan-task' }, { log });
 }
 
 function completeFileChildren(issueNumber, planText) {
   const created = createChildIssues(issueNumber, planText);
   if (!created.ok) {
-    writePlanEscalation(issueNumber, PLAN_TASK_TERMINAL, null, created.error);
-    die(`plan-task child issue filing failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
+    escalatePlanTask(issueNumber, PLAN_TASK_TERMINAL, null, created.error);
+    die(`plan-task child issue filing failed — see the escalation report comment on issue #${issueNumber}`);
   }
   appendPlanManifestEntry(issueNumber, buildManifestEntry({
     stage: PLAN_TASK_TERMINAL,
@@ -354,8 +347,8 @@ function completeFileChildren(issueNumber, planText) {
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr);
   if (r.status !== 0) {
-    writePlanEscalation(issueNumber, 'CLOSE_SOURCE', null, `gh issue close failed\n\n${tailLines(`${r.stdout ?? ''}${r.stderr ?? ''}`)}`);
-    die(`plan-task source close failed — see .lathe/runs/plan-${issueNumber}.escalation.md`);
+    escalatePlanTask(issueNumber, 'CLOSE_SOURCE', null, `gh issue close failed\n\n${tailLines(`${r.stdout ?? ''}${r.stderr ?? ''}`)}`);
+    die(`plan-task source close failed — see the escalation report comment on issue #${issueNumber}`);
   }
   appendPlanManifestEntry(issueNumber, buildManifestEntry({
     stage: 'CLOSE_SOURCE',
@@ -467,7 +460,7 @@ export function runPlanTask(issueNumber, issue, backendFlags) {
     const { envelope, verdict } = stageResult;
 
     if (verdict === null) {
-      writePlanEscalation(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? '');
+      escalatePlanTask(issueNumber, state, UNPARSABLE_VERDICT, envelope.result ?? '');
       state = 'ESCALATE';
       break;
     }
@@ -475,12 +468,12 @@ export function runPlanTask(issueNumber, issue, backendFlags) {
     if (verdict === 'PLAN_READY' || verdict === 'ASK_PDM') planText = envelope.result;
 
     const { next } = nextPlanTaskState(state, verdict);
-    if (next === 'ESCALATE') writePlanEscalation(issueNumber, state, verdict, envelope.result ?? '');
+    if (next === 'ESCALATE') escalatePlanTask(issueNumber, state, verdict, envelope.result ?? '');
     log(`plan-task stage=${state} verdict=${verdict} -> next=${next}`);
     state = next;
   }
 
-  if (state === 'ESCALATE') die(`plan-task escalated — see ${manifestPathFor({ kind: 'plan', id: issueNumber }).replace(/\.json$/, '.escalation.md')}`);
+  if (state === 'ESCALATE') die(`plan-task escalated — see the escalation label + report comment on issue #${issueNumber}`);
   if (state === 'ASK_PDM') return completeAskPdm(issueNumber, planText);
   if (state === PLAN_TASK_TERMINAL) return completeFileChildren(issueNumber, planText);
   return 0;
