@@ -34,7 +34,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 // 運用パラメータは inner-loop-config.mjs に集約（ADR 0030 §5 · issue #118）
-import { DIFF_CHAR_LIMIT, MAX_UNPARSABLE_RETRIES } from './inner-loop-config.mjs';
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -56,8 +56,8 @@ export const REVIEW_HEADING = '## REVIEW:';
 export const REVIEW_VERDICT_TOKENS = ['PASS', 'CHANGES', 'ESCALATE'];
 // Inline-diff budget for the reviewer prompt. Oversized diffs are truncated
 // and the reviewer is told to fetch the remainder via `gh pr diff <n>`.
-// （数値は inner-loop-config.mjs に集約、ここでは re-export のみ）
-export { DIFF_CHAR_LIMIT, MAX_UNPARSABLE_RETRIES };
+// DIFF_CHAR_LIMIT は reviewer diff の content budget（plan §3 scope OUT — config に入れない）。
+export const DIFF_CHAR_LIMIT = 120_000;
 const PR_LIST_LIMIT = 100;
 const PR_JSON_FIELDS = 'number,title,body,isDraft,headRefName,url,comments,reviews';
 
@@ -391,7 +391,7 @@ export function runReviewer(prompt, deps = {}) {
 export function spawnReviewerWithRetry(prompt, deps = {}, { onRetry } = {}) {
   let envelope = null;
   let verdict = null;
-  for (let attempt = 0; attempt <= MAX_UNPARSABLE_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= DRIVER_CONFIG.maxUnparsableStageRetries; attempt++) {
     if (attempt > 0) onRetry?.(attempt);
     envelope = runReviewer(prompt, deps);
     if (envelope === null) return { envelope: null, verdict: null };

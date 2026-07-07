@@ -12,8 +12,7 @@
 // under the 500-line file-size rubric.
 
 // 運用パラメータは inner-loop-config.mjs に集約（ADR 0030 §5 · issue #118）
-import { MAX_PLAN_CHILDREN_VALIDATION_RETRIES } from './inner-loop-config.mjs';
-export { MAX_PLAN_CHILDREN_VALIDATION_RETRIES };
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 
 /**
  * Drop standalone `VERDICT: <TOKEN>` lines (driver 制御行は子 issue 本文や
@@ -200,7 +199,7 @@ export function buildPlanValidationFeedback(findings) {
  * @param {{ validation: { ok: boolean, findings?: string[] }, retriesUsed: number, maxRetries?: number }} p
  * @returns {{ action: 'file' | 'retry' } | { action: 'escalate', reason: string }}
  */
-export function decidePlanValidationAction({ validation, retriesUsed, maxRetries = MAX_PLAN_CHILDREN_VALIDATION_RETRIES }) {
+export function decidePlanValidationAction({ validation, retriesUsed, maxRetries = DRIVER_CONFIG.maxPlanChildrenValidationRetries }) {
   if (validation?.ok) return { action: 'file' };
   if (retriesUsed >= maxRetries) {
     return { action: 'escalate', reason: `plan format validation still failing after ${maxRetries} corrective retry round(s) — 修正周回上限超過` };

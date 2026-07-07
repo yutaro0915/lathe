@@ -5,7 +5,7 @@
 //   marker 付き PR コメント投稿）→ verdict 分岐:
 //     PASS    → gh pr merge --auto --squash（ここで初めて arm）
 //     CHANGES → 所見を IMPLEMENT へ差し戻し（同一 worktree 追い commit → push で
-//               PR 自動更新 → 再 review）。修正周回上限 MAX_LAND_REVIEW_REWORK_ROUNDS。
+//               PR 自動更新 → 再 review）。修正周回上限 DRIVER_CONFIG.maxLandReviewReworkRounds。
 //     超過・不正 verdict → 失敗を返し、driver が projectEscalation で issue へ投影。
 // reviewer の spawn・marker・verdict parse は review-engine.mjs の関数を再利用する
 // （重複実装しない）。engine 自体は非 driver 産 PR の記録係として不変（分類規則 4）。
@@ -35,9 +35,10 @@
 // 参照する LAND_PHASE 定数のみ持つ。
 
 import { spawnSync } from 'node:child_process';
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 import {
   REPO_ROOT, UNPARSABLE_VERDICT,
-  MAX_LAND_REVIEW_REWORK_ROUNDS, LAND_REVIEW_MANIFEST_STAGE, LAND_REWORK_MANIFEST_STAGE,
+  LAND_REVIEW_MANIFEST_STAGE, LAND_REWORK_MANIFEST_STAGE,
   runStageWithUnparsableRetry, buildManifestEntry, backendCostSourceForEnvelope, tailLines,
   extractFirstCommitMessage, splitCommitMessage, buildPrBodyWithCloses,
   buildPrCreateArgs, buildPrMergeArgs,
@@ -58,7 +59,7 @@ import { runStage } from './inner-loop-stage-runner.mjs';
  * @param {{ verdict: string|null, reworkRoundsUsed: number, maxReworkRounds?: number }} p
  * @returns {{ action: 'arm' | 'rework' } | { action: 'escalate', reason: string }}
  */
-export function decideLandReviewAction({ verdict, reworkRoundsUsed, maxReworkRounds = MAX_LAND_REVIEW_REWORK_ROUNDS }) {
+export function decideLandReviewAction({ verdict, reworkRoundsUsed, maxReworkRounds = DRIVER_CONFIG.maxLandReviewReworkRounds }) {
   if (verdict === 'PASS') return { action: 'arm' };
   if (verdict === 'CHANGES') {
     if (reworkRoundsUsed >= maxReworkRounds) {
@@ -162,7 +163,7 @@ export function landBranch(branch, issueNumber, deps = {}) {
 }
 
 export function landBranchWithReview(
-  { branch, issueNumber, worktreePath, issue = null, planText = null, backend = 'claude', maxReworkRounds = MAX_LAND_REVIEW_REWORK_ROUNDS },
+  { branch, issueNumber, worktreePath, issue = null, planText = null, backend = 'claude', maxReworkRounds = DRIVER_CONFIG.maxLandReviewReworkRounds },
   deps = {},
 ) {
   const run = deps.spawnSync ?? spawnSync;

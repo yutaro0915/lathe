@@ -21,11 +21,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  MAX_UNPARSABLE_STAGE_RETRIES,
-  MAX_PLAN_REVIEW_RETRIES,
-  MAX_LAND_REVIEW_REWORK_ROUNDS,
-} from './inner-loop-config.mjs';
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(__dirname, '..');
@@ -35,9 +31,6 @@ export const INNER_SETTINGS_PATH = join(REPO_ROOT, '.claude', 'settings.json'); 
 
 export const VALID_VERDICT_TOKENS = ['PLAN_READY', 'ASK_PDM', 'IMPL_DONE', 'ESCALATE', 'PASS', 'RED'];
 export const UNPARSABLE_VERDICT = 'UNPARSABLE';
-// 運用パラメータは inner-loop-config.mjs に集約（ADR 0030 §5 · issue #118）
-export { MAX_UNPARSABLE_STAGE_RETRIES, MAX_PLAN_REVIEW_RETRIES, MAX_LAND_REVIEW_REWORK_ROUNDS };
-
 export const NEEDS_PLAN_LABEL = 'needs-plan';
 export const NEEDS_REVIEW_LABEL = 'needs-review';
 export const TASK_REQUEST_LABEL = 'task-request';
@@ -101,7 +94,7 @@ export function runStageWithUnparsableRetry({
   runAttempt,
   recordAttempt,
   onRetry,
-  maxRetries = MAX_UNPARSABLE_STAGE_RETRIES,
+  maxRetries = DRIVER_CONFIG.maxUnparsableStageRetries,
 }) {
   if (typeof runAttempt !== 'function') throw new TypeError('runAttempt is required');
   if (typeof recordAttempt !== 'function') throw new TypeError('recordAttempt is required');
@@ -418,7 +411,7 @@ export function decideResumeState({ stages, worktree }) {
 
     if (isUnparsableManifestVerdict(verdict)) {
       unparsableAttemptsForState += 1;
-      if (unparsableAttemptsForState > MAX_UNPARSABLE_STAGE_RETRIES) {
+      if (unparsableAttemptsForState > DRIVER_CONFIG.maxUnparsableStageRetries) {
         return { ok: false, reason: `unparsable retry exhausted for ${entry.stage}` };
       }
       continue;
