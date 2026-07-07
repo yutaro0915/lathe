@@ -78,3 +78,18 @@ Ready = 「人間の読解・判断が完了した。機械は続行せよ」。
 ④ 教材自動生成の結線 ⑤ label 整理・文書追随（loops.md／plan-format.md／#118 統合）。
 **移行期特例**: 本 ADR の実装 task 群自体は骨子＝承認済み plan（#180・#181）とみなし、
 現行 driver（#116 形）で流してよい。盤面完成後は新レールに従う。
+
+## 追記（2026-07-07 PdM 裁定・review の merge 前置）
+
+「review 前に merge され得る」設計（#116 実装時の監査役裁定 1 = arm は PR 作成時）を**差し戻す**。
+review は GitHub 機構としては non-blocking のまま（required review は単一アカウントで deadlock
+= ADR 0028）だが、**driver が順序で前置を担保する**:
+
+- LAND 段の順序: push → `gh pr create`（**arm しない**）→ reviewer を spawn（diff review・
+  結果を PR コメントに記録）→ **PASS なら `gh pr merge --auto` を arm ／ CHANGES なら
+  IMPLEMENT へ差し戻し（修正周回・上限 2）→ 超過で escalation**
+- reviewer の応答不能・不正 verdict は既存の retry → escalation 系に合流（merge を宙吊りに
+  しない: 全ての出口が arm か差し戻しか escalation のいずれかに落ちる）
+- review engine（#128）は driver 経由でない PR（監査役の ADR PR 等）の記録係として存続
+- 単一ゲート原則との整合: main の機械ゲートは引き続き CI のみ。本追記は「駆動側の順序」で
+  あり、GitHub 上の第二ゲートを作らない（ADR 0026 §1 不変）
