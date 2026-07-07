@@ -4,9 +4,13 @@
 // 背景（2026-07-07 PdM 指示）: 監査役が PdM の明示承認なく issue を起票する違反が
 // 2 度発生した（#190・#193）。「起票は PdM の明示承認のもとでのみ」を行動規範でなく
 // 機械で担保する。permissionDecision=ask により対話セッションでは確認プロンプトが
-// ユーザーに飛び、headless（claude -p の agent）では ask は自動拒否となる——
-// つまり agent は構造的に issue を起票できない（起票の機械経路は driver の
-// spawnSync 直呼びのみで、それは hook の外＝設計どおり）。
+// ユーザーに飛び、headless（claude -p の agent）では ask は自動拒否となる。
+//
+// スコープ（2026-07-07 PdM 恒久裁定・#201 comment）: 本ゲートの対象は **loop 外の起票**
+// （outer が会話からユーザー意図を issue 化する場合）のみ。loop 内の機械起票——承認済み
+// plan からの FILE_CHILDREN・escalation の issue 化・orchestrator の投函（いずれも driver の
+// spawnSync 直呼び＝hook の外）——は親の承認で正当化済みで、個別承認は不要。planner が
+// in-loop filing のために ASK_PDM で止まる必要も無い。
 //
 // 検出対象:
 //   - gh issue create …
