@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "node .claude/hooks/issue-create-guard.mjs", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

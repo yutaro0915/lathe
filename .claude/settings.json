@@ -23,11 +23,6 @@
             "type": "command",
             "command": "node .claude/hooks/git-guard.mjs",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node .claude/hooks/issue-create-guard.mjs",
-            "timeout": 10
           }
         ]
       }
