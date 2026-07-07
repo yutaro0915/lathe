@@ -27,12 +27,12 @@ import {
   detectMainDirty, resolveResumeBackend,
   detectHollowImplement,
 } from './inner-loop-backends.mjs';
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 import {
   REPO_ROOT,
   TASK_LOOP_STAGES, TASK_LOOP_TERMINAL,
   UNPARSABLE_VERDICT, WORKTREE_DEPS_INSTALL_ARGS,
-  MAX_PLAN_REVIEW_RETRIES, NEEDS_REVIEW_LABEL,
-  MAX_LAND_REVIEW_REWORK_ROUNDS,
+  NEEDS_REVIEW_LABEL,
   parseDriverArgsWith, selectRunType, nextState,
   runStageWithUnparsableRetry,
   buildManifestEntry, buildManifest, manifestPathFor, backendCostSourceForEnvelope, readManifestStages,
@@ -282,7 +282,7 @@ function dryRunTaskLoop(issueNumber, issue, backendFlags) {
   log(hasNeedsReviewLabel(issue)
     ? `dry-run: needs-review=YES — queue skips unless Projects Status=Ready (ADR 0035 §1)`
     : `dry-run: needs-review=NO — zero human gate (ADR 0035 §1)`);
-  log(`dry-run: PLAN_REVIEW RED → retry TASK_PLAN max=${MAX_PLAN_REVIEW_RETRIES}; exhausted → needs-review+escalation labels, stop (ADR 0035 §5)`);
+  log(`dry-run: PLAN_REVIEW RED → retry TASK_PLAN max=${DRIVER_CONFIG.maxPlanReviewRetries}; exhausted → needs-review+escalation labels, stop (ADR 0035 §5)`);
   log(`dry-run: Projects: In progress on start / In review at PR creation (non-fatal); plan-format ${planFormat.length} chars injected into TASK_PLAN fail-closed`);
   log(`dry-run: worktree ${wtPath} on ${wtBranch}; pnpm install failure → P3 fallback`);
   for (const stage of TASK_LOOP_STAGES) {
@@ -293,7 +293,7 @@ function dryRunTaskLoop(issueNumber, issue, backendFlags) {
     logDryRunStage(stage, backendFlags, cwd, buildStagePrompt(stage, ctx));
   }
   log(`dry-run: LAND — push → gh pr create (Closes #${issueNumber}, arm しない) → reviewer spawn (PR diff＋plan 照合・marker 付き PR comment) → PASS で gh pr merge --auto --squash (#201 分解 11)`);
-  log(`dry-run: LAND — CHANGES → 所見注入 rework（同一 worktree 追い commit → push で PR 自動更新）→ 再 review（前回所見＋前回 head からの差分）。修正周回上限 ${MAX_LAND_REVIEW_REWORK_ROUNDS}・超過/不正 verdict → escalation (#201 分解 12 / #188)`);
+  log(`dry-run: LAND — CHANGES → 所見注入 rework（同一 worktree 追い commit → push で PR 自動更新）→ 再 review（前回所見＋前回 head からの差分）。修正周回上限 ${DRIVER_CONFIG.maxLandReviewReworkRounds}・超過/不正 verdict → escalation (#201 分解 12 / #188)`);
   log('dry-run: TASK_PLAN PLAN_READY->PLAN_REVIEW, PLAN_REVIEW PASS->IMPLEMENT, IMPL_DONE->LAND, RED->retry, unparsable->retry once then ESCALATE');
 }
 
@@ -326,7 +326,7 @@ if (isMain) {
     log(`dry-run: resume issue #${issueNumber} from ${manifestPathFor({ kind: 'issue', id: issueNumber })}`);
     log(`dry-run: skipped=${resumeState.skipped.length ? resumeState.skipped.join(',') : '(none)'} next=${resumeState.state} head=${resumeState.headSha ?? '(none)'}`);
     if (resumeState.state === TASK_LOOP_TERMINAL) {
-      log(`dry-run: ${TASK_LOOP_TERMINAL} — land ${resumeState.branch}: push → PR 確保 (既存 open PR 再利用 or gh pr create, Closes #${issueNumber}, arm しない) → review 周回 (PASS で gh pr merge --auto --squash／CHANGES 差し戻し上限 ${MAX_LAND_REVIEW_REWORK_ROUNDS}) (from repo root)`);
+      log(`dry-run: ${TASK_LOOP_TERMINAL} — land ${resumeState.branch}: push → PR 確保 (既存 open PR 再利用 or gh pr create, Closes #${issueNumber}, arm しない) → review 周回 (PASS で gh pr merge --auto --squash／CHANGES 差し戻し上限 ${DRIVER_CONFIG.maxLandReviewReworkRounds}) (from repo root)`);
       process.exit(0);
     }
     const backend = selectBackend(resumeState.state, backendFlags);
@@ -435,9 +435,9 @@ if (isMain) {
     }
     if (state === 'PLAN_REVIEW' && verdict === 'RED') { // retry TASK_PLAN with 所見注入 (#192 Major#2) or label+stop (ADR 0035 §5)
       planReviewFeedback = envelope.result ?? '';
-      if (++planReviewRetries <= MAX_PLAN_REVIEW_RETRIES) { log(`PLAN_REVIEW RED → retry TASK_PLAN (${planReviewRetries}/${MAX_PLAN_REVIEW_RETRIES})`); state = 'TASK_PLAN'; continue; }
+      if (++planReviewRetries <= DRIVER_CONFIG.maxPlanReviewRetries) { log(`PLAN_REVIEW RED → retry TASK_PLAN (${planReviewRetries}/${DRIVER_CONFIG.maxPlanReviewRetries})`); state = 'TASK_PLAN'; continue; }
       spawnSync('gh', ['issue', 'edit', String(issueNumber), '--add-label', NEEDS_REVIEW_LABEL], { cwd: REPO_ROOT, stdio: 'inherit' }); // escalation label は escalateIssue が付与
-      escalateIssue(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${MAX_PLAN_REVIEW_RETRIES} retries.\n\n${envelope.result ?? ''}`);
+      escalateIssue(issueNumber, 'PLAN_REVIEW', 'RED', `RED after ${DRIVER_CONFIG.maxPlanReviewRetries} retries.\n\n${envelope.result ?? ''}`);
       state = 'ESCALATE'; break;
     }
 
@@ -469,7 +469,7 @@ if (isMain) {
   }
   log(`backstop: main working tree clean — proceeding with landing.`);
 
-  log(`landing branch ${branch}: push → PR 確保 (Closes #${issueNumber}, arm しない) → review 前置 (PASS で arm／CHANGES 差し戻し上限 ${MAX_LAND_REVIEW_REWORK_ROUNDS}) (#201 分解 11-12)`);
+  log(`landing branch ${branch}: push → PR 確保 (Closes #${issueNumber}, arm しない) → review 前置 (PASS で arm／CHANGES 差し戻し上限 ${DRIVER_CONFIG.maxLandReviewReworkRounds}) (#201 分解 11-12)`);
   trySetProjectStatus(issueNumber, PROJECTS_STATUS_NAMES.InReview, { log });
   const landBackendFallback = resume
     ? (resolveResumeBackend(readManifestStages(manifestPathFor({ kind: 'issue', id: issueNumber }))) ?? 'claude')

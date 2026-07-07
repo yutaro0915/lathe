@@ -21,6 +21,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(__dirname, '..');
@@ -30,21 +31,11 @@ export const INNER_SETTINGS_PATH = join(REPO_ROOT, '.claude', 'settings.json'); 
 
 export const VALID_VERDICT_TOKENS = ['PLAN_READY', 'ASK_PDM', 'IMPL_DONE', 'ESCALATE', 'PASS', 'RED'];
 export const UNPARSABLE_VERDICT = 'UNPARSABLE';
-export const MAX_UNPARSABLE_STAGE_RETRIES = 1;
-
 export const NEEDS_PLAN_LABEL = 'needs-plan';
 export const NEEDS_REVIEW_LABEL = 'needs-review';
 export const TASK_REQUEST_LABEL = 'task-request';
 // escalation の issue 化 (#201 分解 6): driver が投影し、queue が skip する label。
 export const ESCALATION_LABEL = 'escalation';
-
-// Maximum PLAN_REVIEW RED-verdict retries before labelling needs-review +
-// escalation and stopping (ADR 0035 §5).
-export const MAX_PLAN_REVIEW_RETRIES = 2;
-
-// LAND review 前置 (#201 分解 11-12 / #188): CHANGES 差し戻しの修正周回上限
-// （超過は escalation — 分岐は inner-loop-land.mjs decideLandReviewAction）。
-export const MAX_LAND_REVIEW_REWORK_ROUNDS = 2;
 // Manifest-only stage names for the LAND review phase: observability records
 // (cost/session/verdict), not resume checkpoints (decideResumeState excludes them).
 export const LAND_REVIEW_MANIFEST_STAGE = 'LAND_REVIEW';
@@ -103,7 +94,7 @@ export function runStageWithUnparsableRetry({
   runAttempt,
   recordAttempt,
   onRetry,
-  maxRetries = MAX_UNPARSABLE_STAGE_RETRIES,
+  maxRetries = DRIVER_CONFIG.maxUnparsableStageRetries,
 }) {
   if (typeof runAttempt !== 'function') throw new TypeError('runAttempt is required');
   if (typeof recordAttempt !== 'function') throw new TypeError('recordAttempt is required');
@@ -420,7 +411,7 @@ export function decideResumeState({ stages, worktree }) {
 
     if (isUnparsableManifestVerdict(verdict)) {
       unparsableAttemptsForState += 1;
-      if (unparsableAttemptsForState > MAX_UNPARSABLE_STAGE_RETRIES) {
+      if (unparsableAttemptsForState > DRIVER_CONFIG.maxUnparsableStageRetries) {
         return { ok: false, reason: `unparsable retry exhausted for ${entry.stage}` };
       }
       continue;

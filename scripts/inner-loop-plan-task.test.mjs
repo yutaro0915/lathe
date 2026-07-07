@@ -3,13 +3,13 @@
 // gh issue create wiring, and terminal comment builders.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 import {
   parseBlockedByLine,
   parsePlanChildBlocks,
   validatePlanChildBlocks,
   buildPlanValidationFeedback,
   decidePlanValidationAction,
-  MAX_PLAN_CHILDREN_VALIDATION_RETRIES,
   resolvePlanChildDependency,
   buildChildIssueBody,
   parseCreatedIssueNumber,
@@ -162,12 +162,12 @@ test('decidePlanValidationAction: ok -> file（周回数に依らない）', () 
 });
 
 test('decidePlanValidationAction: NG かつ周回残あり -> retry（上限 1）', () => {
-  assert.equal(MAX_PLAN_CHILDREN_VALIDATION_RETRIES, 1);
+  assert.equal(DRIVER_CONFIG.maxPlanChildrenValidationRetries, 1);
   assert.deepEqual(decidePlanValidationAction({ validation: { ok: false, findings: ['x'] }, retriesUsed: 0 }), { action: 'retry' });
 });
 
 test('decidePlanValidationAction: NG かつ上限到達 -> escalate', () => {
-  const result = decidePlanValidationAction({ validation: { ok: false, findings: ['x'] }, retriesUsed: MAX_PLAN_CHILDREN_VALIDATION_RETRIES });
+  const result = decidePlanValidationAction({ validation: { ok: false, findings: ['x'] }, retriesUsed: DRIVER_CONFIG.maxPlanChildrenValidationRetries });
   assert.equal(result.action, 'escalate');
   assert.match(result.reason, /修正周回上限超過/);
 });

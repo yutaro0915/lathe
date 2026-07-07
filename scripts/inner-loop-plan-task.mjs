@@ -19,6 +19,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 import { buildStagePrompt } from './inner-loop-prompts.mjs';
 import { selectBackend } from './inner-loop-backends.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
@@ -32,7 +33,6 @@ import {
   readManifestStages, tailLines, parseBlockedBy,
 } from './inner-loop-core.mjs';
 import {
-  MAX_PLAN_CHILDREN_VALIDATION_RETRIES,
   stripVerdictLine, parsePlanChildBlocks,
   validatePlanChildBlocks, buildPlanValidationFeedback, decidePlanValidationAction,
 } from './inner-loop-plan-validate.mjs';
@@ -40,7 +40,6 @@ import {
 // FILE_CHILDREN の書式検証層（#201 Wave4）は inner-loop-plan-validate.mjs が
 // 正本（純関数・file-size rubric のための分離）。既存 importer 向けに再輸出。
 export {
-  MAX_PLAN_CHILDREN_VALIDATION_RETRIES,
   parseBlockedByLine, parsePlanChildBlocks,
   validatePlanChildBlocks, buildPlanValidationFeedback, decidePlanValidationAction,
 } from './inner-loop-plan-validate.mjs';
@@ -371,7 +370,7 @@ export function dryRunPlanTask(issueNumber, issue, backendFlags) {
   }
   log(`dry-run: ${PLAN_TASK_TERMINAL} — validate child blocks (validatePlanChildBlocks: Title/Blocked-by/Touches + plan#<k> 後方参照のみ), gh issue create --label ${TASK_REQUEST_LABEL} per block (body carries blocked-by #${issueNumber} + resolved plan#<k> refs), then gh issue close ${issueNumber} --reason completed --comment '<confirmed plan + children>'`);
   log('dry-run: ASK_PDM — post the options as an issue comment and exit 0 with the source issue left open (正常終端)');
-  log(`dry-run: transition plan — PLAN_READY->validate->FILE_CHILDREN (format RED -> 所見を PLAN へ差し戻して再試行、上限 ${MAX_PLAN_CHILDREN_VALIDATION_RETRIES}・再 RED -> ESCALATE), ASK_PDM->ASK_PDM (normal terminal), missing/unparsable VERDICT->same stage retry once then ESCALATE`);
+  log(`dry-run: transition plan — PLAN_READY->validate->FILE_CHILDREN (format RED -> 所見を PLAN へ差し戻して再試行、上限 ${DRIVER_CONFIG.maxPlanChildrenValidationRetries}・再 RED -> ESCALATE), ASK_PDM->ASK_PDM (normal terminal), missing/unparsable VERDICT->same stage retry once then ESCALATE`);
 }
 
 /**
@@ -460,7 +459,7 @@ export function runPlanTask(issueNumber, issue, backendFlags, deps = {}) {
         if (action.action === 'retry') {
           validationRetriesUsed += 1;
           validationFeedback = feedback;
-          logFn(`plan-task stage=${state} verdict=${verdict} -> ${PLAN_TASK_TERMINAL} format validation RED (${validation.findings.length} finding(s)) — PLAN へ差し戻して再試行 (${validationRetriesUsed}/${MAX_PLAN_CHILDREN_VALIDATION_RETRIES})`);
+          logFn(`plan-task stage=${state} verdict=${verdict} -> ${PLAN_TASK_TERMINAL} format validation RED (${validation.findings.length} finding(s)) — PLAN へ差し戻して再試行 (${validationRetriesUsed}/${DRIVER_CONFIG.maxPlanChildrenValidationRetries})`);
           state = PLAN_TASK_STAGES[0];
           continue;
         }

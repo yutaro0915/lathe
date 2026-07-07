@@ -11,10 +11,8 @@
 // (which re-exports the parse API for existing importers) to keep both files
 // under the 500-line file-size rubric.
 
-// FILE_CHILDREN 書式検証 NG → PLAN 差し戻しの修正周回上限。planner の書式逸脱
-// を escalate 即死させず、所見を注入した informed retry を 1 周だけ許す。
-// 再 NG は escalation（分岐は decidePlanValidationAction）。
-export const MAX_PLAN_CHILDREN_VALIDATION_RETRIES = 1;
+// 運用パラメータは inner-loop-config.mjs に集約（ADR 0030 §5 · issue #118）
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 
 /**
  * Drop standalone `VERDICT: <TOKEN>` lines (driver 制御行は子 issue 本文や
@@ -201,7 +199,7 @@ export function buildPlanValidationFeedback(findings) {
  * @param {{ validation: { ok: boolean, findings?: string[] }, retriesUsed: number, maxRetries?: number }} p
  * @returns {{ action: 'file' | 'retry' } | { action: 'escalate', reason: string }}
  */
-export function decidePlanValidationAction({ validation, retriesUsed, maxRetries = MAX_PLAN_CHILDREN_VALIDATION_RETRIES }) {
+export function decidePlanValidationAction({ validation, retriesUsed, maxRetries = DRIVER_CONFIG.maxPlanChildrenValidationRetries }) {
   if (validation?.ok) return { action: 'file' };
   if (retriesUsed >= maxRetries) {
     return { action: 'escalate', reason: `plan format validation still failing after ${maxRetries} corrective retry round(s) — 修正周回上限超過` };

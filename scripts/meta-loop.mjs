@@ -12,9 +12,10 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 import {
   buildManifestEntry,
-  UNPARSABLE_VERDICT, MAX_UNPARSABLE_STAGE_RETRIES,
+  UNPARSABLE_VERDICT,
   tailLines, backendCostSourceForEnvelope,
 } from './inner-loop.mjs';
 
@@ -226,7 +227,7 @@ export function runMetaStageWithRetry({
   runAttempt,
   recordAttempt,
   onRetry,
-  maxRetries = MAX_UNPARSABLE_STAGE_RETRIES,
+  maxRetries = DRIVER_CONFIG.maxUnparsableStageRetries,
 } = {}) {
   if (typeof runAttempt !== 'function') throw new TypeError('runAttempt is required');
   if (typeof recordAttempt !== 'function') throw new TypeError('recordAttempt is required');

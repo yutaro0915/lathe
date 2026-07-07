@@ -9,8 +9,8 @@ import {
   extractLatestPlanCommentText,
   landBranchWithReview,
 } from './inner-loop-land.mjs';
+import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 import {
-  MAX_LAND_REVIEW_REWORK_ROUNDS,
   LAND_REVIEW_MANIFEST_STAGE,
   LAND_REWORK_MANIFEST_STAGE,
 } from './inner-loop-core.mjs';
@@ -19,7 +19,7 @@ import {
 
 test('decideLandReviewAction: PASS -> arm regardless of rounds used', () => {
   assert.deepEqual(decideLandReviewAction({ verdict: 'PASS', reworkRoundsUsed: 0 }), { action: 'arm' });
-  assert.deepEqual(decideLandReviewAction({ verdict: 'PASS', reworkRoundsUsed: MAX_LAND_REVIEW_REWORK_ROUNDS }), { action: 'arm' });
+  assert.deepEqual(decideLandReviewAction({ verdict: 'PASS', reworkRoundsUsed: DRIVER_CONFIG.maxLandReviewReworkRounds }), { action: 'arm' });
 });
 
 test('decideLandReviewAction: CHANGES under the limit -> rework (上限 2 周)', () => {
@@ -225,7 +225,7 @@ test('landBranchWithReview: CHANGES が上限を超えたら escalate（arm し�
   assert.match(result.excerpt, /可追跡/);
   // 3 reviews (初回 + 再 review 2), 2 reworks, arm なし
   assert.equal(f.reviewerCalls(), 3);
-  assert.equal(f.reworkCalls.length, MAX_LAND_REVIEW_REWORK_ROUNDS);
+  assert.equal(f.reworkCalls.length, DRIVER_CONFIG.maxLandReviewReworkRounds);
   assert.equal(f.posted.length, 3);
   assert.ok(!f.calls.some((c) => c.key === 'gh pr merge'));
 });
