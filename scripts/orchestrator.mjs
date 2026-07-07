@@ -48,6 +48,7 @@ import {
   parseInnerIssueWorktrees, parseTaskRunHints, pathsOverlap,
 } from './inner-queue-decisions.mjs';
 import { beginPassLog } from './orchestrator-logs.mjs';
+import { syncWithOriginMain } from './orchestrator-sync.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
 const RUNS_DIR = join(REPO_ROOT, '.lathe', 'runs');
@@ -406,6 +407,7 @@ if (isMain) {
   }
 
   try {
+    { const s = syncWithOriginMain(); if (s.ok) log('self-update: synced with origin/main'); else log(`warning: self-update skipped: ${s.reason}`); } // ⓪ self-update（ff-only・非致命・次パスから有効）
     // ① derive（保存しない）
     const derived = deriveSnapshot();
     if (!derived.ok) die(derived.reason);
@@ -425,13 +427,11 @@ if (isMain) {
       for (const [issueNumber] of parseInnerIssueWorktrees(wt.stdout)) running.issues.add(issueNumber);
     }
 
-    // ② classify（決定的・分類表は常に表示）。教材 evidence は label（derive 済み）に
-    // 加えて explains/ の対象 slug 正本（#201 分解 13 — 重複生成防止の第 2 層）。
+    // ② classify（決定的・分類表は常に表示）: explains/ 正本（#201 分解 13）で重複生成防止。
     const explainedIssueNumbers = explainedIssueNumbersFrom(listExplainFileNames());
     const decisions = classifyAll(snapshot, running, { explainedIssueNumbers });
     for (const decision of decisions) log(formatDecision(decision));
     const dispatches = decisions.filter((d) => isDispatchClass(d.class));
-
     // done-explain repair（非致命・#201 分解 13）: explains/ 正本あり × label なしの自己修復。
     const repairs = selectDoneExplainRepairs(decisions, explainedIssueNumbers);
 
