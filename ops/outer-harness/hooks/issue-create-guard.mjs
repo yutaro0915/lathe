@@ -16,36 +16,51 @@
 //   - gh issue create …
 //   - gh api（POST）… repos/<o>/<r>/issues 終端（comment/label の /issues/<n>/… は対象外）
 //   - GraphQL createIssue mutation
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
-const chunks = [];
-for await (const c of process.stdin) chunks.push(c);
-let input = {};
-try {
-  input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-} catch {
+/**
+ * issue 起票コマンドの検出と確認要求。純関数（副作用なし）。
+ * @param {{ tool_input?: { command?: string } }} input  PreToolUse hook payload
+ * @returns {{ decision: 'ask', reason: string } | null}  ask = 確認要求 / null = 素通し
+ */
+export function decideIssueCreate(input) {
+  const cmd = String(input?.tool_input?.command ?? '');
+  const isGhIssueCreate = /\bgh\s+issue\s+create\b/.test(cmd);
+  const isRestCreate =
+    /\bgh\s+api\b/.test(cmd) &&
+    /(-X\s*POST|--method[=\s]*POST)/.test(cmd) &&
+    /repos\/[^\s/'"]+\/[^\s/'"]+\/issues(?=['"\s]|$)/.test(cmd);
+  const isGraphqlCreate = /createIssue\s*\(/.test(cmd);
+  if (!(isGhIssueCreate || isRestCreate || isGraphqlCreate)) return null;
+  return {
+    decision: 'ask',
+    reason:
+      'issue 起票の確認: ユーザー（PdM）の明確な承認をこの起票について得ましたか？' +
+      '承認のない起票は禁止です（2026-07-07 PdM 指示・違反実績 #190/#193）。',
+  };
+}
+
+// スクリプト本体（stdin → JSON stdout）— import 時は実行しない（top-level I/O を guard）
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  let input = {};
+  try {
+    input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    process.exit(0);
+  }
+  const result = decideIssueCreate(input);
+  if (!result) process.exit(0);
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: result.decision,
+        permissionDecisionReason: result.reason,
+      },
+    }),
+  );
   process.exit(0);
 }
-const cmd = String(input?.tool_input?.command ?? '');
-
-const isGhIssueCreate = /\bgh\s+issue\s+create\b/.test(cmd);
-const isRestCreate =
-  /\bgh\s+api\b/.test(cmd) &&
-  /(-X\s*POST|--method[=\s]*POST)/.test(cmd) &&
-  /repos\/[^\s/'"]+\/[^\s/'"]+\/issues(?=['"\s]|$)/.test(cmd);
-const isGraphqlCreate = /createIssue\s*\(/.test(cmd);
-
-if (!(isGhIssueCreate || isRestCreate || isGraphqlCreate)) process.exit(0);
-
-process.stdout.write(
-  JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'ask',
-      permissionDecisionReason:
-        'issue 起票の確認: ユーザー（PdM）の明確な承認をこの起票について得ましたか？' +
-        '承認のない起票は禁止です（2026-07-07 PdM 指示・違反実績 #190/#193）。',
-    },
-  }),
-);
-process.exit(0);
