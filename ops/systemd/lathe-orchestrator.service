@@ -1,0 +1,47 @@
+[Unit]
+Description=Lathe Orchestrator — one-shot pass (#234)
+# launchd StartInterval 300 の systemd 等価。timer が 5 分間隔で本 unit を起動する。
+# SocketActivation 不使用・podman.socket は orchestrator が必要な場合だけ自己起動。
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# ── 実行 ──────────────────────────────────────────────────────────────────
+# @@NODE@@ = case-setup.sh が nix build/path-info で解決した絶対パス
+#   （nix store hash は NixOS rebuild で変化するため直書き禁止、case-setup.sh に委譲）
+# 絶対パス必須: orchestrator.mjs は fileURLToPath(import.meta.url) === argv[1] で
+#   isMain を判定するため相対パスだと main が走らない（launchd plist コメントと同じ理由）。
+ExecStart=@@NODE@@ /home/cherie/lathe/scripts/orchestrator.mjs --max 5
+
+WorkingDirectory=/home/cherie/lathe
+
+# ── 環境変数 ──────────────────────────────────────────────────────────────
+# NixOS user systemd は login shell PATH を継がない。
+# 以下は NixOS 標準の user session PATH（実測: 2026-07-07-case-environment.md §PATH）。
+# node 自体は ExecStart に絶対パスを使うためここに不要。
+# gh / claude は ~/.nix-profile/bin 経由でアクセス可（nix profile install 済み前提）。
+Environment=PATH=/run/wrappers/bin:/home/cherie/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin
+
+# claude OAuth token。mac と異なりシステム Keychain が無いため環境変数で注入。
+# case-setup.sh が ~/.config/lathe/env を生成し、値は oauth-token ファイルから読む。
+EnvironmentFile=-/home/cherie/.config/lathe/env
+
+# ── ログ ─────────────────────────────────────────────────────────────────
+# launchd StandardOutPath/StandardErrorPath の等価。
+# `append` モード = launchd の O_APPEND と同じ追記挙動。
+# ディレクトリと rotate は case-setup.sh と orchestrator (beginPassLog) が担う。
+StandardOutput=append:/home/cherie/lathe/.lathe/logs/orchestrator.log
+StandardError=append:/home/cherie/lathe/.lathe/logs/orchestrator.log
+
+# ── 二重起動・単一インスタンス保証 ───────────────────────────────────────
+# Type=oneshot: service が exit するまで次の timer 発火は pending になる（並列起動不可）。
+# RefuseManualStart: `systemctl --user start` での timer 外起動を拒否し
+#   5 分間隔の不変条件を機械的に強制する。即時 1 パスが必要な場合は
+#   `systemctl --user start lathe-orchestrator.timer` を使うか
+#   node /home/cherie/lathe/scripts/orchestrator.mjs --max 5 を直接実行する。
+RefuseManualStart=yes
+
+[Install]
+WantedBy=default.target
