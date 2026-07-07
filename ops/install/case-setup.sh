@@ -2,13 +2,13 @@
 # case-setup.sh — Lathe Orchestrator を case（NixOS）の systemd user unit として導入・検証する。
 #
 # 用途: ops/systemd/ の service/timer を ~/.config/systemd/user/ へ展開し、
-#       node の nix store パスを解決して @@NODE@@ プレースホルダを置換する。
-#       冪等（2 回実行しても差分が生じない）。
+#       node の nix store パスと login-shell PATH・REPO_ROOT・LOG_DIR を解決して
+#       {{PLACEHOLDER}} を置換する。冪等（2 回実行しても差分が生じない）。
 #
 # 実行: bash ops/install/case-setup.sh
 #   --check のみ: bash ops/install/case-setup.sh --check  （インストールせず現状確認のみ）
 #
-# 依存: NixOS + systemd user session、nix コマンド、gh 認証済み
+# 依存: NixOS + systemd user session、nix コマンド
 # 実設置: plan#6（recon 結果に基づき人間が判断して実行）
 set -euo pipefail
 
@@ -20,8 +20,6 @@ UNIT_DEST_DIR="${HOME}/.config/systemd/user"
 UNIT_SERVICE="lathe-orchestrator.service"
 UNIT_TIMER="lathe-orchestrator.timer"
 LOG_DIR="${REPO_ROOT}/.lathe/logs"
-ENV_FILE="${HOME}/.config/lathe/env"
-OAUTH_TOKEN_FILE="${HOME}/.config/claude-code/oauth-token"
 
 CHECK_ONLY=false
 if [[ "${1:-}" == "--check" ]]; then
@@ -54,6 +52,22 @@ resolve_node() {
   echo "$node_bin"
 }
 
+# ── login-shell PATH 取得 ─────────────────────────────────────────────────
+# NixOS user systemd は login-shell PATH を継がない。
+# plan §4: recon は完全 PATH 文字列を未記録のため guess をコミットせず、
+#           install 時に login-shell の $PATH を capture して {{LOGIN_PATH}} を置換する。
+resolve_login_path() {
+  # bash -l で login-shell を起動し PATH を取得
+  local login_path
+  login_path=$(bash -lc 'echo "$PATH"' 2>/dev/null) || login_path=""
+  if [[ -z "$login_path" ]]; then
+    # fallback: 現在の PATH
+    warn "login-shell PATH の取得に失敗しました。現在の PATH を使用します。"
+    login_path="$PATH"
+  fi
+  echo "$login_path"
+}
+
 # ── --check モード ────────────────────────────────────────────────────────
 check_status() {
   log "=== 現状確認 ==="
@@ -66,12 +80,13 @@ check_status() {
     log "timer enabled: no"
   fi
   log "log dir: ${LOG_DIR} $([ -d "${LOG_DIR}" ] && echo '(存在)' || echo '(未作成)')"
-  log "env file: ${ENV_FILE} $([ -f "${ENV_FILE}" ] && echo '(存在)' || echo '(未作成)')"
   node_bin=$(resolve_node 2>/dev/null || echo "NOT_FOUND")
   log "node: ${node_bin}"
   if [[ "$node_bin" != "NOT_FOUND" ]]; then
     log "  version: $("$node_bin" --version 2>/dev/null || echo '?')"
   fi
+  log "REPO_ROOT: ${REPO_ROOT}"
+  log "LOGIN_PATH: $(resolve_login_path)"
 }
 
 if $CHECK_ONLY; then
@@ -84,17 +99,32 @@ log "node パスを解決中..."
 NODE=$(resolve_node)
 log "  → ${NODE} ($(${NODE} --version))"
 
+# ── login-shell PATH 取得 ─────────────────────────────────────────────────
+log "login-shell PATH を取得中..."
+LOGIN_PATH=$(resolve_login_path)
+log "  → ${LOGIN_PATH}"
+
 # ── ディレクトリ作成 ──────────────────────────────────────────────────────
 log "ディレクトリを確認・作成..."
-mkdir -p "${UNIT_DEST_DIR}" "${LOG_DIR}" "${HOME}/.config/lathe"
+mkdir -p "${UNIT_DEST_DIR}" "${LOG_DIR}"
 
-# ── service ファイル生成（@@NODE@@ を解決済みパスで置換）────────────────────
+# ── service ファイル生成（{{PLACEHOLDER}} を解決済みの値で置換）──────────────
+# 置換対象:
+#   {{NODE_BIN}}   = nix store パスで解決した node 絶対パス
+#   {{REPO_ROOT}}  = スクリプト位置 ../.. から動的解決したリポジトリルート
+#   {{LOG_DIR}}    = ${REPO_ROOT}/.lathe/logs
+#   {{LOGIN_PATH}} = login-shell から capture した PATH 文字列
 SRC_SERVICE="${UNIT_SRC_DIR}/${UNIT_SERVICE}"
 DEST_SERVICE="${UNIT_DEST_DIR}/${UNIT_SERVICE}"
 
 log "service ファイルを生成中..."
 [[ -f "$SRC_SERVICE" ]] || die "テンプレートが見つかりません: ${SRC_SERVICE}"
-sed "s|@@NODE@@|${NODE}|g" "${SRC_SERVICE}" > "${DEST_SERVICE}"
+sed \
+  -e "s|{{NODE_BIN}}|${NODE}|g" \
+  -e "s|{{REPO_ROOT}}|${REPO_ROOT}|g" \
+  -e "s|{{LOG_DIR}}|${LOG_DIR}|g" \
+  -e "s|{{LOGIN_PATH}}|${LOGIN_PATH}|g" \
+  "${SRC_SERVICE}" > "${DEST_SERVICE}"
 log "  → ${DEST_SERVICE}"
 
 # ── timer ファイルをコピー ────────────────────────────────────────────────
@@ -106,42 +136,21 @@ log "timer ファイルをコピー中..."
 cp "${SRC_TIMER}" "${DEST_TIMER}"
 log "  → ${DEST_TIMER}"
 
-# ── 環境変数ファイル生成（claude OAuth token）────────────────────────────
-# case では Keychain が無いため token をファイルから読み環境変数ファイルへ書く。
-# EnvironmentFile= で service から参照される（service ファイルのコメント参照）。
-log "環境変数ファイルを確認・生成中..."
-if [[ -f "${OAUTH_TOKEN_FILE}" ]]; then
-  TOKEN=$(tr -d '\n' < "${OAUTH_TOKEN_FILE}")
-  # 冪等: 既に同じ内容なら上書きしない
-  EXPECTED="CLAUDE_CODE_OAUTH_TOKEN=${TOKEN}"
-  if [[ -f "${ENV_FILE}" ]] && grep -qF "$EXPECTED" "${ENV_FILE}" 2>/dev/null; then
-    log "  env file は最新です（スキップ）"
-  else
-    chmod 700 "${HOME}/.config/lathe"
-    printf '%s\n' "CLAUDE_CODE_OAUTH_TOKEN=${TOKEN}" > "${ENV_FILE}"
-    chmod 600 "${ENV_FILE}"
-    log "  → ${ENV_FILE} を生成しました"
-  fi
-else
-  warn "OAuth token ファイルが見つかりません: ${OAUTH_TOKEN_FILE}"
-  warn "  claude 認証なしで orchestrator が実行されます。"
-  warn "  手動で ${ENV_FILE} に CLAUDE_CODE_OAUTH_TOKEN=<token> を設定してください。"
-fi
-
 # ── systemd daemon-reload + enable + start ────────────────────────────────
 log "systemd user daemon をリロード..."
 systemctl --user daemon-reload
 
 log "timer を enable..."
-# 冪等: is-enabled なら skip せず enable --now で再確認（enable は冪等）
+# 冪等: enable --now は既に enabled でも安全（enable は冪等）
 systemctl --user enable --now "${UNIT_TIMER}"
 
 log "=== インストール完了 ==="
 log "timer status:"
 systemctl --user status "${UNIT_TIMER}" --no-pager -l 2>/dev/null | head -12 || true
 log ""
-log "次パスは 1 分後の OnBootSec または OnUnitActiveSec の到来時。"
-log "即時 1 パスが必要な場合（RefuseManualStart=yes のため systemctl start は不可）:"
-log "  node ${REPO_ROOT}/scripts/orchestrator.mjs --max 5"
+log "初回パスは OnActiveSec=5min の到来後（timer 有効化から 5 分後）。"
+log "即時 1 パスが必要な場合:"
+log "  systemctl --user start ${UNIT_SERVICE}"
+log "  または: node ${REPO_ROOT}/scripts/orchestrator.mjs --max 5"
 log "ログ: ${LOG_DIR}/orchestrator.log"
 log "確認: systemctl --user list-timers ${UNIT_TIMER}"

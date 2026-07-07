@@ -5,8 +5,8 @@ Description=Run Lathe Orchestrator every 5 minutes (#234)
 # 「完了から 5 分後」となる（launchd StartInterval と同語義）。
 
 [Timer]
-# 起動後 1 分で初回発火（ネットワーク安定待ち）
-OnBootSec=1min
+# timer 有効化から 5 分後に初回発火（起動直後は走らせない = launchd RunAtLoad=false 等価）
+OnActiveSec=5min
 # service 完了から 5 分後に再発火（= 実質 5 分間隔、launchd StartInterval 300 の等価）
 OnUnitActiveSec=5min
 # 精度: 30 秒以内（wakeup 節電とのトレードオフ。厳密性より安定稼働を優先）
