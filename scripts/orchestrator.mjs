@@ -324,8 +324,8 @@ function spawnDecision(decision) {
     const finish = (exitCode) => {
       if (settled) return;
       settled = true;
-      rmSync(markerPath, { force: true });
-      appendFileSync(logPath, `[orchestrator] done exit=${exitCode} at ${new Date().toISOString()}\n`);
+      try { rmSync(markerPath, { force: true }); } catch { /* stale 掃除は次パスが拾う */ }
+      try { appendFileSync(logPath, `[orchestrator] done exit=${exitCode} at ${new Date().toISOString()}\n`); } catch { /* log は非致命 */ }
       resolve({ exitCode, spawnedAtMs });
     };
     child.on('error', (error) => {
