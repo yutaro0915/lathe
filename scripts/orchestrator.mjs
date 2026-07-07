@@ -379,6 +379,29 @@ function applyBoardProjection(decisions, statusField, deps = {}) {
   return mutations.length;
 }
 
+// --- Self-update: origin/main ff-only 同期（#263）---
+
+/**
+ * origin/main を fetch して ff-only でローカル main に同期する。
+ * fail-safe: 失敗は非致命 — 現行コードで走行継続（次パスでリトライ）。
+ * 仕様: 同期はプロセス自身には反映されない（次パスから新コードが有効になる）。
+ * @param {{ spawnSync?: Function, cwd?: string }} [deps]
+ * @returns {{ status: 'synced' | 'ff-not-possible' | 'fetch-failed', detail?: string }}
+ */
+export function syncMainFfOnly(deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
+  const cwd = deps.cwd ?? REPO_ROOT;
+  const fetch = run('git', ['fetch', 'origin', 'main'], { cwd, encoding: 'utf8' });
+  if (fetch.status !== 0) {
+    return { status: 'fetch-failed', detail: `exit=${fetch.status}: ${(fetch.stderr ?? '').trim()}` };
+  }
+  const merge = run('git', ['merge', '--ff-only', 'origin/main'], { cwd, encoding: 'utf8' });
+  if (merge.status !== 0) {
+    return { status: 'ff-not-possible', detail: `exit=${merge.status}: ${(merge.stderr ?? '').trim()}` };
+  }
+  return { status: 'synced' };
+}
+
 // --- CLI entrypoint ---
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
@@ -406,6 +429,11 @@ if (isMain) {
   }
 
   try {
+    if (!parsed.dryRun) { // ⓪ self-update（ff-only・非致命・次パスから有効・dry-run では副作用ゼロのため skip）
+      const s = syncMainFfOnly();
+      if (s.status === 'synced') log('self-update: synced with origin/main');
+      else log(`warning: self-update skipped (${s.status}): ${s.detail ?? ''}`);
+    }
     // ① derive（保存しない）
     const derived = deriveSnapshot();
     if (!derived.ok) die(derived.reason);
@@ -425,13 +453,11 @@ if (isMain) {
       for (const [issueNumber] of parseInnerIssueWorktrees(wt.stdout)) running.issues.add(issueNumber);
     }
 
-    // ② classify（決定的・分類表は常に表示）。教材 evidence は label（derive 済み）に
-    // 加えて explains/ の対象 slug 正本（#201 分解 13 — 重複生成防止の第 2 層）。
+    // ② classify（決定的・分類表は常に表示）: explains/ 正本（#201 分解 13）で重複生成防止。
     const explainedIssueNumbers = explainedIssueNumbersFrom(listExplainFileNames());
     const decisions = classifyAll(snapshot, running, { explainedIssueNumbers });
     for (const decision of decisions) log(formatDecision(decision));
     const dispatches = decisions.filter((d) => isDispatchClass(d.class));
-
     // done-explain repair（非致命・#201 分解 13）: explains/ 正本あり × label なしの自己修復。
     const repairs = selectDoneExplainRepairs(decisions, explainedIssueNumbers);
 
