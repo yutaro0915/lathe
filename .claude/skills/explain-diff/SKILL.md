@@ -51,8 +51,9 @@ Discussion #154。旧 HTML 版の視覚言語は PdM 向け報告 HTML 用とし
 
 - **正本**: 対象プロジェクト内 `explains/YYYY-MM-DD-<slug>.md`。ignore するかは repo ごとに
   ユーザー判断（ignore 時は Discussion が耐久コピー）。
-- **配信**: 同内容を GitHub Discussion に投稿（category: Explain、無ければ General）。
-  `gh api graphql` の `createDiscussion`（repositoryId / categoryId は query で取得）。
+- **配信**: 同内容を GitHub Discussion に投稿（category: **Explain**＝Announcement 形式・
+  無ければ General）。`gh api graphql` の `createDiscussion`（repositoryId / categoryId は query で取得）。
+  repo 側の 1 回きりの準備（カテゴリ・label 作成）は同梱の [SETUP.md](./SETUP.md)（人間向け）。
 - **publish 後は不変**。改訂は新版として別ファイル・別 Discussion、追補はスレッド comment。
 - 質問・註釈は Discussion のネイティブスレッド。自動応答 runner を導入した場合のみ
   agent 返信に目印を付ける。
