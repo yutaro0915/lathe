@@ -44,7 +44,7 @@ jobs:
 
           手順:
           1. 質問と Discussion の文脈を理解する（必要なら gh api graphql で discussion 本文・スレッドを読む。discussion の node id: ${DISCUSSION_NODE_ID}）
-          2. repo の正本（ADR・design/・コード・explains/）に接地して回答を作る。事実は根拠（ファイルパス・ADR/PR 番号）付きで書き、推測はしない。不明は「未確認」と明記。日本語・である調・簡潔（長くても 30 行程度）。GFM 可（mermaid・表）
+          2. repo の正本（ADR・design/・コード・explains/）に接地して回答を作る。事実は根拠（ファイルパス・ADR/PR 番号）付きで書き、推測はしない。不明は「未確認」と明記。日本語の敬語（です・ます調）・簡潔（長くても 30 行程度）。GFM 可（mermaid・表）
           3. 同じスレッドに返信する。gh api graphql の addDiscussionComment を使う: discussionId = ${DISCUSSION_NODE_ID}、replyToId = parent id「${COMMENT_PARENT_ID}」が空でなければそれ（数値なら GraphQL node id に解決）、空なら発火 comment 自身「${COMMENT_NODE_ID}」。body の末尾に「— claude（discussions runner）」と付ける
           4. 返信の投稿までがあなたの仕事。repo のファイル編集・issue/PR への書き込みはしない" \
             --allowedTools "Read,Grep,Glob,Bash(gh api:*),Bash(gh issue view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git ls-files:*)"
