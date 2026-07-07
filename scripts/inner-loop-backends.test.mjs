@@ -8,57 +8,27 @@ import {
   stripFrontmatter,
   buildCodexPrompt,
   parseCodexSessionId,
-  parseCodexCostUsd,
-  parseCodexCostReport,
   parseBackendFlags,
   selectBackend,
   detectMainDirty,
-  parseDependsOnLine,
 } from './inner-loop-backends.mjs';
 
-// --- stagePermissions: IMPLEMENT/VERIFY/TRIAGE blanket Bash (issues #44/#45) ---
+// --- stagePermissions: only PLAN (plan-task) and IMPLEMENT remain (#116) ---
 //
-// Verification idioms (`; echo EXIT=$?`, `2>&1 | tail`, `TZ=UTC node …`)
-// compose arbitrary commands and structurally conflict with fine-grained
-// Bash(git *)/Bash(pnpm *)/Bash(node *) allowlists (#36). Containment is
-// worktree cwd, the stage role contract, the main-dirty backstop, and the
-// merge gate — not the allowlist. PLAN/REVIEW are unchanged.
+// IMPLEMENT keeps blanket Bash (issues #36/#44/#45): verification/commit
+// idioms compose arbitrary commands and structurally conflict with
+// fine-grained allowlists. Containment is worktree cwd, the role contract,
+// the main-dirty backstop, and the PR+CI landing gate — not the allowlist.
 
-test('stagePermissions: VERIFY allowedTools includes blanket Bash', () => {
-  const { allowedTools } = stagePermissions('VERIFY');
-  assert.ok(allowedTools.includes('Bash'));
-});
-
-test('stagePermissions: TRIAGE allowedTools includes blanket Bash', () => {
-  const { allowedTools } = stagePermissions('TRIAGE');
-  assert.ok(allowedTools.includes('Bash'));
-});
-
-test('stagePermissions: VERIFY/TRIAGE never use bypassPermissions or --bare', () => {
-  for (const stage of ['VERIFY', 'TRIAGE']) {
-    const { permissionMode } = stagePermissions(stage);
-    assert.notEqual(permissionMode, 'bypassPermissions');
-    assert.notEqual(permissionMode, '--bare');
-  }
-});
-
-test('stagePermissions: PLAN and REVIEW remain narrow (Bash(git *) only, no blanket Bash)', () => {
-  for (const stage of ['PLAN', 'REVIEW']) {
-    const { allowedTools } = stagePermissions(stage);
-    assert.ok(!allowedTools.includes('Bash'), `stage=${stage}: must not grant blanket Bash`);
-    assert.ok(allowedTools.some((t) => t === 'Bash(git *)'), `stage=${stage}: must keep narrow Bash(git *)`);
-  }
-});
-
-test('stagePermissions: plan-loop RESEARCH and PLAN_REVIEW only allow read-only gh issue commands', () => {
-  for (const stage of ['RESEARCH', 'PLAN_REVIEW']) {
-    const { permissionMode, allowedTools } = stagePermissions(stage);
-    assert.equal(permissionMode, 'dontAsk');
-    assert.ok(allowedTools.includes('Bash(gh issue view *)'));
-    assert.ok(allowedTools.includes('Bash(gh issue list *)'));
-    assert.ok(!allowedTools.includes('Bash(gh issue *)'), `stage=${stage}: must not allow gh issue writes`);
-    assert.ok(!allowedTools.includes('Bash'), `stage=${stage}: must not grant blanket Bash`);
-  }
+test('stagePermissions: PLAN stays narrow and read-only (planner, gh issue reads only)', () => {
+  const { agent, permissionMode, allowedTools } = stagePermissions('PLAN');
+  assert.equal(agent, 'planner');
+  assert.equal(permissionMode, 'dontAsk');
+  assert.ok(!allowedTools.includes('Bash'), 'must not grant blanket Bash');
+  assert.ok(allowedTools.includes('Bash(git *)'));
+  assert.ok(allowedTools.includes('Bash(gh issue view *)'));
+  assert.ok(allowedTools.includes('Bash(gh issue list *)'));
+  assert.ok(!allowedTools.includes('Bash(gh issue *)'), 'must not allow gh issue writes');
 });
 
 test('stagePermissions: IMPLEMENT grants blanket Bash through worktree containment', () => {
@@ -68,34 +38,28 @@ test('stagePermissions: IMPLEMENT grants blanket Bash through worktree containme
   assert.deepEqual(allowedTools, ['Read', 'Grep', 'Glob', 'Bash']);
 });
 
+test('stagePermissions: no stage uses bypassPermissions or --bare', () => {
+  for (const stage of ['PLAN', 'IMPLEMENT']) {
+    const { permissionMode } = stagePermissions(stage);
+    assert.notEqual(permissionMode, 'bypassPermissions');
+    assert.notEqual(permissionMode, '--bare');
+  }
+});
+
+test('stagePermissions: removed stages throw (REVIEW/VERIFY/TRIAGE/RESEARCH/PLAN_REVIEW)', () => {
+  for (const stage of ['REVIEW', 'VERIFY', 'TRIAGE', 'RESEARCH', 'PLAN_REVIEW']) {
+    assert.throws(() => stagePermissions(stage), new RegExp(`unknown stage "${stage}"`));
+  }
+});
+
 // --- stageSandbox ---
 
 test('stageSandbox: IMPLEMENT -> workspace-write', () => {
   assert.equal(stageSandbox('IMPLEMENT'), 'workspace-write');
 });
 
-test('stageSandbox: RESEARCH -> read-only', () => {
-  assert.equal(stageSandbox('RESEARCH'), 'read-only');
-});
-
 test('stageSandbox: PLAN -> read-only', () => {
   assert.equal(stageSandbox('PLAN'), 'read-only');
-});
-
-test('stageSandbox: PLAN_REVIEW -> read-only', () => {
-  assert.equal(stageSandbox('PLAN_REVIEW'), 'read-only');
-});
-
-test('stageSandbox: REVIEW -> read-only', () => {
-  assert.equal(stageSandbox('REVIEW'), 'read-only');
-});
-
-test('stageSandbox: VERIFY -> workspace-write', () => {
-  assert.equal(stageSandbox('VERIFY'), 'workspace-write');
-});
-
-test('stageSandbox: TRIAGE -> workspace-write', () => {
-  assert.equal(stageSandbox('TRIAGE'), 'workspace-write');
 });
 
 // --- buildCodexArgs ---
@@ -117,19 +81,15 @@ test('buildCodexArgs: IMPLEMENT uses workspace-write sandbox', () => {
   assert.ok(!args.includes('read-only'));
 });
 
-test('buildCodexArgs: workspace-write stages enable sandbox localhost/network access', () => {
-  for (const stage of ['IMPLEMENT', 'VERIFY', 'TRIAGE']) {
-    const args = buildCodexArgs(stage, 'p', '/wt', '/tmp/out.txt');
-    assert.ok(args.includes('-c'), `stage=${stage}: must include config override`);
-    assert.ok(args.includes('sandbox_workspace_write.network_access=true'), `stage=${stage}: must enable network access`);
-  }
+test('buildCodexArgs: workspace-write stage enables sandbox localhost/network access', () => {
+  const args = buildCodexArgs('IMPLEMENT', 'p', '/wt', '/tmp/out.txt');
+  assert.ok(args.includes('-c'), 'must include config override');
+  assert.ok(args.includes('sandbox_workspace_write.network_access=true'), 'must enable network access');
 });
 
-test('buildCodexArgs: read-only stages do not enable workspace-write network config', () => {
-  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'REVIEW']) {
-    const args = buildCodexArgs(stage, 'p', '/repo', '/tmp/out.txt');
-    assert.ok(!args.includes('sandbox_workspace_write.network_access=true'), `stage=${stage}: must not add workspace-write config`);
-  }
+test('buildCodexArgs: read-only stage does not enable workspace-write network config', () => {
+  const args = buildCodexArgs('PLAN', 'p', '/repo', '/tmp/out.txt');
+  assert.ok(!args.includes('sandbox_workspace_write.network_access=true'), 'must not add workspace-write config');
 });
 
 test('buildCodexArgs: prompt is first element', () => {
@@ -137,18 +97,12 @@ test('buildCodexArgs: prompt is first element', () => {
   assert.equal(args[0], 'my prompt');
 });
 
-test('buildCodexArgs: never includes --dangerously-bypass (regression guard)', () => {
-  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
+test('buildCodexArgs: never includes --dangerously-bypass or --ephemeral (regression guard)', () => {
+  for (const stage of ['PLAN', 'IMPLEMENT']) {
     const args = buildCodexArgs(stage, 'p', '/cwd', '/tmp/out.txt');
     for (const a of args) {
       assert.ok(!String(a).includes('dangerously'), `stage=${stage}: must never include --dangerously-bypass-*`);
     }
-  }
-});
-
-test('buildCodexArgs: never includes --ephemeral (regression guard)', () => {
-  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
-    const args = buildCodexArgs(stage, 'p', '/cwd', '/tmp/out.txt');
     assert.ok(!args.includes('--ephemeral'), `stage=${stage}: must not include --ephemeral`);
   }
 });
@@ -167,18 +121,14 @@ test('buildCodexArgs: no -m when model is undefined', () => {
 // --- buildCodexArgs: --add-dir <repoRoot>/.git (worktree git-dir writability) ---
 
 test('buildCodexArgs: workspace-write stage with repoRoot adds --add-dir <repoRoot>/.git', () => {
-  for (const stage of ['IMPLEMENT', 'VERIFY', 'TRIAGE']) {
-    const args = buildCodexArgs(stage, 'p', '/wt', '/tmp/out.txt', '/repo');
-    assert.ok(args.includes('--add-dir'), `stage=${stage}: must include --add-dir`);
-    assert.ok(args.includes('/repo/.git'), `stage=${stage}: must grant <repoRoot>/.git`);
-  }
+  const args = buildCodexArgs('IMPLEMENT', 'p', '/wt', '/tmp/out.txt', '/repo');
+  assert.ok(args.includes('--add-dir'), 'must include --add-dir');
+  assert.ok(args.includes('/repo/.git'), 'must grant <repoRoot>/.git');
 });
 
 test('buildCodexArgs: read-only stage does not add --add-dir even when repoRoot is provided', () => {
-  for (const stage of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'REVIEW']) {
-    const args = buildCodexArgs(stage, 'p', '/repo', '/tmp/out.txt', '/repo');
-    assert.ok(!args.includes('--add-dir'), `stage=${stage}: must not include --add-dir`);
-  }
+  const args = buildCodexArgs('PLAN', 'p', '/repo', '/tmp/out.txt', '/repo');
+  assert.ok(!args.includes('--add-dir'), 'must not include --add-dir');
 });
 
 test('buildCodexArgs: workspace-write stage without repoRoot omits --add-dir', () => {
@@ -339,129 +289,8 @@ test('parseCodexSessionId: session_meta without payload.id -> null', () => {
   assert.equal(parseCodexSessionId(jsonl), null);
 });
 
-// --- parseCodexCostUsd ---
-
-test('parseCodexCostUsd: returns null when codex JSONL has no explicit cost', () => {
-  const jsonl = [
-    JSON.stringify({ type: 'session_configured', session_id: 'exec-session-123' }),
-    JSON.stringify({ type: 'token_count', info: { total_token_usage: { total_tokens: 1234 } } }),
-  ].join('\n');
-  assert.equal(parseCodexCostUsd(jsonl), null);
-});
-
-test('parseCodexCostUsd: extracts explicit top-level or payload cost', () => {
-  assert.equal(parseCodexCostUsd(JSON.stringify({ type: 'turn_complete', total_cost_usd: 0.0123 })), 0.0123);
-  assert.equal(parseCodexCostUsd(JSON.stringify({ type: 'result', payload: { cost_usd: 0.0456 } })), 0.0456);
-});
-
-test('parseCodexCostReport: prices observed turn.completed usage when model is known', () => {
-  const jsonl = [
-    JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-5-codex' } }),
-    JSON.stringify({ type: 'thread.started', thread_id: '019f2492-1a96-7e81-9c7a-484a11d135ef' }),
-    JSON.stringify({
-      type: 'turn.completed',
-      usage: {
-        input_tokens: 19943,
-        cached_input_tokens: 4992,
-        output_tokens: 177,
-        reasoning_output_tokens: 170,
-      },
-    }),
-  ].join('\n');
-
-  const report = parseCodexCostReport(jsonl);
-
-  assert.equal(report.model, 'gpt-5-codex');
-  assert.deepEqual(report.tokenUsage, {
-    input_tokens: 19943,
-    cached_input_tokens: 4992,
-    output_tokens: 177,
-    reasoning_output_tokens: 170,
-  });
-  assert.equal(report.source, 'codex.jsonl.turn.completed.usage');
-  assert.equal(report.costUsd, (((19943 - 4992) * 1.25) + (4992 * 0.125) + (177 * 10)) / 1_000_000);
-});
-
-test('parseCodexCostReport: keeps token usage but leaves cost null for unpriced model', () => {
-  const jsonl = [
-    JSON.stringify({ type: 'session_meta', payload: { model: 'codex-unpriced' } }),
-    JSON.stringify({
-      type: 'turn.completed',
-      usage: { input_tokens: 100, cached_input_tokens: 20, output_tokens: 5, reasoning_output_tokens: 3 },
-    }),
-  ].join('\n');
-
-  const report = parseCodexCostReport(jsonl);
-
-  assert.equal(report.costUsd, null);
-  assert.equal(report.source, 'codex.jsonl.turn.completed.usage.unpriced');
-  assert.equal(report.model, 'codex-unpriced');
-  assert.deepEqual(report.tokenUsage, {
-    input_tokens: 100,
-    cached_input_tokens: 20,
-    output_tokens: 5,
-    reasoning_output_tokens: 3,
-  });
-});
-
-test('parseCodexCostReport: observed stdout turn.completed usage without model is recorded as unpriced', () => {
-  const jsonl = [
-    JSON.stringify({ type: 'thread.started', thread_id: '019f2492-1a96-7e81-9c7a-484a11d135ef' }),
-    JSON.stringify({ type: 'turn.started' }),
-    JSON.stringify({ type: 'item.completed' }),
-    JSON.stringify({
-      type: 'turn.completed',
-      usage: {
-        input_tokens: 19943,
-        cached_input_tokens: 4992,
-        output_tokens: 177,
-        reasoning_output_tokens: 170,
-      },
-    }),
-  ].join('\n');
-
-  const report = parseCodexCostReport(jsonl);
-
-  assert.equal(report.costUsd, null);
-  assert.equal(report.source, 'codex.jsonl.turn.completed.usage.unpriced');
-  assert.equal(report.model, null);
-  assert.deepEqual(report.tokenUsage, {
-    input_tokens: 19943,
-    cached_input_tokens: 4992,
-    output_tokens: 177,
-    reasoning_output_tokens: 170,
-  });
-  assert.equal(parseCodexCostUsd(jsonl), null);
-});
-
-test('parseCodexCostReport: sums multiple turn.completed usage records', () => {
-  const jsonl = [
-    JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-5-codex' } }),
-    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 3, reasoning_output_tokens: 1 } }),
-    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 20, cached_input_tokens: 4, output_tokens: 6, reasoning_output_tokens: 2 } }),
-  ].join('\n');
-
-  assert.deepEqual(parseCodexCostReport(jsonl).tokenUsage, {
-    input_tokens: 30,
-    cached_input_tokens: 6,
-    output_tokens: 9,
-    reasoning_output_tokens: 3,
-  });
-});
-
-test('parseCodexCostReport: explicit cost wins over token-derived cost', () => {
-  const jsonl = [
-    JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-5-codex' } }),
-    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 20, output_tokens: 5 } }),
-    JSON.stringify({ type: 'result', payload: { cost_usd: 0.0456 } }),
-  ].join('\n');
-
-  const report = parseCodexCostReport(jsonl);
-
-  assert.equal(report.costUsd, 0.0456);
-  assert.equal(report.source, 'codex.jsonl.explicit_cost');
-  assert.equal(parseCodexCostUsd(jsonl), 0.0456);
-});
+// parseCodexCostUsd / parseCodexCostReport tests live in
+// inner-loop-backends-cost.test.mjs (file-size guard split, #116).
 
 // --- parseBackendFlags ---
 
@@ -490,29 +319,26 @@ test('parseBackendFlags: no backend flags -> null global, empty stages', () => {
 });
 
 test('parseBackendFlags: stage key is uppercased', () => {
-  const flags = parseBackendFlags(['--backend-verify', 'claude']);
-  assert.ok('VERIFY' in flags.stages);
-  assert.ok(!('verify' in flags.stages));
+  const flags = parseBackendFlags(['--backend-implement', 'claude']);
+  assert.ok('IMPLEMENT' in flags.stages);
+  assert.ok(!('implement' in flags.stages));
 });
 
 test('parseBackendFlags: hyphenated stage key maps to underscore stage name', () => {
-  const flags = parseBackendFlags(['--backend-plan-review', 'claude']);
-  assert.equal(flags.stages.PLAN_REVIEW, 'claude');
+  const flags = parseBackendFlags(['--backend-some-stage', 'claude']);
+  assert.equal(flags.stages.SOME_STAGE, 'claude');
 });
 
 // --- selectBackend ---
 
 test('selectBackend: default is claude for all stages when no flags', () => {
-  assert.equal(selectBackend('RESEARCH', { global: null, stages: {} }), 'claude');
   assert.equal(selectBackend('PLAN', { global: null, stages: {} }), 'claude');
-  assert.equal(selectBackend('PLAN_REVIEW', { global: null, stages: {} }), 'claude');
   assert.equal(selectBackend('IMPLEMENT', { global: null, stages: {} }), 'claude');
-  assert.equal(selectBackend('VERIFY', { global: null, stages: {} }), 'claude');
 });
 
 test('selectBackend: global override applies to all stages', () => {
   const flags = { global: 'claude', stages: {} };
-  for (const s of ['RESEARCH', 'PLAN', 'PLAN_REVIEW', 'IMPLEMENT', 'REVIEW', 'VERIFY', 'TRIAGE']) {
+  for (const s of ['PLAN', 'IMPLEMENT']) {
     assert.equal(selectBackend(s, flags), 'claude', `stage=${s}`);
   }
 });
@@ -521,18 +347,11 @@ test('selectBackend: stage override takes precedence over global', () => {
   const flags = { global: 'codex', stages: { PLAN: 'claude' } };
   assert.equal(selectBackend('PLAN', flags), 'claude');
   assert.equal(selectBackend('IMPLEMENT', flags), 'codex');
-  assert.equal(selectBackend('VERIFY', flags), 'codex');
-});
-
-test('selectBackend: stage not in stages.stages falls back to global', () => {
-  const flags = { global: 'claude', stages: { PLAN: 'claude' } };
-  assert.equal(selectBackend('REVIEW', flags), 'claude');
 });
 
 test('selectBackend: stage not in stages and no global -> claude default', () => {
   const flags = { global: null, stages: { PLAN: 'claude' } };
-  assert.equal(selectBackend('REVIEW', flags), 'claude');
-  assert.equal(selectBackend('VERIFY', flags), 'claude');
+  assert.equal(selectBackend('IMPLEMENT', flags), 'claude');
 });
 
 // --- buildCodexArgs: absolute cwd guard (issue #39) ---
@@ -616,47 +435,6 @@ test('detectMainDirty: whitespace-only lines are ignored', () => {
   assert.deepEqual(result.paths, ['file.ts']);
 });
 
-// --- parseDependsOnLine (ADR 0015/0016: Depends-on is a machine-readable
-// contract, not free text; a missing/unparseable line must fail, not be
-// rounded down to "no deps") ---
-
-test('parseDependsOnLine: missing line (null) -> fail', () => {
-  const result = parseDependsOnLine(null);
-  assert.equal(result.ok, false);
-  assert.match(result.error, /Depends-on/);
-});
-
-test('parseDependsOnLine: empty value -> fail', () => {
-  const result = parseDependsOnLine('');
-  assert.equal(result.ok, false);
-  assert.match(result.error, /Depends-on/);
-});
-
-test('parseDependsOnLine: whitespace-only value -> fail', () => {
-  const result = parseDependsOnLine('   ');
-  assert.equal(result.ok, false);
-});
-
-test('parseDependsOnLine: explicit "none" -> ok with empty dependsOn', () => {
-  const result = parseDependsOnLine('none');
-  assert.equal(result.ok, true);
-  assert.equal(result.dependsOn, '');
-});
-
-test('parseDependsOnLine: "none" is case-insensitive', () => {
-  const result = parseDependsOnLine('None');
-  assert.equal(result.ok, true);
-  assert.equal(result.dependsOn, '');
-});
-
-test('parseDependsOnLine: issue references -> ok, parsed value preserved', () => {
-  const result = parseDependsOnLine('#41, #42');
-  assert.equal(result.ok, true);
-  assert.equal(result.dependsOn, '#41, #42');
-});
-
-test('parseDependsOnLine: single issue reference -> ok', () => {
-  const result = parseDependsOnLine('#41');
-  assert.equal(result.ok, true);
-  assert.equal(result.dependsOn, '#41');
-});
+// parseDependsOnLine (plan-loop Depends-on machinery) was removed with the
+// plan-loop (#116); its successor parseBlockedByLine is covered in
+// inner-loop-plan-task.test.mjs.

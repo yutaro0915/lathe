@@ -1,7 +1,10 @@
+// Tests for the gh-wired inner queue (#116, ADR 0031): open task-request
+// issues as tasks, blocked-by readiness, In Progress derivation from open
+// PRs, escalation-label skip, touches overlap, and dispatch mechanics.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -10,21 +13,22 @@ import {
   DEFER_TOUCHES,
   READY_NOW,
   SKIP_RUNNING,
+  SKIP_IN_PROGRESS,
+  SKIP_ESCALATION,
   WAIT_DEP,
+  classifyTask,
   formatDecision,
   parseTaskRunHints,
-  parseInnerTaskWorktrees,
-  parseTaskListPlain,
-  parseSequenceListPlain,
+  parseInnerIssueWorktrees,
+  deriveReadyTaskIds,
+  deriveInProgressIssueNumbers,
   pathsOverlap,
   planDryRun,
   runQueue,
   spawnInnerLoop,
 } from './inner-queue.mjs';
 
-function task(id, body = '', dependencies = []) {
-  return { id, title: `task ${id}`, body, dependencies };
-}
+// --- parseTaskRunHints ---
 
 test('parseTaskRunHints: Touches lines are parsed case-insensitively and de-duped', () => {
   const hints = parseTaskRunHints([
@@ -32,322 +36,274 @@ test('parseTaskRunHints: Touches lines are parsed case-insensitively and de-dupe
     'Touches: scripts/inner-loop.mjs, apps/web/lib/, scripts/inner-loop.mjs',
     'touches: packages/shared/src',
   ].join('\n'));
-
   assert.deepEqual(hints.touches, ['scripts/inner-loop.mjs', 'apps/web/lib/', 'packages/shared/src']);
 });
 
 test('parseTaskRunHints: non-heading mentions are ignored', () => {
-  const hints = parseTaskRunHints('Body text\n- Touches: scripts/x.mjs');
-  assert.deepEqual(hints, { touches: [] });
+  assert.deepEqual(parseTaskRunHints('Body text\n- Touches: scripts/x.mjs'), { touches: [] });
 });
+
+// --- pathsOverlap ---
 
 test('pathsOverlap: exact and parent-child matches overlap only at segment boundaries', () => {
   assert.equal(pathsOverlap('apps/web/lib', './apps/web/lib/'), true);
   assert.equal(pathsOverlap('apps/web/lib', 'apps/web/lib/db.ts'), true);
   assert.equal(pathsOverlap('apps/web/liberation', 'apps/web/lib'), false);
   assert.equal(pathsOverlap('scripts/inner-loop.mjs', 'scripts/inner-queue.mjs'), false);
+  assert.equal(pathsOverlap('.', 'anything'), true);
 });
 
-test('parseInnerTaskWorktrees: extracts inner task worktrees from git porcelain output', () => {
-  const running = parseInnerTaskWorktrees([
+// --- parseInnerIssueWorktrees ---
+
+test('parseInnerIssueWorktrees: extracts inner-issue worktrees from git porcelain output', () => {
+  const output = [
     'worktree /repo',
     'HEAD abc',
-    'branch refs/heads/main',
     '',
-    'worktree /repo/.claude/worktrees/inner-task-1-2',
+    'worktree /repo/.claude/worktrees/inner-issue-42',
     'HEAD def',
-    'branch refs/heads/inner/task-1-2',
     '',
-    'worktree /tmp/other-worktree',
-  ].join('\n'));
-
-  assert.deepEqual([...running.entries()], [['1-2', '/repo/.claude/worktrees/inner-task-1-2']]);
+    'worktree /repo/.claude/worktrees/agent-xyz',
+    'HEAD ghi',
+  ].join('\n');
+  const running = parseInnerIssueWorktrees(output);
+  assert.deepEqual([...running.entries()], [[42, '/repo/.claude/worktrees/inner-issue-42']]);
 });
 
-test('parseTaskListPlain: extracts task ids and titles from grouped-by-status plain output', () => {
-  const tasks = parseTaskListPlain([
-    'To Do:',
-    '  [HIGH] TASK-1 - Phase 2 rewire',
-    '  TASK-2 - feat(meta): meta-loop driver',
-  ].join('\n'));
+// --- deriveReadyTaskIds / deriveInProgressIssueNumbers ---
 
-  assert.deepEqual(tasks, [
-    { id: 'TASK-1', title: 'Phase 2 rewire' },
-    { id: 'TASK-2', title: 'feat(meta): meta-loop driver' },
-  ]);
-});
-
-test('parseSequenceListPlain: returns only Sequence 1 task ids as dependency-ready', () => {
-  const ready = parseSequenceListPlain([
-    'Sequence 1:',
-    '  TASK-1 - first',
-    '  TASK-3 - third',
-    '',
-    'Sequence 2:',
-    '  TASK-2 - second',
-  ].join('\n'));
-
-  assert.deepEqual([...ready], ['TASK-1', 'TASK-3']);
-});
-
-test('planDryRun: reports ready, dependency wait, touch conflict, running, and capacity', () => {
+test('deriveReadyTaskIds: ready when every blocked-by ref is not open', () => {
   const tasks = [
-    task('TASK-1', 'Touches: scripts/a.mjs'),
-    task('TASK-2', 'Touches: scripts/b.mjs', ['TASK-99']),
-    task('TASK-3', 'Touches: scripts/a.mjs'),
-    task('TASK-4', 'Touches: scripts/c.mjs'),
-    task('TASK-5', 'Touches: scripts/d.mjs'),
+    { id: 10, body: 'no deps' },
+    { id: 11, body: 'blocked-by #10' },
+    { id: 12, body: 'blocked-by #99' },
   ];
-  const readyTaskIds = new Set(['TASK-1', 'TASK-3', 'TASK-4', 'TASK-5']);
-  const running = new Map([['TASK-4', '/repo/.claude/worktrees/inner-task-4']]);
-
-  const decisions = planDryRun({ tasks, readyTaskIds, runningWorktrees: running, max: 2 });
-
-  assert.deepEqual(decisions.map((d) => d.status), [
-    READY_NOW,
-    WAIT_DEP,
-    DEFER_TOUCHES,
-    SKIP_RUNNING,
-    DEFER_CAPACITY,
-  ]);
-  assert.equal(formatDecision(decisions[0]), 'READY_NOW TASK-1');
-  assert.equal(formatDecision(decisions[1]), 'WAIT_DEP TASK-2 unresolved=TASK-99');
-  assert.equal(formatDecision(decisions[2]), 'DEFER_TOUCHES TASK-3 overlaps=TASK-1 path=scripts/a.mjs');
-  assert.equal(formatDecision(decisions[3]), 'SKIP_RUNNING TASK-4 worktree=/repo/.claude/worktrees/inner-task-4');
-  assert.equal(formatDecision(decisions[4]), 'DEFER_CAPACITY TASK-5 max=2');
+  const ready = deriveReadyTaskIds(tasks, new Set([10]));
+  assert.equal(ready.has(10), true);
+  assert.equal(ready.has(11), false, 'ref #10 is open -> not ready');
+  assert.equal(ready.has(12), true, 'ref #99 is not open -> ready');
 });
 
-test('buildInnerLoopSpawnSpec: routes child stdout and stderr directly to the log fd', () => {
-  const spec = buildInnerLoopSpawnSpec(task('TASK-54'), 123);
+test('deriveInProgressIssueNumbers: Closes body refs and inner/issue-<n> branches', () => {
+  const prs = [
+    { body: 'stuff\n\nCloses #42', headRefName: 'feature/x' },
+    { body: '', headRefName: 'inner/issue-7' },
+    { body: 'Fixes #9 and resolves #10', headRefName: 'z' },
+    { body: 'relates to #99', headRefName: 'y' },
+  ];
+  const inProgress = deriveInProgressIssueNumbers(prs);
+  assert.deepEqual([...inProgress].sort((a, b) => a - b), [7, 9, 10, 42]);
+});
 
+// --- classifyTask ---
+
+test('classifyTask: escalation label is skipped (裁定 loop material, ADR 0030 追記 E)', () => {
+  const decision = classifyTask({ task: { id: 5, body: '', labels: ['task-request', 'escalation'] } });
+  assert.equal(decision.status, SKIP_ESCALATION);
+});
+
+test('classifyTask: open PR referencing the issue means In Progress', () => {
+  const decision = classifyTask({
+    task: { id: 5, body: '', labels: [] },
+    inProgressIssueNumbers: new Set([5]),
+  });
+  assert.equal(decision.status, SKIP_IN_PROGRESS);
+});
+
+test('classifyTask: running worktree wins over dependency wait', () => {
+  const decision = classifyTask({
+    task: { id: 5, body: 'blocked-by #4', labels: [] },
+    runningWorktrees: new Map([[5, '/wt/inner-issue-5']]),
+  });
+  assert.equal(decision.status, SKIP_RUNNING);
+});
+
+// --- planDryRun ---
+
+test('planDryRun: reports ready, dep wait, touch conflict, running, in-progress, escalation, and capacity', () => {
+  const tasks = [
+    { id: 1, body: 'Touches: scripts/', labels: [] },
+    { id: 2, body: 'blocked-by #1', labels: [] },
+    { id: 3, body: 'Touches: scripts/inner-loop.mjs', labels: [] },
+    { id: 4, body: '', labels: [] },
+    { id: 5, body: '', labels: [] },
+    { id: 6, body: '', labels: ['escalation'] },
+    { id: 7, body: '', labels: [] },
+  ];
+  const decisions = planDryRun({
+    tasks,
+    readyTaskIds: new Set([1, 3, 4, 5, 7]),
+    runningWorktrees: new Map([[4, '/wt/inner-issue-4']]),
+    inProgressIssueNumbers: new Set([5]),
+    max: 2,
+  });
+  const byId = new Map(decisions.map((d) => [d.task.id, d]));
+  assert.equal(byId.get(1).status, READY_NOW);
+  assert.equal(byId.get(2).status, WAIT_DEP);
+  assert.deepEqual(byId.get(2).unresolved, [1]);
+  assert.equal(byId.get(3).status, DEFER_TOUCHES, 'scripts/inner-loop.mjs overlaps scripts/');
+  assert.equal(byId.get(4).status, SKIP_RUNNING);
+  assert.equal(byId.get(5).status, SKIP_IN_PROGRESS);
+  assert.equal(byId.get(6).status, SKIP_ESCALATION);
+  assert.equal(byId.get(7).status, DEFER_CAPACITY, 'running #4 + ready #1 fill max=2');
+});
+
+test('formatDecision: renders issue-numbered decisions', () => {
+  assert.equal(formatDecision({ status: READY_NOW, task: { id: 9 } }), 'READY_NOW #9');
+  assert.equal(formatDecision({ status: WAIT_DEP, task: { id: 9 }, unresolved: [1, 2] }), 'WAIT_DEP #9 unresolved=#1,#2');
+  assert.match(formatDecision({ status: SKIP_ESCALATION, task: { id: 9 } }), /escalation label/);
+});
+
+// --- buildInnerLoopSpawnSpec ---
+
+test('buildInnerLoopSpawnSpec: spawns the driver with the bare issue number and log fd stdio', () => {
+  const spec = buildInnerLoopSpawnSpec({ id: 42 }, 7);
   assert.equal(spec.command, process.execPath);
-  assert.deepEqual(spec.args, ['scripts/inner-loop.mjs', '--task', 'TASK-54']);
-  assert.deepEqual(spec.options.stdio, ['ignore', 123, 123]);
-  assert.equal(spec.options.env, process.env);
+  assert.deepEqual(spec.args, ['scripts/inner-loop.mjs', '42']);
+  assert.deepEqual(spec.options.stdio, ['ignore', 7, 7]);
 });
 
-test('spawnInnerLoop: skips task no longer To Do at dispatch without spawning driver', async (t) => {
-  const logRoot = mkdtempSync(join(tmpdir(), 'inner-queue-test-'));
-  t.after(() => rmSync(logRoot, { recursive: true, force: true }));
+// --- spawnInnerLoop ---
 
-  let spawned = false;
-  const logs = [];
-  const result = await spawnInnerLoop(task('TASK-60'), {
-    logRoot,
-    checkState: async (taskId) => {
-      assert.equal(taskId, 'TASK-60');
-      return 'Done';
-    },
-    spawnChild: () => {
-      spawned = true;
-      throw new Error('driver should not spawn');
-    },
-    log: (line) => logs.push(line),
-  });
-
-  assert.equal(result.status, 0);
-  assert.equal(spawned, false);
-  assert.deepEqual(logs, ['SKIP_NOT_TODO TASK-60 (status=Done at dispatch)']);
+test('spawnInnerLoop: skips an issue that is no longer open at dispatch without spawning', async () => {
+  const logRoot = mkdtempSync(join(tmpdir(), 'lathe-queue-test-'));
+  const lines = [];
+  let spawned = 0;
+  try {
+    const result = await spawnInnerLoop({ id: 42 }, {
+      checkState: () => 'CLOSED',
+      spawnChild: () => { spawned += 1; return new EventEmitter(); },
+      log: (line) => lines.push(line),
+      logRoot,
+    });
+    assert.deepEqual(result, { status: 0 });
+    assert.equal(spawned, 0);
+    assert.ok(lines.some((line) => line.includes('SKIP_NOT_OPEN #42')));
+    assert.ok(readFileSync(join(logRoot, 'issue-42.log'), 'utf8').includes('SKIP_NOT_OPEN #42'));
+  } finally {
+    rmSync(logRoot, { recursive: true, force: true });
+  }
 });
 
-test('spawnInnerLoop: spawns To Do task after dispatch state check', async (t) => {
-  const logRoot = mkdtempSync(join(tmpdir(), 'inner-queue-test-'));
-  t.after(() => rmSync(logRoot, { recursive: true, force: true }));
-
-  let spawnedSpec = null;
-  const result = await spawnInnerLoop(task('TASK-61'), {
-    logRoot,
-    checkState: async (taskId) => {
-      assert.equal(taskId, 'TASK-61');
-      return 'To Do';
-    },
-    spawnChild: (command, args, options) => {
-      spawnedSpec = { command, args, options };
-      const child = new EventEmitter();
-      process.nextTick(() => child.emit('close', 0, null));
-      return child;
-    },
-    log: () => {
-      throw new Error('To Do task should not log SKIP_NOT_TODO');
-    },
-  });
-
-  assert.equal(result.status, 0);
-  assert.equal(spawnedSpec.command, process.execPath);
-  assert.deepEqual(spawnedSpec.args, ['scripts/inner-loop.mjs', '--task', 'TASK-61']);
-  assert.deepEqual(spawnedSpec.options.stdio.slice(0, 1), ['ignore']);
-  assert.equal(typeof spawnedSpec.options.stdio[1], 'number');
-  assert.equal(spawnedSpec.options.stdio[2], spawnedSpec.options.stdio[1]);
+test('spawnInnerLoop: spawns an OPEN issue after the dispatch state check', async () => {
+  const logRoot = mkdtempSync(join(tmpdir(), 'lathe-queue-test-'));
+  let spec = null;
+  try {
+    const child = new EventEmitter();
+    const resultPromise = spawnInnerLoop({ id: 42 }, {
+      checkState: () => 'OPEN',
+      spawnChild: (command, args, options) => { spec = { command, args, options }; return child; },
+      log: () => {},
+      logRoot,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    child.emit('close', 0, null);
+    const result = await resultPromise;
+    assert.deepEqual(result, { status: 0 });
+    assert.deepEqual(spec.args, ['scripts/inner-loop.mjs', '42']);
+  } finally {
+    rmSync(logRoot, { recursive: true, force: true });
+  }
 });
+
+// --- runQueue ---
 
 test('runQueue: unresolved dependency is not spawned in live mode', async () => {
-  const spawned = [];
-  const logs = [];
+  const launched = [];
   const result = await runQueue({
-    tasks: [task('TASK-10', 'Touches: scripts/x.mjs', ['TASK-37'])],
-    readyTaskIds: new Set(),
-    runningWorktrees: new Map(),
-    max: 2,
-    spawnTask: async (candidate) => {
-      spawned.push(candidate.id);
-      return { status: 0 };
-    },
-    log: (line) => logs.push(line),
+    tasks: [
+      { id: 1, body: '', labels: [] },
+      { id: 2, body: 'blocked-by #1', labels: [] },
+    ],
+    readyTaskIds: new Set([1]),
+    spawnTask: (task) => { launched.push(task.id); return Promise.resolve({ status: 0 }); },
   });
+  assert.deepEqual(launched, [1]);
+  assert.equal(result.skipped.length, 1);
+  assert.equal(result.skipped[0].status, WAIT_DEP);
+});
 
-  assert.deepEqual(spawned, []);
-  assert.deepEqual(result.launched, []);
-  assert.equal(result.failed, 0);
-  assert.ok(logs.includes('WAIT_DEP TASK-10 unresolved=TASK-37'));
+test('runQueue: escalation and in-progress tasks are pre-skipped', async () => {
+  const launched = [];
+  const result = await runQueue({
+    tasks: [
+      { id: 1, body: '', labels: ['escalation'] },
+      { id: 2, body: '', labels: [] },
+      { id: 3, body: '', labels: [] },
+    ],
+    readyTaskIds: new Set([1, 2, 3]),
+    inProgressIssueNumbers: new Set([2]),
+    spawnTask: (task) => { launched.push(task.id); return Promise.resolve({ status: 0 }); },
+  });
+  assert.deepEqual(launched, [3]);
+  const statuses = result.skipped.map((d) => d.status).sort();
+  assert.deepEqual(statuses, [SKIP_ESCALATION, SKIP_IN_PROGRESS]);
 });
 
 test('runQueue: circuit breaker stops dispatch after three consecutive failures', async () => {
-  const spawned = [];
-  const logs = [];
-
+  const launched = [];
+  const tasks = [1, 2, 3, 4, 5].map((n) => ({ id: n, body: '', labels: [] }));
   const result = await runQueue({
-    tasks: [task('TASK-1'), task('TASK-2'), task('TASK-3'), task('TASK-4'), task('TASK-5')],
-    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']),
-    runningWorktrees: new Map(),
+    tasks,
+    readyTaskIds: new Set([1, 2, 3, 4, 5]),
     max: 1,
-    spawnTask: async (candidate) => {
-      spawned.push(candidate.id);
-      return { status: 1 };
-    },
-    log: (line) => logs.push(line),
+    maxFailures: 3,
+    spawnTask: (task) => { launched.push(task.id); return Promise.resolve({ status: 1 }); },
   });
-
-  assert.deepEqual(spawned, ['TASK-1', 'TASK-2', 'TASK-3']);
-  assert.deepEqual(result.launched, ['TASK-1', 'TASK-2', 'TASK-3']);
+  assert.deepEqual(launched, [1, 2, 3]);
   assert.equal(result.failed, 3);
-  assert.ok(logs.includes('CIRCUIT_OPEN after 3 consecutive failures — dispatch halted'));
 });
 
-test('runQueue: circuit breaker stops dispatch before replenishing default parallelism', async () => {
-  const spawned = [];
-  const logs = [];
-
+test('runQueue: successful completion resets the consecutive failure count', async () => {
+  const launched = [];
+  const tasks = [1, 2, 3, 4, 5].map((n) => ({ id: n, body: '', labels: [] }));
+  const statusById = { 1: 1, 2: 1, 3: 0, 4: 1, 5: 1 };
   const result = await runQueue({
-    tasks: [task('TASK-1'), task('TASK-2'), task('TASK-3'), task('TASK-4'), task('TASK-5')],
-    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']),
-    runningWorktrees: new Map(),
-    spawnTask: async (candidate) => {
-      spawned.push(candidate.id);
-      return { status: 1 };
-    },
-    log: (line) => logs.push(line),
-  });
-
-  assert.deepEqual(spawned, ['TASK-1', 'TASK-2', 'TASK-3']);
-  assert.deepEqual(result.launched, ['TASK-1', 'TASK-2', 'TASK-3']);
-  assert.equal(result.failed, 3);
-  assert.ok(logs.includes('CIRCUIT_OPEN after 3 consecutive failures — dispatch halted'));
-});
-
-test('runQueue: successful completion resets consecutive failure count', async () => {
-  const statuses = new Map([
-    ['TASK-1', 1],
-    ['TASK-2', 0],
-    ['TASK-3', 1],
-    ['TASK-4', 1],
-  ]);
-  const spawned = [];
-  const logs = [];
-
-  const result = await runQueue({
-    tasks: [task('TASK-1'), task('TASK-2'), task('TASK-3'), task('TASK-4')],
-    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4']),
-    runningWorktrees: new Map(),
+    tasks,
+    readyTaskIds: new Set([1, 2, 3, 4, 5]),
     max: 1,
-    spawnTask: async (candidate) => {
-      spawned.push(candidate.id);
-      return { status: statuses.get(candidate.id) };
-    },
-    log: (line) => logs.push(line),
+    maxFailures: 3,
+    spawnTask: (task) => { launched.push(task.id); return Promise.resolve({ status: statusById[task.id] }); },
   });
-
-  assert.deepEqual(spawned, ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4']);
-  assert.deepEqual(result.launched, ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4']);
-  assert.equal(result.failed, 3);
-  assert.ok(!logs.some((line) => line.startsWith('CIRCUIT_OPEN ')));
+  assert.deepEqual(launched, [1, 2, 3, 4, 5]);
+  assert.equal(result.failed, 4);
 });
 
 test('runQueue: maxFailures 0 disables the circuit breaker', async () => {
-  const spawned = [];
-  const logs = [];
-
-  const result = await runQueue({
-    tasks: [task('TASK-1'), task('TASK-2'), task('TASK-3'), task('TASK-4'), task('TASK-5')],
-    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']),
-    runningWorktrees: new Map(),
+  const launched = [];
+  const tasks = [1, 2, 3, 4].map((n) => ({ id: n, body: '', labels: [] }));
+  await runQueue({
+    tasks,
+    readyTaskIds: new Set([1, 2, 3, 4]),
     max: 1,
     maxFailures: 0,
-    spawnTask: async (candidate) => {
-      spawned.push(candidate.id);
-      return { status: 1 };
-    },
-    log: (line) => logs.push(line),
+    spawnTask: (task) => { launched.push(task.id); return Promise.resolve({ status: 1 }); },
   });
-
-  assert.deepEqual(spawned, ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']);
-  assert.deepEqual(result.launched, ['TASK-1', 'TASK-2', 'TASK-3', 'TASK-4', 'TASK-5']);
-  assert.equal(result.failed, 5);
-  assert.ok(!logs.some((line) => line.startsWith('CIRCUIT_OPEN ')));
+  assert.deepEqual(launched, [1, 2, 3, 4]);
 });
 
-test('runQueue: overlapping Touches are not active at the same time and start after the blocker exits', async () => {
-  const started = [];
-  const resolvers = new Map();
-  const active = new Set();
-  const concurrentSnapshots = [];
-
-  const queuePromise = runQueue({
-    tasks: [
-      task('TASK-1', 'Touches: scripts/a.mjs'),
-      task('TASK-2', 'Touches: scripts/a.mjs'),
-      task('TASK-3', 'Touches: scripts/b.mjs'),
-    ],
-    readyTaskIds: new Set(['TASK-1', 'TASK-2', 'TASK-3']),
-    runningWorktrees: new Map(),
+test('runQueue: overlapping Touches are serialized — the second starts after the blocker exits', async () => {
+  const events = [];
+  let releaseFirst;
+  const firstDone = new Promise((resolve) => { releaseFirst = resolve; });
+  const tasks = [
+    { id: 1, body: 'Touches: scripts/', labels: [] },
+    { id: 2, body: 'Touches: scripts/inner-loop.mjs', labels: [] },
+  ];
+  const queue = runQueue({
+    tasks,
+    readyTaskIds: new Set([1, 2]),
     max: 2,
-    spawnTask: (candidate) => {
-      started.push(candidate.id);
-      active.add(candidate.id);
-      concurrentSnapshots.push([...active].sort());
-      return new Promise((resolve) => {
-        resolvers.set(candidate.id, () => {
-          active.delete(candidate.id);
-          resolve({ status: 0 });
-        });
-      });
+    spawnTask: (task) => {
+      events.push(`start-${task.id}`);
+      if (task.id === 1) return firstDone.then(() => ({ status: 0 }));
+      return Promise.resolve({ status: 0 });
     },
   });
-
-  await waitUntil(() => started.includes('TASK-1') && started.includes('TASK-3'));
-  assert.deepEqual(started, ['TASK-1', 'TASK-3']);
-  assert.ok(!started.includes('TASK-2'), 'TASK-2 must wait while TASK-1 with overlapping Touches is active');
-
-  resolvers.get('TASK-1')();
-  await waitUntil(() => started.includes('TASK-2'));
-  assert.deepEqual(started, ['TASK-1', 'TASK-3', 'TASK-2']);
-  assert.ok(
-    concurrentSnapshots.every((snapshot) => !(snapshot.includes('TASK-1') && snapshot.includes('TASK-2'))),
-    'tasks with overlapping Touches must not be active together',
-  );
-
-  resolvers.get('TASK-2')();
-  resolvers.get('TASK-3')();
-  const result = await queuePromise;
-  assert.deepEqual(result.launched, ['TASK-1', 'TASK-3', 'TASK-2']);
-  assert.equal(result.failed, 0);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['start-1'], 'task 2 must not start while task 1 holds scripts/');
+  releaseFirst();
+  const result = await queue;
+  assert.deepEqual(result.launched, [1, 2]);
+  assert.deepEqual(events, ['start-1', 'start-2']);
 });
-
-async function waitUntil(predicate) {
-  const startedAt = Date.now();
-  while (!predicate()) {
-    if (Date.now() - startedAt > 1000) {
-      throw new Error('timed out waiting for queue state');
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}

@@ -5,9 +5,8 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 
-// plan-loop RESEARCH / PLAN_REVIEW still read source GitHub issues — plan-loop's
-// gh issue create/close rewire to Backlog.md is TASK-1.3 scope, out of bounds
-// here (ADR 0025 §4 / TASK-1.2 prompt: "plan-loop … 動作を壊さない").
+// plan-task PLAN reads source GitHub issues (issue = task, ADR 0031) —
+// read-only gh access only; child issue creation is the driver's job.
 const READ_ONLY_GH_ISSUE_TOOLS = [
   'Bash(gh issue view *)',
   'Bash(gh issue list *)',
@@ -15,69 +14,44 @@ const READ_ONLY_GH_ISSUE_TOOLS = [
 
 /**
  * Permission flags per stage (ADR 0013 §機構詳細).
+ * Only two local stages remain after the task-loop shrink (#116, ADR 0030
+ * §2-3): PLAN (plan-task) and IMPLEMENT (task loop). Review runs on the PR
+ * via the review engine; verify(tier=test) runs in CI.
  * --bare / --dangerously-skip-permissions must never be used (hooks must fire).
  * @param {string} stage
  * @returns {{ agent: string, permissionMode: string, allowedTools?: string[] }}
  */
 export function stagePermissions(stage) {
   switch (stage) {
-    case 'RESEARCH':
-      return {
-        agent: 'researcher',
-        permissionMode: 'dontAsk',
-        allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', ...READ_ONLY_GH_ISSUE_TOOLS],
-      };
     case 'PLAN':
-      return { agent: 'planner', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
-    case 'PLAN_REVIEW':
-      // ADR 0016: PLAN-REVIEW is a plan audit by the reviewer role (separation
-      // of author and approver), not the planner reviewing its own output.
       return {
-        agent: 'reviewer',
+        agent: 'planner',
         permissionMode: 'dontAsk',
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)', ...READ_ONLY_GH_ISSUE_TOOLS],
       };
     case 'IMPLEMENT':
       // IMPLEMENT needs env-prefixed and compound verification/commit commands
-      // just like VERIFY/TRIAGE (#44/#45). Containment is worktree cwd, the
-      // implementer role contract, the main-dirty backstop, and the merge gate.
+      // (#44/#45). Containment is worktree cwd, the implementer role contract,
+      // the main-dirty backstop, and the PR+CI landing gate.
       return {
         agent: 'implementer',
         permissionMode: 'acceptEdits',
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash'],
       };
-    case 'REVIEW':
-      // No receipt.mjs allowedTool: receipt mechanism removed (ADR 0026 §1-3).
-      return { agent: 'reviewer', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash(git *)'] };
-    case 'VERIFY':
-      // Bash is blanket, not narrowed to git/pnpm/node: verification idioms
-      // (`; echo EXIT=$?`, `2>&1 | tail`, `TZ=UTC node …`) compose arbitrary
-      // commands and structurally conflict with fine-grained allowlists
-      // (#36/#44). Containment is worktree cwd, the read-only role contract,
-      // the main-dirty backstop, and the merge gate — not the allowlist.
-      return {
-        agent: 'verifier',
-        permissionMode: 'dontAsk',
-        allowedTools: ['Read', 'Grep', 'Glob', 'Bash'],
-      };
-    case 'TRIAGE':
-      // Same rationale as VERIFY above (#36/#44): triage reruns verification
-      // probes, so it needs the same blanket Bash.
-      return { agent: 'test-triage', permissionMode: 'dontAsk', allowedTools: ['Read', 'Grep', 'Glob', 'Bash'] };
     default:
       throw new Error(`stagePermissions: unknown stage "${stage}"`);
   }
 }
 
 /**
- * cwd for a stage: PLAN runs at repo root; every other stage in the worktree.
+ * cwd for a stage: PLAN (plan-task) runs at repo root; IMPLEMENT in the worktree.
  * @param {string} stage
  * @param {string} repoRoot
  * @param {string} worktreePath
  * @returns {string}
  */
 export function stageCwd(stage, repoRoot, worktreePath) {
-  return ['RESEARCH', 'PLAN', 'PLAN_REVIEW'].includes(stage) ? repoRoot : worktreePath;
+  return stage === 'PLAN' ? repoRoot : worktreePath;
 }
 
 // --- Backend adapter pure functions (ADR 0014) ---
@@ -154,13 +128,12 @@ function codexCostForUsage(model, usage) {
 
 /**
  * Sandbox mode for a stage's codex exec invocation.
- * IMPLEMENT/VERIFY/TRIAGE -> workspace-write; PLAN/REVIEW -> read-only.
- * VERIFY needs build/test writes and localhost. TRIAGE may rerun probes.
+ * IMPLEMENT -> workspace-write; PLAN (plan-task, read-only) -> read-only.
  * @param {string} stage
  * @returns {'workspace-write' | 'read-only'}
  */
 export function stageSandbox(stage) {
-  return ['IMPLEMENT', 'VERIFY', 'TRIAGE'].includes(stage) ? 'workspace-write' : 'read-only';
+  return stage === 'IMPLEMENT' ? 'workspace-write' : 'read-only';
 }
 
 /**
@@ -429,45 +402,9 @@ export function detectMainDirty(porcelainText) {
   return { dirty: paths.length > 0, paths };
 }
 
-/**
- * Validate a plan-loop `Depends-on:` value (ADR 0015/0016: Depends-on is a
- * machine-readable contract that decides run eligibility, not free text).
- *
- * A missing/unparseable line is a parser failure, not an empty dependency —
- * silently rounding "absent" down to "no deps" would let plan-loop issue
- * implementation issues with unverified dependency claims. Plans with no
- * real dependency must say so explicitly with the `none` marker.
- *
- * @param {string | null} rawValue - the captured group after "Depends-on:",
- *   or null if the line itself was not found in the plan text.
- * @returns {{ ok: true, dependsOn: string } | { ok: false, error: string }}
- */
-export function parseDependsOnLine(rawValue) {
-  if (rawValue == null) {
-    return { ok: false, error: 'approved plan is missing required "Depends-on:" line (use "Depends-on: none" if there are no dependencies)' };
-  }
-  const trimmed = rawValue.trim();
-  if (trimmed.length === 0) {
-    return { ok: false, error: 'approved plan has an empty "Depends-on:" value (use "Depends-on: none" if there are no dependencies)' };
-  }
-  if (/^none$/i.test(trimmed)) {
-    return { ok: true, dependsOn: '' };
-  }
-  return { ok: true, dependsOn: trimmed };
-}
-
 /** True when IMPLEMENT returned IMPL_DONE but the worktree HEAD did not advance (zero new commits). */
 export function detectHollowImplement({ verdict, baseSha, headSha }) {
   if (verdict !== 'IMPL_DONE') return false;
   if (!baseSha || !headSha) return false;
   return baseSha === headSha;
-}
-
-/** True when REVIEW is about to rerun on the same HEAD sha as the most-recent prior REVIEW entry. */
-export function detectRedundantReview({ headSha, stages }) {
-  if (!headSha) return false;
-  for (let i = stages.length - 1; i >= 0; i--) {
-    if (stages[i].stage === 'REVIEW') return stages[i].head_sha === headSha;
-  }
-  return false;
 }
