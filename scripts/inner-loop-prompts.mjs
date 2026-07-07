@@ -71,6 +71,39 @@ export function formatIssueComments(comments) {
     .join('\n\n');
 }
 
+// Standalone `VERDICT: <TOKEN>` lines are prompt noise inside injected review
+// findings (the driver parses verdicts from agent OUTPUT, but a quoted verdict
+// line invites confusion). Same shape as inner-loop-plan-task.mjs's local
+// stripVerdictLine (kept local — prompts must not import from plan-task: cycle).
+function stripVerdictLines(text) {
+  return String(text ?? '').split(/\r?\n/).filter((line) => !/^VERDICT:\s*[A-Z_]+\s*$/.test(line.trim())).join('\n').trim();
+}
+
+/**
+ * 所見注入セクション (#192 Major#2 / #201 分解 2). Formats review findings for
+ * injection into the NEXT attempt's prompt, so a retry is an informed
+ * correction (ADR 0035 §5 修正周回), not a blind regeneration.
+ *
+ * This is the single common mouth for review-feedback transport: today
+ * PLAN_REVIEW RED → TASK_PLAN retry; the LAND review 前置 (#188) reuses this
+ * builder for reviewer CHANGES → IMPLEMENT 差し戻し.
+ * @param {{ source: string, findings: string | null | undefined }} p
+ *   source: which review produced the findings (e.g. 'PLAN_REVIEW RED').
+ * @returns {string} empty string when there are no findings to inject
+ */
+export function buildReviewFeedbackSection({ source, findings }) {
+  const text = stripVerdictLines(findings);
+  if (!text) return '';
+  return [
+    `## 前回 review 所見（${source}）`,
+    '',
+    '前回の出力は review で差し戻されました。以下の所見を反映して修正してください。',
+    '指摘ごとに対応するか、対応しない場合はその理由を出力に明記してください（握り潰し禁止）。',
+    '',
+    text,
+  ].join('\n');
+}
+
 /**
  * IMPLEMENT stage prompt — implementer agent, cwd = worktree.
  * The issue body IS the plan (ADR 0030 §2 "すべての task は plan を持って
@@ -176,11 +209,14 @@ export function buildPlanTaskPrompt(ctx) {
  *
  * `planFormat` is the full text of design/plan-format.md, injected fail-closed
  * (same contract as buildPlanTaskPrompt — #142 absorbed into #116).
- * @param {{ issueNumber: number, issueTitle: string, issueBody: string, comments?: Array<object>, planFormat: string }} ctx
+ * `reviewFeedback` carries the previous PLAN_REVIEW RED findings on a retry
+ * (#192 Major#2): the driver passes envelope.result so the planner corrects
+ * the plan instead of regenerating it blind (ADR 0035 §5).
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, comments?: Array<object>, planFormat: string, reviewFeedback?: string }} ctx
  * @returns {string}
  */
 export function buildTaskLoopPlanPrompt(ctx) {
-  const { issueNumber, issueTitle, issueBody, comments, planFormat } = ctx;
+  const { issueNumber, issueTitle, issueBody, comments, planFormat, reviewFeedback } = ctx;
   if (typeof planFormat !== 'string' || planFormat.trim().length === 0) {
     throw new Error('buildTaskLoopPlanPrompt: planFormat is required (fail-closed injection of design/plan-format.md, #142)');
   }
@@ -195,6 +231,10 @@ export function buildTaskLoopPlanPrompt(ctx) {
   const commentsBlock = formatIssueComments(comments);
   if (commentsBlock) {
     lines.push('', '## 裁定・申し送り（issue comments）', commentsBlock);
+  }
+  const feedbackBlock = buildReviewFeedbackSection({ source: 'PLAN_REVIEW RED', findings: reviewFeedback });
+  if (feedbackBlock) {
+    lines.push('', feedbackBlock);
   }
   lines.push(
     '',
@@ -219,11 +259,15 @@ export function buildTaskLoopPlanPrompt(ctx) {
  * reviewer agent evaluates the plan produced by TASK_PLAN. Returns PASS when
  * the plan is actionable and RED when critical issues are found (driver retries
  * TASK_PLAN up to MAX_PLAN_REVIEW_RETRIES times).
- * @param {{ issueNumber: number, issueTitle: string, issueBody: string, planText: string }} ctx
+ *
+ * `comments` (裁定・申し送り) are injected so the reviewer holds the same
+ * context the planner planned with — without them, comment-driven plan
+ * decisions look unfounded and cause false RED (#192 Minor#4).
+ * @param {{ issueNumber: number, issueTitle: string, issueBody: string, comments?: Array<object>, planText: string }} ctx
  * @returns {string}
  */
 export function buildPlanReviewPrompt(ctx) {
-  const { issueNumber, issueTitle, issueBody, planText } = ctx;
+  const { issueNumber, issueTitle, issueBody, comments, planText } = ctx;
   const lines = [
     marker(issueNumber, 'PLAN_REVIEW'),
     '',
@@ -231,6 +275,12 @@ export function buildPlanReviewPrompt(ctx) {
     '',
     `## issue #${issueNumber}: ${issueTitle}`,
     issueBody ?? '',
+  ];
+  const commentsBlock = formatIssueComments(comments);
+  if (commentsBlock) {
+    lines.push('', '## 裁定・申し送り（issue comments。planner はこの文脈を前提に plan を作っている。審査でも同じ前提に立つこと）', commentsBlock);
+  }
+  lines.push(
     '',
     '## 検査対象 plan',
     '',
@@ -246,7 +296,7 @@ export function buildPlanReviewPrompt(ctx) {
     'RED: 重大な問題あり。問題点を具体的に列挙してください（planner が修正に使います）。',
     '',
     verdictInstruction(['PASS', 'RED']),
-  ];
+  );
   return lines.join('\n');
 }
 

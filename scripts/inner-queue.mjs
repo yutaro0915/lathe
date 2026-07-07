@@ -29,9 +29,8 @@ import { parseBlockedBy, issueLabelNames, TASK_REQUEST_LABEL, NEEDS_REVIEW_LABEL
 import {
   planDryRun, runQueue, formatDecision,
   deriveReadyTaskIds, deriveInProgressIssueNumbers, parseInnerIssueWorktrees,
-  NEEDS_REVIEW_LABEL_QUEUE,
 } from './inner-queue-decisions.mjs';
-import { queryProjectItem, isReadyOptionId } from './inner-loop-projects.mjs';
+import { queryProjectItem, isReadyStatusName } from './inner-loop-projects.mjs';
 
 export * from './inner-queue-decisions.mjs';
 
@@ -124,7 +123,7 @@ function fetchInProgressIssueNumbers() {
 // and treated as "not approved" to avoid unintended execution.
 export function fetchApprovedIssueNumbers(tasks) {
   const needsReviewTasks = tasks.filter((task) =>
-    (task.labels ?? []).some((l) => String(l).toLowerCase() === NEEDS_REVIEW_LABEL_QUEUE),
+    (task.labels ?? []).some((l) => String(l).toLowerCase() === NEEDS_REVIEW_LABEL),
   );
   const approved = new Set();
   for (const task of needsReviewTasks) {
@@ -139,7 +138,7 @@ export function fetchApprovedIssueNumbers(tasks) {
       process.stderr.write(`[inner-queue] warning: Projects query failed for #${task.id}: ${result.reason}\n`);
       continue;
     }
-    if (isReadyOptionId(result.optionId)) {
+    if (isReadyStatusName(result.statusName)) {
       approved.add(task.id);
     }
   }

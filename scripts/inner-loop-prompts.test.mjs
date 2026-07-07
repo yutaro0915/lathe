@@ -7,6 +7,8 @@ import {
   buildStagePrompt,
   buildImplementPrompt,
   buildPlanTaskPrompt,
+  buildTaskLoopPlanPrompt,
+  buildReviewFeedbackSection,
   formatIssueComments,
   STAGE_PROMPT_BUILDERS,
 } from './inner-loop-prompts.mjs';
@@ -156,6 +158,80 @@ test('buildPlanTaskPrompt: comments are injected when present', () => {
   const prompt = buildPlanTaskPrompt({ ...PLAN_CTX, comments: COMMENTS });
   assert.ok(prompt.includes('裁定・申し送り'));
   assert.ok(prompt.includes('監査役裁定: arm は PR 作成時。'));
+});
+
+// --- buildReviewFeedbackSection (#192 Major#2 — 所見注入の共通の口) ---
+
+test('buildReviewFeedbackSection: renders source, findings, and the 握り潰し禁止 contract', () => {
+  const section = buildReviewFeedbackSection({
+    source: 'PLAN_REVIEW RED',
+    findings: '1. acceptance criteria が曖昧\n2. 検証方法が未記載\nVERDICT: RED',
+  });
+  assert.ok(section.includes('## 前回 review 所見（PLAN_REVIEW RED）'));
+  assert.ok(section.includes('acceptance criteria が曖昧'));
+  assert.ok(section.includes('検証方法が未記載'));
+  assert.ok(section.includes('握り潰し禁止'));
+});
+
+test('buildReviewFeedbackSection: standalone VERDICT lines are stripped from findings', () => {
+  const section = buildReviewFeedbackSection({ source: 'PLAN_REVIEW RED', findings: 'fix this\nVERDICT: RED' });
+  assert.ok(!section.includes('VERDICT: RED'));
+});
+
+test('buildReviewFeedbackSection: empty / missing / verdict-only findings -> empty string', () => {
+  assert.equal(buildReviewFeedbackSection({ source: 'PLAN_REVIEW RED', findings: '' }), '');
+  assert.equal(buildReviewFeedbackSection({ source: 'PLAN_REVIEW RED', findings: undefined }), '');
+  assert.equal(buildReviewFeedbackSection({ source: 'PLAN_REVIEW RED', findings: 'VERDICT: RED' }), '');
+});
+
+test('buildReviewFeedbackSection: source label is caller-defined (LAND review 前置での再利用の口, #188)', () => {
+  const section = buildReviewFeedbackSection({ source: 'LAND review CHANGES', findings: 'split the commit' });
+  assert.ok(section.includes('## 前回 review 所見（LAND review CHANGES）'));
+});
+
+// --- TASK_PLAN prompt: RED 所見の注入 (#192 Major#2) ---
+
+const TASK_PLAN_CTX = {
+  issueNumber: 42,
+  issueTitle: 'fix: the thing',
+  issueBody: 'plan me',
+  comments: [],
+  planFormat: PLAN_FORMAT,
+};
+
+test('buildTaskLoopPlanPrompt: reviewFeedback is injected as the 所見 section', () => {
+  const prompt = buildTaskLoopPlanPrompt({ ...TASK_PLAN_CTX, reviewFeedback: '検証方法が未記載\nVERDICT: RED' });
+  assert.ok(prompt.includes('## 前回 review 所見（PLAN_REVIEW RED）'));
+  assert.ok(prompt.includes('検証方法が未記載'));
+});
+
+test('buildTaskLoopPlanPrompt: no reviewFeedback -> no 所見 section (initial attempt)', () => {
+  const prompt = buildTaskLoopPlanPrompt(TASK_PLAN_CTX);
+  assert.ok(!prompt.includes('前回 review 所見'));
+  const promptEmpty = buildTaskLoopPlanPrompt({ ...TASK_PLAN_CTX, reviewFeedback: '' });
+  assert.ok(!promptEmpty.includes('前回 review 所見'));
+});
+
+// --- PLAN_REVIEW prompt: comments 注入 (#192 Minor#4) ---
+
+const PLAN_REVIEW_CTX = {
+  issueNumber: 42,
+  issueTitle: 'fix: the thing',
+  issueBody: 'body',
+  planText: 'the plan under review',
+};
+
+test('buildPlanReviewPrompt: comments (裁定・申し送り) are injected for the reviewer', () => {
+  const prompt = buildStagePrompt('PLAN_REVIEW', { ...PLAN_REVIEW_CTX, comments: COMMENTS });
+  assert.ok(prompt.includes('裁定・申し送り'));
+  assert.ok(prompt.includes('監査役裁定: arm は PR 作成時。'));
+  assert.ok(prompt.includes('the plan under review'), 'plan text still present');
+});
+
+test('buildPlanReviewPrompt: no comments -> no 裁定 section', () => {
+  const prompt = buildStagePrompt('PLAN_REVIEW', { ...PLAN_REVIEW_CTX, comments: [] });
+  assert.ok(!prompt.includes('裁定・申し送り'));
+  assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: PASS | RED'));
 });
 
 // --- dispatch ---

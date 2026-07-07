@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { NEEDS_REVIEW_LABEL, ESCALATION_LABEL } from './inner-loop-core.mjs';
 import {
   buildInnerLoopSpawnSpec,
   DEFER_CAPACITY,
@@ -15,6 +16,7 @@ import {
   SKIP_RUNNING,
   SKIP_IN_PROGRESS,
   SKIP_ESCALATION,
+  WAIT_APPROVAL,
   WAIT_DEP,
   classifyTask,
   formatDecision,
@@ -102,12 +104,30 @@ test('classifyTask: escalation label is skipped (裁定 loop material, ADR 0030 
   assert.equal(decision.status, SKIP_ESCALATION);
 });
 
+test('classifyTask: projectEscalation が投影する core 定数の label で skip する（#201 分解 6）', () => {
+  // driver 側の投影 label（inner-loop-core の ESCALATION_LABEL）と queue 側の
+  // skip 判定が同じ単一正本であることの機械照合。
+  const decision = classifyTask({ task: { id: 5, body: '', labels: [ESCALATION_LABEL] }, readyTaskIds: new Set([5]) });
+  assert.equal(decision.status, SKIP_ESCALATION);
+});
+
 test('classifyTask: open PR referencing the issue means In Progress', () => {
   const decision = classifyTask({
     task: { id: 5, body: '', labels: [] },
     inProgressIssueNumbers: new Set([5]),
   });
   assert.equal(decision.status, SKIP_IN_PROGRESS);
+});
+
+test('classifyTask: needs-review gate uses the single-sourced core label constant (#192 Minor#3)', () => {
+  // The label the driver/core write and the label the queue gates on must be
+  // the same constant — a task labelled with inner-loop-core's
+  // NEEDS_REVIEW_LABEL waits for Projects Ready approval.
+  const task = { id: 5, body: '', labels: ['task-request', NEEDS_REVIEW_LABEL] };
+  const waiting = classifyTask({ task, readyTaskIds: new Set([5]) });
+  assert.equal(waiting.status, WAIT_APPROVAL);
+  const approved = classifyTask({ task, readyTaskIds: new Set([5]), approvedIssueNumbers: new Set([5]) });
+  assert.equal(approved.status, READY_NOW);
 });
 
 test('classifyTask: running worktree wins over dependency wait', () => {
