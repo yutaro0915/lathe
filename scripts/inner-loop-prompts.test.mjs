@@ -97,6 +97,21 @@ test('buildImplementPrompt: verdict token は IMPL_DONE のみ（ESCALATE 廃止
   assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: IMPL_DONE'));
 });
 
+test('buildImplementPrompt: IMPL_DONE 宣言前の自己検証チェックリストが注入される（#255）', () => {
+  const prompt = buildImplementPrompt(IMPLEMENT_CTX);
+  // 照合開始の識別文言（plan §4 deliverable 先頭行）
+  assert.ok(prompt.includes('IMPL_DONE を宣言する前に、手元の plan（issue 本文）と自分の diff を次の観点で 1 項目ずつ照合してください'));
+  // 2 つの照合観点（plan §4 deliverable）
+  assert.ok(prompt.includes('方向性制約'));
+  assert.ok(prompt.includes('plan の契約（型・schema・API 境界・artifact 形式）'));
+  // 不一致時の自己修正指示
+  assert.ok(prompt.includes('IMPL_DONE を宣言する前にその場で修正すること'));
+  // チェックリストは verdictInstruction より前に置かれる（plan → diff の照合 → VERDICT の順）
+  const checkIdx = prompt.indexOf('IMPL_DONE を宣言する前に、手元の plan');
+  const verdictIdx = prompt.indexOf('VERDICT: <TOKEN>');
+  assert.ok(checkIdx < verdictIdx, 'チェックリストは verdictInstruction より前に現れること');
+});
+
 // --- plan-task PLAN prompt ---
 
 const PLAN_FORMAT = '# Plan Format — 完全形の6セクション\n問題 / 選択肢 / 方針 / 契約 / 検証 / 見積り';
@@ -271,6 +286,38 @@ test('buildLandReworkPrompt: 空所見は fail-closed（throw）', () => {
 
 test('buildLandReworkPrompt: STAGE_PROMPT_BUILDERS には載せない（IMPLEMENT の正規 prompt を壊さない）', () => {
   assert.ok(!Object.values(STAGE_PROMPT_BUILDERS).includes(buildLandReworkPrompt));
+});
+
+test('buildLandReworkPrompt: IMPL_DONE 宣言前の自己検証チェックリストが注入される（#255）', () => {
+  const prompt = buildLandReworkPrompt(REWORK_CTX);
+  // 照合開始の識別文言（plan §4 deliverable 先頭行）
+  assert.ok(prompt.includes('IMPL_DONE を宣言する前に、手元の plan（issue 本文）と自分の diff を次の観点で 1 項目ずつ照合してください'));
+  // 2 つの照合観点（plan §4 deliverable）
+  assert.ok(prompt.includes('方向性制約'));
+  assert.ok(prompt.includes('plan の契約（型・schema・API 境界・artifact 形式）'));
+  // 不一致時の自己修正指示
+  assert.ok(prompt.includes('IMPL_DONE を宣言する前にその場で修正すること'));
+  // チェックリストは verdictInstruction より前に置かれる
+  const checkIdx = prompt.indexOf('IMPL_DONE を宣言する前に、手元の plan');
+  const verdictIdx = prompt.indexOf('VERDICT: <TOKEN>');
+  assert.ok(checkIdx < verdictIdx, 'チェックリストは verdictInstruction より前に現れること');
+});
+
+test('buildImplementPrompt / buildLandReworkPrompt: チェックリストは同一 const 由来（AC3 — 文言 drift を型で防ぐ）', () => {
+  const implPrompt = buildImplementPrompt(IMPLEMENT_CTX);
+  const reworkPrompt = buildLandReworkPrompt(REWORK_CTX);
+  // 共通識別行（const の先頭行）がどちらの prompt にも含まれることを確認
+  const CHECKLIST_ANCHOR = 'IMPL_DONE を宣言する前に、手元の plan（issue 本文）と自分の diff を次の観点で 1 項目ずつ照合してください（reviewer を待たず自分で潰す）:';
+  assert.ok(implPrompt.includes(CHECKLIST_ANCHOR), 'buildImplementPrompt にチェックリスト先頭行が含まれる');
+  assert.ok(reworkPrompt.includes(CHECKLIST_ANCHOR), 'buildLandReworkPrompt にチェックリスト先頭行が含まれる');
+  // anchor から次の空行（\n\n）までを抜き出して両者が同一テキストであることを assert
+  // — 単一の共有 const から配線されており、片側だけ drift しないことを担保する
+  const extractChecklist = (prompt) => {
+    const start = prompt.indexOf(CHECKLIST_ANCHOR);
+    const end = prompt.indexOf('\n\n', start);
+    return end === -1 ? prompt.slice(start) : prompt.slice(start, end);
+  };
+  assert.equal(extractChecklist(implPrompt), extractChecklist(reworkPrompt), '両 builder が同一 const 由来の同一テキストを持つ');
 });
 
 // --- TASK_PLAN prompt: RED 所見の注入 (#192 Major#2) ---

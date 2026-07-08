@@ -34,6 +34,25 @@ function verdictInstruction(tokens) {
 // Agent-side ESCALATE is removed from IMPLEMENT/LAND_REWORK (#117, ADR 0035 §4):
 // driver gates handle env/decision escalation via classifyEscalation at the single exit.
 // IMPL_DONE is the only valid verdict token for these stages.
+
+/**
+ * Self-verification checklist injected into IMPLEMENT / LAND_REWORK prompts (#255).
+ * Before declaring IMPL_DONE the implementer must compare the diff against the plan
+ * to catch (a) plan の方向性制約の逆向き実装 and (b) plan の契約（型・schema・API 境界）
+ * との不一致 — the dominant (a) CHANGES class from meta-audit (Discussion #251, #229 actual).
+ *
+ * Single shared const: both builders push the same reference; no text duplication.
+ * Placed just before verdictInstruction so the checklist is the final action
+ * before the agent emits VERDICT: IMPL_DONE.
+ */
+const IMPL_SELF_VERIFY_CHECKLIST = [
+  'IMPL_DONE を宣言する前に、手元の plan（issue 本文）と自分の diff を次の観点で 1 項目ずつ照合してください（reviewer を待たず自分で潰す）:',
+  '- plan が明示する方向性制約（例: 失敗時のフォールバックの向き・真偽の既定値・境界条件のどちら側か）と実装が一致しているか。',
+  '- plan の契約（型・schema・API 境界・artifact 形式）と実装が一致しているか。',
+  '- 不一致を見つけたら、IMPL_DONE を宣言する前にその場で修正すること。',
+  '照合の結果 plan の前提と現実（コードの現状・依存）が乖離していて修正できない場合は、その旨を出力して IMPL_DONE で終えてください（driver が triage します）。',
+].join('\n');
+
 const IMPL_LOOP_ESCALATION_CONTRACT = [
   'escalation: plan（issue 本文）の前提が現実（コードの現状・依存状態）と乖離している場合、あるいは実装解が一意でない場合は、その旨を出力して IMPL_DONE で終えてください（driver が triage します）。',
   'VERDICT 不能・merge 失敗・main dirty は driver が機械的に検知・執行する条件です。あなた（agent）は検査しないでください。',
@@ -137,6 +156,8 @@ export function buildImplementPrompt(ctx) {
     '1 commit にまとめること。明示 `git add <paths>` を使うこと（`git add -A` / `git add .` は禁止）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
     '',
+    IMPL_SELF_VERIFY_CHECKLIST,
+    '',
     verdictInstruction(['IMPL_DONE']),
   );
   return lines.join('\n');
@@ -192,6 +213,8 @@ export function buildLandReworkPrompt(ctx) {
     '変更は明示 `git add <paths>` で stage すること（`git add -A` / `git add .` は禁止）。',
     '全指摘を「対応しない」と判断した場合は commit を作らず、指摘ごとの理由を出力に列挙して IMPL_DONE で終えてよい（再 review が対応表明を審査します）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
+    '',
+    IMPL_SELF_VERIFY_CHECKLIST,
     '',
     verdictInstruction(['IMPL_DONE']),
   );
