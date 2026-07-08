@@ -40,6 +40,15 @@ driver を lathe に統合する手段として「新サービス」（別プロ
   見積り規則。
 - 既存 `packages/domain`（`@lathe/domain`。観測・分析ドメインの finding/evidence 型）とは**別
   パッケージ**であり、両者を混同しない。名前は `loop-domain` のまま短縮・統合しない。
+- **現状記録（移行の起点）**: 原資 `scripts/inner-loop-core.mjs`（491 行）は既に純関数の状態機械
+  （`parseVerdict` / stage テーブル定数 / `runStageWithUnparsableRetry` 等）として書かれているが、
+  同ファイルは `node:fs` の `existsSync` / `readFileSync` を import しており（`INNER_SETTINGS_PATH`
+  の設定ファイル読み込み）、docstring は「Everything here is pure or fs-read-only; no spawnSync
+  here」と自己申告している——**fs-read-only はここで定義する I/O ゼロではない**。つまり
+  `inner-loop-core.mjs` は「loop-domain へ移す最有力候補」ではあるが「そのままコピーしてよい
+  I/O ゼロの実装」ではまだない。移設時は fs 読み込みを `Clock`/設定アダプタ側の port 実装へ
+  切り出し、`packages/loop-domain` 側には状態機械・型のみを残す（詳細な関数単位の切り分け表は
+  `design/loop-domain-architecture.md` §2 を参照）。
 
 ### 3. クリーンアーキテクチャは「本質だけ」— 三輪、依存は常に外→内
 
