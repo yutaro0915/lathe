@@ -317,10 +317,14 @@ test('buildPlanReviewPrompt: no comments -> no 裁定 section', () => {
   assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: PASS | RED'));
 });
 
-test('buildPlanReviewPrompt: 見積り欄検査項目（4.）が含まれる', () => {
+test('buildPlanReviewPrompt: 見積り検査項目（4.）が plan 契約の全文で含まれる', () => {
   const prompt = buildStagePrompt('PLAN_REVIEW', { ...PLAN_REVIEW_CTX, comments: [] });
-  assert.ok(prompt.includes('見積り'), '見積り が検査項目に含まれること');
-  assert.ok(prompt.includes('4.'), '4番目の検査項目が存在すること');
+  assert.ok(
+    prompt.includes(
+      '4. 見積りの宣言と妥当性（plan が「見積り」行（想定 diff 規模・想定 implement 分数）を宣言しているか。無宣言、または scope に対し明らかに過小な見積りは RED）',
+    ),
+    'plan §4-2 の契約文言が逐語で含まれること（「過小な見積りは RED」基準を含む）',
+  );
 });
 
 // --- dispatch ---
