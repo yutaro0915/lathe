@@ -12,7 +12,31 @@
 // （ADR 0035 §4）。escalateIssue（inner-loop.mjs）が分類を受けて分岐する。
 
 import { spawnSync } from 'node:child_process';
-import { REPO_ROOT, ESCALATION_LABEL } from './inner-loop-core.mjs';
+import process from 'node:process';
+import { REPO_ROOT, ESCALATION_LABEL, ESCALATION_EXIT_CODE } from './inner-loop-core.mjs';
+
+// escalation は設計どおりの停止 — failure と区別できる exit code（規約 2）で終える。
+// dispatch-runner が outcome='escalation' に分類し、circuit breaker に数えない（ADR 0035）。
+export function dieEscalated(msg) {
+  process.stderr.write(`inner-loop: escalated: ${msg}\n`);
+  process.exit(ESCALATION_EXIT_CODE);
+}
+
+/**
+ * PLAN_REVIEW 直前などで issue comments の現在形を再取得する（run 中に投函された
+ * plan comment・RED 所見・改訂差分を reviewer に見せるため）。失敗は非致命 — fallback を返す。
+ * @param {number} issueNumber
+ * @param {Array<object>} fallback  取得失敗時に返す（run 開始時のスナップショット等）
+ * @param {{ spawnSync?: Function, cwd?: string }} deps
+ * @returns {Array<object>}
+ */
+export function tryFetchIssueComments(issueNumber, fallback, deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
+  const r = run('gh', ['issue', 'view', String(issueNumber), '--json', 'comments'],
+    { cwd: deps.cwd ?? REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  if (r.status !== 0) return fallback;
+  try { return JSON.parse(r.stdout).comments ?? fallback; } catch { return fallback; }
+}
 
 function clippedExcerpt(text, maxChars = 4000) {
   const value = String(text ?? '').trim();

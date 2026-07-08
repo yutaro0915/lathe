@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ESCALATION_LABEL } from './inner-loop-core.mjs';
-import { buildEscalationMarkdown, projectEscalation } from './inner-loop-escalation.mjs';
+import { buildEscalationMarkdown, projectEscalation , tryFetchIssueComments } from './inner-loop-escalation.mjs';
 import { classifyEscalation } from './inner-loop-escalation-triage.mjs';
 
 // --- buildEscalationMarkdown (report body) ---
@@ -121,4 +121,14 @@ test('classifyEscalation: RED → decision', () => {
 test('classifyEscalation: その他の verdict → decision（デフォルト）', () => {
   assert.equal(classifyEscalation({ verdict: 'IMPL_DONE' }), 'decision');
   assert.equal(classifyEscalation({ verdict: 'UNKNOWN_TOKEN' }), 'decision');
+});
+
+test('tryFetchIssueComments: 成功時は現在形の comments、失敗・parse 不能時は fallback を返す', () => {
+  const fallback = [{ body: 'stale' }];
+  const ok = tryFetchIssueComments(7, fallback, { spawnSync: () => ({ status: 0, stdout: '{"comments":[{"body":"fresh"}]}' }) });
+  assert.equal(ok[0].body, 'fresh');
+  const fail = tryFetchIssueComments(7, fallback, { spawnSync: () => ({ status: 1, stdout: '', stderr: 'boom' }) });
+  assert.equal(fail, fallback);
+  const bad = tryFetchIssueComments(7, fallback, { spawnSync: () => ({ status: 0, stdout: 'not json' }) });
+  assert.equal(bad, fallback);
 });

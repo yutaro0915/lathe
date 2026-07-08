@@ -36,6 +36,9 @@ export const NEEDS_REVIEW_LABEL = 'needs-review';
 export const TASK_REQUEST_LABEL = 'task-request';
 // escalation の issue 化 (#201 分解 6): driver が投影し、queue が skip する label。
 export const ESCALATION_LABEL = 'escalation';
+// driver の exit code 規約: 0 = success / 2 = escalation（設計どおりの停止）/ その他 = failure。
+// dispatch-runner が outcome 分類（circuit breaker は escalation を故障と数えない、ADR 0035）に使う。
+export const ESCALATION_EXIT_CODE = 2;
 // Manifest-only stage names for the LAND review phase: observability records
 // (cost/session/verdict), not resume checkpoints (decideResumeState excludes them).
 export const LAND_REVIEW_MANIFEST_STAGE = 'LAND_REVIEW';
