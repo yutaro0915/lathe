@@ -97,6 +97,23 @@ test('buildImplementPrompt: verdict token は IMPL_DONE のみ（ESCALATE 廃止
   assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: IMPL_DONE'));
 });
 
+test('buildImplementPrompt: IMPL_DONE 宣言前の自己検証チェックリストが注入される（#255）', () => {
+  const prompt = buildImplementPrompt(IMPLEMENT_CTX);
+  // チェックリスト見出し
+  assert.ok(prompt.includes('## IMPL_DONE 宣言前の自己検証（plan ⇄ diff 照合）'));
+  // 4 カテゴリの照合項目
+  assert.ok(prompt.includes('方向性制約'));
+  assert.ok(prompt.includes('acceptance criteria'));
+  assert.ok(prompt.includes('パス・ファイル名'));
+  assert.ok(prompt.includes('却下された選択肢'));
+  // 自己修正を促す文言
+  assert.ok(prompt.includes('commit 前にその場で修正してください'));
+  // チェックリストは verdictInstruction より前に置かれる（plan → diff の照合 → VERDICT の順）
+  const checkIdx = prompt.indexOf('## IMPL_DONE 宣言前の自己検証');
+  const verdictIdx = prompt.indexOf('VERDICT: <TOKEN>');
+  assert.ok(checkIdx < verdictIdx, 'チェックリストは verdictInstruction より前に現れること');
+});
+
 // --- plan-task PLAN prompt ---
 
 const PLAN_FORMAT = '# Plan Format — 完全形の6セクション\n問題 / 選択肢 / 方針 / 契約 / 検証 / 見積り';
@@ -271,6 +288,21 @@ test('buildLandReworkPrompt: 空所見は fail-closed（throw）', () => {
 
 test('buildLandReworkPrompt: STAGE_PROMPT_BUILDERS には載せない（IMPLEMENT の正規 prompt を壊さない）', () => {
   assert.ok(!Object.values(STAGE_PROMPT_BUILDERS).includes(buildLandReworkPrompt));
+});
+
+test('buildLandReworkPrompt: IMPL_DONE 宣言前の自己検証チェックリストが注入される（#255）', () => {
+  const prompt = buildLandReworkPrompt(REWORK_CTX);
+  // チェックリスト見出し
+  assert.ok(prompt.includes('## IMPL_DONE 宣言前の自己検証（plan ⇄ diff 照合）'));
+  // 4 カテゴリの照合項目
+  assert.ok(prompt.includes('方向性制約'));
+  assert.ok(prompt.includes('acceptance criteria'));
+  assert.ok(prompt.includes('パス・ファイル名'));
+  assert.ok(prompt.includes('却下された選択肢'));
+  // チェックリストは verdictInstruction より前に置かれる
+  const checkIdx = prompt.indexOf('## IMPL_DONE 宣言前の自己検証');
+  const verdictIdx = prompt.indexOf('VERDICT: <TOKEN>');
+  assert.ok(checkIdx < verdictIdx, 'チェックリストは verdictInstruction より前に現れること');
 });
 
 // --- TASK_PLAN prompt: RED 所見の注入 (#192 Major#2) ---

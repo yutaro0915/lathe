@@ -34,6 +34,32 @@ function verdictInstruction(tokens) {
 // Agent-side ESCALATE is removed from IMPLEMENT/LAND_REWORK (#117, ADR 0035 §4):
 // driver gates handle env/decision escalation via classifyEscalation at the single exit.
 // IMPL_DONE is the only valid verdict token for these stages.
+
+/**
+ * Self-verification checklist injected into IMPLEMENT / LAND_REWORK prompts (#255).
+ * Before declaring IMPL_DONE the implementer must compare the diff against the plan
+ * to catch the four recurring CHANGES categories:
+ *   (a) direction constraints (e.g. "gh 失敗は true" written in plan → must not be false)
+ *   (b) acceptance criteria — each AC must be present in the diff
+ *   (c) path / function name mismatch — plan names a specific file/function
+ *   (d) explicitly rejected options adopted by mistake
+ *
+ * Placed just before verdictInstruction so the checklist is the final action
+ * before the agent emits VERDICT: IMPL_DONE.
+ */
+const IMPL_SELF_CHECK_CONTRACT = [
+  '## IMPL_DONE 宣言前の自己検証（plan ⇄ diff 照合）',
+  '',
+  '`VERDICT: IMPL_DONE` を出す前に、plan（上に全文が注入されています）と自分の diff を突き合わせて以下を確認してください。',
+  '',
+  '- **方向性制約**: plan が「〇〇の場合は X（true / false・採用 / 不採用）」と明示した制約を、実装が同じ方向で満たしているか。逆向きになっていないか。',
+  '- **acceptance criteria**: plan が列挙した AC を diff と 1 件ずつ照合したか。未実装の AC が残っていないか。',
+  '- **パス・ファイル名**: plan が指定したファイル・関数名・配置先が実装と一致しているか。',
+  '- **却下された選択肢**: plan が明示的に不採用とした選択肢を実装していないか。',
+  '',
+  '不一致が見つかったら commit 前にその場で修正してください。',
+].join('\n');
+
 const IMPL_LOOP_ESCALATION_CONTRACT = [
   'escalation: plan（issue 本文）の前提が現実（コードの現状・依存状態）と乖離している場合、あるいは実装解が一意でない場合は、その旨を出力して IMPL_DONE で終えてください（driver が triage します）。',
   'VERDICT 不能・merge 失敗・main dirty は driver が機械的に検知・執行する条件です。あなた（agent）は検査しないでください。',
@@ -137,6 +163,8 @@ export function buildImplementPrompt(ctx) {
     '1 commit にまとめること。明示 `git add <paths>` を使うこと（`git add -A` / `git add .` は禁止）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
     '',
+    IMPL_SELF_CHECK_CONTRACT,
+    '',
     verdictInstruction(['IMPL_DONE']),
   );
   return lines.join('\n');
@@ -192,6 +220,8 @@ export function buildLandReworkPrompt(ctx) {
     '変更は明示 `git add <paths>` で stage すること（`git add -A` / `git add .` は禁止）。',
     '全指摘を「対応しない」と判断した場合は commit を作らず、指摘ごとの理由を出力に列挙して IMPL_DONE で終えてよい（再 review が対応表明を審査します）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
+    '',
+    IMPL_SELF_CHECK_CONTRACT,
     '',
     verdictInstruction(['IMPL_DONE']),
   );
