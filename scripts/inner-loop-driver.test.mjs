@@ -212,7 +212,7 @@ test('CLI dry-run (plan-task): needs-plan label routes to the plan-task run type
     assert.ok(r.stdout.includes('dry-run: plan-task issue #4242'));
     assert.ok(r.stdout.includes('stage plan — PLAN -> FILE_CHILDREN'));
     assert.ok(r.stdout.includes('plan-format injection — design/plan-format.md read fail-closed'));
-    assert.ok(r.stdout.includes('完全形の5セクション'));
+    assert.ok(r.stdout.includes('完全形の6セクション'));
     assert.ok(r.stdout.includes('gh issue create --label task-request'));
     assert.ok(r.stdout.includes('ASK_PDM'));
   } finally {

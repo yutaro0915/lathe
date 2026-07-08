@@ -13,7 +13,8 @@
     "escalation の率と再発パターン（同型の escalation が繰り返していないか）",
     "差し戻し cycle の分布（REVIEW CHANGES → IMPLEMENT の往復が多い issue はどれか）",
     "invalid（判定不能）の頻度と帰属（harness 起因が集中していないか）",
-    "stage cost / duration の逸脱（特定 stage・backend が異常に高くないか）"
+    "stage cost / duration の逸脱（特定 stage・backend が異常に高くないか）",
+    "IMPLEMENT stage の実測時間が plan 見積りを大幅超過した run（粒度超過の指標: plan の見積り欄と run_stages.duration_ms を照合し、超過 run を finding として記録する。ADR 0030 §5・plan-format.md §見積り）"
   ],
   "cadence": "10 run ごと、または escalation が 3 連続でクラスタした時",
   "depth_budget": "suspect 上限 5・fan-out 上限 4",

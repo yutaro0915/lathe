@@ -99,7 +99,7 @@ test('buildImplementPrompt: verdict token は IMPL_DONE のみ（ESCALATE 廃止
 
 // --- plan-task PLAN prompt ---
 
-const PLAN_FORMAT = '# Plan Format — 完全形の5セクション\n問題 / 選択肢 / 方針 / 契約 / 検証';
+const PLAN_FORMAT = '# Plan Format — 完全形の6セクション\n問題 / 選択肢 / 方針 / 契約 / 検証 / 見積り';
 const PLAN_CTX = {
   issueNumber: 200,
   issueTitle: 'needs-plan: big topic',
@@ -112,7 +112,7 @@ test('buildPlanTaskPrompt: injects the full plan-format.md text (#142 吸収)', 
   const prompt = buildPlanTaskPrompt(PLAN_CTX);
   assert.ok(prompt.includes('issue #200 / stage: PLAN'));
   assert.ok(prompt.includes('design/plan-format.md'));
-  assert.ok(prompt.includes('完全形の5セクション'));
+  assert.ok(prompt.includes('完全形の6セクション'));
 });
 
 test('buildPlanTaskPrompt: fail-closed — missing/empty planFormat throws', () => {
@@ -316,6 +316,16 @@ test('buildPlanReviewPrompt: no comments -> no 裁定 section', () => {
   const prompt = buildStagePrompt('PLAN_REVIEW', { ...PLAN_REVIEW_CTX, comments: [] });
   assert.ok(!prompt.includes('裁定・申し送り'));
   assert.ok(prompt.trimEnd().endsWith('<TOKEN> は次のいずれか: PASS | RED'));
+});
+
+test('buildPlanReviewPrompt: 見積り検査項目（4.）が plan 契約の全文で含まれる', () => {
+  const prompt = buildStagePrompt('PLAN_REVIEW', { ...PLAN_REVIEW_CTX, comments: [] });
+  assert.ok(
+    prompt.includes(
+      '4. 見積りの宣言と妥当性（plan が「見積り」行（想定 diff 規模・想定 implement 分数）を宣言しているか。無宣言、または scope に対し明らかに過小な見積りは RED）',
+    ),
+    'plan §4-2 の契約文言が逐語で含まれること（「過小な見積りは RED」基準を含む）',
+  );
 });
 
 // --- dispatch ---
