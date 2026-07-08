@@ -1,0 +1,37 @@
+{
+  "schema_version": "2",
+  "id": "harness/structural-guarantee-before-prompts",
+  "title": "プロンプトに頼る前に機械的保証を検討する（情報の完全性・検証可能性は構造で担保）",
+  "version": "1",
+  "scope": ["scripts", "ops"],
+  "origin": "PdM 裁定(2026-07-08): 「プロンプトに頼る前に、それを他の機械的な方法で既存の harness に組み込む形で保証できないかどうかを考えること。これはレビュー観点の一つだ」。契機: PLAN_REVIEW の差分審査不能事故で『planner に全文再掲をプロンプトで強制する』案が最初に提案された設計不良。正解は reviewer への issue スレッド再取得（配管の修正・決定的・遵守概念が不要）だった。原則: プロンプトは判断の質を託す場所であり、情報の完全性・成果物の構造・検証可能性を担保する場所ではない — 後者は配管（データ取得/正本からの導出）・機械検証・構造変更で保証する（ADR 0031「状態は gh から導出」の一般化、#189 の教訓「散文契約は silent に壊れる」）。",
+  "checks": [
+    {
+      "id": "prompt-instruction-without-structural-alternative",
+      "value": "harness（scripts/・ops/）の変更が『agent への prompt 指示の追加・強化』によって情報の完全性・成果物の構造・検証可能性を担保しようとしていないかを見る恒久観点（① 何を縛るか）。prompt 指示は非決定的で、従わない出力は検証と再試行の機械を増やすだけ — 同じ性質を配管（必要な情報を機械が取得して渡す）・機械検証（構造をコードで検査）・正本からの導出で構造的に保証できるなら、そちらが義務。② なぜ重要か: 散文契約は silent に壊れ（#189 実測）、遵守率という確率が harness の信頼性の上限になる。構造で保証すれば遵守という概念自体が消える。",
+      "severity": "major",
+      "verify": {
+        "kind": "judge",
+        "metric": "count",
+        "judge": {
+          "prompt": "あなたは『プロンプト指示より機械的保証を先に検討したか』を見る、厳密だが寛容なジャッジ。入力は 1 つの変更セット（### FILES ### に変更ファイル一覧、### DIFF ### に差分本体）。タスク: scripts/ または ops/ の変更のうち、【agent への prompt 文字列（stage prompt・指示文・契約文言）に指示を追加・強化することで、情報の完全性（agent が必要情報を持つこと）・成果物の構造（出力の形式・網羅性）・検証可能性を担保しようとしており】、かつ【同等の機械的保証（必要情報を機械が取得して注入する配管／出力構造の機械検証／正本からの導出）が明らかに可能なのに、同じ変更セットにその実装も、不可能である理由の言及（コメント・plan 引用）も無い】ものの数を数えよ。\n\n違反として数える例: 『出力に X を必ず含めよ』と prompt に足すだけ（X を機械が検証・取得できるのに）／『必ず最新状態を確認せよ』と指示するだけ（機械が最新状態を取得して渡せるのに）。\n\n違反として数えない（迷ったら必ずこちら＝false RED でユーザーの時間を奪わない）: (a) 判断の質・観点を託す prompt 変更（審査観点の追加・判断基準の明確化・語調）、(b) prompt 指示と同時に機械的保証（配管・検証コード）が同じ変更セットに実装されているもの、(c) 機械化が不可能/過剰である理由がコード comment・plan・PR 本文に明記されているもの、(d) prompt の文言修正・誤字・整形のみ、(e) prompt 以外の変更、(f) テスト・docs のみの変更。『機械化が明らかに可能』の確信が持てない場合は通す。\n\n最終行に必ず VERDICT:<整数>（構造的代替の検討痕跡なく prompt 指示に頼った変更の数。0 = OK）。",
+          "input_cmd": "if git rev-parse --verify origin/main >/dev/null 2>&1 && [ -n \"$(git rev-list origin/main..HEAD 2>/dev/null)\" ]; then R='git diff origin/main...HEAD'; elif ! git diff --quiet HEAD 2>/dev/null; then R='git diff HEAD'; else R='git show --format= HEAD'; fi; echo '### FILES ###'; $R --name-status -- scripts ops 2>/dev/null; echo '### DIFF ###'; $R -- scripts ops 2>/dev/null | head -1600"
+        },
+        "expect": "le:0",
+        "tolerance": "judge は非決定的。③ 仕組みと限界: 『機械化が明らかに可能か』は意味解釈が要るため決定的 cmd では書けず judge を採る。設計判断の当否そのものは審査しない — 『検討の痕跡（実装 or 理由の明記）があるか』だけを見る。迷ったら通す（false RED を出さない）。LAND_REVIEW の reviewer も該当 rubric としてこの観点を読む（review skill の『plan＋該当 rubric に照らす』）— judge gate と review 観点の二重の網。"
+      },
+      "evidence": "judge が最終行に出力する VERDICT:<int>（0=OK）。input_cmd は PR 全範囲(origin/main...HEAD)か working diff の scripts/・ops/ 差分を渡す。",
+      "examples": {
+        "pass": [
+          "reviewer に issue スレッドを再取得して注入する配管を追加（prompt 指示でなく機械が情報を渡す）",
+          "prompt に審査観点を 1 項目追加（判断の質の変更 — 情報完全性の担保ではない）",
+          "『全文再掲せよ』指示を足すが、同時に出力構造の機械検証と差し戻しを実装し、機械化できない残余である理由を comment に明記"
+        ],
+        "fail": [
+          "『再試行では plan 全文を再掲せよ』と prompt に足すだけ（スレッド再取得という配管で構造的に保証できるのに検討痕跡なし）",
+          "『escalation 時は必ず成果物を issue に書け』と指示だけ足す（driver が envelope を機械投稿できるのに）"
+        ]
+      }
+    }
+  ]
+}
