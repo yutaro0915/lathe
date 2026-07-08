@@ -47,6 +47,8 @@ ssh case 'cd ~/lathe &&
   pnpm install --frozen-lockfile'
 ```
 
+> **注**: nix store hash は NixOS rebuild で変化する。`nix path-info nixpkgs#nodejs` で現 hash を確認してから実行すること（step 2 参照）。
+
 ### 4. systemd unit を導入する（case-setup.sh）
 
 ```sh
@@ -54,6 +56,8 @@ ssh case 'cd ~/lathe &&
   export PATH="$HOME/.local/bin:/nix/store/zvj0hl7rhh0ccr5vkcg3ijs3xm3sgyac-nodejs-24.16.0/bin:$HOME/.nix-profile/bin:$PATH" &&
   bash ops/install/case-setup.sh'
 ```
+
+> **注**: nix store hash は NixOS rebuild で変化する。`nix path-info nixpkgs#nodejs` で現 hash を確認してから実行すること（step 2 参照）。
 
 **実出力（2026-07-08T03:05:38Z）**:
 
@@ -175,6 +179,24 @@ scripts/inner-loop-backends.mjs:213:  '--settings', INNER_SETTINGS_PATH,
 
 issue-236.log（case side dispatch-runner）でも `spawning claude` が呼ばれており、
 settings パスが渡されている（TASK_PLAN の失敗は認証エラーであり settings パスの問題ではない）。
+
+## ESCALATE 分岐
+
+本設置では **ESCALATE は発動しなかった**（option (ii) = `systemctl --user enable --now` で問題なく通過）。
+
+### ESCALATE 基準
+
+| 条件 | 判断 |
+|------|------|
+| `systemctl --user enable --now` が正常完了し、`Created symlink …/timers.target.wants/lathe-orchestrator.timer` が出力される | 継続（ESCALATE 不要）|
+| NixOS rebuild 後に unit が消えても `case-setup.sh` 再実行で復元できる | 継続（再実施で解消）|
+| **NixOS 宣言方式（option (i): `home-manager` / `nix-config` への unit 宣言）でしか永続化できない**と判明した場合 | **ESCALATE** |
+
+option (i) が必須と判明した場合は **実装を進めず ESCALATE** する。理由: `nix-config` は別 repo であり、本 `lathe` repo 内では宣言変更を安全に実施できない。ESCALATE 時は outer loop（監督）へ issue comment で状況・判断根拠を報告する。
+
+### 本設置の通過根拠
+
+`case-setup.sh` 出力に `Created symlink …/timers.target.wants/lathe-orchestrator.timer` が確認できた（option (ii) 方式で問題なし）。将来の再設置（NixOS rebuild 後・別ホスト）でも同出力が確認できる限り ESCALATE は不要。
 
 ## 既知の問題・後続対応
 
