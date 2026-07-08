@@ -37,3 +37,27 @@
 
 harness-release loop を台帳に追加する（本 PR）。既存の harness-hotfix（緊急最小修正）とは
 別物: hotfix = 故障の止血・最小 diff、release = 計画された版の一括改修。
+
+## 環境切替の検収 4 点基準（issue #282 追記、2026-07-08）
+
+launchd→systemd 移行のような**常駐の実行基盤そのものの切替**（loop 本体ではなく実行基盤の
+入れ替え）も、決定 4「切替と受け入れ」の具体化として、応急処置（case ローカルの drop-in・
+手動 env 注入等）を撤去し repo の正本（unit ファイル・install script）のみに戻した状態で、
+実 dispatch 1 件に対する機械照合 4 点をもって「切替完了」と宣言する:
+
+(a) **live marker 生存**: dispatch した pass の live マーカー（`.lathe/runs/live-*.json`）が
+    1 パス以上、kill されず生存する（cgroup 回収設定の誤りが無いことの証跡）
+(b) **claude 応答**: dispatch された inner loop 内で claude 呼び出しが応答を返す
+    （認証・環境注入が有効であることの証跡）
+(c) **成果物の期限内出現**: 最初の成果物（PR / comment 等）が期限内に対象 issue 上に
+    出現する（dispatch から着地までの経路が実際に機能することの証跡）
+(d) **outcome=success 記録**: `.lathe/runs/outcomes.jsonl` に対象 dispatch の
+    `outcome:"success"` レコードが記録される（機械集計可能な完了記録）
+
+4 点すべてが GREEN で初めて切替完了。1 点でも欠ければ切替未完了として応急処置を維持し、
+原因を repo の正本（unit / install script）へ反映してから再検収する（応急処置を case ローカル
+に留めたまま次の切替に進まない — 実測 2026-07-08、issue #282: 未反映のまま進めた結果、
+同じ環境差が次の導入先で再発した）。
+
+関連: `ops/systemd/lathe-orchestrator.service`（KillMode=process・EnvironmentFile 反映）／
+`ops/install/case-setup.sh`（self-check）。

@@ -8,6 +8,13 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 
+# systemd 既定の KillMode=control-group は service 終了時に cgroup 内の
+# 子プロセスまで即座に回収する。orchestrator は fire-and-forget dispatch
+# （子を spawn した時点でこのパスは完了とみなし、子の完走を待たない設計）を
+# 前提とするため、メインプロセスのみを対象にする KillMode=process が必須
+# （実測 2026-07-08: cgroup 回収で detached 子が即死する事故、issue #282）。
+KillMode=process
+
 # ── 実行 ──────────────────────────────────────────────────────────────────
 # {{NODE_BIN}} = case-setup.sh が nix build/path-info で解決した絶対パス
 #   （nix store hash は NixOS rebuild で変化するため直書き禁止、case-setup.sh に委譲）
@@ -25,6 +32,11 @@ WorkingDirectory={{REPO_ROOT}}
 # node 自体は ExecStart に絶対パスを使うためここに不要。
 # gh / claude は ~/.nix-profile/bin 経由でアクセス可（nix profile install 済み前提）。
 Environment=PATH={{LOGIN_PATH}}
+
+# claude OAuth token 等、case 固有の秘匿値は repo に含めず外部ファイルから注入する
+# （値は repo 外・本 unit はファイルの存在のみ要求する）。
+# 欠落時は case-setup.sh の self-check が導入前に FAIL させる（issue #282）。
+EnvironmentFile=%h/.config/lathe-cf/env
 
 # ── ログ ─────────────────────────────────────────────────────────────────
 # launchd StandardOutPath/StandardErrorPath の等価。

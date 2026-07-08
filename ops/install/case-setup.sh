@@ -89,10 +89,69 @@ check_status() {
   log "LOGIN_PATH: $(resolve_login_path)"
 }
 
+# ── 依存 self-check ──────────────────────────────────────────────────────
+# 実測 2026-07-08（issue #282）: claude 認証・pnpm 欠品が case で実弾を止めた。
+# 応急処置（case ローカル導入）で凌ぐのではなく、導入前に機械で検出して FAIL させる。
+# ENV_FILE は ops/systemd/lathe-orchestrator.service の EnvironmentFile= と対応。
+ENV_FILE="${HOME}/.config/lathe-cf/env"
+
+self_check() {
+  local failed=false
+
+  if command -v node >/dev/null 2>&1 || nix path-info nixpkgs#nodejs >/dev/null 2>&1 \
+      || nix path-info nixpkgs#nodejs_24 >/dev/null 2>&1; then
+    log "self-check: node OK"
+  else
+    warn "self-check: node が見つかりません（PATH にも nix store にも解決不可）"
+    failed=true
+  fi
+
+  if command -v pnpm >/dev/null 2>&1; then
+    log "self-check: pnpm OK ($(pnpm --version 2>/dev/null || echo '?'))"
+  else
+    warn "self-check: pnpm が見つかりません（corepack enable --install-directory ~/.local/bin を実行してください）"
+    failed=true
+  fi
+
+  if ! command -v claude >/dev/null 2>&1; then
+    warn "self-check: claude コマンドが見つかりません"
+    failed=true
+  elif claude -p "reply with exactly: OK" >/dev/null 2>&1; then
+    log "self-check: claude 認証 OK（claude -p 疎通確認）"
+  else
+    warn "self-check: claude -p 疎通に失敗しました（認証切れの可能性。CLAUDE_CODE_OAUTH_TOKEN を確認してください）"
+    failed=true
+  fi
+
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    log "self-check: gh 認証 OK"
+  else
+    warn "self-check: gh 認証が確認できません（gh auth login を実行してください）"
+    failed=true
+  fi
+
+  if [[ -f "${ENV_FILE}" ]]; then
+    log "self-check: EnvironmentFile OK (${ENV_FILE})"
+  else
+    warn "self-check: EnvironmentFile が見つかりません（${ENV_FILE}）。unit の EnvironmentFile= と対応する秘匿値ファイルを配置してください"
+    failed=true
+  fi
+
+  if $failed; then
+    return 1
+  fi
+  log "self-check: すべて OK"
+  return 0
+}
+
+# ── main（実インストール本体。--check / source 時は実行しない）───────────────
+main() {
 if $CHECK_ONLY; then
   check_status
   exit 0
 fi
+
+self_check || die "self-check FAILED — 依存が不足しています。導入を中止します。"
 
 # ── node 解決 ────────────────────────────────────────────────────────────
 log "node パスを解決中..."
@@ -154,3 +213,10 @@ log "  systemctl --user start ${UNIT_SERVICE}"
 log "  または: node ${REPO_ROOT}/scripts/orchestrator.mjs --max 5"
 log "ログ: ${LOG_DIR}/orchestrator.log"
 log "確認: systemctl --user list-timers ${UNIT_TIMER}"
+}
+
+# source 時（テストからの関数読み込み等）は main を実行しない。
+# 直接実行時のみ本体を走らせる（BASH_SOURCE == 0 判定、bash 標準イディオム）。
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
