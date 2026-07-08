@@ -38,26 +38,19 @@ function verdictInstruction(tokens) {
 /**
  * Self-verification checklist injected into IMPLEMENT / LAND_REWORK prompts (#255).
  * Before declaring IMPL_DONE the implementer must compare the diff against the plan
- * to catch the four recurring CHANGES categories:
- *   (a) direction constraints (e.g. "gh 失敗は true" written in plan → must not be false)
- *   (b) acceptance criteria — each AC must be present in the diff
- *   (c) path / function name mismatch — plan names a specific file/function
- *   (d) explicitly rejected options adopted by mistake
+ * to catch (a) plan の方向性制約の逆向き実装 and (b) plan の契約（型・schema・API 境界）
+ * との不一致 — the dominant (a) CHANGES class from meta-audit (Discussion #251, #229 actual).
  *
+ * Single shared const: both builders push the same reference; no text duplication.
  * Placed just before verdictInstruction so the checklist is the final action
  * before the agent emits VERDICT: IMPL_DONE.
  */
-const IMPL_SELF_CHECK_CONTRACT = [
-  '## IMPL_DONE 宣言前の自己検証（plan ⇄ diff 照合）',
-  '',
-  '`VERDICT: IMPL_DONE` を出す前に、plan（上に全文が注入されています）と自分の diff を突き合わせて以下を確認してください。',
-  '',
-  '- **方向性制約**: plan が「〇〇の場合は X（true / false・採用 / 不採用）」と明示した制約を、実装が同じ方向で満たしているか。逆向きになっていないか。',
-  '- **acceptance criteria**: plan が列挙した AC を diff と 1 件ずつ照合したか。未実装の AC が残っていないか。',
-  '- **パス・ファイル名**: plan が指定したファイル・関数名・配置先が実装と一致しているか。',
-  '- **却下された選択肢**: plan が明示的に不採用とした選択肢を実装していないか。',
-  '',
-  '不一致が見つかったら commit 前にその場で修正してください。',
+const IMPL_SELF_VERIFY_CHECKLIST = [
+  'IMPL_DONE を宣言する前に、手元の plan（issue 本文）と自分の diff を次の観点で 1 項目ずつ照合してください（reviewer を待たず自分で潰す）:',
+  '- plan が明示する方向性制約（例: 失敗時のフォールバックの向き・真偽の既定値・境界条件のどちら側か）と実装が一致しているか。',
+  '- plan の契約（型・schema・API 境界・artifact 形式）と実装が一致しているか。',
+  '- 不一致を見つけたら、IMPL_DONE を宣言する前にその場で修正すること。',
+  '照合の結果 plan の前提と現実（コードの現状・依存）が乖離していて修正できない場合は、その旨を出力して IMPL_DONE で終えてください（driver が triage します）。',
 ].join('\n');
 
 const IMPL_LOOP_ESCALATION_CONTRACT = [
@@ -163,7 +156,7 @@ export function buildImplementPrompt(ctx) {
     '1 commit にまとめること。明示 `git add <paths>` を使うこと（`git add -A` / `git add .` は禁止）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
     '',
-    IMPL_SELF_CHECK_CONTRACT,
+    IMPL_SELF_VERIFY_CHECKLIST,
     '',
     verdictInstruction(['IMPL_DONE']),
   );
@@ -221,7 +214,7 @@ export function buildLandReworkPrompt(ctx) {
     '全指摘を「対応しない」と判断した場合は commit を作らず、指摘ごとの理由を出力に列挙して IMPL_DONE で終えてよい（再 review が対応表明を審査します）。',
     '実 exit code を確認して検証すること（推測で GREEN と書かない）。',
     '',
-    IMPL_SELF_CHECK_CONTRACT,
+    IMPL_SELF_VERIFY_CHECKLIST,
     '',
     verdictInstruction(['IMPL_DONE']),
   );
