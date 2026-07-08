@@ -23,7 +23,7 @@ import {
   OUTCOME_SUCCESS,
 } from './orchestrator.mjs';
 import { ESCALATION_EXIT_CODE } from './inner-loop-core.mjs';
-import { CLASS_EXPLAIN } from './orchestrator-classify.mjs';
+import { CLASS_EXPLAIN, CLASS_IMPLEMENT, CLASS_PLAN } from './orchestrator-classify.mjs';
 import { detectNewExplainFiles, runExplainPostProcess } from './orchestrator-explain.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -58,14 +58,18 @@ export function parseDispatchRunnerArgs(argv) {
  * @returns {object}
  */
 /**
- * exit code 規約（ESCALATION_EXIT_CODE=2）から outcome を導く。escalation は
- * 設計どおりの停止であり circuit breaker に数えない（ADR 0035）。
- * 0 = success / 2 = escalation / その他 = failure。
+ * exit code から outcome を導く。ESCALATION_EXIT_CODE=2 規約は、それに合意している
+ * inner-loop（CLASS_IMPLEMENT / CLASS_PLAN の spawn 対象 = scripts/inner-loop.mjs）に
+ * のみ適用する — CLASS_EXPLAIN 等は外部 CLI（claude）を直接 spawn しており exit 2 は
+ * 通常の failure（review major 指摘: 規約外プロセスへの適用は実 failure を握り潰す）。
+ * escalation は設計どおりの停止であり circuit breaker に数えない（ADR 0035）。
  * @param {number} exitCode
+ * @param {string} cls  decision.class
  * @returns {string}
  */
-export function outcomeForExit(exitCode) {
-  return classifyChildOutcome({ exitCode, escalated: exitCode === ESCALATION_EXIT_CODE });
+export function outcomeForExit(exitCode, cls) {
+  const speaksEscalationConvention = cls === CLASS_IMPLEMENT || cls === CLASS_PLAN;
+  return classifyChildOutcome({ exitCode, escalated: speaksEscalationConvention && exitCode === ESCALATION_EXIT_CODE });
 }
 
 export function buildOutcomeRecord(decision, outcome, exitCode, finishedAt) {
@@ -153,7 +157,7 @@ if (isMain) {
   runExplainIfNeeded(decision, { log });
 
   // ④ outcome 記録（outcomes.jsonl — circuit breaker が cross-pass で読む）
-  const outcome = outcomeForExit(exitCode);
+  const outcome = outcomeForExit(exitCode, decision.class);
   const record = buildOutcomeRecord(decision, outcome, exitCode);
   try {
     appendFileSync(OUTCOMES_PATH, `${JSON.stringify(record)}\n`, 'utf8');

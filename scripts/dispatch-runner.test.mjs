@@ -148,9 +148,13 @@ test('runExplainIfNeeded: CLASS_EXPLAIN・detect ok: false → runExplainPostPro
   assert.equal(called, false);
 });
 
-test('outcomeForExit: exit code 規約 — 0=success / 2=escalation（breaker に数えない）/ 1=failure', () => {
-  assert.equal(outcomeForExit(0), 'success');
-  assert.equal(outcomeForExit(2), 'escalation');
-  assert.equal(outcomeForExit(1), 'failure');
-  assert.equal(outcomeForExit(137), 'failure');
+test('outcomeForExit: exit 2 規約は inner-loop class（IMPLEMENT/PLAN）にのみ適用 — 外部 CLI class の exit 2 は failure', () => {
+  assert.equal(outcomeForExit(0, 'IMPLEMENT'), 'success');
+  assert.equal(outcomeForExit(2, 'IMPLEMENT'), 'escalation');
+  assert.equal(outcomeForExit(2, 'PLAN'), 'escalation');
+  assert.equal(outcomeForExit(1, 'IMPLEMENT'), 'failure');
+  assert.equal(outcomeForExit(2, 'EXPLAIN'), 'failure');
+  assert.equal(outcomeForExit(2, 'PR_REVIEW'), 'failure');
+  assert.equal(outcomeForExit(0, 'EXPLAIN'), 'success');
+  assert.equal(outcomeForExit(137, 'IMPLEMENT'), 'failure');
 });
