@@ -347,15 +347,17 @@ export function buildPlanReviewPrompt(ctx) {
   ];
   const commentsBlock = formatIssueComments(comments);
   if (commentsBlock) {
-    lines.push('', '## 裁定・申し送り（issue comments。planner はこの文脈を前提に plan を作っている。審査でも同じ前提に立つこと）', commentsBlock);
+    lines.push('', '## 裁定・申し送り・plan 履歴（issue comments — 初回 plan・RED 所見・改訂差分を含むスレッドの現在形。planner はこの文脈を前提に plan を作っている。審査でも同じ前提に立つこと）', commentsBlock);
   }
   lines.push(
     '',
-    '## 検査対象 plan',
+    '## 検査対象 plan（最新 TASK_PLAN 出力 — 差分のみの場合がある）',
     '',
     planText ?? '(plan not provided)',
     '',
     '## 検査項目',
+    '',
+    '審査対象は「スレッド内の plan 履歴（初回 plan＋以後の改訂差分）に上の最新出力を合成した実効 plan」。最新出力が差分のみでも、合成後の実効 plan に対して以下を判定する（差分報告そのものを plan-format 不備として RED にしない）。',
     '',
     '1. plan-format 準拠（acceptance criteria・変更対象・検証方法が明記されているか）',
     '2. 実装可能性（曖昧な前提・未定義の依存・解が一意でない設計判断はないか）',

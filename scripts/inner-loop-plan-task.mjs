@@ -23,7 +23,7 @@ import { DRIVER_CONFIG } from './inner-loop-config.mjs';
 import { buildStagePrompt } from './inner-loop-prompts.mjs';
 import { selectBackend } from './inner-loop-backends.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
-import { projectEscalation } from './inner-loop-escalation.mjs';
+import { projectEscalation, dieEscalated } from './inner-loop-escalation.mjs';
 import {
   REPO_ROOT, PLAN_FORMAT_PATH, TASK_REQUEST_LABEL, NEEDS_PLAN_LABEL,
   PLAN_TASK_STAGES, PLAN_TASK_TERMINAL,
@@ -269,17 +269,18 @@ function resolvePlanTaskDeps(issueNumber, deps = {}) {
     runStageFn: deps.runStage ?? runStage,
     logFn: deps.log ?? log,
     dieFn: deps.die ?? die,
+    dieEscalatedFn: deps.dieEscalated ?? dieEscalated,
     record: deps.recordManifestEntry ?? ((entry) => appendPlanManifestEntry(issueNumber, entry)),
     escalate: deps.escalate ?? escalatePlanTask,
   };
 }
 
 function completeFileChildren(issueNumber, planText, deps = {}) {
-  const { run, logFn, dieFn, record, escalate } = resolvePlanTaskDeps(issueNumber, deps);
+  const { run, logFn, dieFn, dieEscalatedFn, record, escalate } = resolvePlanTaskDeps(issueNumber, deps);
   const created = createChildIssues(issueNumber, planText, deps);
   if (!created.ok) {
     escalate(issueNumber, PLAN_TASK_TERMINAL, null, created.error);
-    dieFn(`plan-task child issue filing failed — see the escalation report comment on issue #${issueNumber}`);
+    dieEscalatedFn(`plan-task child issue filing failed — see the escalation report comment on issue #${issueNumber}`);
   }
   record(buildManifestEntry({
     stage: PLAN_TASK_TERMINAL,
@@ -305,7 +306,7 @@ function completeFileChildren(issueNumber, planText, deps = {}) {
   if (r.stderr) process.stderr.write(r.stderr);
   if (r.status !== 0) {
     escalate(issueNumber, 'CLOSE_SOURCE', null, `gh issue close failed\n\n${tailLines(`${r.stdout ?? ''}${r.stderr ?? ''}`)}`);
-    dieFn(`plan-task source close failed — see the escalation report comment on issue #${issueNumber}`);
+    dieEscalatedFn(`plan-task source close failed — see the escalation report comment on issue #${issueNumber}`);
   }
   record(buildManifestEntry({
     stage: 'CLOSE_SOURCE',
@@ -384,7 +385,7 @@ export function dryRunPlanTask(issueNumber, issue, backendFlags) {
  * @returns {number}
  */
 export function runPlanTask(issueNumber, issue, backendFlags, deps = {}) {
-  const { runStageFn, logFn, dieFn, record, escalate } = resolvePlanTaskDeps(issueNumber, deps);
+  const { runStageFn, logFn, dieFn, dieEscalatedFn, record, escalate } = resolvePlanTaskDeps(issueNumber, deps);
   const planFormat = readPlanFormatOrDie();
   let state = PLAN_TASK_STAGES[0];
   let planText = '';
@@ -475,7 +476,7 @@ export function runPlanTask(issueNumber, issue, backendFlags, deps = {}) {
     state = next;
   }
 
-  if (state === 'ESCALATE') dieFn(`plan-task escalated — see the escalation label + report comment on issue #${issueNumber}`);
+  if (state === 'ESCALATE') dieEscalatedFn(`plan-task escalated — see the escalation label + report comment on issue #${issueNumber}`);
   if (state === 'ASK_PDM') return completeAskPdm(issueNumber, planText, deps);
   if (state === PLAN_TASK_TERMINAL) return completeFileChildren(issueNumber, planText, deps);
   return 0;

@@ -381,6 +381,7 @@ function makePlanTaskDeps({ stageResults, createdNumbers = [901] }) {
       recordManifestEntry: (entry) => recorded.push(entry),
       escalate: (issueNumber, stage, verdict, excerpt) => escalations.push({ issueNumber, stage, verdict, excerpt }),
       die: (msg) => { throw new Error(`die: ${msg}`); },
+      dieEscalated: (msg) => { throw new Error(`die: ${msg}`); },
     },
     stageCalls, recorded, escalations,
   };

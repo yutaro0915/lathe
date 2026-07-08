@@ -42,7 +42,7 @@ import {
   worktreeNameFor,
 } from './inner-loop-core.mjs';
 import { landBranchWithReview, extractLatestPlanCommentText } from './inner-loop-land.mjs';
-import { projectEscalation } from './inner-loop-escalation.mjs';
+import { projectEscalation, dieEscalated, tryFetchIssueComments } from './inner-loop-escalation.mjs';
 import { classifyEscalation } from './inner-loop-escalation-triage.mjs';
 import { runStage, logDryRunStage } from './inner-loop-stage-runner.mjs';
 import { runPlanTask, dryRunPlanTask, readPlanFormatOrDie } from './inner-loop-plan-task.mjs';
@@ -403,7 +403,7 @@ if (isMain) {
       : null;
 
     const stageCtx = { issueNumber, issueTitle: issue.title, issueBody: issue.body, comments: issue.comments,
-      ...(state === 'TASK_PLAN' && { planFormat: readPlanFormatOrDie(), reviewFeedback: planReviewFeedback }), ...(state === 'PLAN_REVIEW' && { planText }) };
+      ...(state === 'TASK_PLAN' && { planFormat: readPlanFormatOrDie(), reviewFeedback: planReviewFeedback }), ...(state === 'PLAN_REVIEW' && { planText, comments: tryFetchIssueComments(issueNumber, issue.comments) }) };
     const prompt = buildStagePrompt(state, stageCtx);
 
     const fallback = resume
@@ -460,7 +460,7 @@ if (isMain) {
     state = next;
   }
 
-  if (state === 'ESCALATE') die(`escalated — see the escalation label + report comment on issue #${issueNumber}`);
+  if (state === 'ESCALATE') dieEscalated(`see the escalation label + report comment on issue #${issueNumber}`);
 
   // Backstop: verify that main working tree has no unexpected tracked changes
   // before landing the branch. The codex workspace-write sandbox should have
@@ -473,7 +473,7 @@ if (isMain) {
   if (mainDirty) {
     const excerpt = `main working tree has ${dirtyPaths.length} unexpected tracked change(s) — sandbox write-isolation may have been breached:\n${dirtyPaths.join('\n')}`;
     escalateIssue(issueNumber, TASK_LOOP_TERMINAL, 'MAIN_DIRTY_BACKSTOP', excerpt);
-    die(`escalated — main has ${dirtyPaths.length} unexpected tracked change(s) before landing. See the report comment on issue #${issueNumber}`);
+    dieEscalated(`main has ${dirtyPaths.length} unexpected tracked change(s) before landing. See the report comment on issue #${issueNumber}`);
   }
   log(`backstop: main working tree clean — proceeding with landing.`);
 
@@ -491,7 +491,7 @@ if (isMain) {
   }, { log, recordManifestEntry: (entry) => appendManifestEntry(issueNumber, entry) });
   if (!landResult.ok) {
     escalateIssue(issueNumber, landResult.stage ?? TASK_LOOP_TERMINAL, landResult.verdict ?? null, landResult.excerpt);
-    die(`landing failed at ${landResult.stage ?? TASK_LOOP_TERMINAL} — see the escalation report comment on issue #${issueNumber}`);
+    dieEscalated(`landing failed at ${landResult.stage ?? TASK_LOOP_TERMINAL} — see the escalation report comment on issue #${issueNumber}`);
   }
 
   cleanupWorktree(worktreePath, branch);

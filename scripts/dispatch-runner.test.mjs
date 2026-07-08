@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  outcomeForExit,
   OUTCOMES_PATH,
   buildOutcomeRecord,
   parseDispatchRunnerArgs,
@@ -145,4 +146,11 @@ test('runExplainIfNeeded: CLASS_EXPLAIN・detect ok: false → runExplainPostPro
   };
   runExplainIfNeeded(decision, deps);
   assert.equal(called, false);
+});
+
+test('outcomeForExit: exit code 規約 — 0=success / 2=escalation（breaker に数えない）/ 1=failure', () => {
+  assert.equal(outcomeForExit(0), 'success');
+  assert.equal(outcomeForExit(2), 'escalation');
+  assert.equal(outcomeForExit(1), 'failure');
+  assert.equal(outcomeForExit(137), 'failure');
 });

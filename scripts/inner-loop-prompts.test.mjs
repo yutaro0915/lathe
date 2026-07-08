@@ -344,3 +344,14 @@ test('buildStagePrompt: removed stages throw (REVIEW/VERIFY/TRIAGE/RESEARCH/NOPE
     assert.throws(() => buildStagePrompt(stage, {}), new RegExp(`unknown stage "${stage}"`));
   }
 });
+
+test('buildPlanReviewPrompt: 差分改訂の合成契約 — plan 履歴と実効 plan の審査文言が入る', () => {
+  const prompt = buildStagePrompt('PLAN_REVIEW', {
+    ...PLAN_REVIEW_CTX,
+    comments: [{ author: { login: 'bot' }, createdAt: '2026-07-08T00:00:00Z', body: '## plan\n初回 plan 全文' }],
+  });
+  assert.ok(prompt.includes('plan 履歴'), 'スレッド見出しが plan 履歴を明示すること');
+  assert.ok(prompt.includes('実効 plan'), '合成後の実効 plan を審査対象とする契約が入ること');
+  assert.ok(prompt.includes('差分報告そのものを plan-format 不備として RED にしない'), '差分容認の契約が入ること');
+  assert.ok(prompt.includes('初回 plan 全文'), '再取得した comments が注入されること');
+});

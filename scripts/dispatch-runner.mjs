@@ -22,6 +22,7 @@ import {
   buildDispatchSpec, classifyChildOutcome, liveMarkerName,
   OUTCOME_SUCCESS,
 } from './orchestrator.mjs';
+import { ESCALATION_EXIT_CODE } from './inner-loop-core.mjs';
 import { CLASS_EXPLAIN } from './orchestrator-classify.mjs';
 import { detectNewExplainFiles, runExplainPostProcess } from './orchestrator-explain.mjs';
 
@@ -56,6 +57,17 @@ export function parseDispatchRunnerArgs(argv) {
  * @param {string} finishedAt  ISO 8601 timestamp（テスト注入用）
  * @returns {object}
  */
+/**
+ * exit code 規約（ESCALATION_EXIT_CODE=2）から outcome を導く。escalation は
+ * 設計どおりの停止であり circuit breaker に数えない（ADR 0035）。
+ * 0 = success / 2 = escalation / その他 = failure。
+ * @param {number} exitCode
+ * @returns {string}
+ */
+export function outcomeForExit(exitCode) {
+  return classifyChildOutcome({ exitCode, escalated: exitCode === ESCALATION_EXIT_CODE });
+}
+
 export function buildOutcomeRecord(decision, outcome, exitCode, finishedAt) {
   return {
     finishedAt: finishedAt ?? new Date().toISOString(),
@@ -141,9 +153,7 @@ if (isMain) {
   runExplainIfNeeded(decision, { log });
 
   // ④ outcome 記録（outcomes.jsonl — circuit breaker が cross-pass で読む）
-  // escalation の exit code 規約は現状未定義 → exit 0 = success / non-zero = failure で記録。
-  // 将来、inner-loop が escalation exit code 規約を確立した時点で classifyChildOutcome に渡す。
-  const outcome = classifyChildOutcome({ exitCode, escalated: false });
+  const outcome = outcomeForExit(exitCode);
   const record = buildOutcomeRecord(decision, outcome, exitCode);
   try {
     appendFileSync(OUTCOMES_PATH, `${JSON.stringify(record)}\n`, 'utf8');
