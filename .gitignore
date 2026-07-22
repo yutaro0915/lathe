@@ -57,3 +57,6 @@ pnpm-debug.log*
 !.env.example
 *.pem
 *.key
+
+# 生会話ログ（資格情報を含むためローカル専用・git 管理外）
+_cutover-evidence/conversation-log-raw.md
